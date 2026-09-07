@@ -1,24 +1,79 @@
 # Gakumas Exam Simulator
 
-学マスの共通 Exam 状態とコンテスト DFS を扱うシミュレーションエンジンです。
+学マスの共通 Exam 状態、コンテスト DFS、カード順の再現を扱うシミュレーションエンジンです。
 
 ## 現在の実装
 
 - 共通 Exam のパラメータ・カードプール・ターン状態
 - コンテスト用 DFS
 - 32-bit `XorShift32` と整数範囲変換
-- シード付きカードシャッフル
+- seed付きカードシャッフル
 - `FixedDeckOrder` による固定順
 - `ParameterBuff` / `Review` / `LessonBuff` と additive fix / multiple
 - `ReviewStatusEffect.SpendTurn`
 - `ExamCardValueStatusEffect` の `SpendTurn` / `SpendCount` / `ClearTurnState`
 - `PlayCardLimitPlayableValueAddStatusEffect` のターン内回数管理
-- `AntiDebuffStatusEffect`、`PlayCountBuffStatusEffect`、`PlayableValueAddStatusEffect`、検索カード系 status の count 更新
+- countを持つ各種 status
 - `TriggerEffectStatusEffect` の turn count / limit count / phase count
 - `HandHold` 中の手札リセット
 - 深いコピーと save / restore 時の乱数状態保持
 
 未対応の分岐は代替ルールを適用せず `UnsupportedPath` で停止します。
+
+## Web
+
+https://atuy1219.github.io/gakumas-sim/
+
+### メモリー選択
+
+所有メモリーを読み込み、Main / Sub を2枚または3枚選んでカード順を確認できます。
+
+読み込み時は `UserMemoryList` の中から次の情報を使用します。
+
+- `userMemoryId`
+- `idolCardId`
+- `power`
+- `examBattleProduceCards`
+
+コンテストで使用するカードはメモリーごとのチェック欄から選択します。入力データに `activeProduceCardIds` が含まれている場合は、その選択状態を初期値として使用します。
+
+Mainメモリーの `idolCardId` に対応するコンテスト初期デッキが見つかった場合は、初期カードも自動で追加できます。追加カードはカード名検索から手動で指定することもできます。
+
+カード順そのものを確定するには開始時の32-bit seedが必要です。
+
+### 所有メモリーを端末から出力する
+
+`tools/frida/export_memories.js` は読み込まれた `UserMemory` を1行1件で出力します。
+
+```bash
+frida -U -f com.bandainamcoent.idolmaster_gakuen \
+  -l tools/frida/export_memories.js \
+  -o memories.log
+```
+
+ゲームが起動して所有メモリーが読み込まれたあと、生成された `memories.log` をWeb版の「ゲームデータ / export.log を開く」から選択します。JSONを手作業で組み立てる必要はありません。
+
+通常の `UserMemoryList` を含むJSONファイルを持っている場合は、そのファイルを直接選択しても読み込めます。
+
+### 手動メモリー
+
+メモリー一覧を持っていない場合でも、Web版からメモリーを追加できます。
+
+- 表示名
+- `IdolCardId`（任意）
+- Power（任意）
+- スキルカード
+- 使用するカードのチェック
+
+スキルカードはカード名または `p_card-...` IDで検索できます。登録したメモリーはブラウザのローカルストレージに保存されます。
+
+### 開始データ
+
+`CompetitionStartResponse` / `TourStartResponse` など、`ExamContestSituation` を含む開始データから Player を列挙し、`Seed` と `ProduceCards` を直接読み取れます。このモードでは開始時の実デッキをそのまま使います。
+
+### 手動デッキ
+
+seedとカードID一覧を直接指定する低レベル入力も残しています。
 
 ## シードとカード順
 
@@ -28,36 +83,6 @@
 
 `FixedDeckOrder > 0` のカードを含む山札では固定順を使用します。現在は同じ `FixedDeckOrder` を持つカードが複数ある入力を明示的に未対応としています。
 
-## Web
-
-カード順の確認ページ:
-
-https://atuy1219.github.io/gakumas-sim/
-
-Web版には3つの入力モードがあります。
-
-- **メモリー選択**: Main / Sub のメモリーを2枚または3枚選び、開始時の seed からカード順を表示します。入力JSONには各メモリーの `userMemoryId` / `activeProduceCardIds` と、共通カードを順番どおり格納した `baseProduceCards` が必要です。
-- **開始データ**: `CompetitionStartResponse` / `TourStartResponse` のJSONから `ExamContestSituation` 内の Player を列挙し、`Seed` と `ProduceCards` を自動で読み取ります。
-- **手動入力**: seed とカードID一覧を直接指定します。
-
-メモリー構成だけではカード順は一意になりません。カード順を確定するには開始時の seed が必要です。Web版は不足した入力を別ルールで補完せず、必要な値がない場合はエラーにします。
-
-手動入力のカードは1行1枚です。固定順を指定する場合は次の形式を使います。
-
-```text
-card-a,1
-card-b,2
-card-c,3
-```
-
-固定順を使わない場合はカード ID だけで構いません。
-
-```text
-card-a
-card-b
-card-c
-```
-
 ## テスト
 
 Python:
@@ -66,7 +91,7 @@ Python:
 python -m unittest -v
 ```
 
-Web側の乱数・シャッフル:
+Web:
 
 ```bash
 node test_web.mjs
