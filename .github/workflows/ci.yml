@@ -20,5 +20,10 @@ jobs:
           node-version: "22"
       - name: Python tests
         run: python -m unittest -v
+      - name: JavaScript syntax checks
+        run: |
+          node --check web/app.js
+          node --check web/engine.js
+          node --check tools/frida/export_memories.js
       - name: Web parity tests
         run: node test_web.mjs
