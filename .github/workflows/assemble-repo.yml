@@ -1,0 +1,28 @@
+name: Assemble repository
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    if: ${{ !contains(github.event.head_commit.message, '[assembled-repo]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Assemble repository files
+        run: |
+          cat .tmp/repo_bundle.b64.* | base64 -d > /tmp/repo_bundle.tar.gz
+          tar -xzf /tmp/repo_bundle.tar.gz
+          rm -rf .tmp
+          rm .github/workflows/assemble-repo.yml
+      - name: Commit assembled files
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "[assembled-repo] Web版とテストを追加"
+          git push
