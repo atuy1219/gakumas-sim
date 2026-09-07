@@ -1,0 +1,147 @@
+name: Fix real Frida log import
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/fix-real-frida-log.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: contains(github.event.head_commit.message, '[install-frida-log-fix]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Apply real-log fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('web/engine.js')
+          s = p.read_text()
+          old = '''export function parseMemoryExportText(text) {
+            const source = String(text ?? "").trim();
+            if (!source) throw new Error("メモリーデータが空です。");
+
+            // A plain API/UserData JSON can be selected directly.
+            if (source.startsWith("{") || source.startsWith("[")) return parseJson(source);
+
+            // The bundled Frida exporter writes one complete UserMemory JSON per line.
+            const marker = "GAKUMAS_MEMORY ";
+            const memories = [];
+            for (const line of source.split(/\\r?\\n/)) {
+              const index = line.indexOf(marker);
+              if (index < 0) continue;
+              const json = line.slice(index + marker.length).trim();
+              if (!json) continue;
+              try {
+                memories.push(JSON.parse(json));
+              } catch {
+                // Frida may prefix/suffix unrelated console output. Only exact marker payloads are consumed.
+              }
+            }
+            if (memories.length) return { userMemoryList: memories };
+            throw new Error("UserMemoryList または GAKUMAS_MEMORY 行を検出できませんでした。");
+          }
+          '''
+          new = '''export function parseMemoryExportText(text) {
+            const source = String(text ?? "").trim();
+            if (!source) throw new Error("メモリーデータが空です。");
+
+            // Frida console lines can start with '[' (for example "[memory-export] ready"),
+            // so marker lines must be checked before treating the whole file as JSON.
+            const marker = "GAKUMAS_MEMORY ";
+            const memories = [];
+            for (const line of source.split(/\\r?\\n/)) {
+              const index = line.indexOf(marker);
+              if (index < 0) continue;
+              const json = line.slice(index + marker.length).trim();
+              if (!json) continue;
+              try {
+                memories.push(JSON.parse(json));
+              } catch {
+                // Frida may prefix/suffix unrelated console output. Only valid marker payloads are consumed.
+              }
+            }
+            if (memories.length) return { userMemoryList: memories };
+
+            // A plain API/UserData JSON can also be selected directly.
+            if (source.startsWith("{") || source.startsWith("[")) return parseJson(source);
+            throw new Error("UserMemoryList または GAKUMAS_MEMORY 行を検出できませんでした。");
+          }
+          '''
+          if old not in s:
+              raise SystemExit('parseMemoryExportText block not found')
+          p.write_text(s.replace(old, new))
+
+          p = Path('test_web.mjs')
+          s = p.read_text()
+          old = '''const parsedExport = parseMemoryExportText(exportText);
+          assert.equal(extractMemories(parsedExport).length, 2);
+          assert.deepEqual(parseMemoryExportText(JSON.stringify(userData)), userData);
+          '''
+          new = '''const parsedExport = parseMemoryExportText(exportText);
+          assert.equal(extractMemories(parsedExport).length, 2);
+          const fridaStyleExport = `[memory-export] ready: Assembly-CSharp.dll\\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[0])}\\n`;
+          assert.equal(extractMemories(parseMemoryExportText(fridaStyleExport)).length, 1);
+          assert.deepEqual(parseMemoryExportText(JSON.stringify(userData)), userData);
+          '''
+          if old not in s:
+              raise SystemExit('test block not found')
+          p.write_text(s.replace(old, new))
+
+          p = Path('README.md')
+          s = p.read_text()
+          old = '''```bash
+          frida -U -f com.bandainamcoent.idolmaster_gakuen \\
+            -l tools/frida/export_memories.js \\
+            -o memories.log
+          ```
+
+          ゲームが起動して所有メモリーが読み込まれたあと、生成された `memories.log` をWeb版の「ゲームデータ / export.log を開く」から選択します。JSONを手作業で組み立てる必要はありません。
+          '''
+          new = '''Androidで `-f` のspawnがタイムアウトする場合は、ゲームを起動してタイトル画面で止めた状態からattachします。
+
+          ```bash
+          frida -U -N com.bandainamcoent.idolmaster_gakuen \\
+            -l tools/frida/export_memories.js \\
+            -o memories.log
+          ```
+
+          `[memory-export] ready:` が表示されたらゲーム内へ進み、所有メモリーが読み込まれたあと `Ctrl+C` で終了します。生成された `memories.log` をWeb版の「ゲームデータ / export.log を開く」から選択します。JSONを手作業で組み立てる必要はありません。
+          '''
+          if old not in s:
+              raise SystemExit('README block not found')
+          p.write_text(s.replace(old, new))
+
+          p = Path('tools/frida/export_memories.js')
+          s = p.read_text()
+          old = ''' *   frida -U -f com.bandainamcoent.idolmaster_gakuen \\
+           *     -l tools/frida/export_memories.js -o memories.log
+          '''
+          new = ''' *   frida -U -N com.bandainamcoent.idolmaster_gakuen \\
+           *     -l tools/frida/export_memories.js -o memories.log
+          '''
+          if old not in s:
+              raise SystemExit('exporter usage block not found')
+          p.write_text(s.replace(old, new))
+
+          Path('.github/workflows/fix-real-frida-log.yml').unlink()
+          PY
+      - name: Test
+        run: |
+          python -m unittest -v
+          node --check web/engine.js
+          node --check tools/frida/export_memories.js
+          node test_web.mjs
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m '実機memories.logの読み込みを修正'
+          git push
