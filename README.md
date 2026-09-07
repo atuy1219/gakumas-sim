@@ -1,51 +1,70 @@
 # Gakumas Exam Simulator
 
-学マスの共通 Exam 状態、コンテスト DFS、カード順の再現を扱うシミュレーションエンジンです。
-
-## 現在の実装
-
-- 共通 Exam のパラメータ・カードプール・ターン状態
-- コンテスト用 DFS
-- 32-bit `XorShift32` と整数範囲変換
-- seed付きカードシャッフル
-- `FixedDeckOrder` による固定順
-- `ParameterBuff` / `Review` / `LessonBuff` と additive fix / multiple
-- `ReviewStatusEffect.SpendTurn`
-- `ExamCardValueStatusEffect` の `SpendTurn` / `SpendCount` / `ClearTurnState`
-- `PlayCardLimitPlayableValueAddStatusEffect` のターン内回数管理
-- countを持つ各種 status
-- `TriggerEffectStatusEffect` の turn count / limit count / phase count
-- `HandHold` 中の手札リセット
-- 深いコピーと save / restore 時の乱数状態保持
-
-未対応の分岐は代替ルールを適用せず `UnsupportedPath` で停止します。
+学マスの共通 Exam 状態、コンテスト DFS、カード順とseedの再現を扱うシミュレーションエンジンです。
 
 ## Web
 
 https://atuy1219.github.io/gakumas-sim/
 
-### メモリー選択
+Web版は次の3タブで構成しています。
 
-所有メモリーを読み込み、Main / Sub を2枚または3枚選んでカード順を確認できます。
+### 1. メモリー管理
 
-読み込み時は `UserMemoryList` の中から次の情報を使用します。
+所有メモリーをまとめて管理・編集します。
 
-- `userMemoryId`
-- `idolCardId`
-- `power`
-- `examBattleProduceCards`
+- `memories.log` / `UserMemoryList` JSON の読み込み
+- メモリーの検索
+- メモリーの手動追加・編集・削除
+- 表示名 / UserMemoryId / IdolCardId / CharacterId / PlanType
+- Power / Grade / Vocal / Dance / Visual / Stamina
+- スキルカード、UpgradeCount、FixedDeckOrder
+- PアイテムID
+- カードのカスタマイズ情報を保持
 
-コンテストで使用するカードはメモリーごとのチェック欄から選択します。入力データに `activeProduceCardIds` が含まれている場合は、その選択状態を初期値として使用します。
+読み込んだメモリーはブラウザのlocalStorageに保存します。選択したローカルファイルをWebサーバーへ送信する処理はありません。
 
-Mainメモリーの `idolCardId` に対応するコンテスト初期デッキが見つかった場合は、初期カードも自動で追加できます。追加カードはカード名検索から手動で指定することもできます。
+### 2. コンテストシミュ
 
-カード順そのものを確定するには開始時の32-bit seedが必要です。
+Main / Sub のメモリーを2枚または3枚選択し、使用するカードを指定します。Mainの `IdolCardId` に対応するコンテスト初期デッキがあれば自動追加できます。
 
-### 所有メモリーを端末から出力する
+試行回数は100 / 1,000 / 10,000 / 100,000回から選択できます。コンテストではseedの手入力を要求せず、シミュレーション用の32-bit seed系列を自動生成します。
 
-`tools/frida/export_memories.js` は読み込まれた `UserMemory` を1行1件で出力します。
+現在のWeb版で複数回実行するのはカード分布のMonte Carloです。1枚目の出現率と実行例を表示します。
 
-Androidで `-f` のspawnがタイムアウトする場合は、ゲームを起動してタイトル画面で止めた状態からattachします。
+最終スコアについては、カード効果・ステージ条件・ターン進行を厳密に接続できた組み合わせだけを計算対象にする方針です。未接続の状態では推定値を表示せず、現在は `未計算` と表示します。
+
+PアイテムIDは選択メモリーから取得・表示しますが、効果はまだシミュレーションへ適用しません。応援・トラブルも同様に後続対応です。
+
+### 3. アイドルへの道シミュ
+
+メモリー2枚または3枚と初期/共通カードを指定し、seedからカード順を再現できます。
+
+アイドルへの道の初期デッキは自動推測せず、対象の初期デッキIDを入力するか、カードを手動追加します。
+
+#### 実機の順番からseedを探す
+
+Fridaを使わず、実機で確認したシャッフル後の山札全順序から32-bit seed候補を探索できます。
+
+1. Webで実際のメモリーと採用カードを設定
+2. 実機で同じ編成を使用
+3. 山札の順番を上から最後まで記録
+4. 「seed候補を探索」を実行
+
+Fisher–Yatesの交換列を観測順から復元し、最初の交換条件で32-bit空間を区間に絞ったうえで、Web Workerで候補を検査します。同一カードが複数ある場合はカード個体の割り当ても列挙します。候補割当が64通りを超える場合は、完全な探索結果と誤認しないよう停止します。
+
+デッキ全順序が必要です。観測情報が不足する場合や同一カードを区別できない場合は、seedが複数候補になることがあります。
+
+Pアイテムとアイドルへの道固有の応援・トラブルは現在表示・保持段階で、効果適用は後続対応です。
+
+## 所有メモリーの入力方法
+
+Web上で手動入力できるため、Fridaは必須ではありません。
+
+すでに `UserMemoryList` を含むJSONがある場合は、そのファイルを直接読み込めます。
+
+端末から一覧をまとめて取得したい場合のみ、補助スクリプト `tools/frida/export_memories.js` を使用できます。
+
+Androidでspawnを使わずattachする例:
 
 ```bash
 frida -U -N com.bandainamcoent.idolmaster_gakuen \
@@ -53,50 +72,43 @@ frida -U -N com.bandainamcoent.idolmaster_gakuen \
   -o memories.log
 ```
 
-`[memory-export] ready:` が表示されたらゲーム内へ進み、所有メモリーが読み込まれたあと `Ctrl+C` で終了します。生成された `memories.log` をWeb版の「ゲームデータ / export.log を開く」から選択します。JSONを手作業で組み立てる必要はありません。
-
-通常の `UserMemoryList` を含むJSONファイルを持っている場合は、そのファイルを直接選択しても読み込めます。
-
-### 手動メモリー
-
-メモリー一覧を持っていない場合でも、Web版からメモリーを追加できます。
-
-- 表示名
-- `IdolCardId`（任意）
-- Power（任意）
-- スキルカード
-- 使用するカードのチェック
-
-スキルカードはカード名または `p_card-...` IDで検索できます。登録したメモリーはブラウザのローカルストレージに保存されます。
-
-### 開始データ
-
-`CompetitionStartResponse` / `TourStartResponse` など、`ExamContestSituation` を含む開始データから Player を列挙し、`Seed` と `ProduceCards` を直接読み取れます。このモードでは開始時の実デッキをそのまま使います。
-
-### 手動デッキ
-
-seedとカードID一覧を直接指定する低レベル入力も残しています。
+`[memory-export] ready:` が表示された後にメモリー一覧が読み込まれる画面まで進み、取得後に `Ctrl+C` で終了します。生成された `memories.log` はWeb版でそのまま読み込めます。
 
 ## シードとカード順
 
-通常の山札は、現在の32-bit乱数状態から範囲内整数を作ったあと乱数状態を更新し、山札末尾から先頭へ Fisher–Yates で並べ替えます。
+通常の山札では32-bit乱数状態を使い、山札末尾から先頭へFisher–Yatesで並べ替えます。
 
-同じカード入力と同じ seed を使うと、同じ山札順・同じドロー順になります。
+同じカード入力と同じseedなら、同じ山札順になります。
 
-`FixedDeckOrder > 0` のカードを含む山札では固定順を使用します。現在は同じ `FixedDeckOrder` を持つカードが複数ある入力を明示的に未対応としています。
+`FixedDeckOrder > 0` を含む山札では固定順を使用します。同じ `FixedDeckOrder` を持つカードが複数ある入力は現在明示的に未対応です。
+
+## 共通Examエンジン
+
+現在のPython実装には以下を含みます。
+
+- 共通Examのパラメータ・カードプール・ターン状態
+- コンテスト用DFS
+- 32-bit `XorShift32`
+- seed付きカードシャッフル
+- `FixedDeckOrder`
+- `ParameterBuff` / `Review` / `LessonBuff` とadditive fix / multiple
+- `ReviewStatusEffect.SpendTurn`
+- `ExamCardValueStatusEffect`
+- `PlayCardLimitPlayableValueAddStatusEffect`
+- countを持つ各種status
+- `TriggerEffectStatusEffect` のturn / limit / phase count
+- `HandHold` 中の手札リセット
+- deep copy / save / restore時の乱数状態保持
+- Lesson / Block / staminaなど、実装済みの効果計算
+
+未対応の分岐は代替ルールで補わず `UnsupportedPath` で停止します。
 
 ## テスト
 
-Python:
-
 ```bash
 python -m unittest -v
-```
-
-Web:
-
-```bash
 node test_web.mjs
+node test_v3.mjs
 ```
 
-Python と JavaScript の双方に同じ固定ベクトルを置き、seed `0x12345678` の山札 `A..H` が `GFECBHDA` になることを確認しています。
+seed `0x12345678` の山札 `A..H` が `GFECBHDA` になる固定ベクトルをPython / JavaScriptで確認しています。`test_v3.mjs` では観測順からのseed条件復元、重複カード、Monte Carlo集計も検査します。
