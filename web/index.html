@@ -4,42 +4,101 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Gakumas Exam Simulator</title>
+  <title>Gakumas Card Order</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <main class="shell">
     <header>
-      <p class="eyebrow">GAKUMAS EXAM SIMULATOR</p>
-      <h1>カード配布をシードで再現</h1>
-      <p class="lead">同じシードと同じカード入力から、同じ山札順とドロー結果を再現します。</p>
+      <p class="eyebrow">GAKUMAS CARD ORDER</p>
+      <h1>メモリーからカード順を確認</h1>
+      <p class="lead">メモリー2枚/3枚の構成とseedから山札順を表示します。開始データを使う場合はseedと実デッキを自動で読み取れます。</p>
     </header>
 
-    <section class="panel input-panel" aria-labelledby="input-title">
-      <div class="section-head">
-        <div>
-          <p class="step">01</p>
-          <h2 id="input-title">入力</h2>
-        </div>
+    <nav class="mode-tabs" aria-label="入力モード">
+      <button class="mode-tab active" data-mode="memory" type="button">メモリー選択</button>
+      <button class="mode-tab" data-mode="start" type="button">開始データ</button>
+      <button class="mode-tab" data-mode="manual" type="button">手動入力</button>
+    </nav>
+
+    <section class="panel input-panel">
+      <div class="common-row">
+        <label>
+          <span>表示する先頭枚数</span>
+          <input id="draw-count" type="number" min="0" value="8">
+        </label>
         <button id="copy-link" class="secondary" type="button">再現リンクをコピー</button>
       </div>
 
-      <div class="grid">
-        <label>
-          <span>Seed</span>
-          <input id="seed" value="0x12345678" inputmode="text" spellcheck="false">
-          <small>32-bit。10進数 / 0x16進数</small>
-        </label>
-        <label>
-          <span>ドロー枚数</span>
-          <input id="draw-count" type="number" min="0" value="5">
-          <small>山札先頭から取得</small>
-        </label>
+      <div id="memory-mode" class="mode-panel">
+        <div class="section-head">
+          <div>
+            <p class="step">01</p>
+            <h2>メモリーデータ</h2>
+          </div>
+          <label class="file-button">
+            JSONファイルを開く
+            <input id="memory-file" type="file" accept="application/json,.json">
+          </label>
+        </div>
+        <textarea id="memory-json" rows="9" spellcheck="false" placeholder='{"memories":[...],"baseProduceCards":[...]}'></textarea>
+        <p class="hint">各メモリーに <code>userMemoryId</code> と <code>activeProduceCardIds</code> が必要です。共通カードは <code>baseProduceCards</code> に順番どおり指定します（0枚なら空配列）。</p>
+
+        <div class="memory-controls">
+          <label>
+            <span>メモリー枚数</span>
+            <select id="memory-count">
+              <option value="2">2枚</option>
+              <option value="3" selected>3枚</option>
+            </select>
+          </label>
+          <label>
+            <span>Seed</span>
+            <input id="memory-seed" value="0x12345678" inputmode="text" spellcheck="false">
+            <small>開始時に渡された32-bit seed</small>
+          </label>
+        </div>
+
+        <div id="memory-selectors" class="memory-selectors"></div>
+        <div id="memory-summary" class="summary-box" hidden></div>
+        <button id="run-memory" class="primary" type="button">カード順を計算</button>
       </div>
 
-      <label class="deck-label">
-        <span>カード</span>
-        <textarea id="deck" rows="10" spellcheck="false">card-A
+      <div id="start-mode" class="mode-panel" hidden>
+        <div class="section-head">
+          <div>
+            <p class="step">01</p>
+            <h2>開始データ</h2>
+          </div>
+          <label class="file-button">
+            JSONファイルを開く
+            <input id="start-file" type="file" accept="application/json,.json">
+          </label>
+        </div>
+        <textarea id="start-json" rows="11" spellcheck="false" placeholder="CompetitionStartResponse / TourStartResponse のJSON"></textarea>
+        <p class="hint"><code>ExamContestSituation → Stages → SelfSections/RivalSections → Player</code> から <code>Seed</code> と <code>ProduceCards</code> を読み取ります。</p>
+        <label class="wide-label">
+          <span>Player</span>
+          <select id="player-select" disabled><option>JSONを読み込んでください</option></select>
+        </label>
+        <button id="run-start" class="primary" type="button">開始データから計算</button>
+      </div>
+
+      <div id="manual-mode" class="mode-panel" hidden>
+        <div class="section-head">
+          <div>
+            <p class="step">01</p>
+            <h2>カードを直接入力</h2>
+          </div>
+        </div>
+        <div class="grid">
+          <label>
+            <span>Seed</span>
+            <input id="manual-seed" value="0x12345678" inputmode="text" spellcheck="false">
+          </label>
+          <label>
+            <span>カード</span>
+            <textarea id="manual-deck" rows="8" spellcheck="false">card-A
 card-B
 card-C
 card-D
@@ -47,10 +106,12 @@ card-E
 card-F
 card-G
 card-H</textarea>
-        <small>1行1枚。固定順を指定する場合は <code>card-id,FixedDeckOrder</code></small>
-      </label>
+            <small>1行1枚。必要なら <code>card-id,FixedDeckOrder</code></small>
+          </label>
+        </div>
+        <button id="run-manual" class="primary" type="button">カード順を計算</button>
+      </div>
 
-      <button id="run" class="primary" type="button">配布を計算</button>
       <p id="error" class="error" role="alert" hidden></p>
     </section>
 
@@ -58,31 +119,33 @@ card-H</textarea>
       <div class="section-head">
         <div>
           <p class="step">02</p>
-          <h2 id="result-title">結果</h2>
+          <h2 id="result-title">カード順</h2>
         </div>
         <span id="mode-badge" class="badge"></span>
       </div>
 
-      <div class="state-card">
-        <span>Shuffle後 RandomState</span>
-        <strong id="state-value"></strong>
+      <div class="result-meta">
+        <div class="state-card"><span>Seed</span><strong id="seed-value"></strong></div>
+        <div class="state-card"><span>Shuffle後 RandomState</span><strong id="state-value"></strong></div>
+        <div class="state-card"><span>デッキ枚数</span><strong id="deck-count"></strong></div>
       </div>
 
       <div class="result-grid">
         <div>
-          <h3>山札順</h3>
+          <h3>山札全体</h3>
           <ol id="order-list" class="order-list"></ol>
         </div>
         <div>
-          <h3>ドロー</h3>
+          <h3 id="draw-title">先頭8枚</h3>
           <ol id="draw-list" class="draw-list"></ol>
         </div>
       </div>
     </section>
 
     <section class="notes">
-      <h2>再現条件</h2>
-      <p>通常の山札は32-bitの乱数状態を使ってシャッフルします。FixedDeckOrder が設定されたカードを含む場合は固定順を優先します。未対応の曖昧な固定順入力はエラーにします。</p>
+      <h2>seedについて</h2>
+      <p>メモリー構成だけではカード順は一意になりません。開始時のPlayerに入るseedが必要です。開始データモードではそのseedを自動取得します。</p>
+      <p>メモリー選択モードは、有効カードIDと共通カードが入力データに含まれる場合だけ計算します。不足している情報を別ルールで補完しません。</p>
     </section>
   </main>
   <script type="module" src="./app.js"></script>

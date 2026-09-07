@@ -30,13 +30,19 @@
 
 ## Web
 
-カード配布の再現ページ:
+カード順の確認ページ:
 
 https://atuy1219.github.io/gakumas-sim/
 
-入力した seed・カード一覧・ドロー枚数は URL に保存できるため、同じ条件を共有できます。
+Web版には3つの入力モードがあります。
 
-カードは1行1枚です。固定順を指定する場合は次の形式を使います。
+- **メモリー選択**: Main / Sub のメモリーを2枚または3枚選び、開始時の seed からカード順を表示します。入力JSONには各メモリーの `userMemoryId` / `activeProduceCardIds` と、共通カードを順番どおり格納した `baseProduceCards` が必要です。
+- **開始データ**: `CompetitionStartResponse` / `TourStartResponse` のJSONから `ExamContestSituation` 内の Player を列挙し、`Seed` と `ProduceCards` を自動で読み取ります。
+- **手動入力**: seed とカードID一覧を直接指定します。
+
+メモリー構成だけではカード順は一意になりません。カード順を確定するには開始時の seed が必要です。Web版は不足した入力を別ルールで補完せず、必要な値がない場合はエラーにします。
+
+手動入力のカードは1行1枚です。固定順を指定する場合は次の形式を使います。
 
 ```text
 card-a,1
