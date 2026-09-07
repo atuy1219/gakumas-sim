@@ -1,0 +1,39 @@
+import assert from "node:assert/strict";
+import { simulateCards } from "./web/engine.js";
+import {
+  deriveSeedChoiceVariants,
+  runOrderMonteCarlo,
+  scanSeedRange,
+  seedIntervalFromChoices,
+  seedMatchesChoices,
+} from "./web/sim_v3.js";
+
+const cards = "ABCDEFGH".split("").map((id) => ({ id, fixedDeckOrder: 0, upgradeCount: 0 }));
+const seed = 0x12345678;
+const known = simulateCards(cards, seed, 8);
+assert.equal(known.initialDeck.map((card) => card.id).join(""), "GFECBHDA");
+
+const derived = deriveSeedChoiceVariants(cards, known.initialDeck.map((card) => card.id));
+assert.equal(derived.truncated, false);
+assert.equal(derived.variants.length, 1);
+const choices = derived.variants[0];
+assert.equal(seedMatchesChoices(seed, choices), true);
+const interval = seedIntervalFromChoices(choices);
+assert.ok(seed >= interval.start && seed < interval.end);
+const localMatches = scanSeedRange(choices, seed - 1000, seed + 1001, 20);
+assert.ok(localMatches.includes(seed >>> 0));
+
+const duplicateCards = ["A", "A", "B", "C", "D"].map((id) => ({ id, fixedDeckOrder: 0, upgradeCount: 0 }));
+const duplicateSeed = 0x89abcdef;
+const duplicateRun = simulateCards(duplicateCards, duplicateSeed, 5);
+const duplicateDerived = deriveSeedChoiceVariants(duplicateCards, duplicateRun.initialDeck.map((card) => card.id));
+assert.ok(duplicateDerived.variants.some((variant) => seedMatchesChoices(duplicateSeed, variant)));
+
+const monte = runOrderMonteCarlo(cards, 100, 0x2468ace0, 3);
+assert.equal(monte.count, 100);
+assert.equal(monte.scoreSupported, false);
+assert.equal(monte.firstCard.reduce((sum, row) => sum + row.count, 0), 100);
+assert.equal(monte.firstHand.reduce((sum, row) => sum + row.count, 0), 100);
+assert.equal(monte.samples.length, 20);
+
+console.log("v3 tests: ok");
