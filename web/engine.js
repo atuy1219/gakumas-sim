@@ -387,7 +387,12 @@ function normalizeMemoryCandidate(candidate, index = 0) {
   const hasActiveProduceCardIds = hasField(wrapper, "activeProduceCardIds") || hasField(memory, "activeProduceCardIds");
   const activeIdsRaw = getField(wrapper, "activeProduceCardIds") ?? getField(memory, "activeProduceCardIds") ?? [];
   const activeIds = Array.isArray(activeIdsRaw) ? activeIdsRaw.map(String) : [];
-  const cardList = Array.isArray(rawCards) ? rawCards.map((card) => normalizeProduceCard(card)) : [];
+  const cardList = Array.isArray(rawCards)
+      ? rawCards.map((card) => {
+          const normalized = normalizeProduceCard(card);
+          return { ...normalized, upgradeCount: Number(normalized.upgradeCount) > 0 ? 1 : 0 };
+        })
+      : [];
   const byId = new Map(cardList.map((card) => [card.id, card]));
   const activeCards = activeIds.map((id) => ({ ...(byId.get(id) ?? { id, fixedDeckOrder: 0, upgradeCount: 0 }), sourceMemoryId: String(userMemoryId) }));
 

@@ -109,7 +109,7 @@ function restoreLibrary() {
     try {
       const raw = JSON.parse(localStorage.getItem(key) || "[]");
       if (!Array.isArray(raw) || !raw.length) continue;
-      memoryList = extractMemories({ userMemoryList: raw });
+      memoryList = sanitizeManagedLibrary(extractMemories({ userMemoryList: raw }));
       return;
     } catch {}
   }
@@ -117,6 +117,42 @@ function restoreLibrary() {
 
 function catalogName(cardOrId) {
   return cardDisplayName(cardOrId, catalogs.cardById);
+}
+
+const MEMORY_FORBIDDEN_CARD_NAMES = new Set(["眠気", "眠気+"]);
+
+function normalizeMemoryUpgradeCount(value) {
+  return Number(value ?? 0) > 0 ? 1 : 0;
+}
+
+function isForbiddenMemoryCard(card) {
+  const id = String(card?.id ?? "");
+  const directName = String(card?.name ?? "");
+  const catalogNameValue = String(catalogs.cardById?.get?.(id)?.name ?? directName);
+  return MEMORY_FORBIDDEN_CARD_NAMES.has(catalogNameValue);
+}
+
+function sanitizeManagedMemory(memory) {
+  const cards = (memory.examBattleProduceCards ?? [])
+    .filter((card) => !isForbiddenMemoryCard(card))
+    .map((card) => ({ ...card, upgradeCount: normalizeMemoryUpgradeCount(card.upgradeCount) }));
+  const allowedIds = new Set(cards.map((card) => String(card.id)));
+  const activeIds = (memory.activeProduceCardIds ?? []).map(String).filter((id) => allowedIds.has(id));
+  const raw = { ...(memory.raw ?? {}), examBattleProduceCards: cards };
+  if (memory.hasActiveProduceCardIds) raw.activeProduceCardIds = activeIds;
+  return {
+    ...memory,
+    examBattleProduceCards: cards,
+    activeProduceCardIds: activeIds,
+    activeCards: (memory.activeCards ?? [])
+      .filter((card) => allowedIds.has(String(card.id)))
+      .map((card) => ({ ...card, upgradeCount: normalizeMemoryUpgradeCount(card.upgradeCount) })),
+    raw,
+  };
+}
+
+function sanitizeManagedLibrary(library) {
+  return (library ?? []).map(sanitizeManagedMemory);
 }
 
 function renderCatalogOptions() {
@@ -144,6 +180,9 @@ function renderCatalogOptions() {
 async function initializeCatalogs() {
   try {
     catalogs = await loadCatalogs();
+    memoryList = sanitizeManagedLibrary(memoryList);
+    persistLibrary();
+    sanitizeSelections();
     $("catalog-dot").classList.add("ok");
     $("catalog-status").textContent = `カード名 ${catalogs.cards.length}件 / 初期デッキ ${catalogs.initialDecks.length}件`;
     renderCatalogOptions();
@@ -273,8 +312,14 @@ function addEditCardRow(card = {}) {
   const upgrade = document.createElement("input");
   upgrade.type = "number";
   upgrade.min = "0";
-  upgrade.value = String(Number(card.upgradeCount ?? 0));
-  upgrade.title = "UpgradeCount";
+  upgrade.max = "1";
+  upgrade.step = "1";
+  upgrade.value = String(normalizeMemoryUpgradeCount(card.upgradeCount));
+  upgrade.title = "強化 (0 / 1)";
+  upgrade.addEventListener("input", () => {
+    if (upgrade.value === "") return;
+    upgrade.value = String(normalizeMemoryUpgradeCount(upgrade.value));
+  });
   const fixed = document.createElement("input");
   fixed.type = "number";
   fixed.value = String(Number(card.fixedDeckOrder ?? 0));
@@ -336,10 +381,16 @@ function saveMemoryEditor() {
       const resolved = resolveEditorCard(inputs[0].value);
       if (!resolved) continue;
       const original = row.__originalCard ?? {};
+      const candidate = { ...original, ...resolved, id: String(resolved.id) };
+      if (isForbiddenMemoryCard(candidate)) throw new Error("メモリーに「眠気」は設定できません。");
+      const rawUpgrade = Number(inputs[1].value || 0);
+      if (!Number.isInteger(rawUpgrade) || rawUpgrade < 0 || rawUpgrade > 1) {
+        throw new Error(`${catalogName(candidate)}: メモリーのカード強化は0または1のみです。`);
+      }
       cards.push({
         ...original,
         id: String(resolved.id),
-        upgradeCount: Number(inputs[1].value || 0),
+        upgradeCount: rawUpgrade,
         fixedDeckOrder: Number(inputs[2].value || 0),
       });
     }
@@ -383,7 +434,7 @@ async function importMemoryFiles(fileList) {
   const imported = [];
   for (const file of fileList) {
     const payload = parseMemoryExportText(await file.text());
-    imported.push(...extractMemories(payload));
+    imported.push(...sanitizeManagedLibrary(extractMemories(payload)));
   }
   if (!imported.length) throw new Error("UserMemoryを検出できませんでした。");
   memoryList = mergeMemoryLibraries(memoryList, imported);
@@ -408,7 +459,7 @@ $("memory-file").addEventListener("change", async () => {
 $("load-memory-text").addEventListener("click", () => {
   try {
     clearError();
-    const imported = extractMemories(parseMemoryExportText($("memory-text").value));
+    const imported = sanitizeManagedLibrary(extractMemories(parseMemoryExportText($("memory-text").value)));
     if (!imported.length) throw new Error("UserMemoryを検出できませんでした。");
     memoryList = mergeMemoryLibraries(memoryList, imported);
     persistLibrary();

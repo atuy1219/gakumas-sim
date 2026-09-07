@@ -95,6 +95,8 @@ assert.equal(owned.length, 2);
 assert.equal(owned[0].power, 12345);
 assert.deepEqual(owned[0].examBattleProduceCards.map((card) => card.id), ["A", "B"]);
 assert.equal(extractMemories(userData).length, 2);
+const overUpgradedMemory = extractMemories({ userMemoryList: [{ userMemoryId: "upgrade-limit", examBattleProduceCards: [{ id: "LIMIT", upgradeCount: 3 }] }] })[0];
+assert.equal(overUpgradedMemory.examBattleProduceCards[0].upgradeCount, 1);
 
 const exportText = `noise\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[0])}\n[device] something\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[1])}\n`;
 const parsedExport = parseMemoryExportText(exportText);
