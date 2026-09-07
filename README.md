@@ -45,13 +45,15 @@ Mainメモリーの `idolCardId` に対応するコンテスト初期デッキ�
 
 `tools/frida/export_memories.js` は読み込まれた `UserMemory` を1行1件で出力します。
 
+Androidで `-f` のspawnがタイムアウトする場合は、ゲームを起動してタイトル画面で止めた状態からattachします。
+
 ```bash
-frida -U -f com.bandainamcoent.idolmaster_gakuen \
+frida -U -N com.bandainamcoent.idolmaster_gakuen \
   -l tools/frida/export_memories.js \
   -o memories.log
 ```
 
-ゲームが起動して所有メモリーが読み込まれたあと、生成された `memories.log` をWeb版の「ゲームデータ / export.log を開く」から選択します。JSONを手作業で組み立てる必要はありません。
+`[memory-export] ready:` が表示されたらゲーム内へ進み、所有メモリーが読み込まれたあと `Ctrl+C` で終了します。生成された `memories.log` をWeb版の「ゲームデータ / export.log を開く」から選択します。JSONを手作業で組み立てる必要はありません。
 
 通常の `UserMemoryList` を含むJSONファイルを持っている場合は、そのファイルを直接選択しても読み込めます。
 

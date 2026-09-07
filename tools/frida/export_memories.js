@@ -3,7 +3,7 @@
 /*
  * Export UserMemory records as one JSON object per line.
  * Usage:
- *   frida -U -f com.bandainamcoent.idolmaster_gakuen \
+ *   frida -U -N com.bandainamcoent.idolmaster_gakuen \
  *     -l tools/frida/export_memories.js -o memories.log
  */
 

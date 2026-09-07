@@ -99,6 +99,8 @@ assert.equal(extractMemories(userData).length, 2);
 const exportText = `noise\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[0])}\n[device] something\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[1])}\n`;
 const parsedExport = parseMemoryExportText(exportText);
 assert.equal(extractMemories(parsedExport).length, 2);
+const fridaStyleExport = `[memory-export] ready: Assembly-CSharp.dll\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[0])}\n`;
+assert.equal(extractMemories(parseMemoryExportText(fridaStyleExport)).length, 1);
 assert.deepEqual(parseMemoryExportText(JSON.stringify(userData)), userData);
 
 const manual = createManualMemory({
