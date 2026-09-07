@@ -4,175 +4,151 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Gakumas Card Order</title>
+  <title>Gakumas Simulator</title>
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./v3.css">
 </head>
 <body>
   <main class="shell">
     <header>
-      <p class="eyebrow">GAKUMAS CARD ORDER</p>
-      <h1>メモリーからカード順を確認</h1>
-      <p class="lead">所有メモリー一覧を読み込むか、メモリーを手動登録して、2枚/3枚の構成とseedから山札順を確認します。カードは名前で選択できます。</p>
+      <p class="eyebrow">GAKUMAS SIMULATOR</p>
+      <h1>学マス シミュレーター</h1>
+      <p class="lead">メモリー管理、コンテストの複数試行、アイドルへの道のカード順・seed探索を1つのWebツールで扱います。</p>
       <div class="catalog-state"><span id="catalog-dot" class="dot"></span><span id="catalog-status">カード名データを読み込み中…</span></div>
     </header>
 
-    <nav class="mode-tabs" aria-label="入力モード">
-      <button class="mode-tab active" data-mode="memory" type="button">メモリー選択</button>
-      <button class="mode-tab" data-mode="start" type="button">開始データ</button>
-      <button class="mode-tab" data-mode="manual" type="button">手動デッキ</button>
+    <nav class="app-tabs" aria-label="機能タブ">
+      <button type="button" class="app-tab active" data-tab="memory">メモリー管理</button>
+      <button type="button" class="app-tab" data-tab="contest">コンテストシミュ</button>
+      <button type="button" class="app-tab" data-tab="tower">アイドルへの道シミュ</button>
     </nav>
 
-    <section class="panel input-panel">
-      <div class="common-row">
-        <label>
-          <span>表示する先頭枚数</span>
-          <input id="draw-count" type="number" min="0" value="8">
-        </label>
-        <button id="copy-link" class="secondary" type="button">再現リンクをコピー</button>
-      </div>
+    <p id="global-error" class="error" role="alert" hidden></p>
 
-      <div id="memory-mode" class="mode-panel">
+    <section id="tab-memory" class="tab-panel section-stack">
+      <section class="panel input-panel">
         <div class="section-head">
-          <div>
-            <p class="step">01</p>
-            <h2>所有メモリーを読み込む</h2>
-          </div>
-          <label class="file-button">
-            ゲームデータ / export.log を開く
-            <input id="memory-file" type="file" accept="application/json,text/plain,.json,.txt,.log" multiple>
-          </label>
-        </div>
-        <p class="hint">公式データの <code>UserMemoryList</code> を含むファイル、または付属のエクスポーターが出力した <code>GAKUMAS_MEMORY</code> ログをそのまま選択できます。JSONを組み直す必要はありません。</p>
-        <details class="advanced">
-          <summary>テキストを貼り付けて読み込む</summary>
-          <textarea id="memory-text" rows="7" spellcheck="false" placeholder="UserData JSON または GAKUMAS_MEMORY ... のログ"></textarea>
-          <button id="load-memory-text" class="secondary compact" type="button">貼り付け内容を読み込む</button>
-        </details>
-
-        <div class="library-head">
-          <div>
-            <h3>メモリー一覧</h3>
-            <p id="memory-count-label" class="hint">0件</p>
-          </div>
+          <div><p class="step">01</p><h2>所有メモリーを登録</h2></div>
           <div class="button-row">
-            <button id="clear-memory-library" class="secondary compact" type="button">一覧を消去</button>
+            <label class="file-button">memories.log / JSONを開く<input id="memory-file" type="file" accept="application/json,text/plain,.json,.txt,.log" multiple></label>
+            <button id="new-memory" type="button" class="secondary">手動で追加</button>
           </div>
         </div>
-        <div id="memory-library" class="memory-library empty-state">メモリーを読み込むか、下から手動追加してください。</div>
-
-        <details class="manual-memory-editor">
-          <summary>メモリーを手動で追加</summary>
-          <div class="editor-grid">
-            <label><span>表示名</span><input id="manual-memory-name" placeholder="例: コンテスト用メモリー"></label>
-            <label><span>IdolCardId</span><input id="manual-memory-idol" placeholder="i_card-...（分かる場合）"></label>
-            <label><span>メモリーID</span><input id="manual-memory-id" placeholder="空欄なら自動生成"></label>
-            <label><span>Power</span><input id="manual-memory-power" type="number" min="0" value="0"></label>
-          </div>
-          <div class="manual-card-head">
-            <h3>スキルカード</h3>
-            <button id="add-manual-card-row" class="secondary compact" type="button">カード欄を追加</button>
-          </div>
-          <div id="manual-card-rows" class="manual-card-rows"></div>
-          <button id="add-manual-memory" class="primary" type="button">メモリーを一覧に追加</button>
+        <p class="hint">読み込んだ内容はこのブラウザのlocalStorageに保存します。ファイル自体はアップロードしません。手動登録だけでも利用できます。</p>
+        <details class="advanced">
+          <summary>ログ / JSONを貼り付けて読み込む</summary>
+          <textarea id="memory-text" rows="6" spellcheck="false" placeholder="UserMemoryListを含むJSON、またはGAKUMAS_MEMORY行"></textarea>
+          <button id="load-memory-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
         </details>
-
-        <hr class="section-divider">
-        <div class="section-head">
-          <div>
-            <p class="step">02</p>
-            <h2>編成</h2>
-          </div>
+        <div class="toolbar">
+          <input id="memory-search" type="search" placeholder="名前・アイドル・カード名・IDで検索">
+          <span id="memory-count-label" class="hint">0件</span>
+          <button id="clear-memory-library" type="button" class="ghost-button">全消去</button>
         </div>
-        <div class="memory-controls">
-          <label>
-            <span>メモリー枚数</span>
-            <select id="memory-count">
-              <option value="2">2枚</option>
-              <option value="3" selected>3枚</option>
-            </select>
-          </label>
-          <label>
-            <span>Seed</span>
-            <input id="memory-seed" value="0x12345678" inputmode="text" spellcheck="false">
-            <small>カード順の確定には開始時seedが必要です</small>
-          </label>
-        </div>
+        <div id="memory-list" class="memory-grid-v3 empty-state">メモリーを読み込むか、手動で追加してください。</div>
+        <button id="memory-show-more" type="button" class="secondary" hidden>さらに表示</button>
+      </section>
 
-        <div id="memory-selectors" class="memory-selectors"></div>
-        <div id="selected-memory-cards" class="selected-memory-cards"></div>
+      <section id="memory-editor" class="panel editor-panel" hidden>
+        <div class="section-head"><div><p class="step">02</p><h2 id="edit-title">メモリーを編集</h2></div><button id="edit-cancel" class="ghost-button" type="button">閉じる</button></div>
+        <div class="editor-grid-v3">
+          <label><span>表示名</span><input id="edit-name" placeholder="任意の名前"></label>
+          <label><span>UserMemoryId</span><input id="edit-id" placeholder="空欄なら自動生成"></label>
+          <label><span>IdolCardId</span><input id="edit-idol" placeholder="i_card-..."></label>
+          <label><span>CharacterId</span><input id="edit-character" placeholder="hski など"></label>
+          <label><span>PlanType</span><input id="edit-plan" placeholder="ProducePlanType_Plan1"></label>
+          <label><span>Grade</span><input id="edit-grade" placeholder="ResultGrade_..."></label>
+          <label><span>Power</span><input id="edit-power" type="number" min="0" value="0"></label>
+          <label><span>Vocal</span><input id="edit-vocal" type="number" min="0" value="0"></label>
+          <label><span>Dance</span><input id="edit-dance" type="number" min="0" value="0"></label>
+          <label><span>Visual</span><input id="edit-visual" type="number" min="0" value="0"></label>
+          <label><span>Stamina</span><input id="edit-stamina" type="number" min="0" value="0"></label>
+          <label class="wide"><span>PアイテムID（1行1件）</span><textarea id="edit-pitems" rows="3" spellcheck="false"></textarea></label>
+        </div>
+        <div class="section-head"><div><h3>スキルカード</h3><p class="hint">カード名 / ID、UpgradeCount、FixedDeckOrder</p></div><button id="edit-add-card" type="button" class="secondary compact">カード欄を追加</button></div>
+        <div id="edit-card-rows"></div>
+        <button id="edit-save" type="button" class="primary">保存</button>
+      </section>
+    </section>
+
+    <section id="tab-contest" class="tab-panel section-stack" hidden>
+      <section class="panel input-panel">
+        <div class="section-head"><div><p class="step">01</p><h2>コンテスト編成</h2></div></div>
+        <div class="sim-config-grid">
+          <label><span>メモリー枚数</span><select id="contest-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option></select></label>
+          <label><span>初期デッキID（任意）</span><input id="contest-initial-id" list="initial-deck-options" placeholder="initial_deck-..."></label>
+        </div>
+        <label class="toggle-label"><input id="contest-initial-auto" type="checkbox" checked> MainのIdolCardIdからコンテスト初期デッキを自動選択</label>
+        <div id="contest-builder" class="sim-builder"></div>
 
         <div class="base-deck-box">
-          <div class="base-deck-head">
-            <div>
-              <h3>初期 / 共通カード</h3>
-              <p id="base-deck-status" class="hint">MainメモリーのIdolCardIdが分かればコンテスト初期デッキを検索します。</p>
-            </div>
-            <label class="toggle-label"><input id="auto-contest-deck" type="checkbox" checked> コンテスト初期デッキを自動使用</label>
-          </div>
-          <div id="base-card-list" class="chip-list"></div>
-          <div class="inline-add">
-            <input id="base-card-input" list="produce-card-options" placeholder="カード名または p_card-...">
-            <button id="add-base-card" class="secondary compact" type="button">追加</button>
-          </div>
+          <h3>追加の初期 / 共通カード</h3>
+          <div id="contest-base-list" class="chip-list"></div>
+          <div class="inline-add"><input id="contest-base-input" list="produce-card-options" placeholder="カード名またはp_card-..."><button id="contest-add-base" type="button" class="secondary compact">追加</button></div>
         </div>
+        <div class="pitem-box"><strong>Pアイテム</strong><div id="contest-pitems" class="chip-list"></div><p class="hint">IDは編成から保持します。効果の適用は次段階です。</p></div>
+      </section>
 
-        <button id="run-memory" class="primary" type="button">カード順を計算</button>
-      </div>
-
-      <div id="start-mode" class="mode-panel" hidden>
-        <div class="section-head">
-          <div><p class="step">01</p><h2>開始データ</h2></div>
-          <label class="file-button">開始データを開く<input id="start-file" type="file" accept="application/json,text/plain,.json,.txt"></label>
+      <section class="panel">
+        <div class="section-head"><div><p class="step">02</p><h2>複数回シミュレーション</h2></div></div>
+        <div class="sim-config-grid">
+          <label><span>試行回数</span><select id="contest-run-count"><option value="100">100回</option><option value="1000" selected>1,000回</option><option value="10000">10,000回</option><option value="100000">100,000回</option></select></label>
+          <label><span>確認する初期ドロー枚数</span><input id="contest-draw-count" type="number" min="1" value="3"></label>
         </div>
-        <textarea id="start-json" rows="11" spellcheck="false" placeholder="CompetitionStartResponse / TourStartResponse"></textarea>
-        <p class="hint"><code>ExamContestSituation → Player</code> から Seed と ProduceCards を読み取り、カード名を付けて表示します。</p>
-        <label class="wide-label"><span>Player</span><select id="player-select" disabled><option>開始データを読み込んでください</option></select></label>
-        <button id="run-start" class="primary" type="button">開始データから計算</button>
-      </div>
+        <p class="callout status-pending">コンテストではseedを手入力しません。各試行のseed系列は自動生成します。現在このWeb版で実行するのはカード分布のMonte Carloです。厳密な最終スコア計算はカード効果・ステージ条件まで接続してから有効化し、未接続の状態で推定スコアは表示しません。</p>
+        <button id="contest-run" type="button" class="primary">シミュレーション実行</button>
+      </section>
 
-      <div id="manual-mode" class="mode-panel" hidden>
-        <div class="section-head"><div><p class="step">01</p><h2>カードを直接入力</h2></div></div>
-        <div class="grid">
-          <label><span>Seed</span><input id="manual-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
-          <label><span>カードID</span><textarea id="manual-deck" rows="8" spellcheck="false">card-A
-card-B
-card-C
-card-D
-card-E
-card-F
-card-G
-card-H</textarea><small>1行1枚。必要なら <code>card-id,FixedDeckOrder</code></small></label>
-        </div>
-        <button id="run-manual" class="primary" type="button">カード順を計算</button>
-      </div>
-
-      <p id="error" class="error" role="alert" hidden></p>
+      <section id="contest-result" class="panel simulation-result" hidden>
+        <div class="section-head"><div><p class="step">03</p><h2>結果</h2></div></div>
+        <div id="contest-summary" class="result-meta"></div>
+        <h3>1枚目の出現率</h3>
+        <table class="result-table"><thead><tr><th>カード</th><th>回数</th><th>割合</th></tr></thead><tbody id="contest-first-card"></tbody></table>
+        <h3>サンプル</h3><ol id="contest-samples"></ol>
+      </section>
     </section>
 
-    <section id="result" class="panel result-panel" aria-labelledby="result-title" hidden>
-      <div class="section-head">
-        <div><p class="step">03</p><h2 id="result-title">カード順</h2></div>
-        <span id="mode-badge" class="badge"></span>
-      </div>
-      <div class="result-meta">
-        <div class="state-card"><span>Seed</span><strong id="seed-value"></strong></div>
-        <div class="state-card"><span>Shuffle後 RandomState</span><strong id="state-value"></strong></div>
-        <div class="state-card"><span>デッキ枚数</span><strong id="deck-count"></strong></div>
-      </div>
-      <div class="result-grid">
-        <div><h3>山札全体</h3><ol id="order-list" class="order-list"></ol></div>
-        <div><h3 id="draw-title">先頭8枚</h3><ol id="draw-list" class="draw-list"></ol></div>
-      </div>
-    </section>
+    <section id="tab-tower" class="tab-panel section-stack" hidden>
+      <section class="panel input-panel">
+        <div class="section-head"><div><p class="step">01</p><h2>アイドルへの道 編成</h2></div></div>
+        <div class="sim-config-grid">
+          <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option></select></label>
+          <label><span>初期デッキID</span><input id="tower-initial-id" list="initial-deck-options" placeholder="対象ステージのinitial_deck-..."></label>
+        </div>
+        <p class="hint">アイドルへの道の初期デッキ対応は自動推測しません。対象ステージで確認できるIDを指定するか、下でカードを追加してください。</p>
+        <div id="tower-builder" class="sim-builder"></div>
+        <div class="base-deck-box">
+          <h3>追加の初期 / 共通カード</h3>
+          <div id="tower-base-list" class="chip-list"></div>
+          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="カード名またはp_card-..."><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>
+        </div>
+        <div class="pitem-box"><strong>Pアイテム</strong><div id="tower-pitems" class="chip-list"></div><p class="hint">Pアイテムとアイドルへの道固有の応援・トラブル効果は、厳密な効果処理を接続してから適用します。</p></div>
+      </section>
 
-    <section class="notes">
-      <h2>再現条件</h2>
-      <p>所有メモリーには候補カードが入っていますが、コンテストで実際に採用するカードは編成側で別に選択されます。読み込んだメモリーごとに有効カードをチェックしてください。開始データに実デッキがある場合は「開始データ」モードが最も直接的です。</p>
-      <p>メモリー構成だけではカード順は決まりません。開始時Playerの32-bit seedが必要です。</p>
+      <section class="panel">
+        <div class="section-head"><div><p class="step">02</p><h2>seed指定でカード順を確認</h2></div></div>
+        <div class="sim-config-grid">
+          <label><span>Seed</span><input id="tower-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
+          <label><span>表示する先頭枚数</span><input id="tower-draw-count" type="number" min="1" value="8"></label>
+        </div>
+        <button id="tower-run" type="button" class="primary">カード順を計算</button>
+        <div id="tower-order-result" class="simulation-result" hidden><p id="tower-order-meta" class="hint"></p><ol id="tower-order-list" class="tower-order-list"></ol></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head"><div><p class="step">03</p><h2>実機の順番からseedを探索</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
+        <p class="callout">Fridaを使わず、実機で確認した<strong>シャッフル後の山札全順序</strong>から32-bit seed候補を逆算します。デッキの全カードが必要です。同一カードが複数ある場合も候補割当を考慮します。</p>
+        <div id="tower-observation-buttons" class="observation-grid">メモリーと採用カードを設定すると観測入力ボタンが表示されます。</div>
+        <label class="wide-label"><span>観測した順番（上から1枚目）</span><textarea id="tower-observed" rows="10" spellcheck="false" placeholder="カードボタンを順に押すか、カードIDを1行1枚で入力"></textarea></label>
+        <div class="button-row"><button id="tower-find-seed" type="button" class="primary">seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
+        <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
+        <div id="tower-seed-results" class="seed-results"></div>
+      </section>
     </section>
   </main>
 
   <datalist id="produce-card-options"></datalist>
-  <script type="module" src="./app.js"></script>
+  <datalist id="initial-deck-options"></datalist>
+  <script type="module" src="./app_v3.js"></script>
 </body>
 </html>
