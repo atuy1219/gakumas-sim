@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Gakumas Exam Simulator</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">GAKUMAS EXAM SIMULATOR</p>
+      <h1>カード配布をシードで再現</h1>
+      <p class="lead">同じシードと同じカード入力から、同じ山札順とドロー結果を再現します。</p>
+    </header>
+
+    <section class="panel input-panel" aria-labelledby="input-title">
+      <div class="section-head">
+        <div>
+          <p class="step">01</p>
+          <h2 id="input-title">入力</h2>
+        </div>
+        <button id="copy-link" class="secondary" type="button">再現リンクをコピー</button>
+      </div>
+
+      <div class="grid">
+        <label>
+          <span>Seed</span>
+          <input id="seed" value="0x12345678" inputmode="text" spellcheck="false">
+          <small>32-bit。10進数 / 0x16進数</small>
+        </label>
+        <label>
+          <span>ドロー枚数</span>
+          <input id="draw-count" type="number" min="0" value="5">
+          <small>山札先頭から取得</small>
+        </label>
+      </div>
+
+      <label class="deck-label">
+        <span>カード</span>
+        <textarea id="deck" rows="10" spellcheck="false">card-A
+card-B
+card-C
+card-D
+card-E
+card-F
+card-G
+card-H</textarea>
+        <small>1行1枚。固定順を指定する場合は <code>card-id,FixedDeckOrder</code></small>
+      </label>
+
+      <button id="run" class="primary" type="button">配布を計算</button>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="result" class="panel result-panel" aria-labelledby="result-title" hidden>
+      <div class="section-head">
+        <div>
+          <p class="step">02</p>
+          <h2 id="result-title">結果</h2>
+        </div>
+        <span id="mode-badge" class="badge"></span>
+      </div>
+
+      <div class="state-card">
+        <span>Shuffle後 RandomState</span>
+        <strong id="state-value"></strong>
+      </div>
+
+      <div class="result-grid">
+        <div>
+          <h3>山札順</h3>
+          <ol id="order-list" class="order-list"></ol>
+        </div>
+        <div>
+          <h3>ドロー</h3>
+          <ol id="draw-list" class="draw-list"></ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="notes">
+      <h2>再現条件</h2>
+      <p>通常の山札は32-bitの乱数状態を使ってシャッフルします。FixedDeckOrder が設定されたカードを含む場合は固定順を優先します。未対応の曖昧な固定順入力はエラーにします。</p>
+    </section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
