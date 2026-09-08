@@ -180,7 +180,7 @@ export function gradeLabel(value) {
     sss: "SSS", sssplus: "SSS+", ssss: "SSSS", ssssplus: "SSSS+",
     sssss: "SSSSS", sssssplus: "SSSSS+",
   };
-  return direct[key] ?? suffix.replace(/_PLUS$/i, "+").replaceAll("_", "") || "未指定";
+  return direct[key] ?? (suffix.replace(/_PLUS$/i, "+").replaceAll("_", "") || "未指定");
 }
 
 export function planLabel(value) {
