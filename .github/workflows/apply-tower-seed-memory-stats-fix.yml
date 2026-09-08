@@ -22,161 +22,7 @@ jobs:
         with:
           node-version: "22"
       - name: Apply fixes
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          def replace_exact(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f"replacement target not found: {path}\n{old[:180]}")
-              p.write_text(text.replace(old, new, 1))
-
-          # 1) Preserve the native card order of each UserMemory regardless of checkbox click order.
-          replace_exact(
-              "web/engine.js",
-              '''    const activeIds = Array.isArray(selection.activeProduceCardIds)\n      ? selection.activeProduceCardIds.map(String)\n      : memory.activeProduceCardIds;\n    if (!activeIds.length) throw new Error(`${memory.label}: 有効カードを1枚以上選択してください。`);\n    const byId = new Map(memory.examBattleProduceCards.map((card) => [card.id, card]));\n    const activeCards = activeIds.map((id) => {\n      const card = byId.get(id);\n      if (!card) throw new Error(`${memory.label}: カード ${id} はこのメモリーにありません。`);\n      return card;\n    });\n    return { memory, activeIds, activeCards };''',
-              '''    const requestedActiveIds = Array.isArray(selection.activeProduceCardIds)\n      ? selection.activeProduceCardIds.map(String)\n      : memory.activeProduceCardIds.map(String);\n    if (!requestedActiveIds.length) throw new Error(`${memory.label}: 有効カードを1枚以上選択してください。`);\n    const byId = new Map(memory.examBattleProduceCards.map((card) => [String(card.id), card]));\n    for (const id of requestedActiveIds) {\n      if (!byId.has(id)) throw new Error(`${memory.label}: カード ${id} はこのメモリーにありません。`);\n    }\n    const activeIdSet = new Set(requestedActiveIds);\n    // Fisher–Yates の入力順は UI でチェックした順ではなく、UserMemory が持つ\n    // examBattleProduceCards のネイティブ順を必ず使う。\n    const activeCards = memory.examBattleProduceCards.filter((card) => activeIdSet.has(String(card.id)));\n    const activeIds = activeCards.map((card) => String(card.id));\n    return { memory, activeIds, activeCards };'''
-          )
-
-          # 2) Prefer the richest/latest snapshot when the Frida log contains repeated merges for one memory.
-          replace_exact(
-              "web/engine.js",
-              '''export function extractMemories(payload) {\n  const candidates = [];''',
-              '''function memoryCompletenessScore(memory) {\n  const raw = memory?.raw ?? {};\n  let score = (memory?.examBattleProduceCards?.length ?? 0) * 10;\n  if (memory?.hasActiveProduceCardIds) score += 1000;\n  for (const field of [\n    "idolCardId", "characterId", "planType", "power", "grade",\n    "vocal", "dance", "visual", "stamina", "examBattleProduceItemIds",\n  ]) {\n    if (hasField(raw, field)) score += 5;\n  }\n  const pitems = getField(raw, "examBattleProduceItemIds");\n  if (Array.isArray(pitems)) score += pitems.length;\n  return score;\n}\n\nexport function extractMemories(payload) {\n  const candidates = [];'''
-          )
-          replace_exact(
-              "web/engine.js",
-              '''    const old = byId.get(memory.userMemoryId);\n    const score = (item) => item.examBattleProduceCards.length * 10 + (item.hasActiveProduceCardIds ? 1000 : 0);\n    if (!old || score(memory) > score(old)) byId.set(memory.userMemoryId, memory);''',
-              '''    const old = byId.get(memory.userMemoryId);\n    // 同点なら後から観測したスナップショットを採用する。InternalMergeFrom は\n    // 同一 UserMemory を段階的に埋めることがあるため、最初の断片を固定しない。\n    if (!old || memoryCompletenessScore(memory) >= memoryCompletenessScore(old)) {\n      byId.set(memory.userMemoryId, memory);\n    }'''
-          )
-
-          # 3) Frida exporter: do not discard every later snapshot of the same UserMemory.
-          replace_exact(
-              "tools/frida/export_memories.js",
-              "const exportedIds = new Set();",
-              "const exportedSnapshots = new Map();"
-          )
-          replace_exact(
-              "tools/frida/export_memories.js",
-              '''        const userMemoryId = String(memory.userMemoryId ?? '');\n        if (!userMemoryId || exportedIds.has(userMemoryId)) return;\n        exportedIds.add(userMemoryId);\n        console.log(OUTPUT_PREFIX + JSON.stringify(memory));''',
-              '''        const userMemoryId = String(memory.userMemoryId ?? '');\n        if (!userMemoryId) return;\n        const snapshot = JSON.stringify(memory);\n        if (exportedSnapshots.get(userMemoryId) === snapshot) return;\n        exportedSnapshots.set(userMemoryId, snapshot);\n        // InternalMergeFrom は同じオブジェクトを複数回更新する。後続の完全な\n        // スナップショットも出力し、Web 側で最も情報量の多いものを採用する。\n        console.log(OUTPUT_PREFIX + snapshot);'''
-          )
-
-          # 4) Tower is memory cards + basic cards. Remove the generic initial-deck model from tower.
-          replace_exact(
-              "web/app_v3.js",
-              '''function automaticBaseCards(mode) {\n  const ids = simIds(mode);\n  const selectedId = $(ids.initialId).value.trim();\n  let deck = selectedId ? catalogs.initialDeckById.get(selectedId) : null;\n  if (mode === "contest" && $("contest-initial-auto").checked) {''',
-              '''function automaticBaseCards(mode) {\n  // アイドルへの道はメモリー以外に加えるのは基本カードだけ。\n  // 汎用の ExamInitialDeck をドル道へ混ぜない。\n  if (mode === "tower") return [];\n  const ids = simIds(mode);\n  const selectedId = $(ids.initialId)?.value.trim() ?? "";\n  let deck = selectedId ? catalogs.initialDeckById.get(selectedId) : null;\n  if (mode === "contest" && $("contest-initial-auto").checked) {'''
-          )
-          replace_exact(
-              "web/app_v3.js",
-              '''for (const mode of ["contest", "tower"]) {\n  $(simIds(mode).count).addEventListener("change", () => renderSimBuilder(mode));\n  $(simIds(mode).initialId).addEventListener("change", () => {\n    renderBaseCards(mode);\n    if (mode === "tower") renderObservationButtons();\n  });\n  $(`${mode}-add-base`).addEventListener("click", () => addBaseCard(mode));\n}''',
-              '''for (const mode of ["contest", "tower"]) {\n  $(simIds(mode).count).addEventListener("change", () => renderSimBuilder(mode));\n  const initialIdInput = $(simIds(mode).initialId);\n  initialIdInput?.addEventListener("change", () => {\n    renderBaseCards(mode);\n    if (mode === "tower") renderObservationButtons();\n  });\n  $(`${mode}-add-base`).addEventListener("click", () => addBaseCard(mode));\n}'''
-          )
-
-          replace_exact(
-              "web/index.html",
-              '''        <div class="sim-config-grid">\n          <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select></label>\n          <label><span>初期デッキID</span><input id="tower-initial-id" list="initial-deck-options" placeholder="対象ステージのinitial_deck-..."></label>\n        </div>\n        <p class="hint">アイドルへの道の初期デッキ対応は自動推測しません。対象ステージで確認できるIDを指定するか、下でカードを追加してください。</p>''',
-              '''        <div class="sim-config-grid">\n          <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select></label>\n        </div>\n        <p class="hint">アイドルへの道のデッキは、選択したメモリーの採用カードと下で指定する基本カードだけで構成します。</p>'''
-          )
-          replace_exact(
-              "web/index.html",
-              '''        <div class="base-deck-box">\n          <h3>追加の初期 / 共通カード</h3>\n          <div id="tower-base-list" class="chip-list"></div>\n          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="カード名を入力または選択"><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>\n        </div>''',
-              '''        <div class="base-deck-box">\n          <h3>基本カード</h3>\n          <div id="tower-base-list" class="chip-list"></div>\n          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="ドル道で追加される基本カードを選択"><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>\n          <p class="hint">メモリー以外の任意カードやコンテスト用初期デッキはここには追加しません。</p>\n        </div>'''
-          )
-
-          # 5) Missing historical stats must not be presented as real zero values.
-          replace_exact(
-              "web/app_v6.js",
-              '''function memoryStatsText(memory) {\n  const grade = gradeLabel(memory?.grade);\n  const parts = [];\n  if (grade !== "未指定") parts.push(`評価 ${grade}`);\n  if (numberField(memory, "power")) parts.push(`総合力 ${numberField(memory, "power")}`);\n  parts.push(\n    `Vo ${numberField(memory, "vocal")}`,\n    `Da ${numberField(memory, "dance")}`,\n    `Vi ${numberField(memory, "visual")}`,\n    `体力 ${numberField(memory, "stamina")}`,\n  );\n  return parts.join(" · ");\n}''',
-              '''export function hasUsableMemoryStats(memory) {\n  const values = ["vocal", "dance", "visual", "stamina"].map((name) => memory?.[name]);\n  if (values.some((value) => value !== null && value !== undefined && Number(value) !== 0)) return true;\n  // 総合力があるのに4能力がすべて0なら、旧exporterで途中スナップショットを\n  // 保存した可能性が高い。実値0とは断定せず未取得として扱う。\n  return numberField(memory, "power") === 0;\n}\n\nfunction memoryStatsText(memory) {\n  const grade = gradeLabel(memory?.grade);\n  const parts = [];\n  if (grade !== "未指定") parts.push(`評価 ${grade}`);\n  if (numberField(memory, "power")) parts.push(`総合力 ${numberField(memory, "power")}`);\n  if (!hasUsableMemoryStats(memory)) {\n    parts.push("Vo 未取得", "Da 未取得", "Vi 未取得", "体力 未取得");\n  } else {\n    parts.push(\n      `Vo ${numberField(memory, "vocal")}`,\n      `Da ${numberField(memory, "dance")}`,\n      `Vi ${numberField(memory, "visual")}`,\n      `体力 ${numberField(memory, "stamina")}`,\n    );\n  }\n  return parts.join(" · ");\n}'''
-          )
-
-          # 6) Regression tests: click-order invariance and richer repeated snapshots.
-          test = Path("test_web.mjs")
-          text = test.read_text()
-          marker = '\nconsole.log("web parity tests: ok");\n'
-          if marker not in text:
-              raise SystemExit("test_web marker not found")
-          addition = r'''
-
-// Checkbox insertion order must never change the pre-shuffle deck order.
-const orderMemory = extractMemories({ userMemoryList: [{
-  userMemoryId: "order-memory",
-  examBattleProduceCards: [{ id: "A" }, { id: "B" }, { id: "C" }, { id: "D" }],
-}] })[0];
-const orderLibrary = [orderMemory, owned[0]];
-const orderA = composeSelectedMemories(orderLibrary, [
-  { userMemoryId: "order-memory", activeProduceCardIds: ["D", "B", "A"] },
-  { userMemoryId: "owned-1", activeProduceCardIds: ["A", "B"] },
-]);
-const orderB = composeSelectedMemories(orderLibrary, [
-  { userMemoryId: "order-memory", activeProduceCardIds: ["A", "D", "B"] },
-  { userMemoryId: "owned-1", activeProduceCardIds: ["B", "A"] },
-]);
-assert.deepEqual(orderA.cards.map((card) => card.id), ["A", "B", "D", "A", "B"]);
-assert.deepEqual(orderB.cards.map((card) => card.id), orderA.cards.map((card) => card.id));
-
-// InternalMergeFrom may emit a partial snapshot first and a richer one later.
-const repeatedSnapshots = {
-  userMemoryList: [
-    {
-      userMemoryId: "snapshot-memory",
-      power: 15744,
-      examBattleProduceCards: [{ id: "S1" }, { id: "S2" }],
-    },
-    {
-      userMemoryId: "snapshot-memory",
-      idolCardId: "i_card-jsna-3-000",
-      characterId: "jsna",
-      planType: "ProducePlanType_Plan1",
-      power: 15744,
-      grade: "ResultGrade_SsPlus",
-      vocal: 1876,
-      dance: 1633,
-      visual: 1804,
-      stamina: 38,
-      examBattleProduceCards: [{ id: "S1" }, { id: "S2" }],
-      examBattleProduceItemIds: ["p_item-test"],
-    },
-  ],
-};
-const richer = extractMemories(repeatedSnapshots)[0];
-assert.equal(richer.raw.vocal, 1876);
-assert.equal(richer.raw.dance, 1633);
-assert.equal(richer.raw.visual, 1804);
-assert.equal(richer.raw.stamina, 38);
-assert.equal(richer.raw.grade, "ResultGrade_SsPlus");
-assert.deepEqual(richer.raw.examBattleProduceItemIds, ["p_item-test"]);
-'''
-          test.write_text(text.replace(marker, addition + marker, 1))
-
-          # Small DOM-independent test for the missing-stats guard.
-          app6_test = Path("test_app_v6.mjs")
-          t = app6_test.read_text()
-          t = t.replace(
-              'import {\n  findRestrictedDuplicateIds,\n  hasNonZeroMemoryStats,\n  resolveMemoryPItemIds,\n} from "./web/app_v6.js";',
-              'import {\n  findRestrictedDuplicateIds,\n  hasNonZeroMemoryStats,\n  hasUsableMemoryStats,\n  resolveMemoryPItemIds,\n} from "./web/app_v6.js";'
-          )
-          marker2 = '\nconsole.log("app v6 tests: ok");\n'
-          if marker2 not in t:
-              raise SystemExit("test_app_v6 marker not found")
-          t = t.replace(marker2, '''\nassert.equal(hasUsableMemoryStats({ power: 15744, vocal: 0, dance: 0, visual: 0, stamina: 0 }), false);\nassert.equal(hasUsableMemoryStats({ power: 15744, vocal: 100, dance: 0, visual: 0, stamina: 0 }), true);\n''' + marker2, 1)
-          app6_test.write_text(t)
-
-          # Tower must not expose the obsolete generic initial-deck field anymore.
-          html = Path("web/index.html").read_text()
-          if 'id="tower-initial-id"' in html:
-              raise SystemExit("tower initial deck input still exists")
-          if '<h3>基本カード</h3>' not in html:
-              raise SystemExit("tower basic-card section missing")
-          PY
-
-          rm .github/workflows/apply-tower-seed-memory-stats-fix.yml
-
+        run: python tools/apply_temp_tower_fix.py
       - name: Verify
         run: |
           node --check web/engine.js
@@ -187,11 +33,14 @@ assert.deepEqual(richer.raw.examBattleProduceItemIds, ["p_item-test"]);
           node test_app_v6.mjs
           node test_v3.mjs
           node test_sim_filter_v5.mjs
-
+      - name: Remove temporary files
+        run: |
+          rm .github/workflows/apply-tower-seed-memory-stats-fix.yml
+          rm tools/apply_temp_tower_fix.py
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/engine.js web/app_v3.js web/app_v6.js web/index.html tools/frida/export_memories.js test_web.mjs test_app_v6.mjs .github/workflows/apply-tower-seed-memory-stats-fix.yml
+          git add -A
           git commit -m "ドル道seed探索とメモリー能力値取得を修正"
           git push origin HEAD:fix/tower-seed-memory-stats
