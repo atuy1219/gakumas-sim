@@ -7,6 +7,7 @@
   <title>Gakumas Simulator</title>
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./v3.css">
+  <link rel="stylesheet" href="./v4.css">
 </head>
 <body>
   <main class="shell">
@@ -19,6 +20,8 @@
 
     <nav class="app-tabs" aria-label="機能タブ">
       <button type="button" class="app-tab active" data-tab="memory">メモリー管理</button>
+      <button type="button" class="app-tab" data-tab="cards">カード一覧</button>
+      <button type="button" class="app-tab" data-tab="items">Pアイテム一覧</button>
       <button type="button" class="app-tab" data-tab="contest">コンテストシミュ</button>
       <button type="button" class="app-tab" data-tab="tower">アイドルへの道シミュ</button>
     </nav>
@@ -41,7 +44,7 @@
           <button id="load-memory-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
         </details>
         <div class="toolbar">
-          <input id="memory-search" type="search" placeholder="名前・アイドル・カード名・IDで検索">
+          <input id="memory-search" type="search" placeholder="名前・アイドル・カード名で検索">
           <span id="memory-count-label" class="hint">0件</span>
           <button id="clear-memory-library" type="button" class="ghost-button">全消去</button>
         </div>
@@ -54,20 +57,40 @@
         <div class="editor-grid-v3">
           <label><span>表示名</span><input id="edit-name" placeholder="任意の名前"></label>
           <label><span>UserMemoryId</span><input id="edit-id" placeholder="空欄なら自動生成"></label>
-          <label><span>IdolCardId</span><input id="edit-idol" placeholder="i_card-..."></label>
-          <label><span>CharacterId</span><input id="edit-character" placeholder="hski など"></label>
-          <label><span>PlanType</span><input id="edit-plan" placeholder="ProducePlanType_Plan1"></label>
-          <label><span>Grade</span><input id="edit-grade" placeholder="ResultGrade_..."></label>
-          <label><span>Power</span><input id="edit-power" type="number" min="0" value="0"></label>
+          <label><span>Pアイドル</span><input id="edit-idol" placeholder="選択してください"></label>
+          <label><span>アイドル</span><input id="edit-character" placeholder="選択してください"></label>
+          <label><span>プラン</span><input id="edit-plan" placeholder="選択してください"></label>
+          <label><span>評価</span><input id="edit-grade" placeholder="選択してください"></label>
+          <label><span>総合力</span><input id="edit-power" type="number" min="0" value="0"></label>
           <label><span>Vocal</span><input id="edit-vocal" type="number" min="0" value="0"></label>
           <label><span>Dance</span><input id="edit-dance" type="number" min="0" value="0"></label>
           <label><span>Visual</span><input id="edit-visual" type="number" min="0" value="0"></label>
-          <label><span>Stamina</span><input id="edit-stamina" type="number" min="0" value="0"></label>
-          <label class="wide"><span>PアイテムID（1行1件）</span><textarea id="edit-pitems" rows="3" spellcheck="false"></textarea></label>
+          <label><span>体力</span><input id="edit-stamina" type="number" min="0" value="0"></label>
+          <label class="wide"><span>PアイテムID（内部値）</span><textarea id="edit-pitems" rows="3" spellcheck="false"></textarea></label>
         </div>
-        <div class="section-head"><div><h3>スキルカード</h3><p class="hint">カード名 / ID、強化(0/1)、FixedDeckOrder</p></div><button id="edit-add-card" type="button" class="secondary compact">カード欄を追加</button></div>
+        <div class="section-head"><div><h3>スキルカード</h3><p class="hint">カード名を選び、強化の有無とカスタム回数だけ指定します。</p></div><button id="edit-add-card" type="button" class="secondary compact">カード欄を追加</button></div>
         <div id="edit-card-rows"></div>
         <button id="edit-save" type="button" class="primary">保存</button>
+      </section>
+    </section>
+
+    <section id="tab-cards" class="tab-panel section-stack" hidden>
+      <section class="panel input-panel">
+        <div class="section-head"><div><p class="step">LIST</p><h2>カード一覧</h2></div><span id="card-catalog-count" class="hint">読み込み中…</span></div>
+        <p class="hint">入力では内部IDや「+++」段階名を使う必要はありません。基底のカード名で検索・選択できます。</p>
+        <div class="catalog-toolbar-v4"><input id="card-catalog-search" type="search" placeholder="カード名・プラン・カテゴリで検索"></div>
+        <div id="card-catalog-list" class="catalog-grid-v4"></div>
+        <button id="card-catalog-more" type="button" class="secondary" hidden>さらに表示</button>
+      </section>
+    </section>
+
+    <section id="tab-items" class="tab-panel section-stack" hidden>
+      <section class="panel input-panel">
+        <div class="section-head"><div><p class="step">LIST</p><h2>Pアイテム一覧</h2></div><span id="item-catalog-count" class="hint">読み込み中…</span></div>
+        <p class="hint">メモリー編集ではPアイテム名から選択できます。内部IDは一覧の「内部情報」から確認できます。</p>
+        <div class="catalog-toolbar-v4"><input id="item-catalog-search" type="search" placeholder="Pアイテム名・プランで検索"></div>
+        <div id="item-catalog-list" class="catalog-grid-v4"></div>
+        <button id="item-catalog-more" type="button" class="secondary" hidden>さらに表示</button>
       </section>
     </section>
 
@@ -78,15 +101,15 @@
           <label><span>メモリー枚数</span><select id="contest-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option></select></label>
           <label><span>初期デッキID（任意）</span><input id="contest-initial-id" list="initial-deck-options" placeholder="initial_deck-..."></label>
         </div>
-        <label class="toggle-label"><input id="contest-initial-auto" type="checkbox" checked> MainのIdolCardIdからコンテスト初期デッキを自動選択</label>
+        <label class="toggle-label"><input id="contest-initial-auto" type="checkbox" checked> MainのPアイドルからコンテスト初期デッキを自動選択</label>
         <div id="contest-builder" class="sim-builder"></div>
 
         <div class="base-deck-box">
           <h3>追加の初期 / 共通カード</h3>
           <div id="contest-base-list" class="chip-list"></div>
-          <div class="inline-add"><input id="contest-base-input" list="produce-card-options" placeholder="カード名またはp_card-..."><button id="contest-add-base" type="button" class="secondary compact">追加</button></div>
+          <div class="inline-add"><input id="contest-base-input" list="produce-card-options" placeholder="カード名を入力または選択"><button id="contest-add-base" type="button" class="secondary compact">追加</button></div>
         </div>
-        <div class="pitem-box"><strong>Pアイテム</strong><div id="contest-pitems" class="chip-list"></div><p class="hint">IDは編成から保持します。効果の適用は次段階です。</p></div>
+        <div class="pitem-box"><strong>Pアイテム</strong><div id="contest-pitems" class="chip-list"></div><p class="hint">編成したメモリーから自動で引き継ぎます。効果の適用は次段階です。</p></div>
       </section>
 
       <section class="panel">
@@ -120,7 +143,7 @@
         <div class="base-deck-box">
           <h3>追加の初期 / 共通カード</h3>
           <div id="tower-base-list" class="chip-list"></div>
-          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="カード名またはp_card-..."><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>
+          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="カード名を入力または選択"><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>
         </div>
         <div class="pitem-box"><strong>Pアイテム</strong><div id="tower-pitems" class="chip-list"></div><p class="hint">Pアイテムとアイドルへの道固有の応援・トラブル効果は、厳密な効果処理を接続してから適用します。</p></div>
       </section>
@@ -139,7 +162,7 @@
         <div class="section-head"><div><p class="step">03</p><h2>実機の順番からseedを探索</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
         <p class="callout">Fridaを使わず、実機で確認した<strong>シャッフル後の山札全順序</strong>から32-bit seed候補を逆算します。デッキの全カードが必要です。同一カードが複数ある場合も候補割当を考慮します。</p>
         <div id="tower-observation-buttons" class="observation-grid">メモリーと採用カードを設定すると観測入力ボタンが表示されます。</div>
-        <label class="wide-label"><span>観測した順番（上から1枚目）</span><textarea id="tower-observed" rows="10" spellcheck="false" placeholder="カードボタンを順に押すか、カードIDを1行1枚で入力"></textarea></label>
+        <label class="wide-label"><span>観測した順番（上から1枚目）</span><textarea id="tower-observed" rows="10" spellcheck="false" placeholder="カードボタンを順に押すか、カード名を1行1枚で入力"></textarea></label>
         <div class="button-row"><button id="tower-find-seed" type="button" class="primary">seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
         <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
         <div id="tower-seed-results" class="seed-results"></div>
@@ -149,6 +172,8 @@
 
   <datalist id="produce-card-options"></datalist>
   <datalist id="initial-deck-options"></datalist>
+  <script src="./catalog_bootstrap.js"></script>
   <script type="module" src="./app_v3.js"></script>
+  <script type="module" src="./app_v4.js"></script>
 </body>
 </html>
