@@ -483,9 +483,11 @@ export function resolveContestInitialDeck(idolCardId, initialDeckById) {
   return initialDeckById.get(`initial_deck-contest-${idolCardId}`) ?? null;
 }
 
-export function composeSelectedMemories(memoryList, selections, baseCards = []) {
-  if (!Array.isArray(selections) || selections.length < 2 || selections.length > 3) {
-    throw new Error("メモリーは2枚または3枚選択してください。");
+export function composeSelectedMemories(memoryList, selections, baseCards = [], maxMemoryCount = 3) {
+  const maxCount = Math.max(2, Number(maxMemoryCount) || 3);
+  if (!Array.isArray(selections) || selections.length < 2 || selections.length > maxCount) {
+    if (maxCount === 3) throw new Error("メモリーは2枚または3枚選択してください。");
+    throw new Error(`メモリーは2枚から${maxCount}枚まで選択してください。`);
   }
   const ids = selections.map((selection) => String(selection.userMemoryId));
   if (new Set(ids).size !== ids.length) throw new Error("同じメモリーを複数の枠に選択できません。");

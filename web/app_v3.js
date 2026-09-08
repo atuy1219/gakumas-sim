@@ -539,7 +539,9 @@ function renderSimBuilder(mode) {
   if (!container) return;
   const slots = ensureSlots(mode);
   container.innerHTML = "";
-  const roles = slots.length === 2 ? ["Main", "Sub"] : ["Main", "Sub 1", "Sub 2"];
+  const roles = slots.length === 2
+    ? ["Main", "Sub"]
+    : ["Main", ...Array.from({ length: slots.length - 1 }, (_, index) => `Sub ${index + 1}`)];
 
   roles.forEach((roleName, index) => {
     const box = document.createElement("section");
@@ -687,7 +689,12 @@ function addBaseCard(mode) {
 }
 
 function buildComposition(mode) {
-  return composeSelectedMemories(memoryList, selectedMemoryComposition(mode), baseCards(mode));
+  return composeSelectedMemories(
+    memoryList,
+    selectedMemoryComposition(mode),
+    baseCards(mode),
+    mode === "tower" ? 4 : 3,
+  );
 }
 
 function renderPItems(mode) {

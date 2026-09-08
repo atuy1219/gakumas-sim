@@ -159,4 +159,25 @@ assert.throws(
   /有効カード/,
 );
 
+const towerFourth = createManualMemory({
+  userMemoryId: "tower-fourth",
+  label: "ドル道4枚目",
+  cards: [{ id: "I" }],
+  activeProduceCardIds: ["I"],
+});
+const towerLibrary = mergeMemoryLibraries(merged, [towerFourth]);
+const towerSelections = [
+  { userMemoryId: "owned-1", activeProduceCardIds: ["A", "B"] },
+  { userMemoryId: "owned-2", activeProduceCardIds: ["C", "D"] },
+  { userMemoryId: "manual-one", activeProduceCardIds: ["E", "F"] },
+  { userMemoryId: "tower-fourth", activeProduceCardIds: ["I"] },
+];
+assert.throws(() => composeSelectedMemories(towerLibrary, towerSelections), /2枚または3枚/);
+const towerFourComposition = composeSelectedMemories(towerLibrary, towerSelections, [], 4);
+assert.equal(towerFourComposition.memories.length, 4);
+assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "C", "D", "E", "F", "I"]);
+
+const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/index.html", import.meta.url), "utf8"));
+assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
+
 console.log("web parity tests: ok");
