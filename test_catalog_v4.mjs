@@ -39,7 +39,7 @@ const items = parseProduceItemCatalog(`- id: pitem_00-1-002-0\n  name: 必携ス
 assert.equal(items.length, 1);
 assert.equal(items[0].name, "必携ステンレスボトル");
 
-const grades = parseGradeCatalog(`- grade: ResultGrade_F\n  threshold: 0\n- grade: ResultGrade_APlus\n  threshold: 100\n- grade: ResultGrade_APlus\n  threshold: 200\n- grade: ResultGrade_SssPlus\n  threshold: 300\n`);
+const grades = parseGradeCatalog(`- produceGroupId: produce_group-001\n  grade: ResultGrade_F\n  threshold: 0\n- produceGroupId: produce_group-001\n  grade: ResultGrade_APlus\n  threshold: 100\n- produceGroupId: produce_group-002\n  grade: ResultGrade_APlus\n  threshold: 200\n- produceGroupId: produce_group-003\n  grade: ResultGrade_SssPlus\n  threshold: 300\n`);
 assert.deepEqual(grades, ["ResultGrade_F", "ResultGrade_APlus", "ResultGrade_SssPlus"]);
 assert.equal(gradeLabel("ResultGrade_APlus"), "A+");
 assert.equal(gradeLabel("ResultGrade_SssPlus"), "SSS+");
