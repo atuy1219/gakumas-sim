@@ -1,0 +1,70 @@
+name: Apply tower four-memory support
+
+on:
+  push:
+    branches:
+      - feature/tower-four-memories
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/tower-four-memories
+          fetch-depth: 0
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"target not found in {path}: {old!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "web/index.html",
+              '<select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option></select>',
+              '<select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select>',
+          )
+
+          replace_once(
+              "web/app_v3.js",
+              '  const roles = slots.length === 2 ? ["Main", "Sub"] : ["Main", "Sub 1", "Sub 2"];',
+              '  const roles = slots.length === 2\n    ? ["Main", "Sub"]\n    : ["Main", ...Array.from({ length: slots.length - 1 }, (_, index) => `Sub ${index + 1}`)];',
+          )
+
+          replace_once(
+              "web/app_v3.js",
+              '  return composeSelectedMemories(memoryList, selectedMemoryComposition(mode), baseCards(mode));',
+              '  return composeSelectedMemories(\n    memoryList,\n    selectedMemoryComposition(mode),\n    baseCards(mode),\n    mode === "tower" ? 4 : 3,\n  );',
+          )
+
+          replace_once(
+              "web/engine.js",
+              'export function composeSelectedMemories(memoryList, selections, baseCards = []) {\n  if (!Array.isArray(selections) || selections.length < 2 || selections.length > 3) {\n    throw new Error("メモリーは2枚または3枚選択してください。");\n  }',
+              'export function composeSelectedMemories(memoryList, selections, baseCards = [], maxMemoryCount = 3) {\n  const maxCount = Math.max(2, Number(maxMemoryCount) || 3);\n  if (!Array.isArray(selections) || selections.length < 2 || selections.length > maxCount) {\n    if (maxCount === 3) throw new Error("メモリーは2枚または3枚選択してください。");\n    throw new Error(`メモリーは2枚から${maxCount}枚まで選択してください。`);\n  }',
+          )
+
+          marker = 'assert.throws(\n  () => composeSelectedMemories(owned, [{ userMemoryId: "owned-1", activeProduceCardIds: [] }, { userMemoryId: "owned-2", activeProduceCardIds: ["C"] }]),\n  /有効カード/,\n);\n\nconsole.log("web parity tests: ok");'
+          addition = '''assert.throws(\n  () => composeSelectedMemories(owned, [{ userMemoryId: "owned-1", activeProduceCardIds: [] }, { userMemoryId: "owned-2", activeProduceCardIds: ["C"] }]),\n  /有効カード/,\n);\n\nconst towerFourth = createManualMemory({\n  userMemoryId: "tower-fourth",\n  label: "ドル道4枚目",\n  cards: [{ id: "I" }],\n  activeProduceCardIds: ["I"],\n});\nconst towerLibrary = mergeMemoryLibraries(merged, [towerFourth]);\nconst towerSelections = [\n  { userMemoryId: "owned-1", activeProduceCardIds: ["A", "B"] },\n  { userMemoryId: "owned-2", activeProduceCardIds: ["C", "D"] },\n  { userMemoryId: "manual-one", activeProduceCardIds: ["E", "F"] },\n  { userMemoryId: "tower-fourth", activeProduceCardIds: ["I"] },\n];\nassert.throws(() => composeSelectedMemories(towerLibrary, towerSelections), /2枚または3枚/);\nconst towerFourComposition = composeSelectedMemories(towerLibrary, towerSelections, [], 4);\nassert.equal(towerFourComposition.memories.length, 4);\nassert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "C", "D", "E", "F", "I"]);\n\nconst towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/index.html", import.meta.url), "utf8"));\nassert.match(towerHtml, /id="tower-memory-count"[^>]*>[\\s\\S]*?<option value="4">4枚<\\/option>/);\n\nconsole.log("web parity tests: ok");'''
+          replace_once("test_web.mjs", marker, addition)
+
+          Path(".github/workflows/apply-tower-four-memories.yml").unlink()
+          PY
+      - name: Commit patched files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/index.html web/app_v3.js web/engine.js test_web.mjs .github/workflows/apply-tower-four-memories.yml
+          git commit -m "ドル道のメモリー上限を4枚に拡張"
+          git push origin HEAD:feature/tower-four-memories
