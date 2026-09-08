@@ -180,4 +180,54 @@ assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/index.html", import.meta.url), "utf8"));
 assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
 
+
+// Checkbox insertion order must never change the pre-shuffle deck order.
+const orderMemory = extractMemories({ userMemoryList: [{
+  userMemoryId: "order-memory",
+  examBattleProduceCards: [{ id: "A" }, { id: "B" }, { id: "C" }, { id: "D" }],
+}] })[0];
+const orderLibrary = [orderMemory, owned[0]];
+const orderA = composeSelectedMemories(orderLibrary, [
+  { userMemoryId: "order-memory", activeProduceCardIds: ["D", "B", "A"] },
+  { userMemoryId: "owned-1", activeProduceCardIds: ["A", "B"] },
+]);
+const orderB = composeSelectedMemories(orderLibrary, [
+  { userMemoryId: "order-memory", activeProduceCardIds: ["A", "D", "B"] },
+  { userMemoryId: "owned-1", activeProduceCardIds: ["B", "A"] },
+]);
+assert.deepEqual(orderA.cards.map((card) => card.id), ["A", "B", "D", "A", "B"]);
+assert.deepEqual(orderB.cards.map((card) => card.id), orderA.cards.map((card) => card.id));
+
+// InternalMergeFrom may emit a partial snapshot first and a richer one later.
+const repeatedSnapshots = {
+  userMemoryList: [
+    {
+      userMemoryId: "snapshot-memory",
+      power: 15744,
+      examBattleProduceCards: [{ id: "S1" }, { id: "S2" }],
+    },
+    {
+      userMemoryId: "snapshot-memory",
+      idolCardId: "i_card-jsna-3-000",
+      characterId: "jsna",
+      planType: "ProducePlanType_Plan1",
+      power: 15744,
+      grade: "ResultGrade_SsPlus",
+      vocal: 1876,
+      dance: 1633,
+      visual: 1804,
+      stamina: 38,
+      examBattleProduceCards: [{ id: "S1" }, { id: "S2" }],
+      examBattleProduceItemIds: ["p_item-test"],
+    },
+  ],
+};
+const richer = extractMemories(repeatedSnapshots)[0];
+assert.equal(richer.raw.vocal, 1876);
+assert.equal(richer.raw.dance, 1633);
+assert.equal(richer.raw.visual, 1804);
+assert.equal(richer.raw.stamina, 38);
+assert.equal(richer.raw.grade, "ResultGrade_SsPlus");
+assert.deepEqual(richer.raw.examBattleProduceItemIds, ["p_item-test"]);
+
 console.log("web parity tests: ok");

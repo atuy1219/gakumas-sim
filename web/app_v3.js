@@ -624,8 +624,11 @@ function selectedMemoryComposition(mode) {
 }
 
 function automaticBaseCards(mode) {
+  // アイドルへの道はメモリー以外に加えるのは基本カードだけ。
+  // 汎用の ExamInitialDeck をドル道へ混ぜない。
+  if (mode === "tower") return [];
   const ids = simIds(mode);
-  const selectedId = $(ids.initialId).value.trim();
+  const selectedId = $(ids.initialId)?.value.trim() ?? "";
   let deck = selectedId ? catalogs.initialDeckById.get(selectedId) : null;
   if (mode === "contest" && $("contest-initial-auto").checked) {
     const main = ensureSlots(mode)[0];
@@ -718,7 +721,8 @@ function renderPItems(mode) {
 
 for (const mode of ["contest", "tower"]) {
   $(simIds(mode).count).addEventListener("change", () => renderSimBuilder(mode));
-  $(simIds(mode).initialId).addEventListener("change", () => {
+  const initialIdInput = $(simIds(mode).initialId);
+  initialIdInput?.addEventListener("change", () => {
     renderBaseCards(mode);
     if (mode === "tower") renderObservationButtons();
   });

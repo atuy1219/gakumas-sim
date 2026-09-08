@@ -11,7 +11,7 @@ const LIB_NAME = 'libil2cpp.so';
 const TARGET_NAMESPACE = 'Campus.Common.Proto.Client.Transaction';
 const TARGET_CLASS = 'UserMemory';
 const OUTPUT_PREFIX = 'GAKUMAS_MEMORY ';
-const exportedIds = new Set();
+const exportedSnapshots = new Map();
 let installed = false;
 
 function api(module, name, ret, args) {
@@ -106,9 +106,13 @@ function install() {
         const jsonText = readIl2CppString(managed);
         const memory = JSON.parse(jsonText);
         const userMemoryId = String(memory.userMemoryId ?? '');
-        if (!userMemoryId || exportedIds.has(userMemoryId)) return;
-        exportedIds.add(userMemoryId);
-        console.log(OUTPUT_PREFIX + JSON.stringify(memory));
+        if (!userMemoryId) return;
+        const snapshot = JSON.stringify(memory);
+        if (exportedSnapshots.get(userMemoryId) === snapshot) return;
+        exportedSnapshots.set(userMemoryId, snapshot);
+        // InternalMergeFrom は同じオブジェクトを複数回更新する。後続の完全な
+        // スナップショットも出力し、Web 側で最も情報量の多いものを採用する。
+        console.log(OUTPUT_PREFIX + snapshot);
       } catch (error) {
         console.error('[memory-export] ' + error);
       }

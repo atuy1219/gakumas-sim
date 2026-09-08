@@ -95,17 +95,29 @@ function idolDisplayName(id) {
   return state.idolById.get(String(id))?.name ?? String(id ?? "");
 }
 
+export function hasUsableMemoryStats(memory) {
+  const values = ["vocal", "dance", "visual", "stamina"].map((name) => memory?.[name]);
+  if (values.some((value) => value !== null && value !== undefined && Number(value) !== 0)) return true;
+  // 総合力があるのに4能力がすべて0なら、旧exporterで途中スナップショットを
+  // 保存した可能性が高い。実値0とは断定せず未取得として扱う。
+  return numberField(memory, "power") === 0;
+}
+
 function memoryStatsText(memory) {
   const grade = gradeLabel(memory?.grade);
   const parts = [];
   if (grade !== "未指定") parts.push(`評価 ${grade}`);
   if (numberField(memory, "power")) parts.push(`総合力 ${numberField(memory, "power")}`);
-  parts.push(
-    `Vo ${numberField(memory, "vocal")}`,
-    `Da ${numberField(memory, "dance")}`,
-    `Vi ${numberField(memory, "visual")}`,
-    `体力 ${numberField(memory, "stamina")}`,
-  );
+  if (!hasUsableMemoryStats(memory)) {
+    parts.push("Vo 未取得", "Da 未取得", "Vi 未取得", "体力 未取得");
+  } else {
+    parts.push(
+      `Vo ${numberField(memory, "vocal")}`,
+      `Da ${numberField(memory, "dance")}`,
+      `Vi ${numberField(memory, "visual")}`,
+      `体力 ${numberField(memory, "stamina")}`,
+    );
+  }
   return parts.join(" · ");
 }
 
