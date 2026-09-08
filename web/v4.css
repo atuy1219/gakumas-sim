@@ -1,0 +1,115 @@
+.machine-field {
+  display: none !important;
+}
+
+.field-title-v4 {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-weight: 700;
+}
+
+.pitem-editor-v4 {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.removable-chip-v4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.removable-chip-v4 button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0 0.15rem;
+}
+
+.edit-card-row {
+  grid-template-columns: minmax(15rem, 1fr) minmax(6.5rem, auto) minmax(7rem, auto) auto !important;
+  align-items: end;
+}
+
+.card-name-input-v4 {
+  min-width: 0;
+}
+
+.compact-control-v4 {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 6.5rem;
+}
+
+.compact-control-v4 > span,
+.card-row-note-v4 {
+  font-size: 0.78rem;
+  color: var(--muted, #777);
+}
+
+.card-row-note-v4 {
+  display: none;
+}
+
+.catalog-toolbar-v4 {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.catalog-toolbar-v4 input {
+  flex: 1 1 18rem;
+}
+
+.catalog-grid-v4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+
+.catalog-entry-v4 {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line, color-mix(in srgb, currentColor 18%, transparent));
+  border-radius: 0.9rem;
+  background: var(--surface, transparent);
+}
+
+.catalog-entry-v4 strong {
+  font-size: 1rem;
+}
+
+.catalog-meta-v4 {
+  color: var(--muted, #777);
+  font-size: 0.85rem;
+}
+
+.catalog-entry-v4 details {
+  font-size: 0.78rem;
+  color: var(--muted, #777);
+}
+
+.catalog-entry-v4 code {
+  display: block;
+  margin-top: 0.35rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+@media (max-width: 760px) {
+  .edit-card-row {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .card-name-input-v4 {
+    grid-column: 1 / -1;
+  }
+
+  .edit-card-row > .ghost-button {
+    grid-column: 1 / -1;
+  }
+}
