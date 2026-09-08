@@ -128,7 +128,7 @@ export function gradeLabel(value) {
     Sss: "SSS", SssPlus: "SSS+", Ssss: "SSSS", SsssPlus: "SSSS+",
     Sssss: "SSSSS", SssssPlus: "SSSSS+",
   };
-  return direct[suffix] ?? suffix || "未指定";
+  return (direct[suffix] ?? suffix) || "未指定";
 }
 
 export function planLabel(value) {
