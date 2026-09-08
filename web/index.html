@@ -136,14 +136,14 @@
         <div class="section-head"><div><p class="step">01</p><h2>アイドルへの道 編成</h2></div></div>
         <div class="sim-config-grid">
           <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select></label>
-          <label><span>初期デッキID</span><input id="tower-initial-id" list="initial-deck-options" placeholder="対象ステージのinitial_deck-..."></label>
         </div>
-        <p class="hint">アイドルへの道の初期デッキ対応は自動推測しません。対象ステージで確認できるIDを指定するか、下でカードを追加してください。</p>
+        <p class="hint">アイドルへの道のデッキは、選択したメモリーの採用カードと下で指定する基本カードだけで構成します。</p>
         <div id="tower-builder" class="sim-builder"></div>
         <div class="base-deck-box">
-          <h3>追加の初期 / 共通カード</h3>
+          <h3>基本カード</h3>
           <div id="tower-base-list" class="chip-list"></div>
-          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="カード名を入力または選択"><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>
+          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="ドル道で追加される基本カードを選択"><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>
+          <p class="hint">メモリー以外の任意カードやコンテスト用初期デッキはここには追加しません。</p>
         </div>
         <div class="pitem-box"><strong>Pアイテム</strong><div id="tower-pitems" class="chip-list"></div><p class="hint">Pアイテムとアイドルへの道固有の応援・トラブル効果は、厳密な効果処理を接続してから適用します。</p></div>
       </section>

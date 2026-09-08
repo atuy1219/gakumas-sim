@@ -433,6 +433,21 @@ export function extractUserMemoryList(payload) {
   return source.map((item, index) => normalizeMemoryCandidate(item, index)).filter(Boolean);
 }
 
+function memoryCompletenessScore(memory) {
+  const raw = memory?.raw ?? {};
+  let score = (memory?.examBattleProduceCards?.length ?? 0) * 10;
+  if (memory?.hasActiveProduceCardIds) score += 1000;
+  for (const field of [
+    "idolCardId", "characterId", "planType", "power", "grade",
+    "vocal", "dance", "visual", "stamina", "examBattleProduceItemIds",
+  ]) {
+    if (hasField(raw, field)) score += 5;
+  }
+  const pitems = getField(raw, "examBattleProduceItemIds");
+  if (Array.isArray(pitems)) score += pitems.length;
+  return score;
+}
+
 export function extractMemories(payload) {
   const candidates = [];
   walkJson(payload, (value) => {
@@ -446,8 +461,11 @@ export function extractMemories(payload) {
     const memory = normalizeMemoryCandidate(candidate, index);
     if (!memory) continue;
     const old = byId.get(memory.userMemoryId);
-    const score = (item) => item.examBattleProduceCards.length * 10 + (item.hasActiveProduceCardIds ? 1000 : 0);
-    if (!old || score(memory) > score(old)) byId.set(memory.userMemoryId, memory);
+    // 同点なら後から観測したスナップショットを採用する。InternalMergeFrom は
+    // 同一 UserMemory を段階的に埋めることがあるため、最初の断片を固定しない。
+    if (!old || memoryCompletenessScore(memory) >= memoryCompletenessScore(old)) {
+      byId.set(memory.userMemoryId, memory);
+    }
   }
   return [...byId.values()];
 }
@@ -494,16 +512,19 @@ export function composeSelectedMemories(memoryList, selections, baseCards = [], 
   const selected = selections.map((selection) => {
     const memory = memoryList.find((item) => String(item.userMemoryId) === String(selection.userMemoryId));
     if (!memory) throw new Error(`メモリー ${selection.userMemoryId} が一覧にありません。`);
-    const activeIds = Array.isArray(selection.activeProduceCardIds)
+    const requestedActiveIds = Array.isArray(selection.activeProduceCardIds)
       ? selection.activeProduceCardIds.map(String)
-      : memory.activeProduceCardIds;
-    if (!activeIds.length) throw new Error(`${memory.label}: 有効カードを1枚以上選択してください。`);
-    const byId = new Map(memory.examBattleProduceCards.map((card) => [card.id, card]));
-    const activeCards = activeIds.map((id) => {
-      const card = byId.get(id);
-      if (!card) throw new Error(`${memory.label}: カード ${id} はこのメモリーにありません。`);
-      return card;
-    });
+      : memory.activeProduceCardIds.map(String);
+    if (!requestedActiveIds.length) throw new Error(`${memory.label}: 有効カードを1枚以上選択してください。`);
+    const byId = new Map(memory.examBattleProduceCards.map((card) => [String(card.id), card]));
+    for (const id of requestedActiveIds) {
+      if (!byId.has(id)) throw new Error(`${memory.label}: カード ${id} はこのメモリーにありません。`);
+    }
+    const activeIdSet = new Set(requestedActiveIds);
+    // Fisher–Yates の入力順は UI でチェックした順ではなく、UserMemory が持つ
+    // examBattleProduceCards のネイティブ順を必ず使う。
+    const activeCards = memory.examBattleProduceCards.filter((card) => activeIdSet.has(String(card.id)));
+    const activeIds = activeCards.map((card) => String(card.id));
     return { memory, activeIds, activeCards };
   });
 

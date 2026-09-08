@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   findRestrictedDuplicateIds,
   hasNonZeroMemoryStats,
+  hasUsableMemoryStats,
   resolveMemoryPItemIds,
 } from "./web/app_v6.js";
 
@@ -55,5 +56,8 @@ const cardById = new Map([
 ]);
 assert.deepEqual(findRestrictedDuplicateIds(["limited", "normal", "limited"], cardById), ["limited"]);
 assert.deepEqual(findRestrictedDuplicateIds(["normal", "normal"], cardById), []);
+
+assert.equal(hasUsableMemoryStats({ power: 15744, vocal: 0, dance: 0, visual: 0, stamina: 0 }), false);
+assert.equal(hasUsableMemoryStats({ power: 15744, vocal: 100, dance: 0, visual: 0, stamina: 0 }), true);
 
 console.log("app v6 tests: ok");
