@@ -1,0 +1,32 @@
+.memory-detail-v6 {
+  display: grid;
+  gap: .35rem;
+  margin: .45rem 0 .65rem;
+  padding: .55rem .65rem;
+  border-radius: .65rem;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.memory-stats-v6 {
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.card-rule-badge-v6,
+.catalog-card-rule-v6 {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: .45rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.pitem-v6[data-source="idol"] {
+  font-style: normal;
+}
+
+@media (max-width: 720px) {
+  .memory-detail-v6 {
+    font-size: .92rem;
+  }
+}
