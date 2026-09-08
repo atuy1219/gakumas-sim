@@ -1,0 +1,24 @@
+.sim-filter-control-v5 {
+  position: relative;
+}
+
+.sim-filter-control-v5 > span::after {
+  content: "必須";
+  display: inline-block;
+  margin-left: 0.45rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.sim-filter-hint-v5 {
+  margin-top: -0.25rem;
+  margin-bottom: 0.85rem;
+}
+
+.sim-memory-slot select:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
