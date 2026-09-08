@@ -19,4 +19,8 @@
     if (url === CARD_PRIMARY) return fetchPrimaryOrFallback(CARD_PRIMARY, CARD_FALLBACK, init);
     return nativeFetch(input, init);
   };
+
+  window.addEventListener("DOMContentLoaded", () => {
+    import("./display_fix_v4.js").catch((error) => console.warn("display name fix load failed", error));
+  }, { once: true });
 })();
