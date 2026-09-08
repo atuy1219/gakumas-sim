@@ -51,13 +51,20 @@ export function availableCharacterIds(memories, planType) {
   return [...values];
 }
 
+let memoryStorageSnapshot = null;
+let memoryCache = [];
+
 function readMemories() {
+  const snapshot = localStorage.getItem(MEMORY_STORAGE_KEY) || "[]";
+  if (snapshot === memoryStorageSnapshot) return memoryCache;
+  memoryStorageSnapshot = snapshot;
   try {
-    const raw = JSON.parse(localStorage.getItem(MEMORY_STORAGE_KEY) || "[]");
-    return Array.isArray(raw) ? raw : [];
+    const raw = JSON.parse(snapshot);
+    memoryCache = Array.isArray(raw) ? raw : [];
   } catch {
-    return [];
+    memoryCache = [];
   }
+  return memoryCache;
 }
 
 function loadFilterState() {
@@ -81,9 +88,14 @@ function loadFilterState() {
   }
 }
 
+let lastFilterStateJson = "";
+
 function saveFilterState(state) {
   try {
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(state));
+    const serialized = JSON.stringify(state);
+    if (serialized === lastFilterStateJson) return;
+    localStorage.setItem(FILTER_STORAGE_KEY, serialized);
+    lastFilterStateJson = serialized;
   } catch {}
 }
 
@@ -92,6 +104,26 @@ function textOption(value, text) {
   option.value = String(value ?? "");
   option.textContent = String(text ?? value ?? "");
   return option;
+}
+
+function syncSelectOptions(select, entries) {
+  let unchanged = select.options.length === entries.length;
+  if (unchanged) {
+    for (let index = 0; index < entries.length; index += 1) {
+      const option = select.options[index];
+      const entry = entries[index];
+      if (option.value !== entry.value || option.textContent !== entry.text) {
+        unchanged = false;
+        break;
+      }
+    }
+  }
+  if (unchanged) return false;
+
+  const fragment = document.createDocumentFragment();
+  for (const entry of entries) fragment.append(textOption(entry.value, entry.text));
+  select.replaceChildren(fragment);
+  return true;
 }
 
 function builderElements(mode) {
@@ -106,8 +138,15 @@ function builderElements(mode) {
 
 let characterNames = new Map();
 const filterState = loadFilterState();
-let refreshQueued = false;
+lastFilterStateJson = JSON.stringify(filterState);
 let applyingFilter = false;
+const refreshModes = new Set();
+let refreshHandle = 0;
+
+function deferRefresh(callback) {
+  if (typeof requestAnimationFrame === "function") return requestAnimationFrame(callback);
+  return setTimeout(callback, 0);
+}
 
 function ensureFilterControls(mode) {
   const existing = builderElements(mode);
@@ -145,13 +184,13 @@ function ensureFilterControls(mode) {
     filterState[mode].planType = planSelect.value;
     filterState[mode].characterId = "";
     saveFilterState(filterState);
-    refreshMode(mode);
+    scheduleRefresh(mode);
   });
 
   characterSelect.addEventListener("change", () => {
     filterState[mode].characterId = characterSelect.value;
     saveFilterState(filterState);
-    refreshMode(mode);
+    scheduleRefresh(mode);
   });
 
   return builderElements(mode);
@@ -162,14 +201,18 @@ function populatePlanSelect(mode, memories) {
   if (!plan) return;
   const values = availablePlanTypes(memories);
   const preserve = filterState[mode].planType;
-  plan.innerHTML = "";
-  plan.append(textOption("", "プランを選択"));
-  for (const value of values) plan.append(textOption(value, planLabel(value)));
-  if (preserve && values.includes(preserve)) plan.value = preserve;
-  else {
+  const entries = [
+    { value: "", text: "プランを選択" },
+    ...values.map((value) => ({ value, text: planLabel(value) })),
+  ];
+  syncSelectOptions(plan, entries);
+
+  if (preserve && values.includes(preserve)) {
+    if (plan.value !== preserve) plan.value = preserve;
+  } else {
     filterState[mode].planType = "";
     filterState[mode].characterId = "";
-    plan.value = "";
+    if (plan.value !== "") plan.value = "";
   }
 }
 
@@ -184,15 +227,24 @@ function populateCharacterSelect(mode, memories) {
   const values = availableCharacterIds(memories, planType)
     .sort((a, b) => characterDisplayName(a).localeCompare(characterDisplayName(b), "ja"));
   const preserve = filterState[mode].characterId;
-  character.innerHTML = "";
-  character.append(textOption("", planType ? "アイドルを選択" : "先にプランを選択"));
-  for (const value of values) character.append(textOption(value, characterDisplayName(value)));
-  character.disabled = !planType;
-  if (preserve && values.includes(preserve)) character.value = preserve;
-  else {
+  const entries = [
+    { value: "", text: planType ? "アイドルを選択" : "先にプランを選択" },
+    ...values.map((value) => ({ value, text: characterDisplayName(value) })),
+  ];
+  syncSelectOptions(character, entries);
+
+  const shouldDisable = !planType;
+  if (character.disabled !== shouldDisable) character.disabled = shouldDisable;
+  if (preserve && values.includes(preserve)) {
+    if (character.value !== preserve) character.value = preserve;
+  } else {
     filterState[mode].characterId = "";
-    character.value = "";
+    if (character.value !== "") character.value = "";
   }
+}
+
+function setTextIfChanged(element, text) {
+  if (element && element.textContent !== text) element.textContent = text;
 }
 
 function filterMemorySelects(mode, memories) {
@@ -205,39 +257,47 @@ function filterMemorySelects(mode, memories) {
   const allowedIds = new Set(filtered.map((memory) => String(memory.userMemoryId ?? "")));
   const ready = Boolean(planType && characterId);
 
-  if (hint) {
-    if (!planType) hint.textContent = "最初にプランを選択してください。";
-    else if (!characterId) hint.textContent = "次にアイドルを選択してください。";
-    else hint.textContent = filtered.length
+  if (!planType) setTextIfChanged(hint, "最初にプランを選択してください。");
+  else if (!characterId) setTextIfChanged(hint, "次にアイドルを選択してください。");
+  else setTextIfChanged(
+    hint,
+    filtered.length
       ? `${planLabel(planType)} / ${characterDisplayName(characterId)} のメモリー ${filtered.length}件に絞り込み中です。`
-      : "この条件に一致するメモリーはありません。メモリー管理で登録内容を確認してください。";
+      : "この条件に一致するメモリーはありません。メモリー管理で登録内容を確認してください。"
+  );
+
+  const blankText = !planType
+    ? "先にプランを選択"
+    : !characterId
+      ? "アイドルを選択"
+      : filtered.length
+        ? `メモリーを選択（${filtered.length}件）`
+        : "該当メモリーなし";
+  const shouldDisableSelect = !ready || filtered.length === 0;
+  let invalidSelect = null;
+
+  for (const select of builder.querySelectorAll(".sim-memory-slot select")) {
+    const blank = select.options[0];
+    if (blank && blank.textContent !== blankText) blank.textContent = blankText;
+
+    for (let index = 1; index < select.options.length; index += 1) {
+      const option = select.options[index];
+      const allowed = ready && allowedIds.has(option.value);
+      if (option.hidden === allowed) option.hidden = !allowed;
+      if (option.disabled !== !allowed) option.disabled = !allowed;
+    }
+
+    if (select.disabled !== shouldDisableSelect) select.disabled = shouldDisableSelect;
+    if (!invalidSelect && select.value && !allowedIds.has(select.value)) invalidSelect = select;
   }
 
-  const selects = [...builder.querySelectorAll(".sim-memory-slot select")];
-  for (const select of selects) {
-    const blank = select.options[0];
-    if (blank) {
-      blank.textContent = !planType
-        ? "先にプランを選択"
-        : !characterId
-          ? "アイドルを選択"
-          : filtered.length
-            ? `メモリーを選択（${filtered.length}件）`
-            : "該当メモリーなし";
-    }
-
-    for (const option of [...select.options].slice(1)) {
-      const allowed = ready && allowedIds.has(option.value);
-      option.hidden = !allowed;
-      option.disabled = !allowed;
-    }
-
-    select.disabled = !ready || filtered.length === 0;
-    if (select.value && !allowedIds.has(select.value)) {
-      select.value = "";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      return false;
-    }
+  if (invalidSelect) {
+    setTimeout(() => {
+      if (!invalidSelect.isConnected || !invalidSelect.value || allowedIds.has(invalidSelect.value)) return;
+      invalidSelect.value = "";
+      invalidSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }, 0);
+    return false;
   }
   return true;
 }
@@ -257,13 +317,18 @@ function refreshMode(mode) {
   }
 }
 
-function scheduleRefresh() {
-  if (refreshQueued) return;
-  refreshQueued = true;
-  queueMicrotask(() => {
-    refreshQueued = false;
-    refreshMode("contest");
-    refreshMode("tower");
+function scheduleRefresh(mode = null) {
+  if (mode) refreshModes.add(mode);
+  else {
+    refreshModes.add("contest");
+    refreshModes.add("tower");
+  }
+  if (refreshHandle) return;
+  refreshHandle = deferRefresh(() => {
+    refreshHandle = 0;
+    const modes = [...refreshModes];
+    refreshModes.clear();
+    for (const queuedMode of modes) refreshMode(queuedMode);
   });
 }
 
@@ -283,11 +348,16 @@ async function boot() {
 
   for (const mode of ["contest", "tower"]) {
     const builder = document.getElementById(`${mode}-builder`);
-    if (builder) new MutationObserver(scheduleRefresh).observe(builder, { childList: true, subtree: true });
+    if (builder) new MutationObserver(() => scheduleRefresh(mode)).observe(builder, { childList: true, subtree: true });
   }
 
   window.addEventListener("storage", (event) => {
-    if ([MEMORY_STORAGE_KEY, FILTER_STORAGE_KEY].includes(event.key)) scheduleRefresh();
+    if (event.key === MEMORY_STORAGE_KEY) {
+      memoryStorageSnapshot = null;
+      scheduleRefresh();
+    } else if (event.key === FILTER_STORAGE_KEY) {
+      scheduleRefresh();
+    }
   });
 }
 
