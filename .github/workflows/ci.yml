@@ -29,6 +29,7 @@ jobs:
           node --check web/app_v4.js
           node --check web/display_fix_v4.js
           node --check web/app_v5.js
+          node --check web/app_v6.js
           node --check web/engine.js
           node --check web/sim_v3.js
           node --check web/seed_worker.js
@@ -41,3 +42,5 @@ jobs:
         run: node test_catalog_v4.mjs
       - name: Simulator filter tests
         run: node test_sim_filter_v5.mjs
+      - name: Memory detail tests
+        run: node test_app_v6.mjs
