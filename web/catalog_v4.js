@@ -58,18 +58,54 @@ export function parseCharacterCatalog(text) {
 }
 
 export function parseIdolCardCatalog(text) {
-  return parseTopLevelYamlRecords(text, ["characterId", "name", "rarity", "planType", "assetId"])
+  return parseTopLevelYamlRecords(text, [
+    "characterId",
+    "name",
+    "rarity",
+    "planType",
+    "assetId",
+    "produceVocal",
+    "produceDance",
+    "produceVisual",
+    "produceStamina",
+    "beforeProduceItemId",
+    "afterProduceItemId",
+    "beforeLevelLimitProduceItemId",
+    "afterLevelLimitProduceItemId",
+  ])
     .filter((entry) => entry.name)
-    .map((entry) => ({ ...entry, name: String(entry.name) }));
+    .map((entry) => ({
+      ...entry,
+      name: String(entry.name),
+      produceVocal: Number(entry.produceVocal ?? 0),
+      produceDance: Number(entry.produceDance ?? 0),
+      produceVisual: Number(entry.produceVisual ?? 0),
+      produceStamina: Number(entry.produceStamina ?? 0),
+    }));
 }
 
 export function parseProduceCardCatalog(text) {
-  return parseTopLevelYamlRecords(text, ["upgradeCount", "name", "planType", "category", "rarity", "assetId"])
+  return parseTopLevelYamlRecords(text, [
+    "upgradeCount",
+    "name",
+    "planType",
+    "category",
+    "rarity",
+    "assetId",
+    "stamina",
+    "evaluation",
+    "noDeckDuplication",
+    "isLimited",
+  ])
     .filter((entry) => entry.name)
     .map((entry) => ({
       ...entry,
       name: String(entry.name),
       upgradeCount: Number(entry.upgradeCount ?? 0),
+      stamina: Number(entry.stamina ?? 0),
+      evaluation: Number(entry.evaluation ?? 0),
+      noDeckDuplication: entry.noDeckDuplication === true,
+      isLimited: entry.isLimited === true,
     }));
 }
 
@@ -92,9 +128,14 @@ export function buildCanonicalCardCatalog(entries) {
     };
     const old = byId.get(id);
     if (!old || normalized.upgradeCount < old.upgradeCount) {
-      byId.set(id, { ...normalized, maxMasterStage: Math.max(Number(old?.maxMasterStage ?? 0), normalized.upgradeCount) });
+      byId.set(id, {
+        ...normalized,
+        maxMasterStage: Math.max(Number(old?.maxMasterStage ?? 0), normalized.upgradeCount),
+        noDeckDuplication: Boolean(normalized.noDeckDuplication || old?.noDeckDuplication),
+      });
     } else {
       old.maxMasterStage = Math.max(Number(old.maxMasterStage ?? 0), normalized.upgradeCount);
+      old.noDeckDuplication ||= Boolean(normalized.noDeckDuplication);
     }
   }
   return [...byId.values()].sort((a, b) => a.baseName.localeCompare(b.baseName, "ja") || a.id.localeCompare(b.id));
@@ -110,7 +151,7 @@ export function parseProduceItemCatalog(text) {
 export function parseGradeCatalog(text) {
   const values = [];
   const seen = new Set();
-  for (const match of String(text ?? "").matchAll(/^\s*grade:\s*(ResultGrade_[A-Za-z]+)\s*$/gm)) {
+  for (const match of String(text ?? "").matchAll(/^\s*grade:\s*(ResultGrade_[A-Za-z0-9_]+)\s*$/gm)) {
     if (seen.has(match[1])) continue;
     seen.add(match[1]);
     values.push(match[1]);
@@ -119,16 +160,27 @@ export function parseGradeCatalog(text) {
 }
 
 export function gradeLabel(value) {
-  const suffix = String(value ?? "").replace(/^ResultGrade_/, "");
+  if (value === null || value === undefined || value === "") return "未指定";
+  const numeric = Number(value);
+  if (typeof value === "number" || /^\d+$/.test(String(value))) {
+    const numericLabels = [
+      "未指定", "F", "E", "D", "C", "C+", "B", "B+", "A", "A+",
+      "S", "S+", "SS", "SS+", "SSS", "SSS+", "SSSS", "SSSS+", "SSSSS", "SSSSS+",
+    ];
+    if (Number.isInteger(numeric) && numeric >= 0 && numeric < numericLabels.length) return numericLabels[numeric];
+  }
+
+  const suffix = String(value).trim().replace(/^ResultGrade_/i, "");
+  const key = suffix.replace(/[\s_-]+/g, "").toLowerCase();
   const direct = {
-    Unknown: "未指定",
-    F: "F", E: "E", D: "D", C: "C", CPlus: "C+",
-    B: "B", BPlus: "B+", A: "A", APlus: "A+",
-    S: "S", SPlus: "S+", Ss: "SS", SsPlus: "SS+",
-    Sss: "SSS", SssPlus: "SSS+", Ssss: "SSSS", SsssPlus: "SSSS+",
-    Sssss: "SSSSS", SssssPlus: "SSSSS+",
+    unknown: "未指定",
+    f: "F", e: "E", d: "D", c: "C", cplus: "C+",
+    b: "B", bplus: "B+", a: "A", aplus: "A+",
+    s: "S", splus: "S+", ss: "SS", ssplus: "SS+",
+    sss: "SSS", sssplus: "SSS+", ssss: "SSSS", ssssplus: "SSSS+",
+    sssss: "SSSSS", sssssplus: "SSSSS+",
   };
-  return (direct[suffix] ?? suffix) || "未指定";
+  return direct[key] ?? (suffix.replace(/_PLUS$/i, "+").replaceAll("_", "") || "未指定");
 }
 
 export function planLabel(value) {
