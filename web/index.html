@@ -29,7 +29,6 @@
       <button type="button" data-route="exam"><span class="m3e-nav-icon">試</span>試験（オーディション）</button>
       <button type="button" data-route="contest"><span class="m3e-nav-icon">競</span>コンテスト</button>
       <button type="button" data-route="tower"><span class="m3e-nav-icon">道</span>ドル道</button>
-      <button type="button" data-route="seed"><span class="m3e-nav-icon">#</span>Seed特定</button>
     </nav>
   </aside>
   <main class="shell">
@@ -47,7 +46,6 @@
       <button type="button" class="app-tab" data-tab="exam">試験（オーディション）</button>
       <button type="button" class="app-tab" data-tab="contest">コンテストシミュ</button>
       <button type="button" class="app-tab" data-tab="tower">アイドルへの道シミュ</button>
-      <button type="button" class="app-tab" data-tab="seed">seed特定</button>
     </nav>
 
     <p id="global-error" class="error" role="alert" hidden></p>
@@ -119,18 +117,30 @@
     </section>
 
     <section id="tab-exam" class="tab-panel section-stack m3e-simulator" hidden>
-      <div class="m3e-flow-nav"><span class="active" data-stage="memory">1&nbsp; メモリー選択</span><i></i><span data-stage="simulation">2&nbsp; カード選択</span></div>
-      <section class="panel input-panel" data-sim-stage="memory">
-        <div class="section-head"><div><p class="step">01</p><h2>メモリー選択</h2></div></div>
-        <p class="hint">使用するメモリーを選択して、カード選択へ進みます。</p>
-        <label><span>メモリー</span><select id="exam-memory-select"><option value="">メモリーを選択</option></select></label>
-        <button id="exam-next" type="button" class="primary">カード選択へ</button>
+      <div class="m3e-flow-nav"><span class="active" data-stage="setup">1&nbsp; アイドル・カード選択</span><i></i><span data-stage="simulation">2&nbsp; プレイ補助</span></div>
+      <section class="panel input-panel" data-sim-stage="setup">
+        <div class="section-head"><div><p class="step">01</p><h2>試験・オーディション編成</h2></div></div>
+        <p class="hint">キャラクター、プラン、Pアイドルを選び、使用するカードを必要な枚数だけ追加してください。</p>
+        <div class="sim-config-grid">
+          <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
+          <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
+          <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
+        </div>
+        <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
+        <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
+        <p id="exam-card-summary" class="hint">0枚選択</p>
+        <button id="exam-next" type="button" class="primary">プレイ補助へ</button>
       </section>
       <section class="panel" data-sim-stage="simulation" hidden>
-        <div class="section-head"><div><p class="step">02</p><h2>試験カード選択</h2></div><button type="button" class="secondary m3e-flow-back">メモリー選択へ戻る</button></div>
-        <p class="callout">試験（オーディション）はカード選択のみ対応しています。</p>
-        <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">メモリーを選択してください。</p></div>
-        <p id="exam-card-summary" class="hint">0枚選択</p>
+        <div class="section-head"><div><p class="step">02</p><h2>プレイしながらSeed特定</h2></div><button type="button" class="secondary m3e-flow-back">編成へ戻る</button></div>
+        <div id="exam-deck-summary" class="chip-list"></div>
+        <p class="callout">手札へ出たカードを順にタップしてください。最初の山札1巡分が揃うとSeedを探索できます。途中でカードを使用して進めても構いません。</p>
+        <div class="section-head compact-head"><h3>観測した順番</h3><span id="exam-observed-count" class="badge">0 / 0枚</span></div>
+        <div id="exam-observed-list" class="observed-sequence"><span class="hint">まだカードがありません。</span></div>
+        <div id="exam-observation-buttons" class="observation-grid"></div>
+        <div class="button-row"><button id="exam-find-seed" type="button" class="primary">Seed候補を探索</button><button id="exam-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="exam-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="exam-reset-observation" type="button" class="ghost-button">クリア</button></div>
+        <progress id="exam-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
+        <div id="exam-seed-results" class="seed-results"></div>
       </section>
     </section>
 
@@ -158,7 +168,7 @@
           <label><span>試行回数</span><select id="contest-run-count"><option value="100">100回</option><option value="1000" selected>1,000回</option><option value="10000">10,000回</option><option value="100000">100,000回</option></select></label>
           <label><span>確認する初期ドロー枚数</span><input id="contest-draw-count" type="number" min="1" value="3"></label>
         </div>
-        <p class="callout status-pending">コンテストではseedを手入力しません。各試行のseed系列は自動生成します。現在このWeb版で実行するのはカード分布のMonte Carloです。厳密な最終スコア計算はカード効果・ステージ条件まで接続してから有効化し、未接続の状態で推定スコアは表示しません。</p>
+        <p class="callout status-pending">コンテストではSeedの特定・入力は不要です。現在このWeb版で実行するのはカード分布のMonte Carloです。厳密な最終スコア計算はカード効果・ステージ条件まで接続してから有効化し、未接続の状態で推定スコアは表示しません。</p>
         <button id="contest-run" type="button" class="primary">シミュレーション実行</button>
       </section>
 
@@ -210,18 +220,16 @@
         </div>
       </section>
 
-    </section>
-
-    <section id="tab-seed" class="tab-panel section-stack" hidden>
       <section class="panel">
-        <div class="section-head"><div><p class="step">SEED</p><h2>実機の順番からseedを探索</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
-        <p class="callout">アイドルへの道シミュで設定した編成を使い、実機で見えた<strong>3枚ずつの連続ドロー順</strong>から32-bit seed候補を逆算します。seed特定時は毎ターンスキップする前提なので、3枚の手札はそのまま捨て札へ移動します。山札が空の状態で次の1枚を引く瞬間に、その時点の捨て札だけをseedの続きで再シャッフルします。</p>
-        <div id="tower-observation-buttons" class="observation-grid">メモリーと採用カードを設定すると観測入力ボタンが表示されます。</div>
-        <label class="wide-label"><span>観測したドロー順（3枚 = 1ターン）</span><textarea id="tower-observed" rows="14" spellcheck="false" placeholder="カードボタンを実機のドロー順に押すか、カード名を1行1枚で入力。ターンを跨いでそのまま続けてください"></textarea></label>
-        <div class="button-row"><button id="tower-find-seed" type="button" class="primary">seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
+        <div class="section-head"><div><p class="step">SEED</p><h2>プレイしながらSeed特定</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
+        <p class="callout">手札へ出たカードを順にタップしてください。最初の山札1巡分が揃うとSeedを探索できます。途中でカードを使用して進めても構いません。</p>
+        <div id="tower-observation-buttons" class="observation-grid">編成を設定すると観測入力ボタンが表示されます。</div>
+        <label class="wide-label"><span>観測したドロー順</span><textarea id="tower-observed" rows="8" spellcheck="false" placeholder="カードボタンを実際のドロー順に押してください"></textarea></label>
+        <div class="button-row"><button id="tower-find-seed" type="button" class="primary">Seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
         <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
         <div id="tower-seed-results" class="seed-results"></div>
       </section>
+
     </section>
   </main>
 

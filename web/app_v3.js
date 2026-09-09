@@ -80,7 +80,7 @@ function activateTab(name) {
   document.querySelectorAll(".tab-panel").forEach((panel) => { panel.hidden = panel.id !== `tab-${name}`; });
   clearError();
   history.replaceState(null, "", `${location.pathname}?tab=${encodeURIComponent(name)}`);
-  if (name === "seed") {
+  if (name === "tower") {
     renderObservationButtons();
     updateObservationCount();
   }
@@ -1146,7 +1146,8 @@ function parseObservedIds(composition) {
 }
 
 function parseObservedDraws(composition) {
-  return validateObservedDraws(composition.cards, parseObservedIds(composition), 3);
+  const deckCount = composition.cards.length;
+  return validateObservedDraws(composition.cards, parseObservedIds(composition).slice(0, deckCount), 3);
 }
 
 function renderObservationButtons() {
@@ -1162,14 +1163,18 @@ function renderObservationButtons() {
   }
   const instances = makeCardInstances(composition.cards);
   const rawLines = observedLines();
-  const currentTurnOffset = Math.floor(rawLines.length / 3) * 3;
-  let currentTurnIds = rawLines.slice(currentTurnOffset);
+  if (rawLines.length >= instances.length) {
+    container.textContent = "山札1巡分の入力が完了しました。Seed候補を探索できます。";
+    updateObservationCount(instances.length);
+    return;
+  }
+  let observedIds = rawLines;
   try {
-    currentTurnIds = parseObservedIds(composition).slice(currentTurnOffset);
+    observedIds = parseObservedIds(composition);
   } catch {}
 
   const used = new Map();
-  for (const id of currentTurnIds) used.set(id, (used.get(id) ?? 0) + 1);
+  for (const id of observedIds) used.set(id, (used.get(id) ?? 0) + 1);
   const seen = new Map();
   const totals = new Map();
   for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
@@ -1202,18 +1207,22 @@ function updateObservationCount(deckCount = null) {
   const total = observedLines().length;
   if (!deckCount) {
     $("tower-observed-count").textContent = "0枚";
+    $("tower-find-seed").disabled = true;
     return;
   }
-  const completedTurns = Math.floor(total / 3);
-  const inTurn = total % 3;
-  const turnText = inTurn === 0 && total > 0
-    ? `${completedTurns}ターン完了`
-    : `${completedTurns + 1}ターン目 ${inTurn} / 3枚`;
   const need = Math.max(0, deckCount - total);
-  $("tower-observed-count").textContent = `${turnText} · 累計${total}枚${need ? ` · seed探索まであと${need}枚` : ""}`;
+  $("tower-observed-count").textContent = `${Math.min(total, deckCount)} / ${deckCount}枚${need ? ` · あと${need}枚` : " · 入力完了"}`;
+  $("tower-find-seed").disabled = total < deckCount;
 }
 
 $("tower-observed").addEventListener("input", () => {
+  renderObservationButtons();
+  updateObservationCount();
+});
+$("tower-undo-observation").addEventListener("click", () => {
+  const lines = observedLines();
+  lines.pop();
+  $("tower-observed").value = lines.join("\n");
   renderObservationButtons();
   updateObservationCount();
 });
@@ -1242,7 +1251,7 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
   }
   if (!matches.length && complete) {
     const p = document.createElement("p");
-    p.textContent = "一致するseedがありません。観測した3枚ずつのドロー順・採用カード・通常の捨て札挙動を確認してください。";
+    p.textContent = "一致するSeedがありません。最初の山札1巡分の順番と編成を確認してください。";
     container.append(p);
     return;
   }
@@ -1259,7 +1268,7 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
   if (matches.length >= MAX_SEED_MATCHES) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = `候補が${MAX_SEED_MATCHES}件に達したため表示を打ち切りました。観測情報を増やしてください。`;
+    p.textContent = `候補が${MAX_SEED_MATCHES}件に達したため表示を打ち切りました。編成と入力順を確認してください。`;
     container.append(p);
   }
   if (!complete) {
@@ -1286,11 +1295,7 @@ async function startSeedSearch() {
       throw new Error("同一カードの重複によるseed条件が64通りを超えました。完全特定を保証できないため、重複カードを見分けられる情報を追加してください。");
     }
 
-    const completeTurns = Math.floor(observed.length / 3);
-    const inTurn = observed.length % 3;
-    const observationSummary = inTurn
-      ? `${completeTurns}ターン完了 + ${completeTurns + 1}ターン目 ${inTurn}/3枚（累計${observed.length}ドロー）`
-      : `${completeTurns}ターン分（累計${observed.length}ドロー）`;
+    const observationSummary = `最初の山札1巡分（${firstDeck.length}枚）`;
 
     const tasks = [];
     let total = 0;
@@ -1341,7 +1346,7 @@ async function startSeedSearch() {
           taskId: nextTask,
           choices: variants[task.variantIndex],
           deckIds: composition.cards.map((card) => String(card.id)),
-          observedIds: observed,
+          observedIds: firstDeck,
           drawPerTurn: 3,
           start: task.start,
           end: task.end,
@@ -1373,7 +1378,7 @@ async function startSeedSearch() {
     });
 
     const result = [...matches].sort((a, b) => a - b);
-    const complete = !seedSearchCancelled && result.length < MAX_SEED_MATCHES;
+    const complete = !seedSearchCancelled;
     renderSeedCandidates(result, scanned, total, complete, complete ? `探索完了: ${result.length}候補` : "探索を停止しました。" );
     if (complete && result.length === 1) {
       $("tower-seed").value = String(result[0]);
@@ -1390,7 +1395,7 @@ async function startSeedSearch() {
 $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(showError));
 
 const tabParam = new URLSearchParams(location.search).get("tab");
-activateTab(["memory", "cards", "items", "contest", "tower", "seed"].includes(tabParam) ? tabParam : "memory");
+activateTab(["memory", "cards", "items", "exam", "contest", "tower"].includes(tabParam) ? tabParam : "memory");
 restoreLibrary();
 renderMemoryList();
 renderSimBuilder("contest");
