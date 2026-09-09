@@ -49,7 +49,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/engine.js web/app_v3.js web/tower_runtime.js web/index.html test_tower_runtime.mjs .github/workflows/ci.yml
+          git add web/engine.js web/app_v3.js web/tower_runtime.js web/index.html test_tower_runtime.mjs
           if git diff --cached --quiet; then
             echo "No changes"
             exit 0
