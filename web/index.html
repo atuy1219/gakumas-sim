@@ -133,7 +133,14 @@
 
     <section id="tab-tower" class="tab-panel section-stack" hidden>
       <section class="panel input-panel">
-        <div class="section-head"><div><p class="step">01</p><h2>アイドルへの道 編成</h2></div></div>
+        <div class="section-head">
+          <div><p class="step">01</p><h2>アイドルへの道 編成</h2></div>
+          <div class="button-row">
+            <button id="tower-export-preset" type="button" class="secondary">セットをエクスポート</button>
+            <label class="file-button">セットをインポート<input id="tower-import-preset" type="file" accept="application/json,.json"></label>
+          </div>
+        </div>
+        <p id="tower-preset-status" class="hint" aria-live="polite"></p>
         <div class="sim-config-grid">
           <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select></label>
         </div>

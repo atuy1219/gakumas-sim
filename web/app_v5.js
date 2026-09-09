@@ -448,6 +448,18 @@ async function boot() {
       scheduleRefresh();
     }
   });
+
+  window.addEventListener("gakumas:tower-preset-filter", (event) => {
+    const detail = event.detail ?? {};
+    filterState.tower = {
+      planType: String(detail.planType ?? ""),
+      characterId: String(detail.characterId ?? ""),
+      idolCardId: String(detail.idolCardId ?? ""),
+    };
+    memoryStorageSnapshot = null;
+    saveFilterState(filterState);
+    scheduleRefresh("tower");
+  });
 }
 
 if (typeof document !== "undefined") {
