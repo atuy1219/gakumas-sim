@@ -189,6 +189,8 @@ assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "
 
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/index.html", import.meta.url), "utf8"));
 assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
+const appV3Source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/app_v3.js", import.meta.url), "utf8"));
+assert.doesNotMatch(appV3Source, /tower-order-result/);
 
 
 // Checkbox insertion order must never change the pre-shuffle deck order.

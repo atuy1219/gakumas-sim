@@ -878,7 +878,6 @@ async function importTowerPreset(file) {
   saveTowerFilter(filter);
   $("tower-observed").value = "";
   $("tower-seed-results").innerHTML = "";
-  $("tower-order-result").hidden = true;
   renderMemoryList();
   renderSimBuilder("tower");
   updateObservationCount();
