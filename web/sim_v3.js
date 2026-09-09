@@ -171,6 +171,91 @@ export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 64) {
   return { variants, truncated, instanceCount: instances.length };
 }
 
+export function observationCardLabel(name, upgradeCount = 0) {
+  const raw = String(name ?? "").trim();
+  const base = raw.replace(/\s*\++\s*$/, "").trim() || raw;
+  return `${base}${Number(upgradeCount ?? 0) > 0 ? "+" : ""}`;
+}
+
+export function splitObservedRounds(observedIds, deckCount) {
+  const count = Number(deckCount);
+  if (!Number.isInteger(count) || count < 1) throw new Error("デッキ枚数が不正です。");
+  const ids = (observedIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  const rounds = [];
+  for (let offset = 0; offset < ids.length; offset += count) {
+    rounds.push(ids.slice(offset, offset + count));
+  }
+  return rounds;
+}
+
+export function validateObservedRounds(cards, observedIds) {
+  const deckIds = makeCardInstances(cards).map((item) => item.id);
+  if (!deckIds.length) throw new Error("デッキにカードがありません。");
+  const rounds = splitObservedRounds(observedIds, deckIds.length);
+  if (!rounds.length || rounds[0].length !== deckIds.length) {
+    const current = rounds[0]?.length ?? 0;
+    throw new Error(`1周目はデッキ全${deckIds.length}枚を入力してください（現在${current}枚）。`);
+  }
+
+  const allowed = multisetCounts(deckIds);
+  for (let roundIndex = 0; roundIndex < rounds.length; roundIndex += 1) {
+    const round = rounds[roundIndex];
+    const counts = multisetCounts(round);
+    for (const [id, count] of counts) {
+      if (count > (allowed.get(id) ?? 0)) {
+        throw new Error(`${roundIndex + 1}周目のカード構成が現在のデッキと一致しません。重複枚数も確認してください。`);
+      }
+    }
+    if (round.length === deckIds.length && !sameMultiset(deckIds, round)) {
+      throw new Error(`${roundIndex + 1}周目のカード構成が現在のデッキと一致しません。`);
+    }
+  }
+  return rounds;
+}
+
+export function shuffleIdsWithState(inputIds, stateInput) {
+  const deck = (inputIds ?? []).map(String);
+  let state = Number(stateInput) >>> 0;
+  for (let n = deck.length; n >= 2; n -= 1) {
+    const j = Math.floor((state * n) / UINT32_SPACE);
+    [deck[j], deck[n - 1]] = [deck[n - 1], deck[j]];
+    state = xorshift32(state);
+  }
+  return { deck, state };
+}
+
+export function simulateShuffleRounds(cards, seed, roundCount = 1) {
+  const count = Number(roundCount);
+  if (!Number.isInteger(count) || count < 1) throw new Error("周回数は1以上の整数で指定してください。");
+  let deck = makeCardInstances(cards).map((item) => item.id);
+  if (!deck.length) throw new Error("デッキにカードがありません。");
+  let state = Number(seed) >>> 0;
+  const rounds = [];
+  for (let round = 0; round < count; round += 1) {
+    const shuffled = shuffleIdsWithState(deck, state);
+    rounds.push(shuffled.deck);
+    deck = shuffled.deck;
+    state = shuffled.state;
+  }
+  return { rounds, randomState: state };
+}
+
+export function seedMatchesObservedRounds(seed, cards, observedRounds) {
+  const rounds = observedRounds ?? [];
+  if (!rounds.length) return false;
+  let deck = makeCardInstances(cards).map((item) => item.id);
+  let state = Number(seed) >>> 0;
+  for (const observed of rounds) {
+    const shuffled = shuffleIdsWithState(deck, state);
+    for (let index = 0; index < observed.length; index += 1) {
+      if (String(shuffled.deck[index]) !== String(observed[index])) return false;
+    }
+    deck = shuffled.deck;
+    state = shuffled.state;
+  }
+  return true;
+}
+
 export function seedIntervalFromChoices(choices) {
   if (!choices?.length) return { start: 0, end: UINT32_SPACE, size: UINT32_SPACE };
   const { n, j } = choices[0];
