@@ -7,9 +7,9 @@ import {
   scanSeedRange,
   seedIntervalFromChoices,
   seedMatchesChoices,
-  seedMatchesObservedRounds,
-  simulateShuffleRounds,
-  validateObservedRounds,
+  seedMatchesObservedDraws,
+  simulateTurnRecycleDraws,
+  validateObservedDraws,
 } from "./web/sim_v3.js";
 
 const cards = "ABCDEFGH".split("").map((id) => ({ id, fixedDeckOrder: 0, upgradeCount: 0 }));
@@ -31,15 +31,35 @@ assert.equal(observationCardLabel("集中+++", 0), "集中");
 assert.equal(observationCardLabel("集中+++", 1), "集中+");
 assert.equal(observationCardLabel("集中", 1), "集中+");
 
-const multi = simulateShuffleRounds(cards, seed, 3);
-assert.equal(multi.rounds[0].join(""), known.initialDeck.map((card) => card.id).join(""));
-const multiObserved = [...multi.rounds[0], ...multi.rounds[1].slice(0, 4)];
-const multiRounds = validateObservedRounds(cards, multiObserved);
-assert.equal(multiRounds.length, 2);
-assert.equal(multiRounds[1].length, 4);
-assert.equal(seedMatchesObservedRounds(seed, cards, multiRounds), true);
-assert.equal(seedMatchesObservedRounds((seed + 1) >>> 0, cards, multiRounds), false);
-assert.throws(() => validateObservedRounds(cards, multi.rounds[0].slice(0, 7)), /1周目/);
+const elevenCards = Array.from({ length: 11 }, (_, index) => ({
+  id: String(index + 1),
+  fixedDeckOrder: 0,
+  upgradeCount: 0,
+}));
+// Seed 14 yields a case where the 12th draw is the same physical card ID as
+// the 6th draw. This is only possible because draw #12 happens after the
+// first recycle while draw #10/#11 are still the current hand and therefore
+// are excluded from the recycle source.
+const recycleRun = simulateTurnRecycleDraws(elevenCards, 14, 12, 3);
+assert.equal(recycleRun.draws.length, 12);
+assert.equal(recycleRun.recycleEvents.length, 1);
+assert.equal(recycleRun.recycleEvents[0].drawIndex, 11);
+assert.deepEqual(
+  [...recycleRun.recycleEvents[0].source].sort(),
+  [...recycleRun.initialDeck.slice(0, 9)].sort(),
+);
+assert.equal(recycleRun.recycleEvents[0].source.includes(recycleRun.initialDeck[9]), false);
+assert.equal(recycleRun.recycleEvents[0].source.includes(recycleRun.initialDeck[10]), false);
+assert.equal(recycleRun.draws[11], recycleRun.draws[5]);
+
+const recycleObserved = validateObservedDraws(elevenCards, recycleRun.draws, 3);
+assert.equal(recycleObserved.length, 12);
+assert.equal(seedMatchesObservedDraws(14, elevenCards, recycleObserved, 3), true);
+assert.equal(seedMatchesObservedDraws(15, elevenCards, recycleObserved, 3), false);
+assert.throws(
+  () => validateObservedDraws(elevenCards, recycleRun.draws.slice(0, 10), 3),
+  /最初の11ドロー/,
+);
 
 const duplicateCards = ["A", "A", "B", "C", "D"].map((id) => ({ id, fixedDeckOrder: 0, upgradeCount: 0 }));
 const duplicateSeed = 0x89abcdef;

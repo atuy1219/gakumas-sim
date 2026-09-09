@@ -86,7 +86,7 @@ export function parseProduceCardCatalogYaml(text) {
       continue;
     }
     if (!current) continue;
-    match = line.match(/^  (upgradeCount|name|planType|category|rarity|assetId):\s*(.*?)\s*$/);
+    match = line.match(/^  (upgradeCount|name|planType|category|rarity|assetId|playMovePositionType|moveEffectTriggerType):\s*(.*?)\s*$/);
     if (!match) continue;
     current[match[1]] = yamlScalar(match[2]);
   }

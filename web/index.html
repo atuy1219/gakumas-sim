@@ -167,9 +167,9 @@
 
       <section class="panel">
         <div class="section-head"><div><p class="step">03</p><h2>実機の順番からseedを探索</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
-        <p class="callout">Fridaを使わず、実機で確認した<strong>1周目と2周目以降の山札順</strong>から32-bit seed候補を逆算します。1周目はデッキ全カードが必要です。1周で候補が複数残る場合は、そのまま2周目・3周目…を続けて入力でき、2周目以降は途中まででも候補絞り込みに使えます。同一カードが複数ある場合も候補割当を考慮します。</p>
+        <p class="callout">実機で見えた<strong>3枚ずつの連続ドロー順</strong>から32-bit seed候補を逆算します。最初のデッキ枚数分で初期シャッフルを特定し、それ以降は「山札が空の状態で次の1枚を引く瞬間に、その時点の捨て札だけをseedの続きで再シャッフルする」挙動を再現して候補を絞ります。使用カードが通常どおり捨て札へ行く場合は、各ターンで3枚のどれを使ったかも内部で候補分岐します。</p>
         <div id="tower-observation-buttons" class="observation-grid">メモリーと採用カードを設定すると観測入力ボタンが表示されます。</div>
-        <label class="wide-label"><span>観測した順番（1周目→2周目→…）</span><textarea id="tower-observed" rows="12" spellcheck="false" placeholder="カードボタンを順に押すか、カード名を1行1枚で入力。1周分入力すると自動で次の周に進みます"></textarea></label>
+        <label class="wide-label"><span>観測したドロー順（3枚 = 1ターン）</span><textarea id="tower-observed" rows="14" spellcheck="false" placeholder="カードボタンを実機のドロー順に押すか、カード名を1行1枚で入力。ターンを跨いでそのまま続けてください"></textarea></label>
         <div class="button-row"><button id="tower-find-seed" type="button" class="primary">seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
         <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
         <div id="tower-seed-results" class="seed-results"></div>
