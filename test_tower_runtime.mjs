@@ -6,6 +6,7 @@ import {
   drawTowerTurn,
   finishTowerTurn,
   isOnceOnlyMove,
+  playTowerCard,
   resolveTowerDefaultDeck,
 } from "./web/tower_runtime.js";
 
@@ -79,5 +80,38 @@ for (let turn = 0; turn < 10 && !sawOnce; turn += 1) {
 assert.equal(sawOnce, true);
 assert.equal(state.lost.length, 0);
 assert.equal(state.discard.some((card) => card.id === "ONCE") || state.deck.some((card) => card.id === "ONCE"), true);
+
+
+// Supported ProduceCard play effects mutate the live Exam state and can add plays.
+const effectCardById = new Map([
+  ["EFFECT", {
+    id: "EFFECT",
+    stamina: 2,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_lesson-0008-01" },
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_block-0004" },
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_playable_value_add-0001" },
+    ],
+  }],
+  ["X", { id: "X", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+  ["Y", { id: "Y", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+]);
+state = createTowerTurnState(
+  ["EFFECT", "X", "Y"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  effectCardById,
+  { stamina: 20 },
+);
+drawTowerTurn(state, 3);
+const effectIndex = state.hand.findIndex((card) => card.id === "EFFECT");
+assert.ok(effectIndex >= 0);
+const play = playTowerCard(state, effectIndex);
+assert.equal(state.exam.stamina, 18);
+assert.equal(state.exam.parameter, 8);
+assert.equal(state.exam.block, 4);
+assert.equal(state.playsRemaining, 1);
+assert.match(play.effects.join(" / "), /パラメータ \+8/);
+assert.equal(state.discard.some((card) => card.id === "EFFECT"), true);
 
 console.log("tower runtime tests: ok");

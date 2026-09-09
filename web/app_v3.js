@@ -22,8 +22,15 @@ import {
   createTowerTurnState,
   drawTowerTurn,
   finishTowerTurn,
+  playTowerCard,
   resolveTowerDefaultDeck,
 } from "./tower_runtime.js";
+import {
+  describeCardEffects,
+  describeProduceItemEffect,
+  loadExamItemCatalogs,
+  resolveProduceItems,
+} from "./exam_effects_v7.js";
 
 const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = "gakumas-sim-memory-library-v3";
@@ -44,6 +51,9 @@ let editingMemoryId = null;
 let seedWorkers = [];
 let seedSearchCancelled = false;
 let towerTurnState = null;
+let examItemCatalogs = {
+  items: [], itemById: new Map(), itemEffects: [], itemEffectById: new Map(),
+};
 
 const simState = {
   contest: { slots: [], baseCards: [] },
@@ -210,6 +220,17 @@ async function initializeCatalogs() {
     $("catalog-dot").classList.add("warn");
     $("catalog-status").textContent = "カード名データを取得できません。ID入力で続行します。";
     console.warn(error);
+  }
+}
+
+async function initializeExamItemCatalogs() {
+  try {
+    examItemCatalogs = await loadExamItemCatalogs();
+    renderPItems("contest");
+    renderPItems("tower");
+    if (towerTurnState) renderTowerTurnState();
+  } catch (error) {
+    console.warn("P-item effect catalog load failed", error);
   }
 }
 
@@ -741,12 +762,17 @@ function renderPItems(mode) {
   for (const slot of ensureSlots(mode)) {
     if (!slot) continue;
     const memory = memoryList.find((item) => item.userMemoryId === slot.memoryId);
-    for (const id of rawArray(memory, "examBattleProduceItemIds")) seen.add(String(id));
+    const ids = memory?.examBattleProduceItemIds?.length
+      ? memory.examBattleProduceItemIds
+      : rawArray(memory, "examBattleProduceItemIds");
+    for (const id of ids ?? []) seen.add(String(id));
   }
-  for (const id of seen) {
+  const resolved = resolveProduceItems([...seen], examItemCatalogs.itemById, examItemCatalogs.itemEffectById);
+  for (const item of resolved.items) {
     const chip = document.createElement("span");
     chip.className = "chip";
-    chip.textContent = id;
+    chip.textContent = item.name && item.name !== item.id ? item.name : item.id;
+    chip.title = [item.id, ...(item.effects ?? []).map(describeProduceItemEffect)].join("\n");
     container.append(chip);
   }
   if (!seen.size) container.textContent = "Pアイテムなし / 未取得";
@@ -954,14 +980,54 @@ function runtimeCardLabel(card) {
   return observationCardLabel(catalogName(card), Number(card?.upgradeCount ?? 0));
 }
 
+function examStateText(exam) {
+  const stamina = Number(exam?.maxStamina ?? 0) > 0
+    ? `${Number(exam.stamina ?? 0)}/${Number(exam.maxStamina ?? 0)}`
+    : String(Number(exam?.stamina ?? 0));
+  return `基礎パラメータ ${Number(exam?.parameter ?? 0)} · 体力 ${stamina} · 元気 ${Number(exam?.block ?? 0)} · 好印象 ${Number(exam?.review ?? 0)} · やる気 ${Number(exam?.aggressive ?? 0)} · 集中 ${Number(exam?.lessonBuff ?? 0)} · 好調 ${Number(exam?.parameterBuff ?? 0)}T`;
+}
+
 function renderTowerTurnState() {
   const box = $("tower-turn-result");
   if (!box) return;
   box.hidden = !towerTurnState;
   if (!towerTurnState) return;
 
-  $("tower-turn-meta").textContent = `Turn ${towerTurnState.turn} · 山札 ${towerTurnState.deck.length} · 捨て札 ${towerTurnState.discard.length} · 除外 ${towerTurnState.lost.length} · 再シャッフル ${towerTurnState.recycleCount}回 · RNG ${asHex(towerTurnState.randomState)}`;
+  $("tower-turn-meta").textContent = `Turn ${towerTurnState.turn} · 使用可能 ${towerTurnState.playsRemaining}回 · 山札 ${towerTurnState.deck.length} · 捨て札 ${towerTurnState.discard.length} · 除外 ${towerTurnState.lost.length} · 再シャッフル ${towerTurnState.recycleCount}回 · RNG ${asHex(towerTurnState.randomState)}`;
   const handBox = $("tower-turn-hand");
+  let examLine = $("tower-turn-exam-state");
+  if (!examLine) {
+    examLine = document.createElement("p");
+    examLine.id = "tower-turn-exam-state";
+    examLine.className = "hint";
+    box.insertBefore(examLine, handBox);
+  }
+  examLine.textContent = examStateText(towerTurnState.exam);
+
+  let itemLine = $("tower-turn-pitems-state");
+  if (!itemLine) {
+    itemLine = document.createElement("p");
+    itemLine.id = "tower-turn-pitems-state";
+    itemLine.className = "hint";
+    box.insertBefore(itemLine, handBox);
+  }
+  const pItemNames = (towerTurnState.pItems ?? []).map((item) => item.name || item.id);
+  itemLine.textContent = pItemNames.length
+    ? `Pアイテム: ${pItemNames.join(" / ")}（効果参照は解決済み、継続効果の発火処理は順次対応）`
+    : "Pアイテム: なし / 未解決";
+
+  let warningLine = $("tower-turn-effect-warning");
+  if (!warningLine) {
+    warningLine = document.createElement("p");
+    warningLine.id = "tower-turn-effect-warning";
+    warningLine.className = "callout";
+    box.insertBefore(warningLine, handBox);
+  }
+  warningLine.hidden = !(towerTurnState.unsupported?.length);
+  warningLine.textContent = towerTurnState.unsupported?.length
+    ? `未対応の効果/条件: ${towerTurnState.unsupported.join(" / ")}`
+    : "";
+
   handBox.innerHTML = "";
   towerTurnState.hand.forEach((card, index) => {
     const article = document.createElement("article");
@@ -969,11 +1035,14 @@ function renderTowerTurnState() {
     const title = document.createElement("strong");
     title.textContent = runtimeCardLabel(card);
     const detail = document.createElement("small");
-    detail.textContent = card.onceOnly ? "レッスン中1回 · 使用すると除外" : "使用後は捨て札";
+    const move = card.onceOnly ? "レッスン中1回 · 使用すると除外" : "使用後は捨て札";
+    const effects = describeCardEffects(card);
+    detail.textContent = [move, ...effects].join(" · ");
     const use = document.createElement("button");
     use.type = "button";
     use.className = "secondary compact";
     use.textContent = "このカードを使用";
+    use.disabled = Number(towerTurnState.playsRemaining ?? 0) <= 0;
     use.addEventListener("click", () => advanceTowerTurn({ type: "use", index }));
     article.append(title, detail, use);
     handBox.append(article);
@@ -983,11 +1052,15 @@ function renderTowerTurnState() {
   history.innerHTML = "";
   for (const entry of [...towerTurnState.history].reverse()) {
     const li = document.createElement("li");
-    const names = entry.hand.map(runtimeCardLabel).join(" / ");
-    const action = entry.action === "skip"
-      ? "スキップ"
-      : `使用: ${runtimeCardLabel(entry.used)}${entry.onceOnly ? "（除外）" : ""}`;
-    li.textContent = `Turn ${entry.turn}: ${names} → ${action}`;
+    const plays = entry.plays ?? [];
+    const action = plays.length
+      ? plays.map((play) => {
+          const details = [...(play.cost ?? []), ...(play.effects ?? [])].filter(Boolean).join(" / ");
+          return `使用: ${runtimeCardLabel(play.card)}${details ? `（${details}）` : ""}`;
+        }).join(" → ")
+      : "スキップ";
+    const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
+    li.textContent = `Turn ${entry.turn}: ${action}${remains}`;
     history.append(li);
   }
 }
@@ -995,11 +1068,20 @@ function renderTowerTurnState() {
 function advanceTowerTurn(action) {
   try {
     clearError();
-    finishTowerTurn(towerTurnState, action);
-    drawTowerTurn(towerTurnState, 3);
+    if (String(action?.type) === "use") {
+      playTowerCard(towerTurnState, action.index);
+      if (Number(towerTurnState.playsRemaining ?? 0) <= 0) {
+        finishTowerTurn(towerTurnState, { type: "end" });
+        drawTowerTurn(towerTurnState, 3);
+      }
+    } else {
+      finishTowerTurn(towerTurnState, action);
+      drawTowerTurn(towerTurnState, 3);
+    }
     renderTowerTurnState();
   } catch (error) {
     showError(error);
+    renderTowerTurnState();
   }
 }
 
@@ -1007,7 +1089,15 @@ $("tower-run").addEventListener("click", () => {
   try {
     clearError();
     const composition = buildComposition("tower");
-    towerTurnState = createTowerTurnState(composition.cards, $("tower-seed").value, catalogs.cardById);
+    const pItemIds = [...new Set(composition.memories.flatMap((memory) =>
+      memory.examBattleProduceItemIds?.length ? memory.examBattleProduceItemIds : rawArray(memory, "examBattleProduceItemIds")
+    ).map(String))];
+    const resolvedPItems = resolveProduceItems(pItemIds, examItemCatalogs.itemById, examItemCatalogs.itemEffectById);
+    towerTurnState = createTowerTurnState(composition.cards, $("tower-seed").value, catalogs.cardById, {
+      cardVariantByKey: catalogs.cardVariantByKey,
+      stamina: Number(composition.memories[0]?.stamina ?? getField(composition.memories[0]?.raw, "stamina") ?? 0),
+      pItems: resolvedPItems.items,
+    });
     drawTowerTurn(towerTurnState, 3);
     renderTowerTurnState();
   } catch (error) {
@@ -1306,3 +1396,4 @@ renderMemoryList();
 renderSimBuilder("contest");
 renderSimBuilder("tower");
 initializeCatalogs();
+initializeExamItemCatalogs();

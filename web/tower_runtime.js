@@ -216,11 +216,6 @@ export function playTowerCard(state, indexInput) {
     recycleEvents: [],
     onceOnly: Boolean(card.onceOnly),
   };
-  event.cost.push(...payCardCost(state.exam, card));
-  state.hand.splice(index, 1);
-  state.playsRemaining -= 1;
-  state.exam.cardPlayCount += 1;
-
   const cardTrigger = checkCardEffectTrigger(card.playProduceExamTriggerId, state.exam);
   if (!cardTrigger.supported) {
     rememberUnsupported(state, `play-trigger:${card.playProduceExamTriggerId}`);
@@ -229,6 +224,10 @@ export function playTowerCard(state, indexInput) {
     throw new Error(`${card.id}: カード使用条件を満たしていません。`);
   }
 
+  event.cost.push(...payCardCost(state.exam, card));
+  state.hand.splice(index, 1);
+  state.playsRemaining -= 1;
+  state.exam.cardPlayCount += 1;
   for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
 
   if (card.onceOnly) state.lost.push(card);

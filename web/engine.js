@@ -62,21 +62,45 @@ export function parseMemoryExportText(text) {
 
 function yamlScalar(value) {
   const text = String(value ?? "").trim();
+  if (text === "true") return true;
+  if (text === "false") return false;
+  if (text === "null") return null;
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
     try {
       if (text.startsWith('"')) return JSON.parse(text);
     } catch {}
     return text.slice(1, -1).replace(/''/g, "'");
   }
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
   return text;
 }
 
 export function parseProduceCardCatalogYaml(text) {
   const cards = [];
   let current = null;
+  let section = null;
+  let activePlayEffect = null;
+  const scalarFields = new Set([
+    "upgradeCount", "name", "planType", "category", "rarity", "assetId",
+    "stamina", "forceStamina", "costType", "costValue",
+    "playProduceExamTriggerId", "playMovePositionType", "moveEffectTriggerType",
+    "isEndTurnLost", "isInitial", "isRestrict", "produceCardStatusEnchantId",
+    "noDeckDuplication", "isLimited", "evaluation",
+  ]);
   const flush = () => {
     if (!current?.id) return;
     current.upgradeCount = Number(current.upgradeCount ?? 0);
+    current.stamina = Number(current.stamina ?? 0);
+    current.forceStamina = Number(current.forceStamina ?? 0);
+    current.costValue = Number(current.costValue ?? 0);
+    current.evaluation = Number(current.evaluation ?? 0);
+    current.playEffects = Array.isArray(current.playEffects) ? current.playEffects : [];
+    current.moveProduceExamEffectIds = Array.isArray(current.moveProduceExamEffectIds) ? current.moveProduceExamEffectIds : [];
+    current.noDeckDuplication = current.noDeckDuplication === true;
+    current.isLimited = current.isLimited === true;
+    current.isEndTurnLost = current.isEndTurnLost === true;
+    current.isInitial = current.isInitial === true;
+    current.isRestrict = current.isRestrict === true;
     cards.push(current);
   };
 
@@ -84,13 +108,49 @@ export function parseProduceCardCatalogYaml(text) {
     let match = line.match(/^- id:\s*(.+?)\s*$/);
     if (match) {
       flush();
-      current = { id: yamlScalar(match[1]) };
+      current = { id: String(yamlScalar(match[1])), playEffects: [], moveProduceExamEffectIds: [] };
+      section = null;
+      activePlayEffect = null;
       continue;
     }
     if (!current) continue;
-    match = line.match(/^  (upgradeCount|name|planType|category|rarity|assetId|playMovePositionType|moveEffectTriggerType):\s*(.*?)\s*$/);
-    if (!match) continue;
-    current[match[1]] = yamlScalar(match[2]);
+
+    match = line.match(/^  ([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/);
+    if (match) {
+      const field = match[1];
+      const raw = match[2];
+      activePlayEffect = null;
+      if (field === "playEffects") {
+        section = raw === "[]" ? null : "playEffects";
+        current.playEffects = [];
+      } else if (field === "moveProduceExamEffectIds") {
+        section = raw === "[]" ? null : "moveProduceExamEffectIds";
+        current.moveProduceExamEffectIds = [];
+      } else {
+        section = null;
+        if (scalarFields.has(field)) current[field] = yamlScalar(raw);
+      }
+      continue;
+    }
+
+    if (section === "playEffects") {
+      match = line.match(/^  -\s*([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/);
+      if (match) {
+        activePlayEffect = { [match[1]]: yamlScalar(match[2]) };
+        current.playEffects.push(activePlayEffect);
+        continue;
+      }
+      match = line.match(/^    ([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/);
+      if (match && activePlayEffect) {
+        activePlayEffect[match[1]] = yamlScalar(match[2]);
+        continue;
+      }
+    }
+
+    if (section === "moveProduceExamEffectIds") {
+      match = line.match(/^  -\s*(.*?)\s*$/);
+      if (match) current.moveProduceExamEffectIds.push(String(yamlScalar(match[1])));
+    }
   }
   flush();
   return cards;
@@ -175,9 +235,14 @@ export async function loadCatalogs(fetchImpl = globalThis.fetch, urls = {}) {
   const cards = parseProduceCardCatalogYaml(cardText);
   const initialDecks = parseExamInitialDeckYaml(deckText);
   const idolCards = parseIdolCardCatalogYaml(idolText);
+  const cardVariantByKey = new Map(cards.map((card) => [
+    `${String(card.id)}@@${Number(card.upgradeCount ?? 0)}`,
+    card,
+  ]));
   return {
     cards,
     cardById: new Map(cards.map((card) => [String(card.id), card])),
+    cardVariantByKey,
     initialDecks,
     initialDeckById: new Map(initialDecks.map((deck) => [String(deck.id), deck])),
     idolCards,

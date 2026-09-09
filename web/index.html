@@ -160,7 +160,7 @@
         <div class="sim-config-grid">
           <label><span>Seed</span><input id="tower-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
         </div>
-        <p class="callout">毎ターン3枚を実際にドローし、カードを1枚使用するかスキップして次ターンへ進めます。通常カードは捨て札へ、「レッスン中1回」のカードは<strong>使用した場合だけ除外</strong>されます。山札が空なら、その時点の捨て札だけを同じ乱数状態の続きで再シャッフルします。カード効果そのものはこの画面では計算しません。</p>
+        <p class="callout">毎ターン3枚を実際にドローし、カードを使用するかターン終了して進めます。通常カードは捨て札へ、「レッスン中1回」のカードは<strong>使用した場合だけ除外</strong>されます。カード効果はProduceCardマスタから読み取り、パラメータ・元気・好印象・やる気・集中・好調・体力回復・追加ドロー・カード使用回数など対応済みの効果を反映します。未対応の効果や条件は無視せず画面に表示します。PアイテムはProduceItem → ProduceItemEffectの参照まで解決し、継続効果の発火処理は順次追加します。</p>
         <button id="tower-run" type="button" class="primary">シミュレーション開始 / リセット</button>
         <div id="tower-turn-result" class="simulation-result" hidden>
           <p id="tower-turn-meta" class="hint"></p>
