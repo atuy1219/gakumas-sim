@@ -32,6 +32,7 @@ jobs:
           node --check web/app_v6.js
           node --check web/engine.js
           node --check web/sim_v3.js
+          node --check web/tower_preset.js
           node --check web/seed_worker.js
           node --check tools/frida/export_memories.js
       - name: Web parity tests
@@ -44,3 +45,5 @@ jobs:
         run: node test_sim_filter_v5.mjs
       - name: Memory detail tests
         run: node test_app_v6.mjs
+      - name: Tower preset tests
+        run: node test_tower_preset.mjs
