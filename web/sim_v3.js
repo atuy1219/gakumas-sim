@@ -227,39 +227,7 @@ export function shuffleIdsWithState(inputIds, stateInput) {
   return { deck, state };
 }
 
-function completedTurnDiscardOrders(hand) {
-  const cards = hand.map(String);
-  if (!cards.length) return [[]];
-  // ExamCardMoveController.MovePlayCard sends the used normal card to Grave
-  // before ResetHand appends the remaining hand in hand order. The observed
-  // draw log does not tell us which of the three cards was used, so keep every
-  // possible normal-card ordering. "skip turn" is identical to using the
-  // first card for Grave ordering and therefore needs no extra branch.
-  const out = [];
-  const seen = new Set();
-  for (let used = 0; used < cards.length; used += 1) {
-    const order = [cards[used], ...cards.filter((_, index) => index !== used)];
-    const key = order.join("\u001f");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(order);
-  }
-  return out;
-}
-
-function dedupeDrawBranches(branches) {
-  const out = [];
-  const seen = new Set();
-  for (const branch of branches) {
-    const key = `${branch.state}|${branch.deck.join("\u001f")}|${branch.discard.join("\u001f")}|${branch.hand.join("\u001f")}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(branch);
-  }
-  return out;
-}
-
-export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3, playedIndexes = []) {
+export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3) {
   const count = Number(drawCount);
   const perTurn = Number(drawPerTurn);
   if (!Number.isInteger(count) || count < 0) throw new Error("ドロー枚数は0以上の整数で指定してください。");
@@ -275,8 +243,6 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
   let hand = [];
   const draws = [];
   const recycleEvents = [];
-  let turnIndex = 0;
-
   for (let drawIndex = 0; drawIndex < count; drawIndex += 1) {
     if (!deck.length) {
       if (!discard.length) break;
@@ -292,11 +258,8 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
     draws.push(card);
     hand.push(card);
     if (hand.length === perTurn) {
-      const requested = Number(playedIndexes?.[turnIndex] ?? 0);
-      const used = Number.isInteger(requested) && requested >= 0 && requested < hand.length ? requested : 0;
-      discard.push(hand[used], ...hand.filter((_, index) => index !== used));
+      discard.push(...hand);
       hand = [];
-      turnIndex += 1;
     }
   }
 
@@ -319,45 +282,26 @@ export function seedMatchesObservedDraws(seed, cards, observedIds, drawPerTurn =
   if (!ids.length || !observed.length) return false;
 
   const initial = shuffleIdsWithState(ids, Number(seed) >>> 0);
-  let branches = [{
-    deck: initial.deck.slice(),
-    discard: [],
-    hand: [],
-    state: initial.state,
-  }];
+  let deck = initial.deck.slice();
+  let discard = [];
+  let hand = [];
+  let state = initial.state;
 
   for (const expected of observed) {
-    const next = [];
-    for (const original of branches) {
-      let branch = original;
-      if (!branch.deck.length) {
-        if (!branch.discard.length) continue;
-        const recycled = shuffleIdsWithState(branch.discard, branch.state);
-        branch = {
-          deck: recycled.deck,
-          discard: [],
-          hand: branch.hand.slice(),
-          state: recycled.state,
-        };
-      }
-      if (String(branch.deck[0]) !== String(expected)) continue;
-      const deck = branch.deck.slice(1);
-      const hand = [...branch.hand, branch.deck[0]];
-      if (hand.length < perTurn) {
-        next.push({ deck, discard: branch.discard.slice(), hand, state: branch.state });
-        continue;
-      }
-      for (const order of completedTurnDiscardOrders(hand)) {
-        next.push({
-          deck: deck.slice(),
-          discard: [...branch.discard, ...order],
-          hand: [],
-          state: branch.state,
-        });
-      }
+    if (!deck.length) {
+      if (!discard.length) return false;
+      const recycled = shuffleIdsWithState(discard, state);
+      deck = recycled.deck;
+      discard = [];
+      state = recycled.state;
     }
-    branches = dedupeDrawBranches(next);
-    if (!branches.length) return false;
+    if (String(deck[0]) !== String(expected)) return false;
+    hand.push(deck.shift());
+    if (hand.length === perTurn) {
+      // seed特定時は毎ターンスキップするため、使用カード分岐は存在しない。
+      discard.push(...hand);
+      hand = [];
+    }
   }
   return true;
 }

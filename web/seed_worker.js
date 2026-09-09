@@ -34,75 +34,35 @@ function shuffleIds(inputIds, stateInput) {
   return { deck, state };
 }
 
-function completedTurnDiscardOrders(hand) {
-  const out = [];
-  const seen = new Set();
-  for (let used = 0; used < hand.length; used += 1) {
-    const order = [hand[used], ...hand.filter((_, index) => index !== used)];
-    const key = order.join('\u001f');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(order);
-  }
-  return out;
-}
-
-function dedupeBranches(branches) {
-  const out = [];
-  const seen = new Set();
-  for (const branch of branches) {
-    const key = `${branch.state}|${branch.deck.join('\u001f')}|${branch.discard.join('\u001f')}|${branch.hand.join('\u001f')}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(branch);
-  }
-  return out;
-}
-
 function matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn) {
   if (!observedIds.length) return true;
   const initial = shuffleIds(deckIds, Number(seed) >>> 0);
-  let branches = [{ deck: initial.deck, discard: [], hand: [], state: initial.state }];
+  let deck = initial.deck.slice();
+  let discard = [];
+  let hand = [];
+  let state = initial.state;
 
   for (let observedIndex = 0; observedIndex < observedIds.length; observedIndex += 1) {
     const expected = String(observedIds[observedIndex]);
-    const next = [];
-    for (let branchIndex = 0; branchIndex < branches.length; branchIndex += 1) {
-      let branch = branches[branchIndex];
-      if (!branch.deck.length) {
-        if (!branch.discard.length) continue;
-        const recycled = shuffleIds(branch.discard, branch.state);
-        branch = { deck: recycled.deck, discard: [], hand: branch.hand.slice(), state: recycled.state };
-      }
-      if (String(branch.deck[0]) !== expected) continue;
-      const drawn = branch.deck[0];
-      const deck = branch.deck.slice(1);
-      const hand = branch.hand.concat(drawn);
-      if (hand.length < drawPerTurn) {
-        next.push({ deck, discard: branch.discard.slice(), hand, state: branch.state });
-      } else {
-        const orders = completedTurnDiscardOrders(hand);
-        for (let orderIndex = 0; orderIndex < orders.length; orderIndex += 1) {
-          next.push({
-            deck: deck.slice(),
-            discard: branch.discard.concat(orders[orderIndex]),
-            hand: [],
-            state: branch.state,
-          });
-        }
-      }
+    if (!deck.length) {
+      if (!discard.length) return false;
+      const recycled = shuffleIds(discard, state);
+      deck = recycled.deck;
+      discard = [];
+      state = recycled.state;
     }
-    branches = dedupeBranches(next);
-    if (!branches.length) return false;
+    if (String(deck[0]) !== expected) return false;
+    hand.push(deck.shift());
+    if (hand.length === drawPerTurn) {
+      discard.push(...hand);
+      hand = [];
+    }
   }
   return true;
 }
 
 function matches(seed, choices, deckIds, observedIds, drawPerTurn) {
   if (!matchesChoices(seed, choices)) return false;
-  // The choice sequence already proves the first complete initial deck order.
-  // Only invoke the more expensive turn/discard branching when observations
-  // actually extend beyond that first deck.
   if (observedIds.length <= deckIds.length) return true;
   return matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn);
 }
@@ -124,12 +84,5 @@ self.onmessage = (event) => {
       if (found.length >= maxMatches) break;
     }
   }
-  self.postMessage({
-    type: 'done',
-    taskId: message.taskId,
-    start,
-    end,
-    scanned: end - start,
-    found,
-  });
+  self.postMessage({ type: 'done', taskId: message.taskId, start, end, scanned: end - start, found });
 };

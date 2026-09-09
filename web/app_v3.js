@@ -8,7 +8,6 @@ import {
   parseMemoryExportText,
   resolveCardInput,
   resolveContestInitialDeck,
-  simulateCards,
 } from "./engine.js";
 import {
   deriveSeedChoiceVariants,
@@ -19,6 +18,12 @@ import {
   validateObservedDraws,
 } from "./sim_v3.js";
 import { createTowerPreset, parseTowerPreset } from "./tower_preset.js";
+import {
+  createTowerTurnState,
+  drawTowerTurn,
+  finishTowerTurn,
+  resolveTowerDefaultDeck,
+} from "./tower_runtime.js";
 
 const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = "gakumas-sim-memory-library-v3";
@@ -29,12 +34,16 @@ const MAX_SEED_VARIANTS = 64;
 const MAX_SEED_MATCHES = 100;
 const SEED_TASK_SIZE = 1_000_000;
 
-let catalogs = { cards: [], cardById: new Map(), initialDecks: [], initialDeckById: new Map() };
+let catalogs = {
+  cards: [], cardById: new Map(), initialDecks: [], initialDeckById: new Map(),
+  idolCards: [], idolCardById: new Map(),
+};
 let memoryList = [];
 let memoryVisible = MEMORY_PAGE_SIZE;
 let editingMemoryId = null;
 let seedWorkers = [];
 let seedSearchCancelled = false;
+let towerTurnState = null;
 
 const simState = {
   contest: { slots: [], baseCards: [] },
@@ -61,6 +70,10 @@ function activateTab(name) {
   document.querySelectorAll(".tab-panel").forEach((panel) => { panel.hidden = panel.id !== `tab-${name}`; });
   clearError();
   history.replaceState(null, "", `${location.pathname}?tab=${encodeURIComponent(name)}`);
+  if (name === "seed") {
+    renderObservationButtons();
+    updateObservationCount();
+  }
 }
 
 document.querySelectorAll(".app-tab").forEach((button) => button.addEventListener("click", () => activateTab(button.dataset.tab)));
@@ -188,7 +201,7 @@ async function initializeCatalogs() {
     persistLibrary();
     sanitizeSelections();
     $("catalog-dot").classList.add("ok");
-    $("catalog-status").textContent = `カード名 ${catalogs.cards.length}件 / 初期デッキ ${catalogs.initialDecks.length}件`;
+    $("catalog-status").textContent = `カード名 ${catalogs.cards.length}件 / 初期デッキ ${catalogs.initialDecks.length}件 / Pアイドル ${catalogs.idolCards.length}件`;
     renderCatalogOptions();
     renderMemoryList();
     renderSimBuilder("contest");
@@ -627,10 +640,19 @@ function selectedMemoryComposition(mode) {
   return slots.map((slot) => ({ userMemoryId: slot.memoryId, activeProduceCardIds: [...slot.activeIds] }));
 }
 
+function towerDefaultDeckResolution() {
+  const main = ensureSlots("tower")[0];
+  if (!main?.memoryId) return null;
+  const memory = memoryList.find((item) => item.userMemoryId === main.memoryId);
+  if (!memory?.idolCardId) return null;
+  return resolveTowerDefaultDeck(memory.idolCardId, catalogs.idolCardById, catalogs.initialDeckById);
+}
+
 function automaticBaseCards(mode) {
-  // アイドルへの道はメモリー以外に加えるのは基本カードだけ。
-  // 汎用の ExamInitialDeck をドル道へ混ぜない。
-  if (mode === "tower") return [];
+  if (mode === "tower") {
+    const resolved = towerDefaultDeckResolution();
+    return resolved ? resolved.cards.map((card) => ({ ...card, source: `tower default: ${resolved.deckId}` })) : [];
+  }
   const ids = simIds(mode);
   const selectedId = $(ids.initialId)?.value.trim() ?? "";
   let deck = selectedId ? catalogs.initialDeckById.get(selectedId) : null;
@@ -643,6 +665,7 @@ function automaticBaseCards(mode) {
 }
 
 function baseCards(mode) {
+  if (mode === "tower") return automaticBaseCards(mode);
   return [...automaticBaseCards(mode), ...simState[mode].baseCards];
 }
 
@@ -652,7 +675,7 @@ function renderBaseCards(mode) {
   if (!container) return;
   container.innerHTML = "";
   const auto = automaticBaseCards(mode);
-  const manual = simState[mode].baseCards;
+  const manual = mode === "tower" ? [] : simState[mode].baseCards;
   [...auto, ...manual].forEach((card, index) => {
     const chip = document.createElement("span");
     chip.className = `chip ${index < auto.length ? "auto-chip" : ""}`;
@@ -674,7 +697,7 @@ function renderBaseCards(mode) {
   if (!auto.length && !manual.length) {
     const hint = document.createElement("span");
     hint.className = "hint";
-    hint.textContent = "初期/共通カード未設定";
+    hint.textContent = mode === "tower" ? "MainのPアイドルを選択すると基本カードを自動追加します" : "初期/共通カード未設定";
     container.append(hint);
   }
 }
@@ -696,10 +719,16 @@ function addBaseCard(mode) {
 }
 
 function buildComposition(mode) {
+  const selected = selectedMemoryComposition(mode);
+  const extras = baseCards(mode);
+  if (mode === "tower" && catalogs.idolCards.length && !extras.length) {
+    const main = memoryList.find((item) => item.userMemoryId === selected[0]?.userMemoryId);
+    throw new Error(`${main?.label ?? "Main"}: Pアイドルのタイプからドル道の基本カードを特定できません。`);
+  }
   return composeSelectedMemories(
     memoryList,
-    selectedMemoryComposition(mode),
-    baseCards(mode),
+    selected,
+    extras,
     mode === "tower" ? 4 : 3,
   );
 }
@@ -730,7 +759,7 @@ for (const mode of ["contest", "tower"]) {
     renderBaseCards(mode);
     if (mode === "tower") renderObservationButtons();
   });
-  $(`${mode}-add-base`).addEventListener("click", () => addBaseCard(mode));
+  $(`${mode}-add-base`)?.addEventListener("click", () => addBaseCard(mode));
 }
 $("contest-initial-auto").addEventListener("change", () => renderBaseCards("contest"));
 
@@ -799,12 +828,7 @@ function exportTowerPreset() {
       memoryCount: desiredSlotCount("tower"),
       slots,
       memories: selected.map(compactStoredMemory),
-      baseCards: simState.tower.baseCards.map((card) => ({
-        id: String(card.id),
-        upgradeCount: Number(card.upgradeCount ?? 0),
-        fixedDeckOrder: Number(card.fixedDeckOrder ?? 0),
-        customizes: Array.isArray(card.customizes) ? card.customizes : [],
-      })),
+      baseCards: [],
       filter,
     });
     const blob = new Blob([`${JSON.stringify(preset, null, 2)}
@@ -850,13 +874,7 @@ async function importTowerPreset(file) {
     memoryId: slot.userMemoryId,
     activeIds: new Set(slot.activeProduceCardIds.map(String)),
   }));
-  simState.tower.baseCards = preset.baseCards.map((card) => ({
-    id: String(card.id),
-    upgradeCount: Number(card.upgradeCount ?? 0),
-    fixedDeckOrder: Number(card.fixedDeckOrder ?? 0),
-    customizes: Array.isArray(card.customizes) ? card.customizes : [],
-    source: "imported basic",
-  }));
+  simState.tower.baseCards = [];
   saveTowerFilter(filter);
   $("tower-observed").value = "";
   $("tower-seed-results").innerHTML = "";
@@ -933,32 +951,74 @@ $("contest-run").addEventListener("click", () => {
   }
 });
 
-function renderTowerOrder(result) {
-  const box = $("tower-order-result");
-  box.hidden = false;
-  $("tower-order-meta").textContent = `Seed ${result.seed} / ${asHex(result.seed)} · Shuffle後 ${result.randomState} / ${asHex(result.randomState)}`;
-  const list = $("tower-order-list");
-  list.innerHTML = "";
-  result.initialDeck.forEach((card, index) => {
-    const li = document.createElement("li");
-    const strong = document.createElement("strong");
-    strong.textContent = `${index + 1}. ${observationCardName(card)}`;
-    const small = document.createElement("small");
-    small.textContent = `${card.id}${card.upgradeCount ? ` · +${card.upgradeCount}` : ""}`;
-    li.append(strong, small);
-    list.append(li);
+function runtimeCardLabel(card) {
+  return observationCardLabel(catalogName(card), Number(card?.upgradeCount ?? 0));
+}
+
+function renderTowerTurnState() {
+  const box = $("tower-turn-result");
+  if (!box) return;
+  box.hidden = !towerTurnState;
+  if (!towerTurnState) return;
+
+  $("tower-turn-meta").textContent = `Turn ${towerTurnState.turn} · 山札 ${towerTurnState.deck.length} · 捨て札 ${towerTurnState.discard.length} · 除外 ${towerTurnState.lost.length} · 再シャッフル ${towerTurnState.recycleCount}回 · RNG ${asHex(towerTurnState.randomState)}`;
+  const handBox = $("tower-turn-hand");
+  handBox.innerHTML = "";
+  towerTurnState.hand.forEach((card, index) => {
+    const article = document.createElement("article");
+    article.className = "tower-turn-card-v7";
+    const title = document.createElement("strong");
+    title.textContent = runtimeCardLabel(card);
+    const detail = document.createElement("small");
+    detail.textContent = card.onceOnly ? "レッスン中1回 · 使用すると除外" : "使用後は捨て札";
+    const use = document.createElement("button");
+    use.type = "button";
+    use.className = "secondary compact";
+    use.textContent = "このカードを使用";
+    use.addEventListener("click", () => advanceTowerTurn({ type: "use", index }));
+    article.append(title, detail, use);
+    handBox.append(article);
   });
+
+  const history = $("tower-turn-history");
+  history.innerHTML = "";
+  for (const entry of [...towerTurnState.history].reverse()) {
+    const li = document.createElement("li");
+    const names = entry.hand.map(runtimeCardLabel).join(" / ");
+    const action = entry.action === "skip"
+      ? "スキップ"
+      : `使用: ${runtimeCardLabel(entry.used)}${entry.onceOnly ? "（除外）" : ""}`;
+    li.textContent = `Turn ${entry.turn}: ${names} → ${action}`;
+    history.append(li);
+  }
+}
+
+function advanceTowerTurn(action) {
+  try {
+    clearError();
+    finishTowerTurn(towerTurnState, action);
+    drawTowerTurn(towerTurnState, 3);
+    renderTowerTurnState();
+  } catch (error) {
+    showError(error);
+  }
 }
 
 $("tower-run").addEventListener("click", () => {
   try {
     clearError();
     const composition = buildComposition("tower");
-    renderTowerOrder(simulateCards(composition.cards, $("tower-seed").value, Number($("tower-draw-count").value)));
+    towerTurnState = createTowerTurnState(composition.cards, $("tower-seed").value, catalogs.cardById);
+    drawTowerTurn(towerTurnState, 3);
+    renderTowerTurnState();
   } catch (error) {
-    $("tower-order-result").hidden = true;
+    towerTurnState = null;
+    $("tower-turn-result").hidden = true;
     showError(error);
   }
+});
+$("tower-skip-turn").addEventListener("click", () => {
+  if (towerTurnState) advanceTowerTurn({ type: "skip" });
 });
 
 function observedLines() {
@@ -1036,7 +1096,7 @@ function renderObservationButtons() {
     button.disabled = ordinal <= (used.get(instance.id) ?? 0);
     button.addEventListener("click", () => {
       const lines = observedLines();
-      lines.push(instance.id);
+      lines.push(observationCardName(instance.card));
       $("tower-observed").value = lines.join("\n");
       renderObservationButtons();
       updateObservationCount();
@@ -1104,9 +1164,6 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
     button.textContent = `${seed} / ${asHex(seed)}`;
     button.addEventListener("click", () => {
       $("tower-seed").value = String(seed);
-      try {
-        renderTowerOrder(simulateCards(buildComposition("tower").cards, seed, Number($("tower-draw-count").value)));
-      } catch (error) { showError(error); }
     });
     container.append(button);
   }
@@ -1231,7 +1288,6 @@ async function startSeedSearch() {
     renderSeedCandidates(result, scanned, total, complete, complete ? `探索完了: ${result.length}候補` : "探索を停止しました。" );
     if (complete && result.length === 1) {
       $("tower-seed").value = String(result[0]);
-      renderTowerOrder(simulateCards(composition.cards, result[0], Number($("tower-draw-count").value)));
     }
   } finally {
     for (const worker of seedWorkers) worker.terminate();
@@ -1245,7 +1301,7 @@ async function startSeedSearch() {
 $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(showError));
 
 const tabParam = new URLSearchParams(location.search).get("tab");
-activateTab(["memory", "contest", "tower"].includes(tabParam) ? tabParam : "memory");
+activateTab(["memory", "cards", "items", "contest", "tower", "seed"].includes(tabParam) ? tabParam : "memory");
 restoreLibrary();
 renderMemoryList();
 renderSimBuilder("contest");

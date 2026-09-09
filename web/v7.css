@@ -1,0 +1,25 @@
+.tower-turn-hand-v7 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.tower-turn-card-v7 {
+  display: grid;
+  gap: 9px;
+  padding: 16px;
+  border: 1px solid #e1e4e9;
+  border-radius: 16px;
+  background: #f7f8fa;
+}
+.tower-turn-card-v7 strong { overflow-wrap: anywhere; }
+.tower-turn-card-v7 small { color: #737984; line-height: 1.5; }
+.tower-turn-history-v7 { display: grid; gap: 7px; padding-inline-start: 24px; }
+.tower-turn-history-v7 li { line-height: 1.6; }
+@media (max-width: 760px) {
+  .tower-turn-hand-v7 { grid-template-columns: 1fr; }
+}
+@media (prefers-color-scheme: dark) {
+  .tower-turn-card-v7 { background: #20242b; border-color: #30353d; }
+  .tower-turn-card-v7 small { color: #a9afb9; }
+}

@@ -4,6 +4,8 @@ export const DEFAULT_PRODUCE_CARD_CATALOG_URL =
   "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCard.yaml";
 export const DEFAULT_EXAM_INITIAL_DECK_URL =
   "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ExamInitialDeck.yaml";
+export const DEFAULT_IDOL_CARD_CATALOG_URL =
+  "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/IdolCard.yaml";
 
 function normalizedKey(key) {
   return String(key).replace(/[_\-\s]/g, "").toLowerCase();
@@ -94,6 +96,28 @@ export function parseProduceCardCatalogYaml(text) {
   return cards;
 }
 
+export function parseIdolCardCatalogYaml(text) {
+  const cards = [];
+  let current = null;
+  const flush = () => {
+    if (current?.id) cards.push(current);
+  };
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    let match = line.match(/^- id:\s*(.+?)\s*$/);
+    if (match) {
+      flush();
+      current = { id: yamlScalar(match[1]) };
+      continue;
+    }
+    if (!current) continue;
+    match = line.match(/^  (characterId|name|planType|examEffectType|assetId):\s*(.*?)\s*$/);
+    if (!match) continue;
+    current[match[1]] = yamlScalar(match[2]);
+  }
+  flush();
+  return cards;
+}
+
 export function parseExamInitialDeckYaml(text) {
   const decks = [];
   let current = null;
@@ -138,17 +162,26 @@ export async function loadCatalogs(fetchImpl = globalThis.fetch, urls = {}) {
   if (typeof fetchImpl !== "function") throw new Error("カード名データを取得する fetch がありません。");
   const cardUrl = urls.produceCards ?? DEFAULT_PRODUCE_CARD_CATALOG_URL;
   const deckUrl = urls.initialDecks ?? DEFAULT_EXAM_INITIAL_DECK_URL;
-  const [cardResponse, deckResponse] = await Promise.all([fetchImpl(cardUrl), fetchImpl(deckUrl)]);
+  const idolUrl = urls.idolCards ?? DEFAULT_IDOL_CARD_CATALOG_URL;
+  const [cardResponse, deckResponse, idolResponse] = await Promise.all([
+    fetchImpl(cardUrl), fetchImpl(deckUrl), fetchImpl(idolUrl),
+  ]);
   if (!cardResponse.ok) throw new Error(`カード名データの取得に失敗しました (${cardResponse.status})。`);
   if (!deckResponse.ok) throw new Error(`初期デッキデータの取得に失敗しました (${deckResponse.status})。`);
-  const [cardText, deckText] = await Promise.all([cardResponse.text(), deckResponse.text()]);
+  if (!idolResponse.ok) throw new Error(`Pアイドルデータの取得に失敗しました (${idolResponse.status})。`);
+  const [cardText, deckText, idolText] = await Promise.all([
+    cardResponse.text(), deckResponse.text(), idolResponse.text(),
+  ]);
   const cards = parseProduceCardCatalogYaml(cardText);
   const initialDecks = parseExamInitialDeckYaml(deckText);
+  const idolCards = parseIdolCardCatalogYaml(idolText);
   return {
     cards,
     cardById: new Map(cards.map((card) => [String(card.id), card])),
     initialDecks,
     initialDeckById: new Map(initialDecks.map((deck) => [String(deck.id), deck])),
+    idolCards,
+    idolCardById: new Map(idolCards.map((idol) => [String(idol.id), idol])),
   };
 }
 

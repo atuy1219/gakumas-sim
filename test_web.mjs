@@ -10,6 +10,7 @@ import {
   extractUserMemoryList,
   mergeMemoryLibraries,
   parseExamInitialDeckYaml,
+  parseIdolCardCatalogYaml,
   parseMemoryExportText,
   parseProduceCardCatalogYaml,
   parseSeed,
@@ -56,6 +57,15 @@ const cardById = new Map(catalogCards.map((card) => [card.id, card]));
 assert.equal(cardDisplayName("p_card-a", cardById), "アピールの基本");
 assert.equal(resolveCardInput("アピールの基本", catalogCards).id, "p_card-a");
 assert.equal(resolveCardInput("テストカード+ — p_card-b", catalogCards).id, "p_card-b");
+
+const idolYaml = `- id: i_card-test
+  characterId: hski
+  name: テストPアイドル
+  planType: ProducePlanType_Plan1
+  examEffectType: ProduceExamEffectType_ExamConcentration
+`;
+const idolCatalog = parseIdolCardCatalogYaml(idolYaml);
+assert.equal(idolCatalog[0].examEffectType, "ProduceExamEffectType_ExamConcentration");
 
 const initialYaml = `- id: initial_deck-contest-i_card-test\n  produceCardIds:\n  - p_card-a\n  - p_card-b\n  produceCardUpgradeCounts:\n  - 0\n  - 1\n- id: initial_deck-other\n  produceCardIds: []\n  produceCardUpgradeCounts: []\n`;
 const initialDecks = parseExamInitialDeckYaml(initialYaml);

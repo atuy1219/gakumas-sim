@@ -36,10 +36,9 @@ const elevenCards = Array.from({ length: 11 }, (_, index) => ({
   fixedDeckOrder: 0,
   upgradeCount: 0,
 }));
-// Seed 14 yields a case where the 12th draw is the same physical card ID as
-// the 6th draw. This is only possible because draw #12 happens after the
-// first recycle while draw #10/#11 are still the current hand and therefore
-// are excluded from the recycle source.
+// Seed identification always skips. Seed 14 yields a case where draw #12
+// happens after recycling only the first three completed 3-card hands. The
+// current hand's draw #10/#11 is not part of the recycle source.
 const recycleRun = simulateTurnRecycleDraws(elevenCards, 14, 12, 3);
 assert.equal(recycleRun.draws.length, 12);
 assert.equal(recycleRun.recycleEvents.length, 1);

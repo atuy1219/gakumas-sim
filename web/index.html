@@ -24,6 +24,7 @@
       <button type="button" class="app-tab" data-tab="items">Pアイテム一覧</button>
       <button type="button" class="app-tab" data-tab="contest">コンテストシミュ</button>
       <button type="button" class="app-tab" data-tab="tower">アイドルへの道シミュ</button>
+      <button type="button" class="app-tab" data-tab="seed">seed特定</button>
     </nav>
 
     <p id="global-error" class="error" role="alert" hidden></p>
@@ -144,30 +145,38 @@
         <div class="sim-config-grid">
           <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select></label>
         </div>
-        <p class="hint">アイドルへの道のデッキは、選択したメモリーの採用カードと下で指定する基本カードだけで構成します。</p>
+        <p class="hint">アイドルへの道のデッキは、選択メモリーの採用カード + MainのPアイドルのタイプに対応する公式初期デッキ8枚で構成します。</p>
         <div id="tower-builder" class="sim-builder"></div>
         <div class="base-deck-box">
-          <h3>基本カード</h3>
+          <h3>自動追加される基本カード</h3>
           <div id="tower-base-list" class="chip-list"></div>
-          <div class="inline-add"><input id="tower-base-input" list="produce-card-options" placeholder="ドル道で追加される基本カードを選択"><button id="tower-add-base" type="button" class="secondary compact">追加</button></div>
-          <p class="hint">メモリー以外の任意カードやコンテスト用初期デッキはここには追加しません。</p>
+          <p class="hint">Pアイドルの examEffectType（好調 / 集中 / やる気 / 好印象 / 強気 / 全力）から公式の8枚初期デッキを自動選択します。</p>
         </div>
         <div class="pitem-box"><strong>Pアイテム</strong><div id="tower-pitems" class="chip-list"></div><p class="hint">Pアイテムとアイドルへの道固有の応援・トラブル効果は、厳密な効果処理を接続してから適用します。</p></div>
       </section>
 
       <section class="panel">
-        <div class="section-head"><div><p class="step">02</p><h2>seed指定でカード順を確認</h2></div></div>
+        <div class="section-head"><div><p class="step">02</p><h2>ターン単位カード循環シミュレーション</h2></div></div>
         <div class="sim-config-grid">
           <label><span>Seed</span><input id="tower-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
-          <label><span>表示する先頭枚数</span><input id="tower-draw-count" type="number" min="1" value="8"></label>
         </div>
-        <button id="tower-run" type="button" class="primary">カード順を計算</button>
-        <div id="tower-order-result" class="simulation-result" hidden><p id="tower-order-meta" class="hint"></p><ol id="tower-order-list" class="tower-order-list"></ol></div>
+        <p class="callout">毎ターン3枚を実際にドローし、カードを1枚使用するかスキップして次ターンへ進めます。通常カードは捨て札へ、「レッスン中1回」のカードは<strong>使用した場合だけ除外</strong>されます。山札が空なら、その時点の捨て札だけを同じ乱数状態の続きで再シャッフルします。カード効果そのものはこの画面では計算しません。</p>
+        <button id="tower-run" type="button" class="primary">シミュレーション開始 / リセット</button>
+        <div id="tower-turn-result" class="simulation-result" hidden>
+          <p id="tower-turn-meta" class="hint"></p>
+          <div id="tower-turn-hand" class="tower-turn-hand-v7"></div>
+          <button id="tower-skip-turn" type="button" class="secondary">このターンをスキップ</button>
+          <h3>履歴</h3>
+          <ol id="tower-turn-history" class="tower-turn-history-v7"></ol>
+        </div>
       </section>
 
+    </section>
+
+    <section id="tab-seed" class="tab-panel section-stack" hidden>
       <section class="panel">
-        <div class="section-head"><div><p class="step">03</p><h2>実機の順番からseedを探索</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
-        <p class="callout">実機で見えた<strong>3枚ずつの連続ドロー順</strong>から32-bit seed候補を逆算します。最初のデッキ枚数分で初期シャッフルを特定し、それ以降は「山札が空の状態で次の1枚を引く瞬間に、その時点の捨て札だけをseedの続きで再シャッフルする」挙動を再現して候補を絞ります。使用カードが通常どおり捨て札へ行く場合は、各ターンで3枚のどれを使ったかも内部で候補分岐します。</p>
+        <div class="section-head"><div><p class="step">SEED</p><h2>実機の順番からseedを探索</h2></div><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
+        <p class="callout">アイドルへの道シミュで設定した編成を使い、実機で見えた<strong>3枚ずつの連続ドロー順</strong>から32-bit seed候補を逆算します。seed特定時は毎ターンスキップする前提なので、3枚の手札はそのまま捨て札へ移動します。山札が空の状態で次の1枚を引く瞬間に、その時点の捨て札だけをseedの続きで再シャッフルします。</p>
         <div id="tower-observation-buttons" class="observation-grid">メモリーと採用カードを設定すると観測入力ボタンが表示されます。</div>
         <label class="wide-label"><span>観測したドロー順（3枚 = 1ターン）</span><textarea id="tower-observed" rows="14" spellcheck="false" placeholder="カードボタンを実機のドロー順に押すか、カード名を1行1枚で入力。ターンを跨いでそのまま続けてください"></textarea></label>
         <div class="button-row"><button id="tower-find-seed" type="button" class="primary">seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>

@@ -20,7 +20,7 @@
     return nativeFetch(input, init);
   };
 
-  for (const href of ["./v5.css", "./v6.css"]) {
+  for (const href of ["./v5.css", "./v6.css", "./v7.css"]) {
     const style = document.createElement("link");
     style.rel = "stylesheet";
     style.href = href;

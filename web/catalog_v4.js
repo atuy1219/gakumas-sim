@@ -63,6 +63,7 @@ export function parseIdolCardCatalog(text) {
     "name",
     "rarity",
     "planType",
+    "examEffectType",
     "assetId",
     "produceVocal",
     "produceDance",
@@ -96,6 +97,8 @@ export function parseProduceCardCatalog(text) {
     "evaluation",
     "noDeckDuplication",
     "isLimited",
+    "playMovePositionType",
+    "moveEffectTriggerType",
   ])
     .filter((entry) => entry.name)
     .map((entry) => ({
