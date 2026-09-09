@@ -26,7 +26,7 @@ let memoryCache = [];
 let refreshQueued = false;
 
 function numberField(memory, name) {
-  return Number(memory?.[name] ?? 0) || 0;
+  return Number(memory?.[name] ?? memory?.raw?.[name] ?? 0) || 0;
 }
 
 export function hasNonZeroMemoryStats(memory) {
@@ -34,7 +34,8 @@ export function hasNonZeroMemoryStats(memory) {
 }
 
 function exactPItemIds(memory) {
-  const ids = Array.isArray(memory?.examBattleProduceItemIds) ? memory.examBattleProduceItemIds : [];
+  const source = memory?.examBattleProduceItemIds ?? memory?.raw?.examBattleProduceItemIds;
+  const ids = Array.isArray(source) ? source : [];
   return [...new Set(ids.map(String).map((id) => id.trim()).filter(Boolean))];
 }
 
@@ -96,15 +97,13 @@ function idolDisplayName(id) {
 }
 
 export function hasUsableMemoryStats(memory) {
-  const values = ["vocal", "dance", "visual", "stamina"].map((name) => memory?.[name]);
-  if (values.some((value) => value !== null && value !== undefined && Number(value) !== 0)) return true;
-  // 総合力があるのに4能力がすべて0なら、旧exporterで途中スナップショットを
-  // 保存した可能性が高い。実値0とは断定せず未取得として扱う。
+  const values = ["vocal", "dance", "visual", "stamina"].map((name) => numberField(memory, name));
+  if (values.some((value) => value !== 0)) return true;
   return numberField(memory, "power") === 0;
 }
 
 function memoryStatsText(memory) {
-  const grade = gradeLabel(memory?.grade);
+  const grade = gradeLabel(memory?.grade ?? memory?.raw?.grade);
   const parts = [];
   if (grade !== "未指定") parts.push(`評価 ${grade}`);
   if (numberField(memory, "power")) parts.push(`総合力 ${numberField(memory, "power")}`);
