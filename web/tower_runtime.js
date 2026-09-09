@@ -1,4 +1,11 @@
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
+import {
+  applyParsedExamEffect,
+  checkCardEffectTrigger,
+  createExamState,
+  parseExamEffectId,
+  payCardCost,
+} from "./exam_effects_v7.js";
 
 export const TOWER_DEFAULT_DECK_BY_EXAM_EFFECT = Object.freeze({
   ProduceExamEffectType_ExamParameterBuff: "initial_deck-parameter_buff",
@@ -46,14 +53,15 @@ export function isSupportedSimpleMove(value) {
   return !move || move === "ProduceCardMovePositionType_Unknown" || move === "ProduceCardMovePositionType_Grave" || move === "ProduceCardMovePositionType_Lost";
 }
 
-function runtimeInstances(cards, cardById) {
+function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
   const seen = new Map();
   return (cards ?? []).map((raw, index) => {
     const card = normalizeProduceCard(raw, { source: raw?.source });
     const id = String(card.id);
     const ordinal = (seen.get(id) ?? 0) + 1;
     seen.set(id, ordinal);
-    const master = cardById?.get?.(id) ?? {};
+    const variantKey = `${id}@@${Number(card.upgradeCount ?? 0)}`;
+    const master = cardVariantByKey?.get?.(variantKey) ?? cardById?.get?.(id) ?? {};
     const playMovePositionType = String(master.playMovePositionType ?? card.playMovePositionType ?? "");
     return {
       ...card,
@@ -61,6 +69,15 @@ function runtimeInstances(cards, cardById) {
       originalIndex: index,
       playMovePositionType,
       onceOnly: isOnceOnlyMove(playMovePositionType),
+      stamina: Number(master.stamina ?? 0) || 0,
+      forceStamina: Number(master.forceStamina ?? 0) || 0,
+      costType: String(master.costType ?? "ExamCostType_Unknown"),
+      costValue: Number(master.costValue ?? 0) || 0,
+      playProduceExamTriggerId: String(master.playProduceExamTriggerId ?? ""),
+      playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
+      isInitial: Boolean(master.isInitial),
+      isRestrict: Boolean(master.isRestrict),
+      isEndTurnLost: Boolean(master.isEndTurnLost),
     };
   });
 }
@@ -75,9 +92,9 @@ function shuffleObjectsWithState(input, stateInput) {
   return { deck, randomState: rng.state >>> 0 };
 }
 
-export function createTowerTurnState(cards, seedInput, cardById = new Map()) {
+export function createTowerTurnState(cards, seedInput, cardById = new Map(), options = {}) {
   const seed = typeof seedInput === "number" ? seedInput >>> 0 : parseSeed(seedInput);
-  const instances = runtimeInstances(cards, cardById);
+  const instances = runtimeInstances(cards, cardById, options.cardVariantByKey);
   if (!instances.length) throw new Error("デッキにカードがありません。");
   const initial = shuffleObjectsWithState(instances, seed);
   return {
@@ -92,7 +109,17 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map()) {
     recycleCount: 0,
     history: [],
     lastRecycle: null,
+    exam: createExamState({ stamina: options.stamina }),
+    playsRemaining: 0,
+    currentTurnPlays: [],
+    unsupported: [],
+    pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
   };
+}
+
+function rememberUnsupported(state, value) {
+  const text = String(value ?? "").trim();
+  if (text && !state.unsupported.includes(text)) state.unsupported.push(text);
 }
 
 function recycleIfNeeded(state) {
@@ -113,63 +140,143 @@ function recycleIfNeeded(state) {
   return event;
 }
 
-export function drawTowerTurn(state, drawCount = 3) {
-  const count = Number(drawCount);
-  if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
-  if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
-  state.turn += 1;
+function drawCardsIntoHand(state, count) {
   const recycleEvents = [];
+  const drawn = [];
   for (let i = 0; i < count; i += 1) {
     if (!state.deck.length) {
       const event = recycleIfNeeded(state);
       if (event) recycleEvents.push(event);
     }
     if (!state.deck.length) break;
-    state.hand.push(state.deck.shift());
+    const card = state.deck.shift();
+    state.hand.push(card);
+    drawn.push(card);
   }
-  return { turn: state.turn, hand: state.hand.map((card) => ({ ...card })), recycleEvents };
+  return { drawn, recycleEvents };
+}
+
+export function drawTowerTurn(state, drawCount = 3) {
+  const count = Number(drawCount);
+  if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
+  if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
+  state.turn += 1;
+  state.playsRemaining = 1;
+  state.currentTurnPlays = [];
+  const result = drawCardsIntoHand(state, count);
+  return { turn: state.turn, hand: state.hand.map((card) => ({ ...card })), recycleEvents: result.recycleEvents };
+}
+
+function applyCardEffectEntry(state, entry, event) {
+  const trigger = checkCardEffectTrigger(entry?.produceExamTriggerId, state.exam);
+  if (!trigger.supported) {
+    rememberUnsupported(state, `trigger:${trigger.triggerId}`);
+    event.effects.push(`未対応条件: ${trigger.triggerId}`);
+    return;
+  }
+  if (!trigger.triggered) {
+    event.effects.push(`条件不成立: ${entry?.produceExamTriggerId}`);
+    return;
+  }
+
+  const parsed = parseExamEffectId(entry?.produceExamEffectId);
+  const applied = applyParsedExamEffect(state.exam, parsed);
+  if (applied.unsupported) {
+    rememberUnsupported(state, `effect:${parsed.id}`);
+    event.effects.push(applied.label);
+    return;
+  }
+  if (applied.command === "draw") {
+    const draw = drawCardsIntoHand(state, Number(applied.value) || 0);
+    event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
+    event.recycleEvents.push(...draw.recycleEvents);
+  } else if (applied.command === "playable_add") {
+    state.playsRemaining += Number(applied.value) || 0;
+  }
+  if (applied.label) event.effects.push(applied.label);
+}
+
+export function playTowerCard(state, indexInput) {
+  if (!state.hand.length) throw new Error("使用する手札がありません。");
+  if (Number(state.playsRemaining ?? 0) <= 0) throw new Error("このターンのカード使用回数が残っていません。");
+  const index = Number(indexInput);
+  if (!Number.isInteger(index) || index < 0 || index >= state.hand.length) {
+    throw new Error("使用するカード位置が不正です。");
+  }
+  const card = state.hand[index];
+  if (!isSupportedSimpleMove(card.playMovePositionType)) {
+    throw new Error(`${card.id}: 使用後移動先 ${card.playMovePositionType} は未対応です。`);
+  }
+
+  const event = {
+    card: { ...card },
+    cost: [],
+    effects: [],
+    drawn: [],
+    recycleEvents: [],
+    onceOnly: Boolean(card.onceOnly),
+  };
+  event.cost.push(...payCardCost(state.exam, card));
+  state.hand.splice(index, 1);
+  state.playsRemaining -= 1;
+  state.exam.cardPlayCount += 1;
+
+  const cardTrigger = checkCardEffectTrigger(card.playProduceExamTriggerId, state.exam);
+  if (!cardTrigger.supported) {
+    rememberUnsupported(state, `play-trigger:${card.playProduceExamTriggerId}`);
+    event.effects.push(`カード使用条件は未対応: ${card.playProduceExamTriggerId}`);
+  } else if (!cardTrigger.triggered) {
+    throw new Error(`${card.id}: カード使用条件を満たしていません。`);
+  }
+
+  for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
+
+  if (card.onceOnly) state.lost.push(card);
+  else state.discard.push(card);
+  state.currentTurnPlays.push(event);
+  return event;
+}
+
+function tickTurnDurations(exam) {
+  for (const field of ["parameterBuff", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
+    if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
+  }
 }
 
 export function finishTowerTurn(state, action = { type: "skip" }) {
-  if (!state.hand.length) throw new Error("処理する手札がありません。");
-  const hand = state.hand.map((card) => ({ ...card }));
   const type = String(action?.type ?? "skip");
-  let used = null;
-  let onceOnly = false;
+  let compatibilityUse = null;
+  if (type === "use") compatibilityUse = playTowerCard(state, action?.index);
+  else if (type !== "skip" && type !== "end") throw new Error(`未知のターン操作です: ${type}`);
 
-  if (type === "skip") {
-    // Seed identification uses this exact rule: ResetHand sends the hand to
-    // Grave in draw/hand order, with no played card branch.
-    state.discard.push(...state.hand);
-  } else if (type === "use") {
-    const index = Number(action?.index);
-    if (!Number.isInteger(index) || index < 0 || index >= state.hand.length) {
-      throw new Error("使用するカード位置が不正です。");
-    }
-    const card = state.hand[index];
-    if (!isSupportedSimpleMove(card.playMovePositionType)) {
-      throw new Error(`${card.id}: 使用後移動先 ${card.playMovePositionType} は簡易カード循環シミュレーション未対応です。`);
-    }
-    used = { ...card };
-    onceOnly = Boolean(card.onceOnly);
-    if (onceOnly) state.lost.push(card);
-    else state.discard.push(card);
-    state.discard.push(...state.hand.filter((_, cardIndex) => cardIndex !== index));
-  } else {
-    throw new Error(`未知のターン操作です: ${type}`);
-  }
+  if (!state.hand.length && !state.currentTurnPlays.length) throw new Error("処理する手札がありません。");
+  const remainingHand = state.hand.map((card) => ({ ...card }));
+  state.discard.push(...state.hand);
+  state.hand = [];
 
-  state.history.push({
+  const plays = state.currentTurnPlays.map((play) => ({
+    ...play,
+    card: { ...play.card },
+    drawn: play.drawn.map((card) => ({ ...card })),
+  }));
+  const used = plays[0]?.card ?? compatibilityUse?.card ?? null;
+  const onceOnly = Boolean(plays[0]?.onceOnly);
+  const entry = {
     turn: state.turn,
-    hand,
-    action: type,
+    hand: remainingHand,
+    action: plays.length ? "use" : "skip",
     used,
     onceOnly,
+    plays,
     deckCount: state.deck.length,
     discardCount: state.discard.length,
     lostCount: state.lost.length,
     recycleCount: state.recycleCount,
-  });
-  state.hand = [];
-  return state.history[state.history.length - 1];
+    exam: { ...state.exam },
+  };
+  state.history.push(entry);
+  state.currentTurnPlays = [];
+  state.playsRemaining = 0;
+  tickTurnDurations(state.exam);
+  return entry;
 }
