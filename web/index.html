@@ -8,8 +8,30 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./v3.css">
   <link rel="stylesheet" href="./v4.css">
+  <link rel="stylesheet" href="./material3e.css">
 </head>
 <body>
+  <div class="m3e-topbar">
+    <button id="m3e-menu" class="m3e-icon-button" type="button" aria-label="メニューを開く" aria-expanded="false" aria-controls="m3e-drawer">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="m3e-topbar-title"><strong>学マス シミュレーター</strong><small id="m3e-current-page">メモリー管理</small></div>
+  </div>
+  <div id="m3e-scrim" class="m3e-scrim" hidden></div>
+  <aside id="m3e-drawer" class="m3e-drawer" aria-label="メインメニュー" aria-hidden="true">
+    <div class="m3e-drawer-head"><span class="m3e-logo">G</span><div><strong>Gakumas Sim</strong><small>メニュー</small></div></div>
+    <nav class="m3e-drawer-nav">
+      <button type="button" data-route="memory"><span class="m3e-nav-icon">M</span>メモリー管理</button>
+      <p>P図鑑</p>
+      <button type="button" data-route="cards"><span class="m3e-nav-icon">C</span>カード</button>
+      <button type="button" data-route="items"><span class="m3e-nav-icon">P</span>Pアイテム</button>
+      <p>シミュレーター</p>
+      <button type="button" data-route="exam"><span class="m3e-nav-icon">試</span>試験（オーディション）</button>
+      <button type="button" data-route="contest"><span class="m3e-nav-icon">競</span>コンテスト</button>
+      <button type="button" data-route="tower"><span class="m3e-nav-icon">道</span>ドル道</button>
+      <button type="button" data-route="seed"><span class="m3e-nav-icon">#</span>Seed特定</button>
+    </nav>
+  </aside>
   <main class="shell">
     <header>
       <p class="eyebrow">GAKUMAS SIMULATOR</p>
@@ -22,6 +44,7 @@
       <button type="button" class="app-tab active" data-tab="memory">メモリー管理</button>
       <button type="button" class="app-tab" data-tab="cards">カード一覧</button>
       <button type="button" class="app-tab" data-tab="items">Pアイテム一覧</button>
+      <button type="button" class="app-tab" data-tab="exam">試験（オーディション）</button>
       <button type="button" class="app-tab" data-tab="contest">コンテストシミュ</button>
       <button type="button" class="app-tab" data-tab="tower">アイドルへの道シミュ</button>
       <button type="button" class="app-tab" data-tab="seed">seed特定</button>
@@ -92,6 +115,22 @@
         <div class="catalog-toolbar-v4"><input id="item-catalog-search" type="search" placeholder="Pアイテム名・プランで検索"></div>
         <div id="item-catalog-list" class="catalog-grid-v4"></div>
         <button id="item-catalog-more" type="button" class="secondary" hidden>さらに表示</button>
+      </section>
+    </section>
+
+    <section id="tab-exam" class="tab-panel section-stack m3e-simulator" hidden>
+      <div class="m3e-flow-nav"><span class="active" data-stage="memory">1&nbsp; メモリー選択</span><i></i><span data-stage="simulation">2&nbsp; カード選択</span></div>
+      <section class="panel input-panel" data-sim-stage="memory">
+        <div class="section-head"><div><p class="step">01</p><h2>メモリー選択</h2></div></div>
+        <p class="hint">使用するメモリーを選択して、カード選択へ進みます。</p>
+        <label><span>メモリー</span><select id="exam-memory-select"><option value="">メモリーを選択</option></select></label>
+        <button id="exam-next" type="button" class="primary">カード選択へ</button>
+      </section>
+      <section class="panel" data-sim-stage="simulation" hidden>
+        <div class="section-head"><div><p class="step">02</p><h2>試験カード選択</h2></div><button type="button" class="secondary m3e-flow-back">メモリー選択へ戻る</button></div>
+        <p class="callout">試験（オーディション）はカード選択のみ対応しています。</p>
+        <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">メモリーを選択してください。</p></div>
+        <p id="exam-card-summary" class="hint">0枚選択</p>
       </section>
     </section>
 
@@ -191,5 +230,6 @@
   <script src="./catalog_bootstrap.js"></script>
   <script type="module" src="./app_v3.js"></script>
   <script type="module" src="./app_v4.js"></script>
+  <script type="module" src="./material3e_app_v8.js"></script>
 </body>
 </html>

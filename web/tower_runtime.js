@@ -68,6 +68,8 @@ function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
       token: `${id}@@${ordinal}`,
       originalIndex: index,
       playMovePositionType,
+      category: String(master.category ?? card.category ?? ""),
+      rarity: String(master.rarity ?? card.rarity ?? ""),
       onceOnly: isOnceOnlyMove(playMovePositionType),
       stamina: Number(master.stamina ?? 0) || 0,
       forceStamina: Number(master.forceStamina ?? 0) || 0,
@@ -113,6 +115,12 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     playsRemaining: 0,
     currentTurnPlays: [],
     unsupported: [],
+    timers: [],
+    enchants: [],
+    pendingDraw: 0,
+    pendingHandUpgradeAll: 0,
+    cardEffectPlayCountBuff: null,
+    cardVariantByKey: options.cardVariantByKey ?? new Map(),
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
   };
 }
@@ -163,8 +171,70 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.turn += 1;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
-  const result = drawCardsIntoHand(state, count);
+  const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
+  state.pendingDraw = 0;
+  const result = drawCardsIntoHand(state, count + extraDraw);
+  if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
+    upgradeHandCards(state);
+    state.pendingHandUpgradeAll = 0;
+  }
   return { turn: state.turn, hand: state.hand.map((card) => ({ ...card })), recycleEvents: result.recycleEvents };
+}
+
+function upgradeHandCards(state) {
+  state.hand = state.hand.map((card) => {
+    const nextUpgrade = Number(card.upgradeCount ?? 0) + 1;
+    const nextMaster = state.cardVariantByKey?.get?.(`${card.id}@@${nextUpgrade}`) ?? {};
+    return { ...card, ...nextMaster, token: card.token, originalIndex: card.originalIndex, upgradeCount: nextUpgrade };
+  });
+}
+
+function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) {
+  const applied = applyParsedExamEffect(state.exam, parsed);
+  if (applied.unsupported) {
+    rememberUnsupported(state, `effect:${parsed.id}`);
+    event.effects.push(applied.label);
+    return;
+  }
+
+  switch (applied.command) {
+    case "draw": {
+      if (timed) {
+        state.pendingDraw += Number(applied.value) || 0;
+      } else {
+        const draw = drawCardsIntoHand(state, Number(applied.value) || 0);
+        event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
+        event.recycleEvents.push(...draw.recycleEvents);
+      }
+      break;
+    }
+    case "playable_add":
+      state.playsRemaining += Number(applied.value) || 0;
+      break;
+    case "timer":
+      state.timers.push({ turn: parsed.turn, count: parsed.count, child: parsed.child, id: parsed.id });
+      break;
+    case "effect_repeat":
+      state.cardEffectPlayCountBuff = { value: parsed.value, count: parsed.count, turn: parsed.turn, searchId: parsed.searchId };
+      break;
+    case "hand_swap": {
+      const count = state.hand.length;
+      state.discard.push(...state.hand);
+      state.hand = [];
+      const draw = drawCardsIntoHand(state, count);
+      event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
+      event.recycleEvents.push(...draw.recycleEvents);
+      break;
+    }
+    case "upgrade_hand":
+      if (timed) state.pendingHandUpgradeAll += 1;
+      else upgradeHandCards(state);
+      break;
+    case "status_enchant":
+      state.enchants.push({ ...parsed, effects: parsed.effects.map((effect) => ({ ...effect })) });
+      break;
+  }
+  if (applied.label) event.effects.push(applied.label);
 }
 
 function applyCardEffectEntry(state, entry, event) {
@@ -180,20 +250,17 @@ function applyCardEffectEntry(state, entry, event) {
   }
 
   const parsed = parseExamEffectId(entry?.produceExamEffectId);
-  const applied = applyParsedExamEffect(state.exam, parsed);
-  if (applied.unsupported) {
-    rememberUnsupported(state, `effect:${parsed.id}`);
-    event.effects.push(applied.label);
-    return;
+  executeParsedTowerEffect(state, parsed, event);
+}
+
+function runEnchantPhase(state, phase, event, card = null, source = state.enchants) {
+  for (const enchant of [...source]) {
+    const trigger = enchant.trigger ?? {};
+    if (trigger.phase !== phase) continue;
+    if (trigger.field && Number(state.exam[trigger.field] ?? 0) < Number(trigger.min ?? 0)) continue;
+    if (trigger.category && String(card?.category ?? "") !== trigger.category) continue;
+    for (const effect of enchant.effects ?? []) executeParsedTowerEffect(state, effect, event);
   }
-  if (applied.command === "draw") {
-    const draw = drawCardsIntoHand(state, Number(applied.value) || 0);
-    event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
-    event.recycleEvents.push(...draw.recycleEvents);
-  } else if (applied.command === "playable_add") {
-    state.playsRemaining += Number(applied.value) || 0;
-  }
-  if (applied.label) event.effects.push(applied.label);
 }
 
 export function playTowerCard(state, indexInput) {
@@ -204,6 +271,7 @@ export function playTowerCard(state, indexInput) {
     throw new Error("使用するカード位置が不正です。");
   }
   const card = state.hand[index];
+  const cardPlayEnchants = [...state.enchants];
   if (!isSupportedSimpleMove(card.playMovePositionType)) {
     throw new Error(`${card.id}: 使用後移動先 ${card.playMovePositionType} は未対応です。`);
   }
@@ -228,7 +296,17 @@ export function playTowerCard(state, indexInput) {
   state.hand.splice(index, 1);
   state.playsRemaining -= 1;
   state.exam.cardPlayCount += 1;
-  for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
+  const repeat = state.cardEffectPlayCountBuff && Number(state.cardEffectPlayCountBuff.count ?? 0) > 0
+    ? Math.max(0, Number(state.cardEffectPlayCountBuff.value ?? 0))
+    : 0;
+  if (repeat) {
+    state.cardEffectPlayCountBuff.count -= 1;
+    if (state.cardEffectPlayCountBuff.count <= 0) state.cardEffectPlayCountBuff = null;
+  }
+  for (let n = 0; n <= repeat; n += 1) {
+    for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
+  }
+  runEnchantPhase(state, "card_play", event, card, cardPlayEnchants);
 
   if (card.onceOnly) state.lost.push(card);
   else state.discard.push(card);
@@ -237,9 +315,19 @@ export function playTowerCard(state, indexInput) {
 }
 
 function tickTurnDurations(exam) {
-  for (const field of ["parameterBuff", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
+  for (const field of ["parameterBuff", "parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
     if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
+}
+
+function tickTimers(state, event) {
+  const expired = [];
+  for (const timer of state.timers) {
+    timer.turn -= 1;
+    if (timer.turn <= 0) expired.push(timer);
+  }
+  state.timers = state.timers.filter((timer) => !expired.includes(timer));
+  for (const timer of expired) executeParsedTowerEffect(state, timer.child, event, { timed: true });
 }
 
 export function finishTowerTurn(state, action = { type: "skip" }) {
@@ -276,6 +364,10 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   state.history.push(entry);
   state.currentTurnPlays = [];
   state.playsRemaining = 0;
+  const turnEndEvent = { effects: [], drawn: [], recycleEvents: [] };
+  tickTimers(state, turnEndEvent);
+  runEnchantPhase(state, "end_turn", turnEndEvent);
+  if (turnEndEvent.effects.length) entry.turnEndEffects = turnEndEvent.effects;
   tickTurnDurations(state.exam);
   return entry;
 }

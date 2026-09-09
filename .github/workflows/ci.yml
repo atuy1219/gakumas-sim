@@ -32,6 +32,7 @@ jobs:
           node --check web/app_v6.js
           node --check web/engine.js
           node --check web/exam_effects_v7.js
+          node --check web/material3e_app_v8.js
           node --check web/sim_v3.js
           node --check web/tower_preset.js
           node --check web/tower_runtime.js
@@ -55,3 +56,5 @@ jobs:
         run: |
           node test_exam_effects_v7.mjs
           node test_card_master_effects.mjs
+          node test_exam_runtime_v8.mjs
+          node test_effect_runtime_v8.mjs

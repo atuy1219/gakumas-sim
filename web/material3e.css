@@ -1,0 +1,76 @@
+:root {
+  --m3e-primary: #6750a4;
+  --m3e-on-primary: #fff;
+  --m3e-primary-container: #eaddff;
+  --m3e-on-primary-container: #21005d;
+  --m3e-secondary-container: #e8def8;
+  --m3e-surface: #fdf8ff;
+  --m3e-surface-container: #f3edf7;
+  --m3e-surface-high: #ece6f0;
+  --m3e-outline: #79747e;
+  --m3e-motion: cubic-bezier(.2, 0, 0, 1);
+  background: var(--m3e-surface);
+}
+
+body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 0, transparent 29rem), var(--m3e-surface); }
+.m3e-topbar { position: fixed; z-index: 30; inset: 0 0 auto; height: 72px; display: flex; align-items: center; gap: 16px; padding: 0 max(16px, calc((100vw - 1120px) / 2)); background: color-mix(in srgb, var(--m3e-surface) 88%, transparent); backdrop-filter: blur(18px); border-bottom: 1px solid color-mix(in srgb, var(--m3e-outline) 18%, transparent); }
+.m3e-icon-button { width: 48px; height: 48px; display: grid; place-content: center; gap: 5px; border-radius: 18px; background: var(--m3e-secondary-container); color: var(--m3e-on-primary-container); transition: border-radius .35s var(--m3e-motion), transform .2s var(--m3e-motion); }
+.m3e-icon-button:hover { border-radius: 50%; transform: scale(1.04); }
+.m3e-icon-button span { width: 20px; height: 2px; background: currentColor; border-radius: 2px; }
+.m3e-topbar-title { display: grid; line-height: 1.2; }
+.m3e-topbar-title strong { font-size: 16px; }
+.m3e-topbar-title small { color: var(--m3e-outline); font-size: 12px; }
+.m3e-scrim { position: fixed; z-index: 39; inset: 0; background: rgb(0 0 0 / .38); animation: m3e-fade .2s var(--m3e-motion); }
+.m3e-drawer { position: fixed; z-index: 40; inset: 8px auto 8px 8px; width: min(360px, calc(100vw - 24px)); padding: 18px 12px; border-radius: 28px; background: var(--m3e-surface-container); box-shadow: 0 24px 72px rgb(0 0 0 / .22); transform: translateX(calc(-100% - 20px)); transition: transform .42s var(--m3e-motion); overflow-y: auto; }
+.m3e-drawer.open { transform: translateX(0); }
+.m3e-drawer-head { display: flex; align-items: center; gap: 14px; padding: 8px 12px 20px; }
+.m3e-drawer-head > div { display: grid; }
+.m3e-drawer-head small { color: var(--m3e-outline); }
+.m3e-logo { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 17px 17px 28px 17px; background: var(--m3e-primary); color: var(--m3e-on-primary); font-size: 22px; font-weight: 900; }
+.m3e-drawer-nav { display: grid; gap: 4px; }
+.m3e-drawer-nav p { margin: 18px 18px 6px; color: var(--m3e-outline); font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.m3e-drawer-nav button { min-height: 54px; display: flex; align-items: center; gap: 14px; padding: 8px 16px; border-radius: 16px 28px 28px 16px; background: transparent; color: inherit; text-align: left; transition: background .2s, border-radius .3s var(--m3e-motion), transform .2s; }
+.m3e-drawer-nav button:hover { background: var(--m3e-surface-high); transform: translateX(3px); }
+.m3e-drawer-nav button.active { background: var(--m3e-secondary-container); color: var(--m3e-on-primary-container); border-radius: 28px 16px 16px 28px; }
+.m3e-nav-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 12px; background: color-mix(in srgb, currentColor 10%, transparent); font-size: 12px; font-weight: 900; }
+.app-tabs { display: none !important; }
+.shell { padding-top: 42px; }
+.shell > header { margin-bottom: 34px; }
+.panel { border-color: color-mix(in srgb, var(--m3e-outline) 20%, transparent); border-radius: 30px 30px 18px 30px; box-shadow: 0 10px 32px rgb(50 35 70 / .07); }
+.primary { background: var(--m3e-primary); color: var(--m3e-on-primary); border-radius: 20px 20px 8px 20px; box-shadow: 0 5px 14px rgb(103 80 164 / .2); transition: transform .18s var(--m3e-motion), border-radius .3s var(--m3e-motion); }
+.primary:hover { transform: translateY(-2px); border-radius: 28px; }
+.secondary, .file-button { background: var(--m3e-secondary-container); color: var(--m3e-on-primary-container); border-radius: 18px; }
+.m3e-flow-nav { display: flex; align-items: center; gap: 12px; padding: 8px 4px 18px; }
+.m3e-flow-nav span { padding: 9px 14px; border-radius: 14px; color: var(--m3e-outline); font-size: 12px; font-weight: 800; }
+.m3e-flow-nav span.active { background: var(--m3e-primary-container); color: var(--m3e-on-primary-container); }
+.m3e-flow-nav i { flex: 1; height: 2px; background: var(--m3e-surface-high); }
+.m3e-flow-back { margin-bottom: 12px; }
+.m3e-card-selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.m3e-select-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; padding: 14px; border-radius: 18px; background: var(--m3e-surface-container); cursor: pointer; }
+.m3e-select-card input { width: 20px; margin: 0; accent-color: var(--m3e-primary); }
+.m3e-select-card span { display: grid; min-width: 0; }
+.m3e-select-card strong { overflow: hidden; text-overflow: ellipsis; }
+.m3e-select-card small { color: var(--m3e-outline); }
+@keyframes m3e-fade { from { opacity: 0; } }
+
+@media (max-width: 760px) {
+  body { padding-top: 64px; }
+  .m3e-topbar { height: 64px; padding-inline: 12px; }
+  .m3e-icon-button { width: 44px; height: 44px; }
+  .shell { padding-top: 24px; }
+  .shell > header .eyebrow { display: none; }
+  .shell > header h1 { font-size: 32px; }
+  .m3e-card-selection { grid-template-columns: 1fr; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --m3e-primary: #d0bcff; --m3e-on-primary: #381e72; --m3e-primary-container: #4f378b; --m3e-on-primary-container: #eaddff; --m3e-secondary-container: #4a4458; --m3e-surface: #141218; --m3e-surface-container: #211f26; --m3e-surface-high: #2b2930; --m3e-outline: #cac4d0; }
+  body { background: radial-gradient(circle at 88% 4%, #281f3a 0, transparent 29rem), var(--m3e-surface); }
+  .m3e-topbar { background: rgb(20 18 24 / .88); }
+  .primary { box-shadow: none; }
+  .panel { background: #1d1b20; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
