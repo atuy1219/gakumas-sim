@@ -23,8 +23,19 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - name: Apply patch
-        run: python tools/apply_exam_effects_v7.py
+      - name: Fix patch helper and apply
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply_exam_effects_v7.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'result, count = re.subn(pattern, replacement, text, count=1, flags=flags)'
+          new = 'result, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)'
+          if old not in text:
+              raise SystemExit('replace_once target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          python tools/apply_exam_effects_v7.py
       - name: Syntax and focused tests
         run: |
           node --check web/engine.js
