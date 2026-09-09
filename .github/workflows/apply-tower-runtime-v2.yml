@@ -41,14 +41,12 @@ jobs:
           node test_tower_preset.mjs
           node test_tower_runtime.mjs
           python -m unittest -v
-      - name: Remove temporary apply files
-        run: |
-          rm tools/apply_tower_runtime_v2.py
-          rm .github/workflows/apply-tower-runtime-v2.yml
-      - name: Commit feature
+      - name: Commit feature files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add README.md test_web.mjs test_v3.mjs test_tower_runtime.mjs \
+            web/app_v3.js web/catalog_bootstrap.js web/catalog_v4.js web/engine.js \
+            web/index.html web/seed_worker.js web/sim_v3.js web/tower_runtime.js web/v7.css
           git commit -m "ドル道ターンシミュとseed特定UIを刷新"
           git push origin HEAD:main
