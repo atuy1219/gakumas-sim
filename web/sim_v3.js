@@ -177,40 +177,43 @@ export function observationCardLabel(name, upgradeCount = 0) {
   return `${base}${Number(upgradeCount ?? 0) > 0 ? "+" : ""}`;
 }
 
-export function splitObservedRounds(observedIds, deckCount) {
-  const count = Number(deckCount);
-  if (!Number.isInteger(count) || count < 1) throw new Error("デッキ枚数が不正です。");
+export function splitObservedTurns(observedIds, drawPerTurn = 3) {
+  const count = Number(drawPerTurn);
+  if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
   const ids = (observedIds ?? []).map((id) => String(id).trim()).filter(Boolean);
-  const rounds = [];
+  const turns = [];
   for (let offset = 0; offset < ids.length; offset += count) {
-    rounds.push(ids.slice(offset, offset + count));
+    turns.push(ids.slice(offset, offset + count));
   }
-  return rounds;
+  return turns;
 }
 
-export function validateObservedRounds(cards, observedIds) {
+export function validateObservedDraws(cards, observedIds, drawPerTurn = 3) {
   const deckIds = makeCardInstances(cards).map((item) => item.id);
   if (!deckIds.length) throw new Error("デッキにカードがありません。");
-  const rounds = splitObservedRounds(observedIds, deckIds.length);
-  if (!rounds.length || rounds[0].length !== deckIds.length) {
-    const current = rounds[0]?.length ?? 0;
-    throw new Error(`1周目はデッキ全${deckIds.length}枚を入力してください（現在${current}枚）。`);
+  const observed = (observedIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  if (observed.length < deckIds.length) {
+    throw new Error(`seed探索には最初の${deckIds.length}ドローを入力してください（現在${observed.length}枚）。`);
+  }
+
+  const firstDeck = observed.slice(0, deckIds.length);
+  if (!sameMultiset(deckIds, firstDeck)) {
+    throw new Error("最初のデッキ1巡分のカード構成が現在のデッキと一致しません。重複枚数も確認してください。");
   }
 
   const allowed = multisetCounts(deckIds);
-  for (let roundIndex = 0; roundIndex < rounds.length; roundIndex += 1) {
-    const round = rounds[roundIndex];
-    const counts = multisetCounts(round);
+  for (const [turnIndex, turn] of splitObservedTurns(observed, drawPerTurn).entries()) {
+    const counts = multisetCounts(turn);
     for (const [id, count] of counts) {
-      if (count > (allowed.get(id) ?? 0)) {
-        throw new Error(`${roundIndex + 1}周目のカード構成が現在のデッキと一致しません。重複枚数も確認してください。`);
+      if (!allowed.has(id)) {
+        throw new Error(`${turnIndex + 1}ターン目に現在のデッキにないカード ${id} があります。`);
+      }
+      if (count > allowed.get(id)) {
+        throw new Error(`${turnIndex + 1}ターン目でカード ${id} の枚数がデッキ内枚数を超えています。`);
       }
     }
-    if (round.length === deckIds.length && !sameMultiset(deckIds, round)) {
-      throw new Error(`${roundIndex + 1}周目のカード構成が現在のデッキと一致しません。`);
-    }
   }
-  return rounds;
+  return observed;
 }
 
 export function shuffleIdsWithState(inputIds, stateInput) {
@@ -224,34 +227,137 @@ export function shuffleIdsWithState(inputIds, stateInput) {
   return { deck, state };
 }
 
-export function simulateShuffleRounds(cards, seed, roundCount = 1) {
-  const count = Number(roundCount);
-  if (!Number.isInteger(count) || count < 1) throw new Error("周回数は1以上の整数で指定してください。");
-  let deck = makeCardInstances(cards).map((item) => item.id);
-  if (!deck.length) throw new Error("デッキにカードがありません。");
-  let state = Number(seed) >>> 0;
-  const rounds = [];
-  for (let round = 0; round < count; round += 1) {
-    const shuffled = shuffleIdsWithState(deck, state);
-    rounds.push(shuffled.deck);
-    deck = shuffled.deck;
-    state = shuffled.state;
+function completedTurnDiscardOrders(hand) {
+  const cards = hand.map(String);
+  if (!cards.length) return [[]];
+  // ExamCardMoveController.MovePlayCard sends the used normal card to Grave
+  // before ResetHand appends the remaining hand in hand order. The observed
+  // draw log does not tell us which of the three cards was used, so keep every
+  // possible normal-card ordering. "skip turn" is identical to using the
+  // first card for Grave ordering and therefore needs no extra branch.
+  const out = [];
+  const seen = new Set();
+  for (let used = 0; used < cards.length; used += 1) {
+    const order = [cards[used], ...cards.filter((_, index) => index !== used)];
+    const key = order.join("\u001f");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(order);
   }
-  return { rounds, randomState: state };
+  return out;
 }
 
-export function seedMatchesObservedRounds(seed, cards, observedRounds) {
-  const rounds = observedRounds ?? [];
-  if (!rounds.length) return false;
-  let deck = makeCardInstances(cards).map((item) => item.id);
+function dedupeDrawBranches(branches) {
+  const out = [];
+  const seen = new Set();
+  for (const branch of branches) {
+    const key = `${branch.state}|${branch.deck.join("\u001f")}|${branch.discard.join("\u001f")}|${branch.hand.join("\u001f")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(branch);
+  }
+  return out;
+}
+
+export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3, playedIndexes = []) {
+  const count = Number(drawCount);
+  const perTurn = Number(drawPerTurn);
+  if (!Number.isInteger(count) || count < 0) throw new Error("ドロー枚数は0以上の整数で指定してください。");
+  if (!Number.isInteger(perTurn) || perTurn < 1) throw new Error("1ターンのドロー枚数が不正です。");
+  const ids = makeCardInstances(cards).map((item) => item.id);
+  if (!ids.length) throw new Error("デッキにカードがありません。");
+
   let state = Number(seed) >>> 0;
-  for (const observed of rounds) {
-    const shuffled = shuffleIdsWithState(deck, state);
-    for (let index = 0; index < observed.length; index += 1) {
-      if (String(shuffled.deck[index]) !== String(observed[index])) return false;
+  const initial = shuffleIdsWithState(ids, state);
+  let deck = initial.deck.slice();
+  state = initial.state;
+  let discard = [];
+  let hand = [];
+  const draws = [];
+  const recycleEvents = [];
+  let turnIndex = 0;
+
+  for (let drawIndex = 0; drawIndex < count; drawIndex += 1) {
+    if (!deck.length) {
+      if (!discard.length) break;
+      const source = discard.slice();
+      const recycled = shuffleIdsWithState(discard, state);
+      deck = recycled.deck.slice();
+      discard = [];
+      state = recycled.state;
+      recycleEvents.push({ drawIndex, source, shuffled: deck.slice(), randomState: state });
     }
-    deck = shuffled.deck;
-    state = shuffled.state;
+
+    const card = deck.shift();
+    draws.push(card);
+    hand.push(card);
+    if (hand.length === perTurn) {
+      const requested = Number(playedIndexes?.[turnIndex] ?? 0);
+      const used = Number.isInteger(requested) && requested >= 0 && requested < hand.length ? requested : 0;
+      discard.push(hand[used], ...hand.filter((_, index) => index !== used));
+      hand = [];
+      turnIndex += 1;
+    }
+  }
+
+  return {
+    seed: Number(seed) >>> 0,
+    initialDeck: initial.deck,
+    draws,
+    remainingDeck: deck,
+    discard,
+    hand,
+    recycleEvents,
+    randomState: state,
+  };
+}
+
+export function seedMatchesObservedDraws(seed, cards, observedIds, drawPerTurn = 3) {
+  const perTurn = Number(drawPerTurn);
+  const observed = (observedIds ?? []).map(String);
+  const ids = makeCardInstances(cards).map((item) => item.id);
+  if (!ids.length || !observed.length) return false;
+
+  const initial = shuffleIdsWithState(ids, Number(seed) >>> 0);
+  let branches = [{
+    deck: initial.deck.slice(),
+    discard: [],
+    hand: [],
+    state: initial.state,
+  }];
+
+  for (const expected of observed) {
+    const next = [];
+    for (const original of branches) {
+      let branch = original;
+      if (!branch.deck.length) {
+        if (!branch.discard.length) continue;
+        const recycled = shuffleIdsWithState(branch.discard, branch.state);
+        branch = {
+          deck: recycled.deck,
+          discard: [],
+          hand: branch.hand.slice(),
+          state: recycled.state,
+        };
+      }
+      if (String(branch.deck[0]) !== String(expected)) continue;
+      const deck = branch.deck.slice(1);
+      const hand = [...branch.hand, branch.deck[0]];
+      if (hand.length < perTurn) {
+        next.push({ deck, discard: branch.discard.slice(), hand, state: branch.state });
+        continue;
+      }
+      for (const order of completedTurnDiscardOrders(hand)) {
+        next.push({
+          deck: deck.slice(),
+          discard: [...branch.discard, ...order],
+          hand: [],
+          state: branch.state,
+        });
+      }
+    }
+    branches = dedupeDrawBranches(next);
+    if (!branches.length) return false;
   }
   return true;
 }

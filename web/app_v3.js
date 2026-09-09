@@ -16,7 +16,7 @@ import {
   observationCardLabel,
   runOrderMonteCarlo,
   seedIntervalFromChoices,
-  validateObservedRounds,
+  validateObservedDraws,
 } from "./sim_v3.js";
 import { createTowerPreset, parseTowerPreset } from "./tower_preset.js";
 
@@ -996,8 +996,8 @@ function parseObservedIds(composition) {
   });
 }
 
-function parseObservedRounds(composition) {
-  return validateObservedRounds(composition.cards, parseObservedIds(composition));
+function parseObservedDraws(composition) {
+  return validateObservedDraws(composition.cards, parseObservedIds(composition), 3);
 }
 
 function renderObservationButtons() {
@@ -1012,16 +1012,15 @@ function renderObservationButtons() {
     return;
   }
   const instances = makeCardInstances(composition.cards);
-  const deckCount = instances.length;
   const rawLines = observedLines();
-  const currentRoundOffset = deckCount ? Math.floor(rawLines.length / deckCount) * deckCount : 0;
-  let currentRoundIds = rawLines.slice(currentRoundOffset);
+  const currentTurnOffset = Math.floor(rawLines.length / 3) * 3;
+  let currentTurnIds = rawLines.slice(currentTurnOffset);
   try {
-    currentRoundIds = parseObservedIds(composition).slice(currentRoundOffset);
+    currentTurnIds = parseObservedIds(composition).slice(currentTurnOffset);
   } catch {}
 
   const used = new Map();
-  for (const id of currentRoundIds) used.set(id, (used.get(id) ?? 0) + 1);
+  for (const id of currentTurnIds) used.set(id, (used.get(id) ?? 0) + 1);
   const seen = new Map();
   const totals = new Map();
   for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
@@ -1044,7 +1043,7 @@ function renderObservationButtons() {
     });
     container.append(button);
   }
-  updateObservationCount(deckCount);
+  updateObservationCount(instances.length);
 }
 
 function updateObservationCount(deckCount = null) {
@@ -1053,16 +1052,16 @@ function updateObservationCount(deckCount = null) {
   }
   const total = observedLines().length;
   if (!deckCount) {
-    $("tower-observed-count").textContent = "0 / 0枚";
+    $("tower-observed-count").textContent = "0枚";
     return;
   }
-  const completed = Math.floor(total / deckCount);
-  const within = total % deckCount;
-  if (within === 0 && completed > 0) {
-    $("tower-observed-count").textContent = `${completed}周完了 · ${completed + 1}周目 0 / ${deckCount}枚`;
-  } else {
-    $("tower-observed-count").textContent = `${completed + 1}周目 ${within} / ${deckCount}枚${total ? ` · 累計${total}枚` : ""}`;
-  }
+  const completedTurns = Math.floor(total / 3);
+  const inTurn = total % 3;
+  const turnText = inTurn === 0 && total > 0
+    ? `${completedTurns}ターン完了`
+    : `${completedTurns + 1}ターン目 ${inTurn} / 3枚`;
+  const need = Math.max(0, deckCount - total);
+  $("tower-observed-count").textContent = `${turnText} · 累計${total}枚${need ? ` · seed探索まであと${need}枚` : ""}`;
 }
 
 $("tower-observed").addEventListener("input", () => {
@@ -1094,7 +1093,7 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
   }
   if (!matches.length && complete) {
     const p = document.createElement("p");
-    p.textContent = "一致するseedがありません。観測順・採用カード・初期デッキを確認してください。";
+    p.textContent = "一致するseedがありません。観測した3枚ずつのドロー順・採用カード・通常の捨て札挙動を確認してください。";
     container.append(p);
     return;
   }
@@ -1133,18 +1132,19 @@ async function startSeedSearch() {
   $("tower-cancel-seed").hidden = false;
   try {
     const composition = buildComposition("tower");
-    const observedRounds = parseObservedRounds(composition);
-    const firstRound = observedRounds[0];
-    const { variants, truncated } = deriveSeedChoiceVariants(composition.cards, firstRound, MAX_SEED_VARIANTS);
+    const observed = parseObservedDraws(composition);
+    const deckCount = composition.cards.length;
+    const firstDeck = observed.slice(0, deckCount);
+    const { variants, truncated } = deriveSeedChoiceVariants(composition.cards, firstDeck, MAX_SEED_VARIANTS);
     if (truncated) {
       throw new Error("同一カードの重複によるseed条件が64通りを超えました。完全特定を保証できないため、重複カードを見分けられる情報を追加してください。");
     }
 
-    const lastRound = observedRounds[observedRounds.length - 1];
-    const deckCount = composition.cards.length;
-    const observationSummary = lastRound.length === deckCount
-      ? `${observedRounds.length}周分`
-      : `${observedRounds.length - 1}周 + ${lastRound.length}/${deckCount}枚`;
+    const completeTurns = Math.floor(observed.length / 3);
+    const inTurn = observed.length % 3;
+    const observationSummary = inTurn
+      ? `${completeTurns}ターン完了 + ${completeTurns + 1}ターン目 ${inTurn}/3枚（累計${observed.length}ドロー）`
+      : `${completeTurns}ターン分（累計${observed.length}ドロー）`;
 
     const tasks = [];
     let total = 0;
@@ -1195,7 +1195,8 @@ async function startSeedSearch() {
           taskId: nextTask,
           choices: variants[task.variantIndex],
           deckIds: composition.cards.map((card) => String(card.id)),
-          observedRounds,
+          observedIds: observed,
+          drawPerTurn: 3,
           start: task.start,
           end: task.end,
           maxMatches: MAX_SEED_MATCHES - matches.size,
