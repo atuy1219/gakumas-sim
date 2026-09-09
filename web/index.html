@@ -55,14 +55,14 @@
         <div class="section-head">
           <div><p class="step">01</p><h2>所有メモリーを登録</h2></div>
           <div class="button-row">
-            <label class="file-button">memories.log / JSONを開く<input id="memory-file" type="file" accept="application/json,text/plain,.json,.txt,.log" multiple></label>
+            <label class="file-button">メモリーJSONを開く<input id="memory-file" type="file" accept="application/json,.json" multiple></label>
             <button id="new-memory" type="button" class="secondary">手動で追加</button>
           </div>
         </div>
         <p class="hint">読み込んだ内容はこのブラウザのlocalStorageに保存します。ファイル自体はアップロードしません。手動登録だけでも利用できます。</p>
         <details class="advanced">
-          <summary>ログ / JSONを貼り付けて読み込む</summary>
-          <textarea id="memory-text" rows="6" spellcheck="false" placeholder="UserMemoryListを含むJSON、またはGAKUMAS_MEMORY行"></textarea>
+          <summary>JSONを貼り付けて読み込む</summary>
+          <textarea id="memory-text" rows="6" spellcheck="false" placeholder="UserMemoryListを含むJSON"></textarea>
           <button id="load-memory-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
         </details>
         <div class="toolbar">

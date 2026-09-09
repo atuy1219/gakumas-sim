@@ -32,12 +32,12 @@ jobs:
           node --check web/app_v6.js
           node --check web/engine.js
           node --check web/exam_effects_v7.js
+          node --check web/exam_setup_v9.js
           node --check web/material3e_app_v8.js
           node --check web/sim_v3.js
           node --check web/tower_preset.js
           node --check web/tower_runtime.js
           node --check web/seed_worker.js
-          node --check tools/frida/export_memories.js
       - name: Web parity tests
         run: node test_web.mjs
       - name: Three-tab simulator tests
@@ -58,3 +58,4 @@ jobs:
           node test_card_master_effects.mjs
           node test_exam_runtime_v8.mjs
           node test_effect_runtime_v8.mjs
+          node test_exam_setup_v9.mjs

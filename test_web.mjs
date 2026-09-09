@@ -11,7 +11,7 @@ import {
   mergeMemoryLibraries,
   parseExamInitialDeckYaml,
   parseIdolCardCatalogYaml,
-  parseMemoryExportText,
+  parseMemoryJsonText,
   parseProduceCardCatalogYaml,
   parseSeed,
   resolveCardInput,
@@ -108,12 +108,8 @@ assert.equal(extractMemories(userData).length, 2);
 const overUpgradedMemory = extractMemories({ userMemoryList: [{ userMemoryId: "upgrade-limit", examBattleProduceCards: [{ id: "LIMIT", upgradeCount: 3 }] }] })[0];
 assert.equal(overUpgradedMemory.examBattleProduceCards[0].upgradeCount, 1);
 
-const exportText = `noise\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[0])}\n[device] something\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[1])}\n`;
-const parsedExport = parseMemoryExportText(exportText);
-assert.equal(extractMemories(parsedExport).length, 2);
-const fridaStyleExport = `[memory-export] ready: Assembly-CSharp.dll\nGAKUMAS_MEMORY ${JSON.stringify(userData.response.userData.userMemoryList[0])}\n`;
-assert.equal(extractMemories(parseMemoryExportText(fridaStyleExport)).length, 1);
-assert.deepEqual(parseMemoryExportText(JSON.stringify(userData)), userData);
+assert.deepEqual(parseMemoryJsonText(JSON.stringify(userData)), userData);
+assert.throws(() => parseMemoryJsonText("not json"), /JSON形式/);
 
 const manual = createManualMemory({
   userMemoryId: "manual-one",
