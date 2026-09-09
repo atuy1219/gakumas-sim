@@ -34,30 +34,13 @@ export function parseJson(text) {
   }
 }
 
-export function parseMemoryExportText(text) {
+export function parseMemoryJsonText(text) {
   const source = String(text ?? "").trim();
   if (!source) throw new Error("メモリーデータが空です。");
-
-  // Frida console lines can start with '[' (for example "[memory-export] ready"),
-  // so marker lines must be checked before treating the whole file as JSON.
-  const marker = "GAKUMAS_MEMORY ";
-  const memories = [];
-  for (const line of source.split(/\r?\n/)) {
-    const index = line.indexOf(marker);
-    if (index < 0) continue;
-    const json = line.slice(index + marker.length).trim();
-    if (!json) continue;
-    try {
-      memories.push(JSON.parse(json));
-    } catch {
-      // Frida may prefix/suffix unrelated console output. Only valid marker payloads are consumed.
-    }
+  if (!source.startsWith("{") && !source.startsWith("[")) {
+    throw new Error("JSON形式のメモリーデータを選択してください。");
   }
-  if (memories.length) return { userMemoryList: memories };
-
-  // A plain API/UserData JSON can also be selected directly.
-  if (source.startsWith("{") || source.startsWith("[")) return parseJson(source);
-  throw new Error("UserMemoryList または GAKUMAS_MEMORY 行を検出できませんでした。");
+  return parseJson(source);
 }
 
 function yamlScalar(value) {

@@ -6,7 +6,7 @@ import {
   loadCatalogs,
   mergeMemoryLibraries,
   parseJson,
-  parseMemoryExportText,
+  parseMemoryJsonText,
   resolveCardInput,
   resolveContestInitialDeck,
   simulateDistribution,
@@ -393,7 +393,7 @@ async function importMemoryFiles(files) {
   const imported = [];
   for (const file of files) {
     const text = await file.text();
-    const payload = parseMemoryExportText(text);
+    const payload = parseMemoryJsonText(text);
     imported.push(...extractMemories(payload));
   }
   if (!imported.length) throw new Error("所有メモリーを検出できませんでした。UserMemoryList を含むデータか確認してください。");
@@ -415,7 +415,7 @@ $("memory-file").addEventListener("change", async () => {
 $("load-memory-text").addEventListener("click", () => {
   clearError();
   try {
-    const payload = parseMemoryExportText($("memory-text").value);
+    const payload = parseMemoryJsonText($("memory-text").value);
     const imported = extractMemories(payload);
     if (!imported.length) throw new Error("所有メモリーを検出できませんでした。");
     memoryList = mergeMemoryLibraries(memoryList, imported);
