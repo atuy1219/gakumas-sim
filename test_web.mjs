@@ -229,5 +229,11 @@ assert.equal(richer.raw.visual, 1804);
 assert.equal(richer.raw.stamina, 38);
 assert.equal(richer.raw.grade, "ResultGrade_SsPlus");
 assert.deepEqual(richer.raw.examBattleProduceItemIds, ["p_item-test"]);
+assert.equal(richer.vocal, 1876);
+assert.equal(richer.dance, 1633);
+assert.equal(richer.visual, 1804);
+assert.equal(richer.stamina, 38);
+assert.equal(richer.grade, "ResultGrade_SsPlus");
+assert.deepEqual(richer.examBattleProduceItemIds, ["p_item-test"]);
 
 console.log("web parity tests: ok");

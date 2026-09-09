@@ -60,4 +60,14 @@ assert.deepEqual(findRestrictedDuplicateIds(["normal", "normal"], cardById), [])
 assert.equal(hasUsableMemoryStats({ power: 15744, vocal: 0, dance: 0, visual: 0, stamina: 0 }), false);
 assert.equal(hasUsableMemoryStats({ power: 15744, vocal: 100, dance: 0, visual: 0, stamina: 0 }), true);
 
+assert.equal(hasUsableMemoryStats({ power: 15744, raw: { vocal: 321, dance: 654, visual: 987, stamina: 42 } }), true);
+assert.deepEqual(
+  resolveMemoryPItemIds({
+    idolCardId: "i-campus",
+    power: 15744,
+    raw: { examBattleProduceItemIds: ["pitem-from-raw"] },
+  }, idolById),
+  { ids: ["pitem-from-raw"], source: "memory" },
+);
+
 console.log("app v6 tests: ok");

@@ -413,6 +413,14 @@ function normalizeMemoryCandidate(candidate, index = 0) {
     characterId: characterId === undefined ? null : String(characterId),
     planType: planType ?? null,
     power,
+    grade: getField(memory, "grade") ?? null,
+    vocal: Number(getField(memory, "vocal") ?? 0),
+    dance: Number(getField(memory, "dance") ?? 0),
+    visual: Number(getField(memory, "visual") ?? 0),
+    stamina: Number(getField(memory, "stamina") ?? 0),
+    examBattleProduceItemIds: Array.isArray(getField(memory, "examBattleProduceItemIds"))
+      ? getField(memory, "examBattleProduceItemIds").map(String)
+      : [],
     hasActiveProduceCardIds,
     activeProduceCardIds: activeIds,
     examBattleProduceCards: cardList,
