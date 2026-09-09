@@ -1,20 +1,20 @@
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
 
 export const TOWER_DEFAULT_DECK_BY_EXAM_EFFECT = Object.freeze({
-  ProduceExamEffectType_ExamParameterBuff: "initial_deck-produce_default-parameter_buff",
-  ProduceExamEffectType_ExamConcentration: "initial_deck-produce_default-concentration",
-  ProduceExamEffectType_ExamLessonBuff: "initial_deck-produce_default-lesson_buff",
-  ProduceExamEffectType_ExamReview: "initial_deck-produce_default-review",
-  ProduceExamEffectType_ExamCardPlayAggressive: "initial_deck-produce_default-aggressive",
-  ProduceExamEffectType_ExamFullPower: "initial_deck-produce_default-full_power",
+  ProduceExamEffectType_ExamParameterBuff: "initial_deck-parameter_buff",
+  ProduceExamEffectType_ExamConcentration: "initial_deck-concentration",
+  ProduceExamEffectType_ExamLessonBuff: "initial_deck-lesson_buff",
+  ProduceExamEffectType_ExamReview: "initial_deck-review",
+  ProduceExamEffectType_ExamCardPlayAggressive: "initial_deck-aggressive",
+  ProduceExamEffectType_ExamFullPower: "initial_deck-full_power",
 });
 
 export const TOWER_EXAM_EFFECT_LABELS = Object.freeze({
   ProduceExamEffectType_ExamParameterBuff: "センス / 好調",
-  ProduceExamEffectType_ExamConcentration: "センス / 集中",
-  ProduceExamEffectType_ExamLessonBuff: "ロジック / やる気",
+  ProduceExamEffectType_ExamConcentration: "アノマリー / 強気",
+  ProduceExamEffectType_ExamLessonBuff: "センス / 集中",
   ProduceExamEffectType_ExamReview: "ロジック / 好印象",
-  ProduceExamEffectType_ExamCardPlayAggressive: "アノマリー / 強気",
+  ProduceExamEffectType_ExamCardPlayAggressive: "ロジック / やる気",
   ProduceExamEffectType_ExamFullPower: "アノマリー / 全力",
 });
 

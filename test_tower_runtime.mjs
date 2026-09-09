@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
+  TOWER_EXAM_EFFECT_LABELS,
   createTowerTurnState,
   drawTowerTurn,
   finishTowerTurn,
@@ -8,20 +9,36 @@ import {
   resolveTowerDefaultDeck,
 } from "./web/tower_runtime.js";
 
-const initialDeckById = new Map([
-  ["initial_deck-produce_default-concentration", {
-    id: "initial_deck-produce_default-concentration",
-    cards: Array.from({ length: 8 }, (_, i) => ({ id: `B${i + 1}`, upgradeCount: 0 })),
-  }],
-]);
-const idolCardById = new Map([["idol-1", {
-  id: "idol-1",
-  examEffectType: "ProduceExamEffectType_ExamConcentration",
-}]]);
-const resolved = resolveTowerDefaultDeck("idol-1", idolCardById, initialDeckById);
-assert.equal(TOWER_DEFAULT_DECK_BY_EXAM_EFFECT.ProduceExamEffectType_ExamConcentration, "initial_deck-produce_default-concentration");
-assert.equal(resolved.deckId, "initial_deck-produce_default-concentration");
-assert.equal(resolved.cards.length, 8);
+const effectDeckCases = [
+  ["ProduceExamEffectType_ExamParameterBuff", "initial_deck-parameter_buff", "センス / 好調"],
+  ["ProduceExamEffectType_ExamLessonBuff", "initial_deck-lesson_buff", "センス / 集中"],
+  ["ProduceExamEffectType_ExamCardPlayAggressive", "initial_deck-aggressive", "ロジック / やる気"],
+  ["ProduceExamEffectType_ExamReview", "initial_deck-review", "ロジック / 好印象"],
+  ["ProduceExamEffectType_ExamConcentration", "initial_deck-concentration", "アノマリー / 強気"],
+  ["ProduceExamEffectType_ExamFullPower", "initial_deck-full_power", "アノマリー / 全力"],
+];
+const initialDeckById = new Map(effectDeckCases.map(([effectType, deckId], caseIndex) => [
+  deckId,
+  {
+    id: deckId,
+    cards: [
+      { id: `BASE-${caseIndex + 1}-A`, upgradeCount: 0 },
+      { id: `BASE-${caseIndex + 1}-B`, upgradeCount: 0 },
+    ],
+  },
+]));
+const idolCardById = new Map(effectDeckCases.map(([effectType], index) => [
+  `idol-${index + 1}`,
+  { id: `idol-${index + 1}`, examEffectType: effectType },
+]));
+for (const [effectType, deckId, label] of effectDeckCases) {
+  assert.equal(TOWER_DEFAULT_DECK_BY_EXAM_EFFECT[effectType], deckId);
+  assert.equal(TOWER_EXAM_EFFECT_LABELS[effectType], label);
+}
+const resolved = resolveTowerDefaultDeck("idol-5", idolCardById, initialDeckById);
+assert.equal(resolved.deckId, "initial_deck-concentration");
+assert.equal(resolved.label, "アノマリー / 強気");
+assert.equal(resolved.cards.length, 2);
 
 assert.equal(isOnceOnlyMove("ProduceCardMovePositionType_Lost"), true);
 assert.equal(isOnceOnlyMove("ProduceCardMovePositionType_Grave"), false);
