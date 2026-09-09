@@ -1,0 +1,40 @@
+name: Fix removed tower order result reference
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-removed-tower-order-result.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Apply fix
+        run: python tools/fix_removed_tower_order_result.py
+      - name: Verify
+        run: |
+          node --check web/app_v3.js
+          node test_web.mjs
+          node test_tower_runtime.mjs
+          node test_v3.mjs
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/app_v3.js test_web.mjs
+          git commit -m "削除済みドル道結果要素への参照を除去"
+          git push origin HEAD:main
