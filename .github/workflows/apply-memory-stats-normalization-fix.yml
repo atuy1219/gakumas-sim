@@ -1,0 +1,44 @@
+name: Apply memory stats normalization fix
+
+on:
+  push:
+    branches:
+      - fix/memory-stats-normalization
+    paths:
+      - .github/workflows/apply-memory-stats-normalization-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/memory-stats-normalization
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Apply fix
+        run: python tools/apply_temp_memory_stats_fix.py
+      - name: Verify
+        run: |
+          node --check web/engine.js
+          node --check web/app_v6.js
+          node test_web.mjs
+          node test_app_v6.mjs
+          node test_v3.mjs
+          node test_sim_filter_v5.mjs
+      - name: Remove temporary files
+        run: |
+          rm .github/workflows/apply-memory-stats-normalization-fix.yml
+          rm tools/apply_temp_memory_stats_fix.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "メモリー能力値を正規化結果へ保持"
+          git push origin HEAD:fix/memory-stats-normalization
