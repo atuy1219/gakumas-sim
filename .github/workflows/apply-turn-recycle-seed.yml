@@ -1,0 +1,51 @@
+name: Apply tower turn recycle seed fix
+
+on:
+  push:
+    branches:
+      - fix/tower-turn-recycle-seed
+    paths:
+      - .github/workflows/apply-turn-recycle-seed.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/tower-turn-recycle-seed
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Apply turn-aware recycle model
+        run: python tools/apply_turn_recycle_seed.py
+      - name: Verify
+        run: |
+          node --check web/app_v3.js
+          node --check web/engine.js
+          node --check web/sim_v3.js
+          node --check web/seed_worker.js
+          node test_v3.mjs
+          node test_web.mjs
+          node test_catalog_v4.mjs
+          node test_sim_filter_v5.mjs
+          node test_app_v6.mjs
+          node test_tower_preset.mjs
+      - name: Remove temporary apply files
+        run: |
+          rm .github/workflows/apply-turn-recycle-seed.yml
+          rm tools/apply_turn_recycle_seed.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ドル道seed探索をターン単位の捨て札再シャッフルに修正"
+          git push origin HEAD:fix/tower-turn-recycle-seed
