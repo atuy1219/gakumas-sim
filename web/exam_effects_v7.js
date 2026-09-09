@@ -140,6 +140,66 @@ export function parseExamEffectId(effectId) {
   if ((match = id.match(/^e_effect-exam_lesson-(\d+)-(\d+)$/))) {
     return { kind: "lesson", id, value: integer(match[1]), count: integer(match[2]) };
   }
+  if ((match = id.match(/^e_effect-exam_lesson_add_multiple_parameter_buff-(\d+)-(\d+)-(\d+)$/))) {
+    return {
+      kind: "lesson_add_multiple_parameter_buff",
+      id,
+      value: integer(match[1]),
+      permil: integer(match[2]),
+      count: integer(match[3]),
+    };
+  }
+  if ((match = id.match(/^e_effect-exam_lesson_depend_parameter_buff-(\d+)-(\d+)$/))) {
+    return { kind: "lesson_depend_parameter_buff", id, permil: integer(match[1]), count: integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_effect_timer-(\d+)-(\d+)-(e_effect-.+)$/))) {
+    return {
+      kind: "effect_timer",
+      id,
+      turn: integer(match[1]),
+      count: integer(match[2]),
+      child: parseExamEffectId(match[3]),
+    };
+  }
+  if ((match = id.match(/^e_effect-exam_card_search_effect_play_count_buff-(\d+)-(\d+)-(inf|\d+)-(.+)-all-0_0$/))) {
+    return {
+      kind: "card_search_effect_play_count_buff",
+      id,
+      value: integer(match[1]),
+      count: integer(match[2]),
+      turn: match[3] === "inf" ? -1 : integer(match[3]),
+      searchId: match[4],
+    };
+  }
+  if (id === "e_effect-exam_hand_grave_count_card_draw") {
+    return { kind: "hand_grave_count_card_draw", id };
+  }
+  if (id === "e_effect-exam_card_upgrade-p_card_search-hand-all-0_0") {
+    return { kind: "card_upgrade_hand_all", id };
+  }
+  if ((match = id.match(/^e_effect-exam_parameter_buff_multiple_per_turn-(\d+)$/))) {
+    return { kind: "parameter_buff_multiple_per_turn", id, turn: integer(match[1]) };
+  }
+  if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-01-men-3_035-enc01") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      enchantId: "enchant-p_card-01-men-3_035-enc01",
+      trigger: { phase: "end_turn", field: "lessonBuff", min: 3 },
+      effects: [parseExamEffectId("e_effect-exam_lesson_buff-0002")],
+    };
+  }
+  if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-01-act-3_049-enc02") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      enchantId: "enchant-p_card-01-act-3_049-enc02",
+      trigger: { phase: "card_play", category: "ProduceCardCategory_ActiveSkill" },
+      effects: [parseExamEffectId("e_effect-exam_lesson-0005-01")],
+    };
+  }
   if ((match = id.match(/^e_effect-exam_block-(\d+)$/))) {
     return { kind: "block", id, value: integer(match[1]) };
   }
@@ -205,7 +265,10 @@ export function checkCardEffectTrigger(triggerId, exam) {
       }
     }
   }
-  if (/parameter_buff(?:$|-)/.test(id)) {
+  if ((match = id.match(/parameter_buff_up-(\d+)/))) {
+    recognized = true;
+    checks.push(Number(exam.parameterBuff ?? 0) >= integer(match[1]));
+  } else if (/parameter_buff(?:$|-)/.test(id)) {
     recognized = true;
     checks.push(Number(exam.parameterBuff ?? 0) > 0);
   }
@@ -226,6 +289,7 @@ export function createExamState({ stamina = 0 } = {}) {
     aggressive: 0,
     lessonBuff: 0,
     parameterBuff: 0,
+    parameterBuffMultiplePerTurn: 0,
     staminaConsumptionDown: 0,
     staminaConsumptionAdd: 0,
     staminaConsumptionDownFix: 0,
@@ -295,6 +359,19 @@ export function applyParsedExamEffect(exam, parsed) {
       exam.parameter += amount;
       return { applied: true, label: `パラメータ +${amount}` };
     }
+    case "lesson_add_multiple_parameter_buff": {
+      const base = Number(parsed.value) * Math.max(1, Number(parsed.count) || 1);
+      const bonus = Number(exam.parameterBuff ?? 0) > 0 ? Number(parsed.permil ?? 0) / 1000 : 0;
+      const amount = Math.ceil(base * (1 + bonus));
+      exam.parameter += amount;
+      return { applied: true, label: `パラメータ +${amount}` };
+    }
+    case "lesson_depend_parameter_buff": {
+      const amount = Math.ceil(Number(exam.parameterBuff ?? 0) * Number(parsed.permil ?? 0) / 1000)
+        * Math.max(1, Number(parsed.count) || 1);
+      exam.parameter += amount;
+      return { applied: true, label: `好調に応じてパラメータ +${amount}` };
+    }
     case "block": exam.block += parsed.value; return { applied: true, label: `元気 +${parsed.value}` };
     case "review": exam.review += parsed.value; return { applied: true, label: `好印象 +${parsed.value}` };
     case "aggressive": exam.aggressive += parsed.value; return { applied: true, label: `やる気 +${parsed.value}` };
@@ -311,6 +388,14 @@ export function applyParsedExamEffect(exam, parsed) {
     case "extra_turn": exam.extraTurns += 1; return { applied: true, label: "追加ターン +1" };
     case "card_draw": return { applied: true, command: "draw", value: parsed.value, label: `${parsed.value}枚ドロー` };
     case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
+    case "effect_timer": return { applied: true, command: "timer", timer: parsed, label: `${parsed.turn}ターン後に効果発動` };
+    case "card_search_effect_play_count_buff": return { applied: true, command: "effect_repeat", effect: parsed, label: `次のスキルカードの効果を追加で${parsed.value}回発動` };
+    case "hand_grave_count_card_draw": return { applied: true, command: "hand_swap", label: "手札をすべて入れ替え" };
+    case "card_upgrade_hand_all": return { applied: true, command: "upgrade_hand", label: "手札をすべて強化" };
+    case "parameter_buff_multiple_per_turn":
+      exam.parameterBuffMultiplePerTurn = Math.max(Number(exam.parameterBuffMultiplePerTurn ?? 0), Number(parsed.turn ?? 0));
+      return { applied: true, label: `絶好調 ${parsed.turn}ターン` };
+    case "status_enchant": return { applied: true, command: "status_enchant", enchant: parsed, label: `継続効果を追加: ${parsed.enchantId}` };
     default: return { applied: false, unsupported: true, label: `未対応: ${parsed.id}` };
   }
 }
