@@ -31,6 +31,7 @@ jobs:
           node --check web/app_v5.js
           node --check web/app_v6.js
           node --check web/engine.js
+          node --check web/exam_effects_v7.js
           node --check web/sim_v3.js
           node --check web/tower_preset.js
           node --check web/tower_runtime.js
@@ -50,3 +51,7 @@ jobs:
         run: node test_tower_preset.mjs
       - name: Tower runtime tests
         run: node test_tower_runtime.mjs
+      - name: Exam effect tests
+        run: |
+          node test_exam_effects_v7.mjs
+          node test_card_master_effects.mjs
