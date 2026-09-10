@@ -185,6 +185,12 @@ assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "
 
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/index.html", import.meta.url), "utf8"));
 assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
+assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
+assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
+assert.match(towerHtml, /id="exam-seed"/);
+assert.match(towerHtml, /id="exam-selected-card"/);
+assert.match(towerHtml, /id="tower-selected-card"/);
+assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
 const appV3Source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/app_v3.js", import.meta.url), "utf8"));
 assert.doesNotMatch(appV3Source, /tower-order-result/);
 

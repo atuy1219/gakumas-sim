@@ -60,6 +60,36 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
 .observed-sequence { display: flex; flex-wrap: wrap; gap: 7px; min-height: 48px; align-items: center; padding: 10px; border-radius: 16px; background: var(--m3e-surface-container); }
 .observed-card { padding: 7px 10px; border-radius: 999px; background: var(--m3e-primary-container); color: var(--m3e-on-primary-container); font-size: 13px; font-weight: 700; }
 .seed-message { flex-basis: 100%; }
+.seed-direct-input { margin-top: 18px; }
+.m3e-play-panel { overflow: hidden; }
+.m3e-battle-surface { position: relative; margin-top: 20px; padding: 20px; border-radius: 32px 32px 18px 32px; background: radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--m3e-primary-container) 82%, transparent), transparent 38%), linear-gradient(145deg, var(--m3e-surface-container), var(--m3e-surface)); border: 1px solid color-mix(in srgb, var(--m3e-outline) 20%, transparent); min-height: 620px; }
+.m3e-battle-hud { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: start; gap: 16px; }
+.m3e-turn-orb { width: 96px; aspect-ratio: 1; display: grid; place-content: center; text-align: center; border-radius: 50%; background: var(--m3e-primary); color: var(--m3e-on-primary); box-shadow: 0 9px 28px color-mix(in srgb, var(--m3e-primary) 28%, transparent); }
+.m3e-turn-orb small { font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.m3e-turn-orb strong { font-size: 38px; line-height: 1; }
+.m3e-status-grid { display: grid; grid-template-columns: repeat(4, minmax(76px, 1fr)); gap: 8px; }
+.m3e-status-grid > div { display: grid; padding: 10px 12px; border-radius: 18px 18px 10px 18px; background: color-mix(in srgb, var(--m3e-surface) 88%, transparent); border: 1px solid color-mix(in srgb, var(--m3e-outline) 16%, transparent); }
+.m3e-status-grid small { color: var(--m3e-outline); font-size: 11px; font-weight: 800; }
+.m3e-status-grid strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.m3e-deck-meta { margin: 14px 0 0; color: var(--m3e-outline); font-size: 12px; text-align: right; }
+.m3e-selected-card { width: min(610px, 88%); min-height: 128px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; margin: 72px auto 38px; padding: 20px 22px; border-radius: 24px 24px 12px 24px; background: var(--m3e-surface); border: 2px solid color-mix(in srgb, var(--m3e-primary) 42%, transparent); box-shadow: 0 16px 34px rgb(30 20 50 / .12); }
+.m3e-selected-card > div { display: grid; gap: 5px; }
+.m3e-selected-card small { color: var(--m3e-primary); font-size: 11px; font-weight: 900; letter-spacing: .08em; }
+.m3e-selected-card strong { font-size: clamp(20px, 3vw, 28px); }
+.m3e-selected-card p { margin: 0; color: var(--m3e-outline); font-size: 13px; }
+.m3e-hand-zone { display: grid; grid-template-columns: minmax(0, 1fr) 74px; align-items: end; gap: 14px; margin-top: auto; }
+.m3e-battle-hand { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 12px; }
+.m3e-hand-card { min-height: 210px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; padding: 16px 14px; border: 2px solid color-mix(in srgb, var(--m3e-outline) 34%, transparent); border-radius: 28px 28px 12px 12px; background: linear-gradient(160deg, var(--m3e-primary-container), var(--m3e-surface)); color: var(--m3e-on-primary-container); text-align: left; box-shadow: 0 8px 20px rgb(35 25 55 / .1); transform-origin: bottom center; transition: transform .2s var(--m3e-motion), border-color .2s, border-radius .3s var(--m3e-motion); }
+.m3e-hand-card:nth-child(2) { border-radius: 32px 18px 14px 14px; }
+.m3e-hand-card:nth-child(3) { border-radius: 22px 32px 14px 14px; }
+.m3e-hand-card:hover, .m3e-hand-card.selected { transform: translateY(-12px); border-color: var(--m3e-primary); }
+.m3e-hand-card.selected { box-shadow: 0 16px 30px color-mix(in srgb, var(--m3e-primary) 20%, transparent); }
+.m3e-hand-card strong { font-size: clamp(14px, 2vw, 19px); }
+.m3e-hand-card small { display: -webkit-box; overflow: hidden; color: var(--m3e-outline); font-size: 11px; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.m3e-skip-button { width: 74px; height: 74px; padding: 0; border-radius: 24px 24px 12px 24px; background: var(--m3e-secondary-container); color: var(--m3e-on-primary-container); font-size: 13px; font-weight: 900; letter-spacing: .05em; }
+.m3e-history { margin-top: 22px; padding: 12px 16px; border-radius: 18px; background: color-mix(in srgb, var(--m3e-surface) 78%, transparent); }
+.m3e-history summary { cursor: pointer; font-weight: 800; }
+.m3e-history ol { margin-bottom: 0; }
 @keyframes m3e-fade { from { opacity: 0; } }
 
 @media (max-width: 760px) {
@@ -70,6 +100,27 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
   .shell > header .eyebrow { display: none; }
   .shell > header h1 { font-size: 32px; }
   .m3e-card-selection { grid-template-columns: 1fr; }
+  .m3e-flow-nav { gap: 5px; overflow-x: auto; }
+  .m3e-flow-nav span { flex: 0 0 auto; padding: 8px 9px; font-size: 11px; }
+  .m3e-flow-nav i { min-width: 12px; }
+  .m3e-play-panel { padding-inline: 10px; }
+  .m3e-battle-surface { min-height: 570px; padding: 14px 10px; border-radius: 28px 28px 14px 28px; }
+  .m3e-battle-hud { grid-template-columns: 74px minmax(0, 1fr); gap: 8px; }
+  .m3e-turn-orb { width: 70px; }
+  .m3e-turn-orb strong { font-size: 28px; }
+  .m3e-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .m3e-status-grid > div { padding: 7px 8px; border-radius: 13px; }
+  .m3e-status-grid small { font-size: 9px; }
+  .m3e-status-grid strong { font-size: 15px; }
+  .m3e-deck-meta { font-size: 10px; }
+  .m3e-selected-card { width: auto; min-height: 110px; grid-template-columns: 1fr; gap: 12px; margin: 52px 18px 28px; padding: 16px; }
+  .m3e-selected-card .primary { width: 100%; }
+  .m3e-hand-zone { grid-template-columns: minmax(0, 1fr) 56px; gap: 7px; }
+  .m3e-battle-hand { gap: 5px; }
+  .m3e-hand-card { min-height: 172px; padding: 10px 7px; border-radius: 20px 20px 9px 9px; }
+  .m3e-hand-card strong { font-size: 12px; }
+  .m3e-hand-card small { font-size: 9px; -webkit-line-clamp: 5; }
+  .m3e-skip-button { width: 56px; height: 64px; border-radius: 20px 20px 8px 20px; font-size: 11px; }
 }
 
 @media (prefers-color-scheme: dark) {
