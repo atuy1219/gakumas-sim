@@ -249,10 +249,11 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
     button.type = "button";
     button.className = "seed-candidate";
     button.textContent = `${seed} / ${asHex(seed)}`;
-    button.title = "クリックしてSeedをコピー";
+    button.title = "このSeedを使用";
     button.addEventListener("click", async () => {
+      document.getElementById("exam-seed").value = String(seed);
       await navigator.clipboard?.writeText(String(seed));
-      button.textContent = `${seed} / ${asHex(seed)} · コピー済み`;
+      button.textContent = `${seed} / ${asHex(seed)} · 選択済み`;
     });
     container.append(button);
   }
@@ -373,9 +374,25 @@ document.getElementById("exam-next").addEventListener("click", () => {
   document.getElementById("global-error").hidden = true;
   resetExamObservation();
   renderExamDeckSummary();
-  setSimulationStage("exam", "simulation");
+  setSimulationStage("exam", "seed");
 });
-document.querySelector("#tab-exam .m3e-flow-back").addEventListener("click", () => setSimulationStage("exam", "setup"));
+for (const button of document.querySelectorAll("#tab-exam [data-exam-back]")) {
+  button.addEventListener("click", () => setSimulationStage("exam", button.dataset.examBack));
+}
+document.getElementById("exam-seed-next").addEventListener("click", () => setSimulationStage("exam", "simulation"));
+document.getElementById("exam-run").addEventListener("click", () => {
+  const deck = examDeck();
+  if (!deck.length) return showExamError("使用するカードを1枚以上追加してください。");
+  document.dispatchEvent(new CustomEvent("exam-simulation-start", {
+    detail: { cards: deck.map((card) => ({ ...card })), seed: document.getElementById("exam-seed").value },
+  }));
+});
+for (const button of document.querySelectorAll("#tab-tower [data-tower-next]")) {
+  button.addEventListener("click", () => setSimulationStage("tower", button.dataset.towerNext));
+}
+for (const button of document.querySelectorAll("#tab-tower [data-tower-back]")) {
+  button.addEventListener("click", () => setSimulationStage("tower", button.dataset.towerBack));
+}
 document.getElementById("exam-undo-observation").addEventListener("click", () => { examObserved.pop(); renderExamObservation(); });
 document.getElementById("exam-reset-observation").addEventListener("click", resetExamObservation);
 document.getElementById("exam-cancel-seed").addEventListener("click", cancelExamSeedSearch);

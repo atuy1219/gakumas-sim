@@ -51,6 +51,9 @@ let editingMemoryId = null;
 let seedWorkers = [];
 let seedSearchCancelled = false;
 let towerTurnState = null;
+let towerSelectedCardIndex = 0;
+let examTurnState = null;
+let examSelectedCardIndex = 0;
 let examItemCatalogs = {
   items: [], itemById: new Map(), itemEffects: [], itemEffectById: new Map(),
 };
@@ -980,77 +983,100 @@ function runtimeCardLabel(card) {
   return observationCardLabel(catalogName(card), Number(card?.upgradeCount ?? 0));
 }
 
-function examStateText(exam) {
+function examStateTiles(exam) {
   const stamina = Number(exam?.maxStamina ?? 0) > 0
     ? `${Number(exam.stamina ?? 0)}/${Number(exam.maxStamina ?? 0)}`
     : String(Number(exam?.stamina ?? 0));
-  return `基礎パラメータ ${Number(exam?.parameter ?? 0)} · 体力 ${stamina} · 元気 ${Number(exam?.block ?? 0)} · 好印象 ${Number(exam?.review ?? 0)} · やる気 ${Number(exam?.aggressive ?? 0)} · 集中 ${Number(exam?.lessonBuff ?? 0)} · 好調 ${Number(exam?.parameterBuff ?? 0)}T`;
+  return [
+    ["パラメータ", Number(exam?.parameter ?? 0)], ["体力", stamina],
+    ["元気", Number(exam?.block ?? 0)], ["好印象", Number(exam?.review ?? 0)],
+    ["やる気", Number(exam?.aggressive ?? 0)], ["集中", Number(exam?.lessonBuff ?? 0)],
+    ["好調", `${Number(exam?.parameterBuff ?? 0)}T`],
+  ];
 }
 
-function renderTowerTurnState() {
-  const box = $("tower-turn-result");
+function renderTurnState(mode, state) {
+  const box = $(`${mode}-turn-result`);
   if (!box) return;
-  box.hidden = !towerTurnState;
-  if (!towerTurnState) return;
+  box.hidden = !state;
+  if (!state) return;
 
-  $("tower-turn-meta").textContent = `Turn ${towerTurnState.turn} · 使用可能 ${towerTurnState.playsRemaining}回 · 山札 ${towerTurnState.deck.length} · 捨て札 ${towerTurnState.discard.length} · 除外 ${towerTurnState.lost.length} · 再シャッフル ${towerTurnState.recycleCount}回 · RNG ${asHex(towerTurnState.randomState)}`;
-  const handBox = $("tower-turn-hand");
-  let examLine = $("tower-turn-exam-state");
-  if (!examLine) {
-    examLine = document.createElement("p");
-    examLine.id = "tower-turn-exam-state";
-    examLine.className = "hint";
-    box.insertBefore(examLine, handBox);
-  }
-  examLine.textContent = examStateText(towerTurnState.exam);
+  $(`${mode}-turn-number`).textContent = String(state.turn);
+  $(`${mode}-turn-meta`).textContent = `使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
+  const statusGrid = $(`${mode}-status-grid`);
+  statusGrid.replaceChildren(...examStateTiles(state.exam).map(([label, value]) => {
+    const tile = document.createElement("div");
+    const small = document.createElement("small");
+    const strong = document.createElement("strong");
+    small.textContent = label;
+    strong.textContent = String(value);
+    tile.append(small, strong);
+    return tile;
+  }));
 
-  let itemLine = $("tower-turn-pitems-state");
-  if (!itemLine) {
-    itemLine = document.createElement("p");
-    itemLine.id = "tower-turn-pitems-state";
-    itemLine.className = "hint";
-    box.insertBefore(itemLine, handBox);
+  if (mode === "tower") {
+    const pItemNames = (state.pItems ?? []).map((item) => item.name || item.id);
+    $("tower-turn-pitems-state").textContent = pItemNames.length ? `Pアイテム: ${pItemNames.join(" / ")}` : "Pアイテム: なし";
   }
-  const pItemNames = (towerTurnState.pItems ?? []).map((item) => item.name || item.id);
-  itemLine.textContent = pItemNames.length
-    ? `Pアイテム: ${pItemNames.join(" / ")}（効果参照は解決済み、継続効果の発火処理は順次対応）`
-    : "Pアイテム: なし / 未解決";
 
-  let warningLine = $("tower-turn-effect-warning");
-  if (!warningLine) {
-    warningLine = document.createElement("p");
-    warningLine.id = "tower-turn-effect-warning";
-    warningLine.className = "callout";
-    box.insertBefore(warningLine, handBox);
-  }
-  warningLine.hidden = !(towerTurnState.unsupported?.length);
-  warningLine.textContent = towerTurnState.unsupported?.length
-    ? `未対応の効果/条件: ${towerTurnState.unsupported.join(" / ")}`
+  const warningLine = $(`${mode}-turn-effect-warning`);
+  warningLine.hidden = !(state.unsupported?.length);
+  warningLine.textContent = state.unsupported?.length
+    ? `未対応の効果/条件: ${state.unsupported.join(" / ")}`
     : "";
 
+  let selectedIndex = mode === "tower" ? towerSelectedCardIndex : examSelectedCardIndex;
+  selectedIndex = Math.max(0, Math.min(selectedIndex, state.hand.length - 1));
+  if (mode === "tower") towerSelectedCardIndex = selectedIndex;
+  else examSelectedCardIndex = selectedIndex;
+
+  const selectedBox = $(`${mode}-selected-card`);
+  selectedBox.replaceChildren();
+  const selected = state.hand[selectedIndex];
+  if (selected) {
+    const copy = document.createElement("div");
+    const eyebrow = document.createElement("small");
+    const title = document.createElement("strong");
+    const detail = document.createElement("p");
+    const use = document.createElement("button");
+    eyebrow.textContent = selected.onceOnly ? "レッスン中1回" : "SKILL CARD";
+    title.textContent = runtimeCardLabel(selected);
+    detail.textContent = describeCardEffects(selected).join(" · ") || "追加効果なし";
+    use.type = "button";
+    use.className = "primary";
+    use.textContent = "このカードを使用";
+    use.disabled = Number(state.playsRemaining ?? 0) <= 0;
+    use.addEventListener("click", () => advanceSimulationTurn(mode, { type: "use", index: selectedIndex }));
+    copy.append(eyebrow, title, detail);
+    selectedBox.append(copy, use);
+  }
+
+  const handBox = $(`${mode}-turn-hand`);
   handBox.innerHTML = "";
-  towerTurnState.hand.forEach((card, index) => {
-    const article = document.createElement("article");
-    article.className = "tower-turn-card-v7";
+  state.hand.forEach((card, index) => {
+    const article = document.createElement("button");
+    article.type = "button";
+    article.className = "m3e-hand-card";
+    article.classList.toggle("selected", index === selectedIndex);
+    article.setAttribute("aria-pressed", String(index === selectedIndex));
     const title = document.createElement("strong");
     title.textContent = runtimeCardLabel(card);
     const detail = document.createElement("small");
-    const move = card.onceOnly ? "レッスン中1回 · 使用すると除外" : "使用後は捨て札";
+    const move = card.onceOnly ? "使用後に除外" : "使用後に捨て札";
     const effects = describeCardEffects(card);
     detail.textContent = [move, ...effects].join(" · ");
-    const use = document.createElement("button");
-    use.type = "button";
-    use.className = "secondary compact";
-    use.textContent = "このカードを使用";
-    use.disabled = Number(towerTurnState.playsRemaining ?? 0) <= 0;
-    use.addEventListener("click", () => advanceTowerTurn({ type: "use", index }));
-    article.append(title, detail, use);
+    article.addEventListener("click", () => {
+      if (mode === "tower") towerSelectedCardIndex = index;
+      else examSelectedCardIndex = index;
+      renderTurnState(mode, state);
+    });
+    article.append(title, detail);
     handBox.append(article);
   });
 
-  const history = $("tower-turn-history");
+  const history = $(`${mode}-turn-history`);
   history.innerHTML = "";
-  for (const entry of [...towerTurnState.history].reverse()) {
+  for (const entry of [...state.history].reverse()) {
     const li = document.createElement("li");
     const plays = entry.plays ?? [];
     const action = plays.length
@@ -1065,23 +1091,30 @@ function renderTowerTurnState() {
   }
 }
 
-function advanceTowerTurn(action) {
+function renderTowerTurnState() {
+  renderTurnState("tower", towerTurnState);
+}
+
+function advanceSimulationTurn(mode, action) {
+  const state = mode === "tower" ? towerTurnState : examTurnState;
   try {
     clearError();
     if (String(action?.type) === "use") {
-      playTowerCard(towerTurnState, action.index);
-      if (Number(towerTurnState.playsRemaining ?? 0) <= 0) {
-        finishTowerTurn(towerTurnState, { type: "end" });
-        drawTowerTurn(towerTurnState, 3);
+      playTowerCard(state, action.index);
+      if (Number(state.playsRemaining ?? 0) <= 0) {
+        finishTowerTurn(state, { type: "end" });
+        drawTowerTurn(state, 3);
       }
     } else {
-      finishTowerTurn(towerTurnState, action);
-      drawTowerTurn(towerTurnState, 3);
+      finishTowerTurn(state, action);
+      drawTowerTurn(state, 3);
     }
-    renderTowerTurnState();
+    if (mode === "tower") towerSelectedCardIndex = 0;
+    else examSelectedCardIndex = 0;
+    renderTurnState(mode, state);
   } catch (error) {
     showError(error);
-    renderTowerTurnState();
+    renderTurnState(mode, state);
   }
 }
 
@@ -1098,6 +1131,7 @@ $("tower-run").addEventListener("click", () => {
       stamina: Number(composition.memories[0]?.stamina ?? getField(composition.memories[0]?.raw, "stamina") ?? 0),
       pItems: resolvedPItems.items,
     });
+    towerSelectedCardIndex = 0;
     drawTowerTurn(towerTurnState, 3);
     renderTowerTurnState();
   } catch (error) {
@@ -1107,7 +1141,25 @@ $("tower-run").addEventListener("click", () => {
   }
 });
 $("tower-skip-turn").addEventListener("click", () => {
-  if (towerTurnState) advanceTowerTurn({ type: "skip" });
+  if (towerTurnState) advanceSimulationTurn("tower", { type: "skip" });
+});
+
+document.addEventListener("exam-simulation-start", (event) => {
+  try {
+    clearError();
+    const cards = Array.isArray(event.detail?.cards) ? event.detail.cards : [];
+    examTurnState = createTowerTurnState(cards, event.detail?.seed, catalogs.cardById, { cardVariantByKey: catalogs.cardVariantByKey });
+    examSelectedCardIndex = 0;
+    drawTowerTurn(examTurnState, 3);
+    renderTurnState("exam", examTurnState);
+  } catch (error) {
+    examTurnState = null;
+    $("exam-turn-result").hidden = true;
+    showError(error);
+  }
+});
+$("exam-skip-turn").addEventListener("click", () => {
+  if (examTurnState) advanceSimulationTurn("exam", { type: "skip" });
 });
 
 function observedLines() {
