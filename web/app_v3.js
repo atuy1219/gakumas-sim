@@ -757,6 +757,14 @@ function buildComposition(mode) {
   );
 }
 
+function cardsWithSeedMetadata(cards) {
+  return cards.map((card) => {
+    const variant = catalogs.cardVariantByKey?.get?.(`${String(card.id)}@@${Number(card.upgradeCount ?? 0)}`);
+    const master = variant ?? catalogs.cardById.get(String(card.id)) ?? {};
+    return { ...card, isInitial: Boolean(master.isInitial ?? card.isInitial) };
+  });
+}
+
 function renderPItems(mode) {
   const container = $(simIds(mode).pitems);
   if (!container) return;
@@ -1342,7 +1350,8 @@ async function startSeedSearch() {
     const observed = parseObservedDraws(composition);
     const deckCount = composition.cards.length;
     const firstDeck = observed.slice(0, deckCount);
-    const { variants, truncated } = deriveSeedChoiceVariants(composition.cards, firstDeck, MAX_SEED_VARIANTS);
+    const seedCards = cardsWithSeedMetadata(composition.cards);
+    const { variants, truncated } = deriveSeedChoiceVariants(seedCards, firstDeck, MAX_SEED_VARIANTS);
     if (truncated) {
       throw new Error("同一カードの重複によるseed条件が64通りを超えました。完全特定を保証できないため、重複カードを見分けられる情報を追加してください。");
     }

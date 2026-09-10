@@ -66,6 +66,21 @@ const duplicateRun = simulateCards(duplicateCards, duplicateSeed, 5);
 const duplicateDerived = deriveSeedChoiceVariants(duplicateCards, duplicateRun.initialDeck.map((card) => card.id));
 assert.ok(duplicateDerived.variants.some((variant) => seedMatchesChoices(duplicateSeed, variant)));
 
+const initialCards = cards.map((card) => ({ ...card, isInitial: card.id === "B" }));
+const initialRun = simulateTurnRecycleDraws(initialCards, seed, initialCards.length, 3);
+assert.equal(initialRun.initialDeck[0], "B");
+const initialDerived = deriveSeedChoiceVariants(initialCards, initialRun.initialDeck);
+assert.equal(initialDerived.truncated, false);
+assert.ok(initialDerived.variants.some((variant) => seedMatchesChoices(seed, variant)));
+assert.equal(seedMatchesObservedDraws(seed, initialCards, initialRun.draws, 3), true);
+
+const duplicateInitialCards = [
+  { id: "A", isInitial: true }, { id: "A", isInitial: false }, { id: "B" }, { id: "C" },
+];
+const duplicateInitialRun = simulateTurnRecycleDraws(duplicateInitialCards, 12345, 4, 3);
+const duplicateInitialDerived = deriveSeedChoiceVariants(duplicateInitialCards, duplicateInitialRun.initialDeck);
+assert.ok(duplicateInitialDerived.variants.some((variant) => seedMatchesChoices(12345, variant)));
+
 const monte = runOrderMonteCarlo(cards, 100, 0x2468ace0, 3);
 assert.equal(monte.count, 100);
 assert.equal(monte.scoreSupported, false);

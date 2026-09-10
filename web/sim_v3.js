@@ -67,6 +67,7 @@ export function makeCardInstances(cards) {
       ordinal,
       token: `${id}@@${ordinal}`,
       index,
+      isInitial: Boolean(card?.isInitial),
       card,
     };
   });
@@ -131,32 +132,47 @@ export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 64) {
     throw new Error("観測順のカード構成が現在のデッキと一致しません。重複枚数も確認してください。");
   }
 
+  const initialInstances = instances.filter((item) => item.isInitial);
+  const shuffleInstances = instances.filter((item) => !item.isInitial);
+  const observedInitial = observed.slice(0, initialInstances.length);
+  const observedShuffled = observed.slice(initialInstances.length);
+  if (!sameMultiset(initialInstances.map((item) => item.id), observedInitial)) {
+    throw new Error(`開始時手札の${initialInstances.length}枚を観測順の先頭に入力してください。`);
+  }
+  if (!sameMultiset(shuffleInstances.map((item) => item.id), observedShuffled)) {
+    throw new Error("開始時手札を除いたカードの構成が現在のデッキと一致しません。");
+  }
+
   const tokensById = new Map();
-  for (const instance of instances) {
+  for (const instance of shuffleInstances) {
     if (!tokensById.has(instance.id)) tokensById.set(instance.id, []);
     tokensById.get(instance.id).push(instance.token);
   }
   const used = new Set();
-  const finalTokens = new Array(observed.length);
+  const finalTokens = new Array(observedShuffled.length);
   const variantKeys = new Set();
   const variants = [];
   let truncated = false;
+
+  function addChoices() {
+    const choices = deriveFisherYatesChoices(shuffleInstances.map((item) => item.token), finalTokens);
+    const key = choices.map((item) => `${item.n}:${item.j}`).join(",");
+    if (!variantKeys.has(key)) {
+      variantKeys.add(key);
+      variants.push(choices);
+    }
+  }
 
   function visit(index) {
     if (variants.length >= maxVariants) {
       truncated = true;
       return;
     }
-    if (index >= observed.length) {
-      const choices = deriveFisherYatesChoices(instances.map((item) => item.token), finalTokens);
-      const key = choices.map((item) => `${item.n}:${item.j}`).join(",");
-      if (!variantKeys.has(key)) {
-        variantKeys.add(key);
-        variants.push(choices);
-      }
+    if (index >= observedShuffled.length) {
+      addChoices();
       return;
     }
-    const candidates = tokensById.get(observed[index]) ?? [];
+    const candidates = tokensById.get(observedShuffled[index]) ?? [];
     for (const token of candidates) {
       if (used.has(token)) continue;
       used.add(token);
@@ -168,7 +184,7 @@ export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 64) {
   }
   visit(0);
   if (!variants.length) throw new Error("観測順からseed条件を作成できませんでした。");
-  return { variants, truncated, instanceCount: instances.length };
+  return { variants, truncated, instanceCount: instances.length, initialCount: initialInstances.length };
 }
 
 export function observationCardLabel(name, upgradeCount = 0) {
@@ -232,12 +248,15 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
   const perTurn = Number(drawPerTurn);
   if (!Number.isInteger(count) || count < 0) throw new Error("ドロー枚数は0以上の整数で指定してください。");
   if (!Number.isInteger(perTurn) || perTurn < 1) throw new Error("1ターンのドロー枚数が不正です。");
-  const ids = makeCardInstances(cards).map((item) => item.id);
-  if (!ids.length) throw new Error("デッキにカードがありません。");
+  const instances = makeCardInstances(cards);
+  if (!instances.length) throw new Error("デッキにカードがありません。");
 
   let state = Number(seed) >>> 0;
-  const initial = shuffleIdsWithState(ids, state);
-  let deck = initial.deck.slice();
+  const initialInstances = instances.filter((item) => item.isInitial);
+  const shuffleInstances = instances.filter((item) => !item.isInitial);
+  const initial = shuffleIdsWithState(shuffleInstances.map((item) => item.id), state);
+  const initialDeck = [...initialInstances.map((item) => item.id), ...initial.deck];
+  let deck = initialDeck.slice();
   state = initial.state;
   let discard = [];
   let hand = [];
@@ -265,7 +284,7 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
 
   return {
     seed: Number(seed) >>> 0,
-    initialDeck: initial.deck,
+    initialDeck,
     draws,
     remainingDeck: deck,
     discard,
@@ -278,11 +297,13 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
 export function seedMatchesObservedDraws(seed, cards, observedIds, drawPerTurn = 3) {
   const perTurn = Number(drawPerTurn);
   const observed = (observedIds ?? []).map(String);
-  const ids = makeCardInstances(cards).map((item) => item.id);
-  if (!ids.length || !observed.length) return false;
+  const instances = makeCardInstances(cards);
+  if (!instances.length || !observed.length) return false;
 
-  const initial = shuffleIdsWithState(ids, Number(seed) >>> 0);
-  let deck = initial.deck.slice();
+  const initialInstances = instances.filter((item) => item.isInitial);
+  const shuffleInstances = instances.filter((item) => !item.isInitial);
+  const initial = shuffleIdsWithState(shuffleInstances.map((item) => item.id), Number(seed) >>> 0);
+  let deck = [...initialInstances.map((item) => item.id), ...initial.deck];
   let discard = [];
   let hand = [];
   let state = initial.state;

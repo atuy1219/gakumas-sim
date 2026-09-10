@@ -77,7 +77,7 @@ function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
       costValue: Number(master.costValue ?? 0) || 0,
       playProduceExamTriggerId: String(master.playProduceExamTriggerId ?? ""),
       playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
-      isInitial: Boolean(master.isInitial),
+      isInitial: Boolean(master.isInitial ?? card.isInitial),
       isRestrict: Boolean(master.isRestrict),
       isEndTurnLost: Boolean(master.isEndTurnLost),
     };
@@ -98,7 +98,9 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   const seed = typeof seedInput === "number" ? seedInput >>> 0 : parseSeed(seedInput);
   const instances = runtimeInstances(cards, cardById, options.cardVariantByKey);
   if (!instances.length) throw new Error("デッキにカードがありません。");
-  const initial = shuffleObjectsWithState(instances, seed);
+  const initialCards = instances.filter((card) => card.isInitial);
+  const shuffled = shuffleObjectsWithState(instances.filter((card) => !card.isInitial), seed);
+  const initial = { ...shuffled, deck: [...initialCards, ...shuffled.deck] };
   return {
     seed,
     randomState: initial.randomState,

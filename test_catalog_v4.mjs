@@ -28,8 +28,9 @@ assert.equal(idols[0].produceStamina, 31);
 assert.equal(idols[0].beforeProduceItemId, "pitem-before");
 assert.equal(idols[0].afterLevelLimitProduceItemId, "pitem-limit-after");
 
-const rawCards = parseProduceCardCatalog(`- id: p_card-00-act-2_009\n  upgradeCount: 0\n  name: 前途洋々\n  planType: ProducePlanType_Common\n  category: ProduceCardCategory_ActiveSkill\n  evaluation: 35\n  noDeckDuplication: true\n- id: p_card-00-act-2_009\n  upgradeCount: 1\n  name: 前途洋々+\n  planType: ProducePlanType_Common\n  category: ProduceCardCategory_ActiveSkill\n  evaluation: 45\n  noDeckDuplication: true\n- id: p_card-00-act-2_009\n  upgradeCount: 3\n  name: 前途洋々+++\n  planType: ProducePlanType_Common\n  category: ProduceCardCategory_ActiveSkill\n- id: p_card-other\n  upgradeCount: 0\n  name: 別カード\n  noDeckDuplication: false\n`);
+const rawCards = parseProduceCardCatalog(`- id: p_card-00-act-2_009\n  upgradeCount: 0\n  name: 前途洋々\n  planType: ProducePlanType_Common\n  category: ProduceCardCategory_ActiveSkill\n  evaluation: 35\n  noDeckDuplication: true\n  isInitial: true\n- id: p_card-00-act-2_009\n  upgradeCount: 1\n  name: 前途洋々+\n  planType: ProducePlanType_Common\n  category: ProduceCardCategory_ActiveSkill\n  evaluation: 45\n  noDeckDuplication: true\n  isInitial: true\n- id: p_card-00-act-2_009\n  upgradeCount: 3\n  name: 前途洋々+++\n  planType: ProducePlanType_Common\n  category: ProduceCardCategory_ActiveSkill\n- id: p_card-other\n  upgradeCount: 0\n  name: 別カード\n  noDeckDuplication: false\n`);
 assert.equal(rawCards.length, 4);
+assert.equal(rawCards[0].isInitial, true);
 assert.equal(rawCards[0].noDeckDuplication, true);
 assert.equal(rawCards[0].evaluation, 35);
 assert.equal(canonicalCardName("前途洋々+++", 3), "前途洋々");
