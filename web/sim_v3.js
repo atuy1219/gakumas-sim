@@ -121,6 +121,134 @@ function sameMultiset(a, b) {
   return true;
 }
 
+function normalizedObservedBatches(observedBatches) {
+  return (observedBatches ?? [])
+    .map((batch) => (batch ?? []).map((id) => String(id).trim()).filter(Boolean))
+    .filter((batch) => batch.length);
+}
+
+function subtractMultiset(values, removed) {
+  const remaining = multisetCounts(removed);
+  const out = [];
+  for (const value of values) {
+    const key = String(value);
+    const count = remaining.get(key) ?? 0;
+    if (count > 0) remaining.set(key, count - 1);
+    else out.push(key);
+  }
+  if ([...remaining.values()].some((count) => count > 0)) return null;
+  return out;
+}
+
+function deriveSuffixChoiceVariants(instances, suffixIds, maxVariants = 10000) {
+  const required = multisetCounts(suffixIds);
+  const usedCounts = new Map();
+  const usedTokens = new Set();
+  const suffixTokens = new Array(suffixIds.length);
+  const variants = [];
+  const keys = new Set();
+  let truncated = false;
+
+  function visit(position) {
+    if (variants.length >= maxVariants) {
+      truncated = true;
+      return;
+    }
+    if (position === suffixTokens.length) {
+      const work = instances.map((item) => item.token);
+      const choices = [];
+      for (let offset = suffixTokens.length - 1; offset >= 0; offset -= 1) {
+        const n = work.length - (suffixTokens.length - 1 - offset);
+        const j = work.indexOf(suffixTokens[offset], 0);
+        if (j < 0 || j >= n) return;
+        choices.push({ n, j });
+        [work[j], work[n - 1]] = [work[n - 1], work[j]];
+      }
+      const key = choices.map((choice) => `${choice.n}:${choice.j}`).join(",");
+      if (!keys.has(key)) {
+        keys.add(key);
+        variants.push(choices);
+      }
+      return;
+    }
+    for (const instance of instances) {
+      if (usedTokens.has(instance.token)) continue;
+      const used = usedCounts.get(instance.id) ?? 0;
+      if (used >= (required.get(instance.id) ?? 0)) continue;
+      usedTokens.add(instance.token);
+      usedCounts.set(instance.id, used + 1);
+      suffixTokens[position] = instance.token;
+      visit(position + 1);
+      usedTokens.delete(instance.token);
+      if (used) usedCounts.set(instance.id, used);
+      else usedCounts.delete(instance.id);
+    }
+  }
+  visit(0);
+  return { variants, truncated };
+}
+
+// Visible cards that arrive together form a batch. Their screen positions are
+// not used as an internal draw order; only the order between batches matters.
+export function prepareSeedBatchSearch(cards, observedBatches) {
+  const instances = makeCardInstances(cards);
+  if (!instances.length) throw new Error("デッキにカードがありません。");
+  const batches = normalizedObservedBatches(observedBatches);
+  if (batches.some((batch) => batch.length > 5)) {
+    throw new Error("同時ドローは5枚以下で区切ってください。「次のドロー」を押して表示更新ごとに分けます。");
+  }
+  const observed = batches.flat();
+  const deckIds = instances.map((item) => item.id);
+  if (observed.length !== deckIds.length) {
+    throw new Error(`seed探索には山札由来の全${deckIds.length}枚を入力してください（現在${observed.length}枚）。`);
+  }
+  if (!sameMultiset(deckIds, observed)) {
+    throw new Error("観測カードが現在のデッキと一致しません。生成カードを除外し、重複枚数も確認してください。");
+  }
+
+  const initialIds = instances.filter((item) => item.isInitial).map((item) => item.id);
+  const shuffleIds = instances.filter((item) => !item.isInitial).map((item) => item.id);
+  const firstWithoutInitial = subtractMultiset(batches[0] ?? [], initialIds);
+  if (firstWithoutInitial === null) {
+    throw new Error("開始時手札カードは最初のドローバッチに含めてください。");
+  }
+  const shuffledBatches = [firstWithoutInitial, ...batches.slice(1)].filter((batch) => batch.length);
+  if (!sameMultiset(shuffleIds, shuffledBatches.flat())) {
+    throw new Error("開始時手札を除いた観測カードが、シャッフル対象のカードと一致しません。");
+  }
+  if (shuffleIds.length < 2) {
+    return { batches, shuffledBatches, initialIds, shuffleIds, choices: [[]], prefixVariants: [[]], intervals: [{ start: 0, end: UINT32_SPACE, size: UINT32_SPACE }] };
+  }
+
+  const lastBatch = shuffledBatches.at(-1) ?? [];
+  const allowedIds = new Set(lastBatch);
+  const choices = [];
+  for (let j = 0; j < shuffleIds.length; j += 1) {
+    if (allowedIds.has(shuffleIds[j])) choices.push([{ n: shuffleIds.length, j }]);
+  }
+  if (!choices.length) throw new Error("最後のドローバッチからseed探索範囲を作成できませんでした。");
+  const shuffleInstances = instances.filter((item) => !item.isInitial);
+  const derivedPrefix = deriveSuffixChoiceVariants(shuffleInstances, lastBatch);
+  if (derivedPrefix.truncated) throw new Error("同じカードの候補が多すぎます。最後のドローをさらに細かく区切ってください。");
+  const prefixVariants = derivedPrefix.variants;
+  if (!prefixVariants.length) throw new Error("最後のドローバッチからseed条件を作成できませんでした。");
+  const intervals = mergeIntervals(choices.map((choice) => seedIntervalFromChoices(choice)));
+  return { batches, shuffledBatches, initialIds, shuffleIds, choices, prefixVariants, intervals };
+}
+
+export function seedMatchesObservedBatches(seed, cards, observedBatches) {
+  const prepared = prepareSeedBatchSearch(cards, observedBatches);
+  const shuffled = shuffleIdsWithState(prepared.shuffleIds, Number(seed) >>> 0).deck;
+  const deck = [...prepared.initialIds, ...shuffled];
+  let offset = 0;
+  for (const batch of prepared.batches) {
+    const actual = deck.slice(offset, offset + batch.length);
+    if (!sameMultiset(actual, batch)) return false;
+    offset += batch.length;
+  }
+  return offset === deck.length;
+}
+
 export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 64) {
   const instances = makeCardInstances(cards);
   const observed = observedIds.map((id) => String(id).trim()).filter(Boolean);

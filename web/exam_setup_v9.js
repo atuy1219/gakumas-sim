@@ -32,11 +32,13 @@ export function changeExamCardCount(counts, card, delta) {
 }
 
 export function buildExamDeck(cards, counts) {
-  const byId = new Map((cards ?? []).map((card) => [String(card.id), card]));
   const deck = [];
-  for (const [id, rawCount] of counts ?? []) {
-    const card = byId.get(String(id));
-    if (!card) continue;
+  const selected = new Map(counts ?? []);
+  // The catalog order is stable. UI click order and imported JSON property
+  // order must not silently alter the deck before its seeded shuffle.
+  for (const card of cards ?? []) {
+    const rawCount = selected.get(String(card.id));
+    if (rawCount === undefined) continue;
     const count = Math.max(0, Math.trunc(Number(rawCount ?? 0)));
     const safeCount = card.noDeckDuplication ? Math.min(1, count) : count;
     for (let index = 0; index < safeCount; index += 1) {

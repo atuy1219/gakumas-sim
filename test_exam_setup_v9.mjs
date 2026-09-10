@@ -30,5 +30,7 @@ assert.equal(deck.length, 3);
 assert.deepEqual(deck.map((card) => card.id), ["sense", "sense", "unique"]);
 assert.equal(deck[0].isInitial, true);
 assert.equal(deck[2].isInitial, false);
+const reorderedCounts = new Map([["unique", 1], ["sense", 2]]);
+assert.deepEqual(buildExamDeck(cards, reorderedCounts), deck);
 
 console.log("exam setup v9 tests: ok");

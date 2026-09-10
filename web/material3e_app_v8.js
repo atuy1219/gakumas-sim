@@ -1,10 +1,9 @@
 import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, parseProduceCardCatalog, planLabel } from "./catalog_v4.js";
 import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup_v9.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
-import { deriveSeedChoiceVariants, makeCardInstances, seedIntervalFromChoices } from "./sim_v3.js";
+import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./sim_v3.js";
 
 const routeLabels = Object.freeze({ memory: "メモリー管理", cards: "P図鑑 · カード", items: "P図鑑 · Pアイテム", exam: "試験（オーディション）", contest: "コンテスト", tower: "ドル道" });
-const MAX_SEED_VARIANTS = 64;
 const MAX_SEED_MATCHES = 100;
 const SEED_TASK_SIZE = 1_000_000;
 const menuButton = document.getElementById("m3e-menu");
@@ -93,7 +92,7 @@ let examCharacters = [];
 let examIdols = [];
 let examCards = [];
 let examCounts = new Map();
-let examObserved = [];
+let examObservedBatches = [[]];
 let examSeedWorkers = [];
 let examSearchCancelled = false;
 const examCharacter = document.getElementById("exam-character");
@@ -230,19 +229,31 @@ function renderExamDeckSummary() {
 function renderExamObservation() {
   const deck = examDeck();
   const instances = makeCardInstances(deck);
+  const observed = examObservedBatches.flat();
   const list = document.getElementById("exam-observed-list");
   const buttons = document.getElementById("exam-observation-buttons");
   const names = new Map(deck.map((card) => [String(card.id), card.name]));
   list.replaceChildren();
-  if (!examObserved.length) list.innerHTML = '<span class="hint">まだカードがありません。</span>';
-  examObserved.forEach((id, index) => {
-    const chip = document.createElement("span");
-    chip.className = "observed-card";
-    chip.textContent = `${index + 1}. ${names.get(String(id)) ?? id}`;
-    list.append(chip);
+  if (!observed.length) list.innerHTML = '<span class="hint">まだカードがありません。</span>';
+  let sequence = 0;
+  examObservedBatches.forEach((batch, batchIndex) => {
+    if (!batch.length) return;
+    const group = document.createElement("span");
+    group.className = "observed-batch";
+    const label = document.createElement("small");
+    label.textContent = `ドロー${batchIndex + 1}（順不同）`;
+    group.append(label);
+    for (const id of batch) {
+      sequence += 1;
+      const chip = document.createElement("span");
+      chip.className = "observed-card";
+      chip.textContent = `${sequence}. ${names.get(String(id)) ?? id}`;
+      group.append(chip);
+    }
+    list.append(group);
   });
-  const complete = Boolean(deck.length) && examObserved.length === deck.length;
-  document.getElementById("exam-observed-count").textContent = `${examObserved.length} / ${deck.length}枚${complete ? " · 入力完了" : ""}`;
+  const complete = Boolean(deck.length) && observed.length === deck.length;
+  document.getElementById("exam-observed-count").textContent = `${observed.length} / ${deck.length}枚${complete ? " · 入力完了" : ""}`;
   document.getElementById("exam-find-seed").disabled = !complete;
   buttons.replaceChildren();
   if (complete) {
@@ -252,7 +263,7 @@ function renderExamObservation() {
   const used = new Map();
   const seen = new Map();
   const totals = new Map();
-  for (const id of examObserved) used.set(String(id), (used.get(String(id)) ?? 0) + 1);
+  for (const id of observed) used.set(String(id), (used.get(String(id)) ?? 0) + 1);
   for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
   for (const instance of instances) {
     const ordinal = (seen.get(instance.id) ?? 0) + 1;
@@ -262,7 +273,10 @@ function renderExamObservation() {
     button.className = "observation-card";
     button.textContent = `${names.get(instance.id) ?? instance.id}${(totals.get(instance.id) ?? 0) > 1 ? ` #${ordinal}` : ""}`;
     button.disabled = ordinal <= (used.get(instance.id) ?? 0);
-    button.addEventListener("click", () => { examObserved.push(instance.id); renderExamObservation(); });
+    button.addEventListener("click", () => {
+      examObservedBatches.at(-1).push(instance.id);
+      renderExamObservation();
+    });
     buttons.append(button);
   }
 }
@@ -276,7 +290,7 @@ function cancelExamSeedSearch() {
 
 function resetExamObservation() {
   cancelExamSeedSearch();
-  examObserved = [];
+  examObservedBatches = [[]];
   document.getElementById("exam-seed-results").replaceChildren();
   renderExamObservation();
 }
@@ -330,14 +344,13 @@ async function startExamSeedSearch() {
   cancelExamSeedSearch();
   examSearchCancelled = false;
   const deck = examDeck();
-  const { variants, truncated } = deriveSeedChoiceVariants(deck, examObserved, MAX_SEED_VARIANTS);
-  if (truncated) throw new Error("同じカードの組み合わせが多すぎます。重複枚数を減らして再度お試しください。");
+  const prepared = prepareSeedBatchSearch(deck, examObservedBatches);
   const tasks = [];
   let total = 0;
-  variants.forEach((choices, variantIndex) => {
+  prepared.choices.forEach((choices) => {
     const interval = seedIntervalFromChoices(choices);
     total += interval.size;
-    for (let start = interval.start; start < interval.end; start += SEED_TASK_SIZE) tasks.push({ variantIndex, start, end: Math.min(interval.end, start + SEED_TASK_SIZE) });
+    for (let start = interval.start; start < interval.end; start += SEED_TASK_SIZE) tasks.push({ choices, start, end: Math.min(interval.end, start + SEED_TASK_SIZE) });
   });
   const progress = document.getElementById("exam-seed-progress");
   const findButton = document.getElementById("exam-find-seed");
@@ -370,7 +383,15 @@ async function startExamSeedSearch() {
           return;
         }
         const task = tasks[nextTask++];
-        worker.postMessage({ type: "scan", taskId: nextTask, choices: variants[task.variantIndex], deckIds: deck.map((card) => String(card.id)), observedIds: examObserved, drawPerTurn: 3, start: task.start, end: task.end, maxMatches: MAX_SEED_MATCHES - matches.size });
+        worker.postMessage({
+          type: "scan",
+          taskId: nextTask,
+          choices: task.choices,
+          batchSearch: { shuffleIds: prepared.shuffleIds, shuffledBatches: prepared.shuffledBatches, prefixVariants: prepared.prefixVariants },
+          start: task.start,
+          end: task.end,
+          maxMatches: MAX_SEED_MATCHES - matches.size,
+        });
       };
       for (let index = 0; index < Math.min(concurrency, tasks.length); index += 1) {
         const worker = new Worker("./seed_worker.js");
@@ -396,7 +417,7 @@ async function startExamSeedSearch() {
     examSeedWorkers = [];
     progress.hidden = true;
     cancelButton.hidden = true;
-    findButton.disabled = examObserved.length !== deck.length;
+    findButton.disabled = examObservedBatches.flat().length !== deck.length;
   }
 }
 
@@ -463,7 +484,17 @@ for (const button of document.querySelectorAll("#tab-tower [data-tower-next]")) 
 for (const button of document.querySelectorAll("#tab-tower [data-tower-back]")) {
   button.addEventListener("click", () => setSimulationStage("tower", button.dataset.towerBack));
 }
-document.getElementById("exam-undo-observation").addEventListener("click", () => { examObserved.pop(); renderExamObservation(); });
+document.getElementById("exam-next-draw").addEventListener("click", () => {
+  const current = examObservedBatches.at(-1);
+  if (!current?.length) return showExamError("先に新しく手札へ来たカードを選択してください。");
+  if (examObservedBatches.flat().length < examDeck().length) examObservedBatches.push([]);
+  renderExamObservation();
+});
+document.getElementById("exam-undo-observation").addEventListener("click", () => {
+  while (examObservedBatches.length > 1 && !examObservedBatches.at(-1).length) examObservedBatches.pop();
+  examObservedBatches.at(-1)?.pop();
+  renderExamObservation();
+});
 document.getElementById("exam-reset-observation").addEventListener("click", resetExamObservation);
 document.getElementById("exam-cancel-seed").addEventListener("click", cancelExamSeedSearch);
 document.getElementById("exam-find-seed").addEventListener("click", () => startExamSeedSearch().catch(showExamError));

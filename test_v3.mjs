@@ -3,10 +3,12 @@ import { simulateCards } from "./web/engine.js";
 import {
   deriveSeedChoiceVariants,
   observationCardLabel,
+  prepareSeedBatchSearch,
   runOrderMonteCarlo,
   scanSeedRange,
   seedIntervalFromChoices,
   seedMatchesChoices,
+  seedMatchesObservedBatches,
   seedMatchesObservedDraws,
   simulateTurnRecycleDraws,
   validateObservedDraws,
@@ -80,6 +82,33 @@ const duplicateInitialCards = [
 const duplicateInitialRun = simulateTurnRecycleDraws(duplicateInitialCards, 12345, 4, 3);
 const duplicateInitialDerived = deriveSeedChoiceVariants(duplicateInitialCards, duplicateInitialRun.initialDeck);
 assert.ok(duplicateInitialDerived.variants.some((variant) => seedMatchesChoices(12345, variant)));
+
+// Cards displayed together are unordered. Batch sizes may also change when a
+// card redraws the hand or adds an extra draw.
+const batchRun = simulateTurnRecycleDraws(cards, seed, cards.length, 3);
+const observedBatches = [
+  [batchRun.draws[2], batchRun.draws[0], batchRun.draws[1]],
+  [batchRun.draws[4], batchRun.draws[3]],
+  [batchRun.draws[5]],
+  [batchRun.draws[7], batchRun.draws[6]],
+];
+const batchSearch = prepareSeedBatchSearch(cards, observedBatches);
+assert.equal(batchSearch.batches.length, 4);
+assert.ok(batchSearch.choices.some((choice) => seedMatchesChoices(seed, choice)));
+assert.equal(seedMatchesObservedBatches(seed, cards, observedBatches), true);
+assert.equal(seedMatchesObservedBatches(seed + 1, cards, observedBatches), false);
+
+// A forced initial card may appear anywhere in the first visible hand.
+const initialBatches = [
+  [initialRun.draws[1], initialRun.draws[0], initialRun.draws[2]],
+  initialRun.draws.slice(3, 6).reverse(),
+  initialRun.draws.slice(6).reverse(),
+];
+assert.equal(seedMatchesObservedBatches(seed, initialCards, initialBatches), true);
+assert.throws(
+  () => prepareSeedBatchSearch(cards, [[...batchRun.draws.slice(0, 4), "generated-sleepiness"], batchRun.draws.slice(5)]),
+  /生成カードを除外/,
+);
 
 const monte = runOrderMonteCarlo(cards, 100, 0x2468ace0, 3);
 assert.equal(monte.count, 100);
