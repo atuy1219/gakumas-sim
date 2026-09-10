@@ -188,6 +188,8 @@ assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">
 assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
 assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
 assert.match(towerHtml, /id="exam-seed"/);
+assert.match(towerHtml, /id="exam-export-preset"/);
+assert.match(towerHtml, /id="exam-import-preset"/);
 assert.match(towerHtml, /id="exam-selected-card"/);
 assert.match(towerHtml, /id="tower-selected-card"/);
 assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);

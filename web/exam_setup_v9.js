@@ -40,7 +40,13 @@ export function buildExamDeck(cards, counts) {
     const count = Math.max(0, Math.trunc(Number(rawCount ?? 0)));
     const safeCount = card.noDeckDuplication ? Math.min(1, count) : count;
     for (let index = 0; index < safeCount; index += 1) {
-      deck.push({ id: String(card.id), upgradeCount: 0, fixedDeckOrder: 0, name: card.baseName ?? card.name ?? card.id });
+      deck.push({
+        id: String(card.id),
+        upgradeCount: 0,
+        fixedDeckOrder: 0,
+        name: card.baseName ?? card.name ?? card.id,
+        isInitial: Boolean(card.isInitial),
+      });
     }
   }
   return deck;

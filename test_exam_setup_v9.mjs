@@ -10,7 +10,7 @@ assert.deepEqual(filterExamIdols(idols, "char-a", "ProducePlanType_Plan1").map((
 assert.deepEqual(filterExamIdols(idols, "", "ProducePlanType_Plan1"), []);
 
 const cards = [
-  { id: "sense", name: "好調", baseName: "好調", planType: "ProducePlanType_Plan1" },
+  { id: "sense", name: "好調", baseName: "好調", planType: "ProducePlanType_Plan1", isInitial: true },
   { id: "logic", name: "好印象", baseName: "好印象", planType: "ProducePlanType_Plan2" },
   { id: "common", name: "アピール", baseName: "アピール", planType: "ProducePlanType_Common" },
   { id: "unique", name: "一度だけ", baseName: "一度だけ", planType: "ProducePlanType_Plan1", noDeckDuplication: true },
@@ -28,5 +28,7 @@ assert.equal(counts.get("unique"), 1);
 const deck = buildExamDeck(cards, counts);
 assert.equal(deck.length, 3);
 assert.deepEqual(deck.map((card) => card.id), ["sense", "sense", "unique"]);
+assert.equal(deck[0].isInitial, true);
+assert.equal(deck[2].isInitial, false);
 
 console.log("exam setup v9 tests: ok");

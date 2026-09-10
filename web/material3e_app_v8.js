@@ -1,5 +1,6 @@
 import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, parseProduceCardCatalog, planLabel } from "./catalog_v4.js";
 import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup_v9.js";
+import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { deriveSeedChoiceVariants, makeCardInstances, seedIntervalFromChoices } from "./sim_v3.js";
 
 const routeLabels = Object.freeze({ memory: "メモリー管理", cards: "P図鑑 · カード", items: "P図鑑 · Pアイテム", exam: "試験（オーディション）", contest: "コンテスト", tower: "ドル道" });
@@ -117,6 +118,60 @@ function refreshExamIdols() {
 
 function updateExamSummary() {
   document.getElementById("exam-card-summary").textContent = `${examDeck().length}枚 · ${examCounts.size}種類選択`;
+}
+
+function examPresetStatus(message) {
+  document.getElementById("exam-preset-status").textContent = String(message ?? "");
+}
+
+function exportExamPreset() {
+  try {
+    const preset = createExamPreset({
+      characterId: examCharacter.value,
+      planType: examPlan.value,
+      idolCardId: examIdol.value,
+      cards: [...examCounts].map(([id, count]) => ({ id, count })),
+    });
+    const blob = new Blob([`${JSON.stringify(preset, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+    anchor.href = url;
+    anchor.download = `gakumas-exam-deck-${stamp}.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    examPresetStatus(`${examDeck().length}枚の編成をエクスポートしました。`);
+  } catch (error) {
+    showExamError(error);
+  }
+}
+
+async function importExamPreset(file) {
+  const preset = parseExamPreset(await file.text());
+  if (![...examCharacter.options].some((option) => option.value === preset.characterId)) throw new Error(`キャラクター ${preset.characterId} が現在のデータにありません。`);
+  if (![...examPlan.options].some((option) => option.value === preset.planType)) throw new Error(`プラン ${preset.planType} が現在のデータにありません。`);
+  if (!filterExamIdols(examIdols, preset.characterId, preset.planType).some((idol) => idol.id === preset.idolCardId)) {
+    throw new Error(`Pアイドル ${preset.idolCardId} が現在のキャラクター・プランにありません。`);
+  }
+  const availableCards = new Map(filterExamCards(examCards, preset.planType).map((card) => [String(card.id), card]));
+  const nextCounts = new Map();
+  for (const entry of preset.cards) {
+    const card = availableCards.get(entry.id);
+    if (!card) throw new Error(`カード ${entry.id} が現在のプランにありません。`);
+    if (card.noDeckDuplication && entry.count > 1) throw new Error(`${card.baseName ?? card.name}: デッキ内1枚までです。`);
+    nextCounts.set(entry.id, entry.count);
+  }
+  examCharacter.value = preset.characterId;
+  examPlan.value = preset.planType;
+  refreshExamIdols();
+  examIdol.value = preset.idolCardId;
+  examCounts = nextCounts;
+  examCardSearch.value = "";
+  renderExamCards();
+  resetExamObservation();
+  examPresetStatus(`${examDeck().length}枚の編成をインポートしました。`);
 }
 
 function renderExamCards() {
@@ -368,6 +423,21 @@ async function initializeExamSetup() {
 examCharacter.addEventListener("change", () => { refreshExamIdols(); resetExamObservation(); });
 examPlan.addEventListener("change", () => { examCounts = new Map(); refreshExamIdols(); renderExamCards(); resetExamObservation(); });
 examCardSearch.addEventListener("input", renderExamCards);
+document.getElementById("exam-export-preset").addEventListener("click", exportExamPreset);
+document.getElementById("exam-import-preset").addEventListener("change", async (event) => {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    document.getElementById("global-error").hidden = true;
+    examPresetStatus("");
+    await importExamPreset(file);
+  } catch (error) {
+    showExamError(error);
+  } finally {
+    input.value = "";
+  }
+});
 document.getElementById("exam-next").addEventListener("click", () => {
   if (!examCharacter.value || !examPlan.value || !examIdol.value) return showExamError("キャラクター、プラン、Pアイドルを選択してください。");
   if (!examDeck().length) return showExamError("使用するカードを1枚以上追加してください。");

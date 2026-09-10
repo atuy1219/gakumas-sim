@@ -119,7 +119,14 @@
     <section id="tab-exam" class="tab-panel section-stack m3e-simulator" hidden>
       <div class="m3e-flow-nav"><span class="active" data-stage="setup">1&nbsp; 編成</span><i></i><span data-stage="seed">2&nbsp; Seed</span><i></i><span data-stage="simulation">3&nbsp; シミュレーション</span></div>
       <section class="panel input-panel" data-sim-stage="setup">
-        <div class="section-head"><div><p class="step">01</p><h2>試験・オーディション編成</h2></div></div>
+        <div class="section-head">
+          <div><p class="step">01</p><h2>試験・オーディション編成</h2></div>
+          <div class="button-row">
+            <button id="exam-export-preset" type="button" class="secondary">編成をエクスポート</button>
+            <label class="file-button">編成をインポート<input id="exam-import-preset" type="file" accept="application/json,.json"></label>
+          </div>
+        </div>
+        <p id="exam-preset-status" class="hint" aria-live="polite"></p>
         <p class="hint">キャラクター、プラン、Pアイドルを選び、使用するカードを必要な枚数だけ追加してください。</p>
         <div class="sim-config-grid">
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>

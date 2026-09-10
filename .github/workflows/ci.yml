@@ -32,6 +32,7 @@ jobs:
           node --check web/app_v6.js
           node --check web/engine.js
           node --check web/exam_effects_v7.js
+          node --check web/exam_preset.js
           node --check web/exam_setup_v9.js
           node --check web/material3e_app_v8.js
           node --check web/sim_v3.js
@@ -50,6 +51,8 @@ jobs:
         run: node test_app_v6.mjs
       - name: Tower preset tests
         run: node test_tower_preset.mjs
+      - name: Exam preset tests
+        run: node test_exam_preset.mjs
       - name: Tower runtime tests
         run: node test_tower_runtime.mjs
       - name: Exam effect tests
