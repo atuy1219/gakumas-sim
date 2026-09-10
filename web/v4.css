@@ -49,6 +49,34 @@
   color: var(--muted, #777);
 }
 
+.card-customize-controls-v10 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: .55rem;
+  min-width: min(100%, 26rem);
+}
+
+.card-customize-summary-v10 {
+  grid-column: 1 / -1;
+  line-height: 1.55;
+}
+
+.card-customize-summary-v10.error {
+  color: var(--danger, #ba1a1a);
+}
+
+.memory-cost-guide-v10 {
+  margin: 1rem 0;
+  padding: 1rem 1.15rem;
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, var(--primary, #6750a4) 10%, var(--surface, #fff));
+}
+
+.memory-cost-guide-v10 p {
+  margin: .45rem 0;
+  line-height: 1.65;
+}
+
 .card-row-note-v4 {
   display: none;
 }

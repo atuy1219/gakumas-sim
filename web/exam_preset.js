@@ -19,7 +19,7 @@ function normalizeCards(cards) {
   return [...grouped].map(([id, count]) => ({ id, count }));
 }
 
-export function createExamPreset({ characterId, planType, idolCardId, cards }) {
+export function createExamPreset({ characterId, planType, idolCardId, cards, stamina = 0, targetScore = 0 }) {
   return {
     format: EXAM_PRESET_FORMAT,
     version: EXAM_PRESET_VERSION,
@@ -28,6 +28,8 @@ export function createExamPreset({ characterId, planType, idolCardId, cards }) {
     planType: requiredText(planType, "プラン"),
     idolCardId: requiredText(idolCardId, "Pアイドル"),
     cards: normalizeCards(cards),
+    stamina: Math.max(0, Math.trunc(Number(stamina) || 0)),
+    targetScore: Math.max(0, Math.trunc(Number(targetScore) || 0)),
   };
 }
 

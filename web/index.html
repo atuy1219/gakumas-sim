@@ -90,8 +90,14 @@
           <label><span>体力</span><input id="edit-stamina" type="number" min="0" value="0"></label>
           <label class="wide"><span>PアイテムID（内部値）</span><textarea id="edit-pitems" rows="3" spellcheck="false"></textarea></label>
         </div>
-        <div class="section-head"><div><h3>スキルカード</h3><p class="hint">カード名を選び、強化の有無とカスタム回数だけ指定します。</p></div><button id="edit-add-card" type="button" class="secondary compact">カード欄を追加</button></div>
+        <div class="section-head"><div><h3>スキルカード</h3><p class="hint">カード名と強化状態を選ぶと、そのカードで可能なカスタマイズだけを表示し、生成コスト・上限・必要Pポイントを判定します。</p></div><button id="edit-add-card" type="button" class="secondary compact">カード欄を追加</button></div>
         <div id="edit-card-rows"></div>
+        <aside class="memory-cost-guide-v10">
+          <strong>メモリー生成コストの判定</strong>
+          <p>生成対象カード1枚の評価値を基礎に、カスタマイズは1段階ごとに現在12を加算します。カスタマイズには強化済みカードが必要で、カード固有の候補・最大回数・各段階の必要Pポイントを上のカード欄で個別に判定します。初期所持カード・トラブルカード・対象外の固有カードは候補なしになります。</p>
+          <small>カード使用時の体力消費、カスタマイズ時のPポイント、メモリー生成時の評価値は別の値です。追加されたカスタマイズ効果はカード本来の効果の後に発動します。</small>
+          <small>コストだけで生成を確定することはできません。最終的な強化・カスタム状態はプロデュース成績を含むメモリー抽選ロジックで決まるため、ここでは公開定義から確定できる適用条件と評価値を判定します。</small>
+        </aside>
         <button id="edit-save" type="button" class="primary">保存</button>
       </section>
     </section>
@@ -132,6 +138,8 @@
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
           <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
           <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
+          <label><span>開始時の体力</span><input id="exam-start-stamina" type="number" min="0" value="30"></label>
+          <label><span>目標スコア（任意）</span><input id="exam-target-score" type="number" min="0" value="0" placeholder="0なら判定なし"></label>
         </div>
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>

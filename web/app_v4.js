@@ -11,6 +11,15 @@ import {
   parseProduceItemCatalog,
   planLabel,
 } from "./catalog_v4.js";
+import {
+  describeCustomize,
+  judgeCardCustomization,
+  normalizeCustomizes,
+  parseCardMemoryRules,
+  parseCustomizeCatalog,
+  parseCustomizeRarityEvaluations,
+  parseGrowEffectCatalog,
+} from "./memory_judgement_v10.js";
 
 const $ = (id) => document.getElementById(id);
 const CUSTOM_STORE_KEY = "gakumas-sim-custom-count-v4";
@@ -28,6 +37,10 @@ const state = {
   items: [],
   itemById: new Map(),
   itemByName: new Map(),
+  cardRules: new Map(),
+  customizeById: new Map(),
+  growEffectById: new Map(),
+  customizeEvaluationByRarity: new Map(),
   cardVisible: CATALOG_PAGE_SIZE,
   itemVisible: CATALOG_PAGE_SIZE,
 };
@@ -238,12 +251,9 @@ function rewriteCardDatalist() {
   datalist.append(fragment);
 }
 
-function importedCustomizeCount(card) {
-  if (!Array.isArray(card?.customizes)) return 0;
-  return Math.min(3, card.customizes.reduce((sum, customize) => {
-    if (customize && typeof customize === "object") return sum + Math.max(0, Number(customize.customizeCount ?? 1));
-    return sum + 1;
-  }, 0));
+function importedCustomizeActions(card) {
+  return normalizeCustomizes(card?.customizes).flatMap((customize) =>
+    Array.from({ length: customize.customizeCount }, () => customize.id));
 }
 
 function editorMemoryId() {
@@ -258,6 +268,85 @@ function editorMemoryId() {
 
 function customizeKey(memoryId, cardId, occurrence) {
   return `${memoryId}::${cardId}::${occurrence}`;
+}
+
+function rowCustomizeActions(row) {
+  return [...row.querySelectorAll(".card-customize-action-v10")].map((select) => select.value).filter(Boolean);
+}
+
+function customizesFromActions(actions) {
+  return normalizeCustomizes(actions.map((id) => ({ id, customizeCount: 1 })));
+}
+
+function renderCustomizeSummary(row, card, actions) {
+  const summary = row.querySelector(".card-customize-summary-v10");
+  if (!summary) return;
+  const rule = state.cardRules.get(String(card?.id ?? ""));
+  const upgrade = Number(row.querySelector(".card-upgrade-select-v4")?.value ?? 0);
+  const judgement = judgeCardCustomization(
+    { id: card?.id, upgradeCount: upgrade, customizes: customizesFromActions(actions) },
+    rule, state.customizeById, state.growEffectById, state.customizeEvaluationByRarity,
+  );
+  const point = judgement.details.reduce((sum, detail) => {
+    const route = state.customizeById.get(detail.id);
+    for (let level = 1; level <= detail.customizeCount; level += 1) sum += Number(route?.levels.get(level)?.producePoint ?? 0);
+    return sum;
+  }, 0);
+  const detailText = judgement.details.map((detail) => `${detail.label} (${detail.customizeCount}段階)`).join(" / ");
+  summary.classList.toggle("error", !judgement.valid);
+  row.dataset.customizeValid = judgement.valid ? "1" : "0";
+  summary.textContent = [
+    judgement.valid ? "判定: 適用可能" : `判定: ${judgement.reasons.join(" / ")}`,
+    `生成コスト ${judgement.baseEvaluation} + カスタム${judgement.customizeEvaluation} = ${judgement.totalEvaluation}`,
+    point ? `必要Pポイント合計 ${point}` : "",
+    detailText,
+  ].filter(Boolean).join(" · ");
+}
+
+function renderCustomizeControls(row, preferredActions = null) {
+  const host = row.querySelector(".card-customize-controls-v10");
+  const input = row.querySelector("input.card-name-input-v4");
+  if (!host || !input) return;
+  const card = resolveCardVisible(input.value);
+  const rule = state.cardRules.get(String(card?.id ?? ""));
+  const oldActions = preferredActions ?? rowCustomizeActions(row);
+  host.innerHTML = "";
+  const max = Number(rule?.maxCustomizeCount ?? 0);
+  if (!card || (max < 1 && !oldActions.length)) {
+    row.dataset.customizeValid = "1";
+    const note = document.createElement("small");
+    note.className = "hint card-customize-summary-v10";
+    note.textContent = card ? "このカードにカスタマイズ候補はありません。" : "カードを選ぶとカスタマイズ候補を判定します。";
+    host.append(note);
+    return;
+  }
+  for (let slot = 0; slot < Math.max(max, oldActions.length); slot += 1) {
+    const label = document.createElement("label");
+    label.className = "compact-control-v4";
+    const title = document.createElement("span");
+    title.textContent = `カスタム ${slot + 1}`;
+    const select = document.createElement("select");
+    select.className = "card-customize-action-v10";
+    select.append(textOption("", "なし"));
+    for (const id of rule?.customizeIds ?? []) {
+      const detail = describeCustomize(id, 1, state.customizeById, state.growEffectById);
+      select.append(textOption(id, detail.label));
+    }
+    if (oldActions[slot] && !rule?.customizeIds.includes(oldActions[slot])) {
+      select.append(textOption(oldActions[slot], `未定義: ${oldActions[slot]}`));
+    }
+    select.value = oldActions[slot] ?? "";
+    select.addEventListener("change", () => {
+      renderCustomizeSummary(row, card, rowCustomizeActions(row));
+      captureCardEditorMetadata();
+    });
+    label.append(title, select);
+    host.append(label);
+  }
+  const summary = document.createElement("small");
+  summary.className = "card-customize-summary-v10";
+  host.append(summary);
+  renderCustomizeSummary(row, card, rowCustomizeActions(row));
 }
 
 function decorateCardRow(row) {
@@ -285,22 +374,16 @@ function decorateCardRow(row) {
   upgradeSelect.addEventListener("change", () => { upgradeInput.value = upgradeSelect.value; });
   upgradeLabel.append(upgradeTitle, upgradeSelect);
 
-  const customizeLabel = document.createElement("label");
-  customizeLabel.className = "compact-control-v4";
-  const customizeTitle = document.createElement("span");
-  customizeTitle.textContent = "カスタム";
-  const customizeSelect = document.createElement("select");
-  customizeSelect.className = "card-customize-select-v4";
-  for (let count = 0; count <= 3; count += 1) customizeSelect.append(textOption(String(count), `${count}回`));
-  customizeSelect.value = String(importedCustomizeCount(row.__originalCard));
-  customizeLabel.append(customizeTitle, customizeSelect);
-
-  const note = document.createElement("small");
-  note.className = "card-row-note-v4";
-  note.textContent = "強化とカスタムは別管理";
+  const customizeHost = document.createElement("div");
+  customizeHost.className = "card-customize-controls-v10";
+  cardInput.addEventListener("change", () => renderCustomizeControls(row, []));
+  cardInput.addEventListener("input", () => {
+    if (resolveCardVisible(cardInput.value)) renderCustomizeControls(row, []);
+  });
+  upgradeSelect.addEventListener("change", () => renderCustomizeSummary(row, resolveCardVisible(cardInput.value), rowCustomizeActions(row)));
   row.insertBefore(upgradeLabel, row.lastElementChild);
-  row.insertBefore(customizeLabel, row.lastElementChild);
-  row.insertBefore(note, row.lastElementChild);
+  row.insertBefore(customizeHost, row.lastElementChild);
+  renderCustomizeControls(row, importedCustomizeActions(row.__originalCard));
 }
 
 function decorateAllCardRows() {
@@ -318,8 +401,9 @@ function captureCardEditorMetadata() {
     if (resolved) cardInput.value = resolved.id;
     const occurrence = (occurrences.get(cardId) ?? 0) + 1;
     occurrences.set(cardId, occurrence);
-    const count = Number(row.querySelector(".card-customize-select-v4")?.value ?? importedCustomizeCount(row.__originalCard));
-    customizeStore[customizeKey(memoryId, cardId, occurrence)] = Math.max(0, Math.min(3, count));
+    const customizes = customizesFromActions(rowCustomizeActions(row));
+    customizeStore[customizeKey(memoryId, cardId, occurrence)] = customizes;
+    row.__originalCard = { ...(row.__originalCard ?? {}), customizes };
   }
   saveCustomizeStore();
 }
@@ -336,8 +420,7 @@ function restoreCustomizeSelections() {
     const occurrence = (occurrences.get(cardId) ?? 0) + 1;
     occurrences.set(cardId, occurrence);
     const stored = customizeStore[customizeKey(memoryId, cardId, occurrence)];
-    const select = row.querySelector(".card-customize-select-v4");
-    if (select && stored !== undefined) select.value = String(stored);
+    if (Array.isArray(stored)) renderCustomizeControls(row, importedCustomizeActions({ customizes: stored }));
   }
 }
 
@@ -473,7 +556,8 @@ function applyVisibleNames() {
     const card = state.cardById.get(chip.title);
     if (!card) continue;
     const upgraded = /\s\+1\s*$/.test(chip.textContent);
-    const next = `${card.baseName}${upgraded ? "+" : ""}`;
+    const customize = chip.textContent.match(/\s·\sカスタム\d+/)?.[0] ?? "";
+    const next = `${card.baseName}${upgraded || /\s\+\s/.test(chip.textContent) ? "+" : ""}${customize}`;
     if (chip.textContent !== next) chip.textContent = next;
   }
 
@@ -547,12 +631,22 @@ function catalogCardElement(card) {
   title.textContent = card.baseName;
   const meta = document.createElement("div");
   meta.className = "catalog-meta-v4";
-  meta.textContent = `${planLabel(card.planType)} · ${friendlyCategory(card.category)}`;
+  const rule = state.cardRules.get(String(card.id));
+  const baseCost = Number(rule?.variants.get(0)?.evaluation ?? card.evaluation ?? 0);
+  const upgradedCost = Number(rule?.variants.get(1)?.evaluation ?? baseCost);
+  meta.textContent = `${planLabel(card.planType)} · ${friendlyCategory(card.category)} · 生成コスト ${baseCost}${upgradedCost !== baseCost ? ` / 強化後${upgradedCost}` : ""}`;
   const details = document.createElement("details");
   const summary = document.createElement("summary");
-  summary.textContent = "内部情報";
+  summary.textContent = "カスタマイズ判定詳細";
   const code = document.createElement("code");
-  code.textContent = card.id;
+  const unit = Number(state.customizeEvaluationByRarity.get(String(rule?.variants.get(1)?.rarity ?? rule?.variants.get(0)?.rarity ?? "")) ?? 0);
+  const customLabels = (rule?.customizeIds ?? []).map((id) => describeCustomize(id, 1, state.customizeById, state.growEffectById).label);
+  code.textContent = [
+    card.id,
+    `生成コスト: 無印 ${baseCost} / 強化後 ${upgradedCost}`,
+    `カスタム上限: ${Number(rule?.maxCustomizeCount ?? 0)}回 / 1段階あたり +${unit}`,
+    customLabels.length ? `候補: ${customLabels.join(" / ")}` : "候補: なし",
+  ].join("\n");
   details.append(summary, code);
   article.append(title, meta, details);
   return article;
@@ -646,12 +740,15 @@ function observeDynamicUi() {
 }
 
 async function loadCatalogUi() {
-  const [characterText, idolText, gradeText, cardText, itemText] = await Promise.all([
+  const [characterText, idolText, gradeText, cardText, itemText, customizeText, growEffectText, customizeEvaluationText] = await Promise.all([
     fetchTextWithFallback(CATALOG_URLS.characters),
     fetchTextWithFallback(CATALOG_URLS.idolCards),
     fetchTextWithFallback(CATALOG_URLS.grades),
     fetchTextWithFallback(CATALOG_URLS.cardsPrimary, CATALOG_URLS.cardsFallback),
     fetchTextWithFallback(CATALOG_URLS.itemsPrimary, CATALOG_URLS.itemsFallback),
+    fetchTextWithFallback(CATALOG_URLS.cardCustomizes),
+    fetchTextWithFallback(CATALOG_URLS.cardGrowEffects),
+    fetchTextWithFallback(CATALOG_URLS.cardCustomizeEvaluations),
   ]);
 
   state.characters = parseCharacterCatalog(characterText);
@@ -662,6 +759,10 @@ async function loadCatalogUi() {
   state.cards = buildCanonicalCardCatalog(parseProduceCardCatalog(cardText));
   state.cardById = new Map(state.cards.map((entry) => [String(entry.id), entry]));
   state.cardByName = buildUniqueNameIndex(state.cards, "baseName");
+  state.cardRules = parseCardMemoryRules(cardText);
+  state.customizeById = parseCustomizeCatalog(customizeText);
+  state.growEffectById = parseGrowEffectCatalog(growEffectText);
+  state.customizeEvaluationByRarity = parseCustomizeRarityEvaluations(customizeEvaluationText);
   state.items = parseProduceItemCatalog(itemText);
   state.itemById = new Map(state.items.map((entry) => [String(entry.id), entry]));
   state.itemByName = buildUniqueNameIndex(state.items, "name");

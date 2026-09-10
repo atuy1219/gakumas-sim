@@ -130,6 +130,8 @@ function exportExamPreset() {
       planType: examPlan.value,
       idolCardId: examIdol.value,
       cards: [...examCounts].map(([id, count]) => ({ id, count })),
+      stamina: Number(document.getElementById("exam-start-stamina").value || 0),
+      targetScore: Number(document.getElementById("exam-target-score").value || 0),
     });
     const blob = new Blob([`${JSON.stringify(preset, null, 2)}\n`], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -167,6 +169,8 @@ async function importExamPreset(file) {
   refreshExamIdols();
   examIdol.value = preset.idolCardId;
   examCounts = nextCounts;
+  document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
+  document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
   renderExamCards();
   resetExamObservation();
@@ -475,7 +479,12 @@ document.getElementById("exam-run").addEventListener("click", () => {
   const deck = examDeck();
   if (!deck.length) return showExamError("使用するカードを1枚以上追加してください。");
   document.dispatchEvent(new CustomEvent("exam-simulation-start", {
-    detail: { cards: deck.map((card) => ({ ...card })), seed: document.getElementById("exam-seed").value },
+    detail: {
+      cards: deck.map((card) => ({ ...card })),
+      seed: document.getElementById("exam-seed").value,
+      stamina: Number(document.getElementById("exam-start-stamina").value || 0),
+      targetScore: Number(document.getElementById("exam-target-score").value || 0),
+    },
   }));
 });
 for (const button of document.querySelectorAll("#tab-tower [data-tower-next]")) {
