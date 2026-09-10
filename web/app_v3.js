@@ -10,12 +10,11 @@ import {
   resolveContestInitialDeck,
 } from "./engine.js";
 import {
-  deriveSeedChoiceVariants,
   makeCardInstances,
   observationCardLabel,
+  prepareSeedBatchSearch,
   runOrderMonteCarlo,
   seedIntervalFromChoices,
-  validateObservedDraws,
 } from "./sim_v3.js";
 import { createTowerPreset, parseTowerPreset } from "./tower_preset.js";
 import {
@@ -37,7 +36,6 @@ const STORAGE_KEY = "gakumas-sim-memory-library-v3";
 const LEGACY_STORAGE_KEY = "gakumas-card-order-memory-library-v2";
 const FILTER_STORAGE_KEY = "gakumas-sim-builder-filter-v5";
 const MEMORY_PAGE_SIZE = 40;
-const MAX_SEED_VARIANTS = 64;
 const MAX_SEED_MATCHES = 100;
 const SEED_TASK_SIZE = 1_000_000;
 
@@ -1171,7 +1169,17 @@ $("exam-skip-turn").addEventListener("click", () => {
 });
 
 function observedLines() {
-  return $("tower-observed").value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return observedTextBatches().flat();
+}
+
+function observedTextBatches() {
+  const value = $("tower-observed").value;
+  if (!value) return [[]];
+  return value.split(/\r?\n\s*\r?\n/).map((part) => part.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+}
+
+function writeObservedTextBatches(batches) {
+  $("tower-observed").value = batches.map((batch) => batch.join("\n")).join("\n\n");
 }
 
 function observationCardName(card) {
@@ -1191,23 +1199,30 @@ function deckNameToIds(composition) {
   return byName;
 }
 
-function parseObservedIds(composition) {
+function parseObservedLine(line, composition) {
   const ids = new Set(composition.cards.map((card) => card.id));
   const byName = deckNameToIds(composition);
-  return observedLines().map((line) => {
-    if (ids.has(line)) return line;
-    const suffix = line.match(/(?:—|\||\[)\s*(p_card-[^\]\s]+)\]?\s*$/)?.[1];
-    if (suffix && ids.has(suffix)) return suffix;
-    const normalizedLine = line.replace(/\+{2,}$/, "+");
-    const names = byName.get(line) ?? byName.get(normalizedLine) ?? byName.get(line.replace(/\++$/, ""));
-    if (names?.size === 1) return [...names][0];
-    throw new Error(`観測カード「${line}」を現在のデッキに対応付けできません。カードIDで入力してください。`);
-  });
+  if (ids.has(line)) return line;
+  const suffix = line.match(/(?:—|\||\[)\s*(p_card-[^\]\s]+)\]?\s*$/)?.[1];
+  if (suffix && ids.has(suffix)) return suffix;
+  const normalizedLine = line.replace(/\+{2,}$/, "+");
+  const names = byName.get(line) ?? byName.get(normalizedLine) ?? byName.get(line.replace(/\++$/, ""));
+  if (names?.size === 1) return [...names][0];
+  throw new Error(`観測カード「${line}」を現在のデッキに対応付けできません。カードIDで入力してください。`);
+}
+
+function parseObservedIds(composition) {
+  return observedLines().map((line) => parseObservedLine(line, composition));
+}
+
+function parseObservedBatches(composition) {
+  return observedTextBatches()
+    .map((batch) => batch.map((line) => parseObservedLine(line, composition)))
+    .filter((batch) => batch.length);
 }
 
 function parseObservedDraws(composition) {
-  const deckCount = composition.cards.length;
-  return validateObservedDraws(composition.cards, parseObservedIds(composition).slice(0, deckCount), 3);
+  return parseObservedBatches(composition);
 }
 
 function renderObservationButtons() {
@@ -1249,9 +1264,9 @@ function renderObservationButtons() {
     button.title = instance.id;
     button.disabled = ordinal <= (used.get(instance.id) ?? 0);
     button.addEventListener("click", () => {
-      const lines = observedLines();
-      lines.push(observationCardName(instance.card));
-      $("tower-observed").value = lines.join("\n");
+      const batches = observedTextBatches();
+      batches.at(-1).push(observationCardName(instance.card));
+      writeObservedTextBatches(batches);
       renderObservationButtons();
       updateObservationCount();
     });
@@ -1279,10 +1294,19 @@ $("tower-observed").addEventListener("input", () => {
   renderObservationButtons();
   updateObservationCount();
 });
+$("tower-next-draw").addEventListener("click", () => {
+  const batches = observedTextBatches();
+  if (!batches.at(-1)?.length) return showError("先に新しく手札へ来たカードを入力してください。");
+  if (observedLines().length < buildComposition("tower").cards.length) batches.push([]);
+  writeObservedTextBatches(batches);
+  renderObservationButtons();
+  updateObservationCount();
+});
 $("tower-undo-observation").addEventListener("click", () => {
-  const lines = observedLines();
-  lines.pop();
-  $("tower-observed").value = lines.join("\n");
+  const batches = observedTextBatches();
+  while (batches.length > 1 && !batches.at(-1).length) batches.pop();
+  batches.at(-1)?.pop();
+  writeObservedTextBatches(batches);
   renderObservationButtons();
   updateObservationCount();
 });
@@ -1347,24 +1371,17 @@ async function startSeedSearch() {
   $("tower-cancel-seed").hidden = false;
   try {
     const composition = buildComposition("tower");
-    const observed = parseObservedDraws(composition);
-    const deckCount = composition.cards.length;
-    const firstDeck = observed.slice(0, deckCount);
     const seedCards = cardsWithSeedMetadata(composition.cards);
-    const { variants, truncated } = deriveSeedChoiceVariants(seedCards, firstDeck, MAX_SEED_VARIANTS);
-    if (truncated) {
-      throw new Error("同一カードの重複によるseed条件が64通りを超えました。完全特定を保証できないため、重複カードを見分けられる情報を追加してください。");
-    }
-
-    const observationSummary = `最初の山札1巡分（${firstDeck.length}枚）`;
+    const prepared = prepareSeedBatchSearch(seedCards, parseObservedDraws(composition));
+    const observationSummary = `山札由来${prepared.batches.flat().length}枚・${prepared.batches.length}ドロー`;
 
     const tasks = [];
     let total = 0;
-    variants.forEach((choices, variantIndex) => {
+    prepared.choices.forEach((choices) => {
       const interval = seedIntervalFromChoices(choices);
       total += interval.size;
       for (let start = interval.start; start < interval.end; start += SEED_TASK_SIZE) {
-        tasks.push({ variantIndex, start, end: Math.min(interval.end, start + SEED_TASK_SIZE) });
+        tasks.push({ choices, start, end: Math.min(interval.end, start + SEED_TASK_SIZE) });
       }
     });
 
@@ -1377,7 +1394,7 @@ async function startSeedSearch() {
     $("tower-seed-progress").hidden = false;
     $("tower-seed-progress").max = total;
     $("tower-seed-progress").value = 0;
-    renderSeedCandidates([], 0, total, false, `${observationSummary}を使用。${variants.length}通りの重複割当を考慮。探索対象 ${total.toLocaleString()}状態。`);
+    renderSeedCandidates([], 0, total, false, `${observationSummary}を使用。各ドロー内は順不同。探索対象 ${total.toLocaleString()}状態。`);
 
     await new Promise((resolve, reject) => {
       function maybeDone() {
@@ -1405,10 +1422,8 @@ async function startSeedSearch() {
         worker.postMessage({
           type: "scan",
           taskId: nextTask,
-          choices: variants[task.variantIndex],
-          deckIds: composition.cards.map((card) => String(card.id)),
-          observedIds: firstDeck,
-          drawPerTurn: 3,
+          choices: task.choices,
+          batchSearch: { shuffleIds: prepared.shuffleIds, shuffledBatches: prepared.shuffledBatches, prefixVariants: prepared.prefixVariants },
           start: task.start,
           end: task.end,
           maxMatches: MAX_SEED_MATCHES - matches.size,
