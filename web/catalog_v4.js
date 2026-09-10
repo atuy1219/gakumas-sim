@@ -6,6 +6,9 @@ export const CATALOG_URLS = Object.freeze({
   characters: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Character.yaml",
   idolCards: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/IdolCard.yaml",
   grades: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceGrade.yaml",
+  cardCustomizes: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardCustomize.yaml",
+  cardGrowEffects: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardGrowEffect.yaml",
+  cardCustomizeEvaluations: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardCustomizeRarityEvaluation.yaml",
 });
 
 function yamlScalar(raw) {

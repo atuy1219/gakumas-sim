@@ -325,7 +325,8 @@ function renderMemoryList() {
       const chip = document.createElement("span");
       chip.className = "chip";
       chip.title = card.id;
-      chip.textContent = `${catalogName(card)}${card.upgradeCount ? ` +${card.upgradeCount}` : ""}`;
+      const customizeCount = (card.customizes ?? []).reduce((sum, item) => sum + Math.max(1, Number(item?.customizeCount ?? 1)), 0);
+      chip.textContent = `${catalogName(card)}${card.upgradeCount ? " +" : ""}${customizeCount ? ` · カスタム${customizeCount}` : ""}`;
       cards.append(chip);
     }
     const pItems = rawArray(memory, "examBattleProduceItemIds");
@@ -420,6 +421,7 @@ function saveMemoryEditor() {
       const resolved = resolveEditorCard(inputs[0].value);
       if (!resolved) continue;
       const original = row.__originalCard ?? {};
+      if (row.dataset.customizeValid === "0") throw new Error(`${catalogName(resolved)}: カスタマイズ条件を満たしていません。`);
       const candidate = { ...original, ...resolved, id: String(resolved.id) };
       if (isForbiddenMemoryCard(candidate)) throw new Error("メモリーに「眠気」は設定できません。");
       const rawUpgrade = Number(inputs[1].value || 0);
@@ -994,7 +996,9 @@ function examStateTiles(exam) {
     ? `${Number(exam.stamina ?? 0)}/${Number(exam.maxStamina ?? 0)}`
     : String(Number(exam?.stamina ?? 0));
   return [
-    ["パラメータ", Number(exam?.parameter ?? 0)], ["体力", stamina],
+    ["スコア", Number(exam?.parameter ?? 0)],
+    ...(Number(exam?.targetScore ?? 0) > 0 ? [["目標判定", Number(exam.parameter ?? 0) >= Number(exam.targetScore) ? "達成" : `あと${Math.max(0, Number(exam.targetScore) - Number(exam.parameter ?? 0))}`]] : []),
+    ["体力", stamina],
     ["元気", Number(exam?.block ?? 0)], ["好印象", Number(exam?.review ?? 0)],
     ["やる気", Number(exam?.aggressive ?? 0)], ["集中", Number(exam?.lessonBuff ?? 0)],
     ["好調", `${Number(exam?.parameterBuff ?? 0)}T`],
@@ -1154,7 +1158,11 @@ document.addEventListener("exam-simulation-start", (event) => {
   try {
     clearError();
     const cards = Array.isArray(event.detail?.cards) ? event.detail.cards : [];
-    examTurnState = createTowerTurnState(cards, event.detail?.seed, catalogs.cardById, { cardVariantByKey: catalogs.cardVariantByKey });
+    examTurnState = createTowerTurnState(cards, event.detail?.seed, catalogs.cardById, {
+      cardVariantByKey: catalogs.cardVariantByKey,
+      stamina: Number(event.detail?.stamina ?? 0),
+      targetScore: Number(event.detail?.targetScore ?? 0),
+    });
     examSelectedCardIndex = 0;
     drawTowerTurn(examTurnState, 3);
     renderTurnState("exam", examTurnState);

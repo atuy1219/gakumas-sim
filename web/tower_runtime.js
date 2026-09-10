@@ -113,7 +113,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     recycleCount: 0,
     history: [],
     lastRecycle: null,
-    exam: createExamState({ stamina: options.stamina }),
+    exam: { ...createExamState({ stamina: options.stamina }), targetScore: Math.max(0, Number(options.targetScore ?? 0)) },
     playsRemaining: 0,
     currentTurnPlays: [],
     unsupported: [],
