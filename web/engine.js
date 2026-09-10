@@ -315,6 +315,7 @@ export function normalizeProduceCard(card, extra = {}) {
     upgradeCount: Number(getField(card, "upgradeCount") ?? 0),
     customizes: getField(card, "customizes") ?? [],
     name: getField(card, "name", "produceCardName") ?? undefined,
+    isInitial: Boolean(getField(card, "isInitial")),
     ...extra,
   };
 }

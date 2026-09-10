@@ -52,6 +52,12 @@ const cardById = new Map([
 ]);
 const cards = ["ONCE", "A", "B", "C"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 }));
 
+const initialCardById = new Map(cardById);
+initialCardById.set("C", { ...initialCardById.get("C"), isInitial: true });
+const initialState = createTowerTurnState(cards, 1, initialCardById);
+drawTowerTurn(initialState, 3);
+assert.equal(initialState.hand[0].id, "C");
+
 // When a once-only card is used, it leaves the recycle pool.
 let state = createTowerTurnState(cards, 1, cardById);
 drawTowerTurn(state, 3);

@@ -99,6 +99,7 @@ export function parseProduceCardCatalog(text) {
     "isLimited",
     "playMovePositionType",
     "moveEffectTriggerType",
+    "isInitial",
   ])
     .filter((entry) => entry.name)
     .map((entry) => ({
@@ -109,6 +110,7 @@ export function parseProduceCardCatalog(text) {
       evaluation: Number(entry.evaluation ?? 0),
       noDeckDuplication: entry.noDeckDuplication === true,
       isLimited: entry.isLimited === true,
+      isInitial: entry.isInitial === true,
     }));
 }
 
