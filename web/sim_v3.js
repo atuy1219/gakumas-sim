@@ -187,6 +187,9 @@ export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 8192)
 
   const initialInstances = instances.filter((item) => item.isInitial);
   const restInstances = instances.filter((item) => !item.isInitial);
+  if (initialInstances.length >= 8) {
+    throw new Error("開始時手札が8枚以上のケースは、実機で2ターン目の開始時手札が2/3枚に分岐する条件をまだ特定できていないため、誤ったSeedを返さないよう探索を停止します。");
+  }
   const observedInitial = observed.slice(0, initialInstances.length);
   const observedRest = observed.slice(initialInstances.length);
   if (!sameMultiset(initialInstances.map((item) => item.id), observedInitial)) {
