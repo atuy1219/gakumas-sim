@@ -84,31 +84,50 @@ function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
   });
 }
 
+function stableInitialPartition(cards) {
+  const initial = [];
+  const rest = [];
+  for (const card of cards) (card?.isInitial ? initial : rest).push(card);
+  return [...initial, ...rest];
+}
+
 function shuffleObjectsWithState(input, stateInput) {
   const deck = input.map((item) => ({ ...item }));
   const rng = new XorShift32(Number(stateInput) >>> 0);
+  const fixedOrder = deck.some((card) => Number(card.fixedDeckOrder ?? 0) > 0);
+  if (fixedOrder) {
+    deck.sort((a, b) => Number(a.fixedDeckOrder ?? 0) - Number(b.fixedDeckOrder ?? 0));
+    return { deck, randomState: rng.state >>> 0, fixedOrder: true };
+  }
   for (let n = deck.length; n >= 2; n -= 1) {
     const j = rng.nextInt(0, n);
     [deck[j], deck[n - 1]] = [deck[n - 1], deck[j]];
   }
-  return { deck, randomState: rng.state >>> 0 };
+  return { deck, randomState: rng.state >>> 0, fixedOrder: false };
 }
 
 export function createTowerTurnState(cards, seedInput, cardById = new Map(), options = {}) {
   const seed = typeof seedInput === "number" ? seedInput >>> 0 : parseSeed(seedInput);
   const instances = runtimeInstances(cards, cardById, options.cardVariantByKey);
   if (!instances.length) throw new Error("デッキにカードがありません。");
-  const initialCards = instances.filter((card) => card.isInitial);
-  const shuffled = shuffleObjectsWithState(instances.filter((card) => !card.isInitial), seed);
-  const initial = { ...shuffled, deck: [...initialCards, ...shuffled.deck] };
+  const shuffled = shuffleObjectsWithState(instances, seed);
+  const initialDeck = stableInitialPartition(shuffled.deck);
+  const initialCardCount = initialDeck.filter((card) => card.isInitial).length;
+  const handLimit = Math.max(1, Number(options.handLimit ?? 5) || 5);
+  const initialUnsupported = initialCardCount >= 8
+    ? ["initial-hand>=8: 実機で2ターン目の開始時手札が2/3枚に分岐する条件は未確定"]
+    : [];
   return {
     seed,
-    randomState: initial.randomState,
-    initialDeck: initial.deck.map((card) => ({ ...card })),
-    deck: initial.deck.map((card) => ({ ...card })),
+    seedModel: "shuffle-all-then-stable-initial-v14",
+    randomState: shuffled.randomState,
+    initialDeck: initialDeck.map((card) => ({ ...card })),
+    deck: initialDeck.map((card) => ({ ...card })),
     discard: [],
     lost: [],
     hand: [],
+    handLimit,
+    initialCardCount,
     turn: 0,
     recycleCount: 0,
     history: [],
@@ -116,7 +135,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     exam: { ...createExamState({ stamina: options.stamina }), targetScore: Math.max(0, Number(options.targetScore ?? 0)) },
     playsRemaining: 0,
     currentTurnPlays: [],
-    unsupported: [],
+    unsupported: initialUnsupported,
     timers: [],
     enchants: [],
     pendingDraw: 0,
@@ -153,6 +172,7 @@ function recycleIfNeeded(state) {
 function drawCardsIntoHand(state, count) {
   const recycleEvents = [];
   const drawn = [];
+  const overflow = [];
   for (let i = 0; i < count; i += 1) {
     if (!state.deck.length) {
       const event = recycleIfNeeded(state);
@@ -160,10 +180,14 @@ function drawCardsIntoHand(state, count) {
     }
     if (!state.deck.length) break;
     const card = state.deck.shift();
-    state.hand.push(card);
     drawn.push(card);
+    if (state.hand.length < Number(state.handLimit ?? 5)) state.hand.push(card);
+    else {
+      state.discard.push(card);
+      overflow.push(card);
+    }
   }
-  return { drawn, recycleEvents };
+  return { drawn, overflow, recycleEvents };
 }
 
 export function drawTowerTurn(state, drawCount = 3) {
@@ -175,12 +199,21 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.currentTurnPlays = [];
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
-  const result = drawCardsIntoHand(state, count + extraDraw);
+  const baseDraw = state.turn === 1
+    ? Math.min(Math.max(count, Number(state.initialCardCount ?? 0)), Number(state.handLimit ?? 5))
+    : count;
+  const result = drawCardsIntoHand(state, baseDraw + extraDraw);
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
   }
-  return { turn: state.turn, hand: state.hand.map((card) => ({ ...card })), recycleEvents: result.recycleEvents };
+  return {
+    turn: state.turn,
+    hand: state.hand.map((card) => ({ ...card })),
+    drawn: result.drawn.map((card) => ({ ...card })),
+    overflow: result.overflow.map((card) => ({ ...card })),
+    recycleEvents: result.recycleEvents,
+  };
 }
 
 function upgradeHandCards(state) {

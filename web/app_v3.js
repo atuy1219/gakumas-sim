@@ -1383,15 +1383,25 @@ async function startSeedSearch() {
     const prepared = prepareSeedBatchSearch(seedCards, parseObservedDraws(composition));
     const observationSummary = `山札由来${prepared.batches.flat().length}枚・${prepared.batches.length}ドロー`;
 
+    const groups = new Map();
+    for (const choices of prepared.choices) {
+      const interval = seedIntervalFromChoices(choices);
+      const key = `${interval.start}:${interval.end}`;
+      if (!groups.has(key)) groups.set(key, { interval, choiceVariants: [] });
+      groups.get(key).choiceVariants.push(choices);
+    }
     const tasks = [];
     let total = 0;
-    prepared.choices.forEach((choices) => {
-      const interval = seedIntervalFromChoices(choices);
-      total += interval.size;
-      for (let start = interval.start; start < interval.end; start += SEED_TASK_SIZE) {
-        tasks.push({ choices, start, end: Math.min(interval.end, start + SEED_TASK_SIZE) });
+    for (const group of groups.values()) {
+      total += group.interval.size;
+      for (let start = group.interval.start; start < group.interval.end; start += SEED_TASK_SIZE) {
+        tasks.push({
+          choiceVariants: group.choiceVariants,
+          start,
+          end: Math.min(group.interval.end, start + SEED_TASK_SIZE),
+        });
       }
-    });
+    }
 
     let scanned = 0;
     const matches = new Set();
@@ -1402,7 +1412,7 @@ async function startSeedSearch() {
     $("tower-seed-progress").hidden = false;
     $("tower-seed-progress").max = total;
     $("tower-seed-progress").value = 0;
-    renderSeedCandidates([], 0, total, false, `${observationSummary}を使用。各ドロー内は順不同。探索対象 ${total.toLocaleString()}状態。`);
+    renderSeedCandidates([], 0, total, false, `${observationSummary}を入力順どおり厳密照合。開始時手札も含む全カードのシャッフル状態を探索します。探索対象 ${total.toLocaleString()}状態。`);
 
     await new Promise((resolve, reject) => {
       function maybeDone() {
@@ -1430,7 +1440,7 @@ async function startSeedSearch() {
         worker.postMessage({
           type: "scan",
           taskId: nextTask,
-          choices: task.choices,
+          choiceVariants: task.choiceVariants,
           batchSearch: { shuffleIds: prepared.shuffleIds, shuffledBatches: prepared.shuffledBatches, prefixVariants: prepared.prefixVariants },
           start: task.start,
           end: task.end,

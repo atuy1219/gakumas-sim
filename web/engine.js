@@ -363,17 +363,27 @@ export function shuffleDeck(inputCards, seed) {
   return { cards, randomState: rng.state >>> 0, fixedOrder: false };
 }
 
+export function applyInitialHandOrdering(inputCards) {
+  const initial = [];
+  const rest = [];
+  for (const card of inputCards ?? []) {
+    (card?.isInitial ? initial : rest).push(card);
+  }
+  return [...initial, ...rest];
+}
+
 export function simulateCards(cards, seedInput, drawCount = 5) {
   const seed = typeof seedInput === "number" ? seedInput >>> 0 : parseSeed(seedInput);
   const count = Number(drawCount);
   if (!Number.isInteger(count) || count < 0) throw new Error("ドロー枚数は0以上の整数で入力してください。");
   if (!Array.isArray(cards) || !cards.length) throw new Error("カードを1枚以上指定してください。");
   const result = shuffleDeck(cards.map((card) => normalizeProduceCard(card, { source: card.source })), seed);
+  const initialDeck = applyInitialHandOrdering(result.cards);
   return {
     seed,
-    initialDeck: result.cards,
-    draw: result.cards.slice(0, count),
-    remainingDeck: result.cards.slice(count),
+    initialDeck,
+    draw: initialDeck.slice(0, count),
+    remainingDeck: initialDeck.slice(count),
     randomState: result.randomState,
     fixedOrder: result.fixedOrder,
   };
