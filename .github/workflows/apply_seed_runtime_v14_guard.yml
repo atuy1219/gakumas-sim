@@ -1,0 +1,39 @@
+name: Apply seed runtime v14 guard
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/seed-runtime-v14
+    paths:
+      - tools/apply_seed_runtime_v14_guard.py
+      - .github/workflows/apply_seed_runtime_v14_guard.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/seed-runtime-v14
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python tools/apply_seed_runtime_v14_guard.py
+      - run: node --check web/sim_v3.js
+      - run: node test_v3.mjs
+      - name: Commit guard
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web/sim_v3.js
+          git commit -m 'Guard unresolved initial-hand seed cases'
+          git push origin HEAD:fix/seed-runtime-v14
