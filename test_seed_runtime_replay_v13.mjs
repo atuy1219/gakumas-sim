@@ -52,10 +52,11 @@ const filtered = evaluateTowerSeedCandidates(
 assert.deepEqual(filtered.seeds, [pair.a.seed]);
 
 // Card effects are replayed by tower_runtime rather than approximating the
-// discard pile from 3-card batches. Playing DRAW removes it from hand and draws
-// another card immediately.
+// discard pile from 3-card batches. DRAW is an initial-hand card here so the
+// test is deterministic; playing it immediately draws the remaining deck card.
 const drawMasters = [
   master("DRAW", {
+    isInitial: true,
     playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_card_draw-0001" }],
   }),
   master("X"), master("Y"), master("Z"),
@@ -63,17 +64,8 @@ const drawMasters = [
 const drawCardById = new Map(drawMasters.map((card) => [card.id, card]));
 const drawVariants = new Map(drawMasters.map((card) => [`${card.id}@@0`, card]));
 const drawCards = drawMasters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 }));
-let drawSeed = null;
-for (let seed = 1; seed < 1000; seed += 1) {
-  const s = createTowerTurnState(drawCards, seed, drawCardById, { cardVariantByKey: drawVariants });
-  if (s.initialDeck.slice(0, 3).some((card) => card.id === "DRAW")) {
-    drawSeed = seed;
-    break;
-  }
-}
-assert.ok(drawSeed !== null);
 const effectReplay = replayTowerSeed(
-  drawSeed,
+  1,
   drawCards,
   [{ plays: [{ id: "DRAW", upgradeCount: 0, occurrence: 0 }], ended: false }],
   { cardById: drawCardById, cardVariantByKey: drawVariants },
