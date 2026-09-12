@@ -1,4 +1,5 @@
 import "./seed_order_ui.js";
+import "./turn_sequence_ui_v9.js";
 import {
   CATALOG_URLS,
   fetchTextWithFallback,
