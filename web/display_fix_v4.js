@@ -1,3 +1,4 @@
+import "./seed_order_ui.js";
 import {
   CATALOG_URLS,
   fetchTextWithFallback,
