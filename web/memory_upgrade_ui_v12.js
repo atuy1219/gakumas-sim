@@ -1,6 +1,7 @@
 (() => {
   const STYLE_ID = "memory-upgrade-ui-v12-style";
   const DECORATED = "memoryUpgradeV12";
+  const LOCK_NOTE = "カスタマイズするには「強化済み（+）」をオンにしてください。";
 
   function ensureStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -82,9 +83,9 @@
         note.className = "card-customize-lock-v12";
         host.prepend(note);
       }
-      note.textContent = "カスタマイズするには「強化済み（+）」をオンにしてください。";
-    } else {
-      note?.remove();
+      if (note.textContent !== LOCK_NOTE) note.textContent = LOCK_NOTE;
+    } else if (note) {
+      note.remove();
     }
   }
 
