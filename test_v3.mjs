@@ -69,6 +69,13 @@ assert.ok(duplicateDerived.variants.some((variant) => seedMatchesChoices(duplica
 const initialCards = cards.map((card) => ({ ...card, isInitial: card.id === "B" }));
 const initialRun = simulateTurnRecycleDraws(initialCards, seed, initialCards.length, 3);
 assert.equal(initialRun.initialDeck[0], "B");
+const noInitialState = simulateTurnRecycleDraws(
+  initialCards.map((card) => ({ ...card, isInitial: false })),
+  seed,
+  initialCards.length,
+  3,
+).randomState;
+assert.equal(initialRun.randomState, noInitialState, "isInitial must not reduce Fisher-Yates RNG consumption");
 const initialDerived = deriveSeedChoiceVariants(initialCards, initialRun.initialDeck);
 assert.equal(initialDerived.truncated, false);
 assert.ok(initialDerived.variants.some((variant) => seedMatchesChoices(seed, variant)));
@@ -80,6 +87,17 @@ const duplicateInitialCards = [
 const duplicateInitialRun = simulateTurnRecycleDraws(duplicateInitialCards, 12345, 4, 3);
 const duplicateInitialDerived = deriveSeedChoiceVariants(duplicateInitialCards, duplicateInitialRun.initialDeck);
 assert.ok(duplicateInitialDerived.variants.some((variant) => seedMatchesChoices(12345, variant)));
+
+const fourInitial = ["A", "B", "C", "D", "E", "F"].map((id, index) => ({ id, isInitial: index < 4 }));
+const fourInitialRun = simulateTurnRecycleDraws(fourInitial, 98765, 4, 3);
+assert.equal(fourInitialRun.initialDeck.slice(0, 4).every((id) => ["A", "B", "C", "D"].includes(id)), true);
+assert.equal(fourInitialRun.hand.length, 0, "four initial cards form the complete first hand");
+assert.equal(fourInitialRun.discard.length, 4);
+
+const sixInitial = ["A", "B", "C", "D", "E", "F", "G"].map((id, index) => ({ id, isInitial: index < 6 }));
+const sixInitialRun = simulateTurnRecycleDraws(sixInitial, 24680, 5, 3);
+assert.equal(sixInitialRun.hand.length, 0, "first hand is capped at five cards");
+assert.equal(sixInitialRun.discard.length, 5);
 
 const monte = runOrderMonteCarlo(cards, 100, 0x2468ace0, 3);
 assert.equal(monte.count, 100);

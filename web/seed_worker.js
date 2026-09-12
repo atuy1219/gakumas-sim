@@ -10,79 +10,54 @@ function xorshift32(value) {
   return x >>> 0;
 }
 
-function matchesChoices(seed, choices) {
+function buildChoiceTrie(choiceVariants) {
+  const root = { n: null, children: new Map(), terminal: false };
+  for (const choices of choiceVariants) {
+    let node = root;
+    for (const choice of choices ?? []) {
+      if (node.n === null) node.n = Number(choice.n);
+      if (node.n !== Number(choice.n)) throw new Error('choice variants have inconsistent depth');
+      const j = Number(choice.j);
+      if (!node.children.has(j)) node.children.set(j, { n: null, children: new Map(), terminal: false });
+      node = node.children.get(j);
+    }
+    node.terminal = true;
+  }
+  return root;
+}
+
+function matchesChoiceTrie(seed, trie) {
   let state = Number(seed) >>> 0;
-  for (let i = 0; i < choices.length; i += 1) {
-    const choice = choices[i];
-    const mapped = Math.floor((state * choice.n) / UINT32_SPACE);
-    if (mapped !== choice.j) return false;
+  let node = trie;
+  while (node) {
+    if (node.terminal) return true;
+    if (node.n === null) return false;
+    const mapped = Math.floor((state * node.n) / UINT32_SPACE);
+    node = node.children.get(mapped);
+    if (!node) return false;
     state = xorshift32(state);
   }
-  return true;
-}
-
-function shuffleIds(inputIds, stateInput) {
-  const deck = inputIds.slice();
-  let state = Number(stateInput) >>> 0;
-  for (let n = deck.length; n >= 2; n -= 1) {
-    const j = Math.floor((state * n) / UINT32_SPACE);
-    const tmp = deck[j];
-    deck[j] = deck[n - 1];
-    deck[n - 1] = tmp;
-    state = xorshift32(state);
-  }
-  return { deck, state };
-}
-
-function matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn) {
-  if (!observedIds.length) return true;
-  const initial = shuffleIds(deckIds, Number(seed) >>> 0);
-  let deck = initial.deck.slice();
-  let discard = [];
-  let hand = [];
-  let state = initial.state;
-
-  for (let observedIndex = 0; observedIndex < observedIds.length; observedIndex += 1) {
-    const expected = String(observedIds[observedIndex]);
-    if (!deck.length) {
-      if (!discard.length) return false;
-      const recycled = shuffleIds(discard, state);
-      deck = recycled.deck;
-      discard = [];
-      state = recycled.state;
-    }
-    if (String(deck[0]) !== expected) return false;
-    hand.push(deck.shift());
-    if (hand.length === drawPerTurn) {
-      discard.push(...hand);
-      hand = [];
-    }
-  }
-  return true;
-}
-
-function matches(seed, choices, deckIds, observedIds, drawPerTurn) {
-  if (!matchesChoices(seed, choices)) return false;
-  if (observedIds.length <= deckIds.length) return true;
-  return matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn);
+  return false;
 }
 
 self.onmessage = (event) => {
   const message = event.data ?? {};
   if (message.type !== 'scan') return;
-  const choices = Array.isArray(message.choices) ? message.choices : [];
-  const deckIds = Array.isArray(message.deckIds) ? message.deckIds.map(String) : [];
-  const observedIds = Array.isArray(message.observedIds) ? message.observedIds.map(String) : [];
-  const drawPerTurn = Math.max(1, Math.trunc(Number(message.drawPerTurn ?? 3)));
+  const variants = Array.isArray(message.choiceVariants) && message.choiceVariants.length
+    ? message.choiceVariants
+    : [Array.isArray(message.choices) ? message.choices : []];
+  const trie = buildChoiceTrie(variants);
   const start = Math.max(0, Math.trunc(Number(message.start ?? 0)));
   const end = Math.min(UINT32_SPACE, Math.trunc(Number(message.end ?? UINT32_SPACE)));
   const maxMatches = Math.max(1, Math.trunc(Number(message.maxMatches ?? 32)));
   const found = [];
+  let scanned = 0;
   for (let candidate = start; candidate < end; candidate += 1) {
-    if (matches(candidate, choices, deckIds, observedIds, drawPerTurn)) {
+    scanned += 1;
+    if (matchesChoiceTrie(candidate, trie)) {
       found.push(candidate >>> 0);
       if (found.length >= maxMatches) break;
     }
   }
-  self.postMessage({ type: 'done', taskId: message.taskId, start, end, scanned: end - start, found });
+  self.postMessage({ type: 'done', taskId: message.taskId, start, end, scanned, found });
 };
