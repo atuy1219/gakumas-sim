@@ -35,6 +35,7 @@ jobs:
           node --check web/exam_preset.js
           node --check web/exam_setup_v9.js
           node --check web/material3e_app_v8.js
+          node --check web/memory_upgrade_ui_v12.js
           node --check web/sim_v3.js
           node --check web/tower_preset.js
           node --check web/tower_runtime.js
@@ -49,6 +50,8 @@ jobs:
         run: node test_seed_recycle_v11.mjs
       - name: Catalog UI tests
         run: node test_catalog_v4.mjs
+      - name: Memory judgement tests
+        run: node test_memory_judgement_v10.mjs
       - name: Simulator filter tests
         run: node test_sim_filter_v5.mjs
       - name: Memory detail tests
