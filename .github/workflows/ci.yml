@@ -43,6 +43,8 @@ jobs:
           node --check web/seed_recycle_v11.js
           node --check web/seed_history_ref_v12.js
           node --check web/seed_history_ui_v12.js
+          node --check web/seed_runtime_replay_v13.js
+          node --check web/seed_history_ui_v13.js
       - name: Web parity tests
         run: node test_web.mjs
       - name: Three-tab simulator tests
@@ -51,6 +53,8 @@ jobs:
         run: node test_seed_recycle_v11.mjs
       - name: Seed history card reference tests
         run: node test_seed_history_ref_v12.mjs
+      - name: Seed runtime replay tests
+        run: node test_seed_runtime_replay_v13.mjs
       - name: Catalog UI tests
         run: node test_catalog_v4.mjs
       - name: Memory judgement tests
