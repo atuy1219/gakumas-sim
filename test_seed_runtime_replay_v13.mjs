@@ -76,4 +76,33 @@ assert.equal(lastPlay.card.id, "DRAW");
 assert.equal(lastPlay.drawn.length, 1);
 assert.equal(effectReplay.currentHand.length, 3);
 
+// The replay UI records an action that already happened on the real client.
+// If an unsupported/missing status effect means the simulator cannot satisfy a
+// cost (for example an ExamReview cost), the observed card must still leave the
+// hand. Keeping it there makes the same card appear forever in the replay UI.
+const observedMasters = [
+  master("FINISH", {
+    isInitial: true,
+    costType: "ExamCostType_ExamReview",
+    costValue: 4,
+  }),
+  master("Q"),
+  master("R"),
+];
+const observedCardById = new Map(observedMasters.map((card) => [card.id, card]));
+const observedVariants = new Map(observedMasters.map((card) => [`${card.id}@@0`, card]));
+const observedCards = observedMasters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 }));
+const observedReplay = replayTowerSeed(
+  1,
+  observedCards,
+  [{ plays: [{ id: "FINISH", upgradeCount: 0, occurrence: 0 }], ended: false }],
+  { cardById: observedCardById, cardVariantByKey: observedVariants },
+);
+assert.equal(observedReplay.status, "uncertain");
+assert.equal(observedReplay.currentHand.some((card) => card.id === "FINISH"), false);
+const observedPlay = [...observedReplay.trace].reverse().find((entry) => entry.type === "play");
+assert.equal(observedPlay.card.id, "FINISH");
+assert.equal(observedPlay.observedFallback, true);
+assert.ok(observedReplay.unsupported.some((value) => value.startsWith("observed-play:FINISH:")));
+
 console.log("seed runtime replay v13 tests: ok");
