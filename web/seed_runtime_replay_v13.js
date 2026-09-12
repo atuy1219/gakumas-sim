@@ -53,8 +53,12 @@ function sameVisibleOrder(actual, expected) {
   return true;
 }
 
-function eventDrawsAfterRecycle(result, tracker, source) {
-  const drawn = Array.isArray(result?.drawn) ? result.drawn : [];
+function eventDrawsAfterRecycle(result, tracker, source, fallbackDrawn = [], fallbackOffset = 0) {
+  const drawn = Array.isArray(result?.drawn)
+    ? result.drawn
+    : Array.isArray(fallbackDrawn)
+      ? fallbackDrawn
+      : [];
   const recycles = Array.isArray(result?.recycleEvents) ? result.recycleEvents : [];
 
   if (tracker.seen) {
@@ -64,7 +68,8 @@ function eventDrawsAfterRecycle(result, tracker, source) {
   if (!recycles.length) return;
 
   const first = recycles[0];
-  const offset = Math.max(0, Math.min(drawn.length, Number(first?.drawOffset ?? 0) || 0));
+  const rawOffset = first?.drawOffset === undefined ? fallbackOffset : first.drawOffset;
+  const offset = Math.max(0, Math.min(drawn.length, Number(rawOffset ?? 0) || 0));
   tracker.seen = true;
   tracker.event = first;
   tracker.draws.push(...drawn.slice(offset).map((card) => ({ ...card, replaySource: source })));
@@ -89,7 +94,7 @@ function cloneHand(hand) {
  * turnScript is an array of:
  *   { plays: [{id, upgradeCount?, occurrence?}], ended: boolean }
  *
- * A turn is drawn before its plays are applied.  When every supplied turn is
+ * A turn is drawn before its plays are applied. When every supplied turn is
  * ended, the following turn is drawn automatically so the UI can display the
  * next live hand.
  */
@@ -125,13 +130,15 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
     const script = Array.isArray(turnScript) ? turnScript : [];
     for (let turnIndex = 0; turnIndex < script.length; turnIndex += 1) {
       const step = script[turnIndex] ?? {};
+      const deckBeforeDraw = state.deck.length;
       const draw = drawTowerTurn(state, Number(options.drawPerTurn ?? 3));
-      eventDrawsAfterRecycle(draw, tracker, `turn-${state.turn}-draw`);
+      const drawCards = Array.isArray(draw?.drawn) ? draw.drawn : draw?.hand ?? state.hand;
+      eventDrawsAfterRecycle(draw, tracker, `turn-${state.turn}-draw`, drawCards, deckBeforeDraw);
       trace.push({
         type: "draw",
         turn: state.turn,
         hand: cloneHand(state.hand),
-        drawn: cloneHand(draw?.drawn),
+        drawn: cloneHand(drawCards),
         recycleEvents: draw?.recycleEvents ?? [],
       });
 
@@ -152,8 +159,9 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
             error: `TURN ${state.turn}: ${selector.id} が手札にありません。`,
           };
         }
+        const deckBeforePlay = state.deck.length;
         const play = playTowerCard(state, handIndex);
-        eventDrawsAfterRecycle(play, tracker, `turn-${state.turn}-play`);
+        eventDrawsAfterRecycle(play, tracker, `turn-${state.turn}-play`, play?.drawn ?? [], deckBeforePlay);
         trace.push({
           type: "play",
           turn: state.turn,
@@ -177,13 +185,15 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
     }
 
     if (!openTurn) {
+      const deckBeforeDraw = state.deck.length;
       const draw = drawTowerTurn(state, Number(options.drawPerTurn ?? 3));
-      eventDrawsAfterRecycle(draw, tracker, `turn-${state.turn}-draw`);
+      const drawCards = Array.isArray(draw?.drawn) ? draw.drawn : draw?.hand ?? state.hand;
+      eventDrawsAfterRecycle(draw, tracker, `turn-${state.turn}-draw`, drawCards, deckBeforeDraw);
       trace.push({
         type: "draw",
         turn: state.turn,
         hand: cloneHand(state.hand),
-        drawn: cloneHand(draw?.drawn),
+        drawn: cloneHand(drawCards),
         recycleEvents: draw?.recycleEvents ?? [],
       });
       openTurn = true;
@@ -253,8 +263,6 @@ export function evaluateTowerSeedCandidates(seeds, cards, turnScript = [], obser
       else if (prefix === "pending") status = "pending";
       else status = "match";
     } else if (status === "uncertain") {
-      // Keep it conservative. A known unsupported effect may alter later hand or
-      // RNG state, so a visible mismatch after that point is not proof.
       status = "uncertain";
     }
     results.push({ ...replay, status });
