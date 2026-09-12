@@ -31,7 +31,7 @@
     import("./display_fix_v4.js").catch((error) => console.warn("display name fix load failed", error));
     import("./app_v5.js").catch((error) => console.warn("simulator filter load failed", error));
     import("./app_v6.js").catch((error) => console.warn("memory detail UI load failed", error));
-    import("./seed_history_ui_v11.js").catch((error) => console.warn("seed use history UI load failed", error));
+    import("./seed_history_ui_v12.js").catch((error) => console.warn("seed use history UI load failed", error));
     import("./memory_upgrade_ui_v12.js").catch((error) => console.warn("memory upgrade checkbox UI load failed", error));
   }, { once: true });
 })();
