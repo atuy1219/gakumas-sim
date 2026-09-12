@@ -88,6 +88,42 @@ function cloneHand(hand) {
   return (hand ?? []).map((card) => ({ ...card }));
 }
 
+function rememberReplayUncertainty(state, value) {
+  const text = String(value ?? "").trim();
+  if (!text) return;
+  if (!Array.isArray(state.unsupported)) state.unsupported = [];
+  if (!state.unsupported.includes(text)) state.unsupported.push(text);
+}
+
+function forceObservedPlay(state, handIndex, error) {
+  const card = state.hand?.[handIndex];
+  if (!card) throw error;
+
+  const reason = String(error?.message ?? error ?? "ランタイム状態を再現できませんでした");
+  state.hand.splice(handIndex, 1);
+  state.playsRemaining = Math.max(0, Number(state.playsRemaining ?? 0) - 1);
+  if (state.exam) state.exam.cardPlayCount = Number(state.exam.cardPlayCount ?? 0) + 1;
+
+  const onceOnly = Boolean(card.onceOnly)
+    || String(card.playMovePositionType ?? "") === "ProduceCardMovePositionType_Lost";
+  if (onceOnly) state.lost.push(card);
+  else state.discard.push(card);
+
+  rememberReplayUncertainty(state, `observed-play:${card.id}:${reason}`);
+  const event = {
+    card: { ...card },
+    cost: [],
+    effects: [`実機操作を優先してカードを使用済みにしました（判定保留: ${reason}）`],
+    drawn: [],
+    recycleEvents: [],
+    onceOnly,
+    observedFallback: true,
+  };
+  if (!Array.isArray(state.currentTurnPlays)) state.currentTurnPlays = [];
+  state.currentTurnPlays.push(event);
+  return event;
+}
+
 /**
  * Replays user operations with the same runtime used by the tower simulator.
  *
@@ -160,7 +196,18 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
           };
         }
         const deckBeforePlay = state.deck.length;
-        const play = playTowerCard(state, handIndex);
+        let play;
+        try {
+          play = playTowerCard(state, handIndex);
+        } catch (error) {
+          // This UI records an operation already observed on the real client.
+          // If the simulator cannot reproduce the prerequisite status/cost/play
+          // count because an earlier effect is unsupported, leaving the card in
+          // hand makes the replay impossible to continue. Consume the observed
+          // card physically and keep the candidate as uncertain instead of
+          // pretending the real play never happened.
+          play = forceObservedPlay(state, handIndex, error);
+        }
         eventDrawsAfterRecycle(play, tracker, `turn-${state.turn}-play`, play?.drawn ?? [], deckBeforePlay);
         trace.push({
           type: "play",
@@ -171,6 +218,7 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
           drawn: cloneHand(play.drawn),
           effects: [...(play.effects ?? [])],
           recycleEvents: play.recycleEvents ?? [],
+          observedFallback: Boolean(play.observedFallback),
         });
       }
 
