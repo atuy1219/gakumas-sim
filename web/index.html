@@ -152,11 +152,11 @@
         <div class="sim-config-grid seed-direct-input">
           <label><span>Seed</span><input id="exam-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
         </div>
-        <p class="callout">新しく山札から手札へ来たカードだけをタップし、同時に来た分ごとに「次のドロー」を押してください。各ドロー内の表示順は問いません。仕切り直し・追加ドロー後も新しく来たカードを続けて記録できます。眠気など生成されたカードは入力しません。</p>
+        <p class="callout">手札へ出たカードを順にタップしてください。最初の山札1巡分が揃うとSeedを探索できます。途中でカードを使用して進めても構いません。</p>
         <div class="section-head compact-head"><h3>観測した順番</h3><span id="exam-observed-count" class="badge">0 / 0枚</span></div>
         <div id="exam-observed-list" class="observed-sequence"><span class="hint">まだカードがありません。</span></div>
         <div id="exam-observation-buttons" class="observation-grid"></div>
-        <div class="button-row"><button id="exam-next-draw" type="button" class="secondary">次のドロー</button><button id="exam-find-seed" type="button" class="primary">Seed候補を探索</button><button id="exam-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="exam-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="exam-reset-observation" type="button" class="ghost-button">クリア</button></div>
+        <div class="button-row"><button id="exam-next-draw" type="button" class="secondary" hidden disabled style="display:none">次のドロー</button><button id="exam-find-seed" type="button" class="primary">Seed候補を探索</button><button id="exam-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="exam-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="exam-reset-observation" type="button" class="ghost-button">クリア</button></div>
         <progress id="exam-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
         <div id="exam-seed-results" class="seed-results"></div>
         <button id="exam-seed-next" type="button" class="primary">シミュレーションへ</button>
@@ -249,10 +249,10 @@
           <label><span>Seed</span><input id="tower-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
         </div>
         <div class="section-head compact-head"><h3>プレイしながら特定</h3><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
-        <p class="callout">新しく山札から手札へ来たカードだけを入力し、同時に来た分ごとに「次のドロー」を押してください。各ドロー内の表示順は問いません。仕切り直し・追加ドロー後も記録でき、眠気など生成されたカードは入力しません。</p>
+        <p class="callout">手札へ出たカードを順にタップしてください。最初の山札1巡分が揃うとSeedを探索できます。途中でカードを使用して進めても構いません。</p>
         <div id="tower-observation-buttons" class="observation-grid">編成を設定すると観測入力ボタンが表示されます。</div>
-        <label class="wide-label"><span>観測したドロー（空行で区切り）</span><textarea id="tower-observed" rows="8" spellcheck="false" placeholder="同時に来たカードを入力し、ドロー間に空行を入れます"></textarea></label>
-        <div class="button-row"><button id="tower-next-draw" type="button" class="secondary">次のドロー</button><button id="tower-find-seed" type="button" class="primary">Seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
+        <label class="wide-label"><span>観測したドロー順</span><textarea id="tower-observed" rows="8" spellcheck="false" placeholder="カードボタンを実際のドロー順に押してください"></textarea></label>
+        <div class="button-row"><button id="tower-next-draw" type="button" class="secondary" hidden disabled style="display:none">次のドロー</button><button id="tower-find-seed" type="button" class="primary">Seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
         <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
         <div id="tower-seed-results" class="seed-results"></div>
         <button type="button" class="primary" data-tower-next="simulation">シミュレーションへ</button>
