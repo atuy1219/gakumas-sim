@@ -1,0 +1,54 @@
+name: Apply seed runtime v14
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/seed-runtime-v14
+    paths:
+      - tools/apply_seed_runtime_v14.py
+      - .github/workflows/apply_seed_runtime_v14.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/seed-runtime-v14
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply patch
+        run: python tools/apply_seed_runtime_v14.py
+      - name: Syntax check
+        run: |
+          node --check web/engine.js
+          node --check web/sim_v3.js
+          node --check web/tower_runtime.js
+          node --check web/seed_worker.js
+          node --check web/app_v3.js
+      - name: Focused tests
+        run: |
+          node test_web.mjs
+          node test_v3.mjs
+          node test_seed_runtime_replay_v13.mjs
+      - name: Commit generated patch
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web/engine.js web/sim_v3.js web/tower_runtime.js web/seed_worker.js web/app_v3.js test_v3.mjs
+          git commit -m 'Fix seed RNG and initial-hand replay semantics'
+          git push origin HEAD:fix/seed-runtime-v14
