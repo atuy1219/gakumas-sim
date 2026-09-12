@@ -1,0 +1,41 @@
+.seed-history-v11 { margin-top: 22px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--m3e-outline) 18%, transparent); }
+.seed-history-turns-v11 { display: grid; gap: 16px; }
+.seed-history-turn-v11 { padding: 16px; border-radius: 26px 26px 14px 26px; background: radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--m3e-primary-container) 72%, transparent), transparent 42%), var(--m3e-surface-container); border: 1px solid color-mix(in srgb, var(--m3e-outline) 20%, transparent); }
+.seed-history-turn-head-v11 { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.seed-history-turn-head-v11 strong { font-size: 14px; letter-spacing: .04em; }
+.seed-history-turn-head-v11 small { color: var(--m3e-outline); font-weight: 800; }
+.seed-history-hand-zone-v11 { display: grid; grid-template-columns: minmax(0, 1fr) 74px; align-items: end; gap: 12px; }
+.seed-history-hand-v11 { min-width: 0; }
+.seed-history-card-v11 { position: relative; min-height: 154px; border-style: dashed; background: linear-gradient(160deg, color-mix(in srgb, var(--m3e-primary-container) 74%, transparent), var(--m3e-surface)); }
+.seed-history-card-v11.selected { border-style: solid; }
+.seed-history-card-v11 .seed-use-order-v11 { position: absolute; top: 10px; right: 10px; padding: 4px 7px; border-radius: 999px; background: var(--m3e-primary); color: var(--m3e-on-primary); font-size: 10px; font-weight: 900; }
+.seed-history-skip-v11 { opacity: .72; border: 2px dashed color-mix(in srgb, var(--m3e-outline) 45%, transparent); }
+.seed-history-skip-v11.selected { opacity: 1; border-style: solid; border-color: var(--m3e-primary); box-shadow: 0 8px 22px color-mix(in srgb, var(--m3e-primary) 18%, transparent); }
+.seed-history-actions-v11 { margin: 12px 0 4px; }
+.seed-history-boundary-v11 { margin: 2px 0 0; padding: 10px 12px; border-radius: 14px; background: var(--m3e-surface-container); }
+.seed-recycle-slots-v11 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.seed-recycle-slot-v11 { min-height: 112px; display: grid; align-content: end; gap: 7px; padding: 13px; border: 2px dashed color-mix(in srgb, var(--m3e-outline) 48%, transparent); border-radius: 24px 24px 12px 12px; background: color-mix(in srgb, var(--m3e-surface-container) 78%, transparent); color: inherit; text-align: left; transition: transform .18s, border-color .18s, background .18s; }
+.seed-recycle-slot-v11:not(:disabled):hover { transform: translateY(-5px); border-color: var(--m3e-primary); }
+.seed-recycle-slot-v11.filled { border-style: solid; border-color: color-mix(in srgb, var(--m3e-primary) 72%, var(--m3e-outline)); background: linear-gradient(160deg, var(--m3e-primary-container), var(--m3e-surface)); }
+.seed-recycle-slot-v11:disabled { opacity: .42; }
+.seed-recycle-slot-v11 small { color: var(--m3e-outline); font-size: 10px; font-weight: 800; }
+.seed-recycle-slot-v11 strong { font-size: 14px; overflow-wrap: anywhere; }
+.seed-card-picker-v11 { margin: 10px 0 14px; padding: 14px; border-radius: 18px; background: var(--m3e-surface-container); border: 1px solid color-mix(in srgb, var(--m3e-outline) 20%, transparent); }
+.seed-card-picker-v11 > strong { display: block; margin-bottom: 10px; }
+.seed-card-picker-grid-v11 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.seed-card-picker-grid-v11 button { min-width: 0; overflow-wrap: anywhere; }
+.seed-refined-results-v11 { margin-top: 16px; }
+.seed-refine-summary-v11 { padding: 12px 14px; border-radius: 16px; background: var(--m3e-surface-container); font-weight: 800; }
+.seed-refine-summary-v11.success { background: var(--m3e-primary-container); color: var(--m3e-on-primary-container); }
+.seed-refined-list-v11 { display: flex; flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 760px) {
+  .seed-history-turn-v11 { padding: 12px 9px; border-radius: 22px 22px 12px 22px; }
+  .seed-history-hand-zone-v11 { grid-template-columns: minmax(0, 1fr) 56px; gap: 7px; }
+  .seed-history-card-v11 { min-height: 145px; padding: 10px 7px; }
+  .seed-history-skip-v11 { width: 56px; height: 64px; }
+  .seed-recycle-slots-v11 { gap: 6px; }
+  .seed-recycle-slot-v11 { min-height: 96px; padding: 9px 8px; border-radius: 20px 20px 10px 10px; }
+  .seed-recycle-slot-v11 strong { font-size: 12px; }
+  .seed-card-picker-grid-v11 { grid-template-columns: 1fr; }
+}

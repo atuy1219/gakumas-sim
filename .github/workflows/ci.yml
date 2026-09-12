@@ -39,10 +39,14 @@ jobs:
           node --check web/tower_preset.js
           node --check web/tower_runtime.js
           node --check web/seed_worker.js
+          node --check web/seed_recycle_v11.js
+          node --check web/seed_history_ui_v11.js
       - name: Web parity tests
         run: node test_web.mjs
       - name: Three-tab simulator tests
         run: node test_v3.mjs
+      - name: Seed recycle history tests
+        run: node test_seed_recycle_v11.mjs
       - name: Catalog UI tests
         run: node test_catalog_v4.mjs
       - name: Simulator filter tests
