@@ -15,6 +15,14 @@ export const TOWER_SEED_STATUS = Object.freeze({
   KNOWN: "known",
 });
 
+export const TOWER_FEATURE_NAMES = Object.freeze([
+  "turnsRemaining", "parameter", "stamina", "block", "review", "aggressive",
+  "lessonBuff", "parameterBuff", "playsRemaining", "cardStamina", "cardForceStamina",
+  "cardCostValue", "cardEffectCount", "cardBaseValue", "deltaParameter", "deltaStamina",
+  "deltaBlock", "deltaReview", "deltaAggressive", "deltaLessonBuff", "deltaParameterBuff",
+  "deltaPlaysRemaining", "deltaHand",
+]);
+
 export const DEFAULT_TOWER_AI_WEIGHTS = Object.freeze({
   parameter: 1,
   stamina: 0.05,
@@ -130,6 +138,105 @@ export function scoreTowerCard(state, actionInput, options = {}) {
   return { legal: true, total: Object.values(terms).reduce((sum, value) => sum + Number(value || 0), 0), terms, after };
 }
 
+export function towerFeatureVector(state, actionInput, options = {}) {
+  const action = typeof actionInput === "string" ? actionForState(state, actionInput) : actionInput;
+  const heuristic = scoreTowerCard(state, action, options);
+  if (!heuristic.legal) return null;
+  const beforeExam = state.exam ?? {};
+  const afterExam = heuristic.after.exam ?? {};
+  return [
+    remainingTurns(state, options.totalTurns),
+    Number(beforeExam.parameter ?? 0),
+    Number(beforeExam.stamina ?? 0),
+    Number(beforeExam.block ?? 0),
+    Number(beforeExam.review ?? 0),
+    Number(beforeExam.aggressive ?? 0),
+    Number(beforeExam.lessonBuff ?? 0),
+    Number(beforeExam.parameterBuff ?? 0),
+    Number(state.playsRemaining ?? 0),
+    Number(action.card?.stamina ?? 0),
+    Number(action.card?.forceStamina ?? 0),
+    Number(action.card?.costValue ?? 0),
+    Number(action.card?.playEffects?.length ?? 0),
+    baseCardValue(action.card, options.cardValues),
+    Number(afterExam.parameter ?? 0) - Number(beforeExam.parameter ?? 0),
+    Number(afterExam.stamina ?? 0) - Number(beforeExam.stamina ?? 0),
+    Number(afterExam.block ?? 0) - Number(beforeExam.block ?? 0),
+    Number(afterExam.review ?? 0) - Number(beforeExam.review ?? 0),
+    Number(afterExam.aggressive ?? 0) - Number(beforeExam.aggressive ?? 0),
+    Number(afterExam.lessonBuff ?? 0) - Number(beforeExam.lessonBuff ?? 0),
+    Number(afterExam.parameterBuff ?? 0) - Number(beforeExam.parameterBuff ?? 0),
+    Number(heuristic.after.playsRemaining ?? 0) - Number(state.playsRemaining ?? 0),
+    Number(heuristic.after.hand?.length ?? 0) - Number(state.hand?.length ?? 0),
+  ];
+}
+
+export function createTowerMlpEvaluator(model) {
+  const names = model?.featureNames ?? model?.feature_names ?? TOWER_FEATURE_NAMES;
+  if (names.length !== TOWER_FEATURE_NAMES.length || names.some((name, index) => name !== TOWER_FEATURE_NAMES[index])) {
+    throw new Error("MLP feature schema does not match tower AI v1");
+  }
+  const layers = model?.layers ?? [];
+  const mean = model?.inputMean ?? model?.input_mean ?? Array(TOWER_FEATURE_NAMES.length).fill(0);
+  const std = model?.inputStd ?? model?.input_std ?? Array(TOWER_FEATURE_NAMES.length).fill(1);
+  const targetMean = Number(model?.targetMean ?? model?.target_mean ?? 0);
+  const targetStd = Number(model?.targetStd ?? model?.target_std ?? 1);
+  return ({ features }) => {
+    let values = features.map((value, index) => {
+      const scale = Number(std[index] ?? 1);
+      return (Number(value) - Number(mean[index] ?? 0)) / (Math.abs(scale) > 1e-12 ? scale : 1);
+    });
+    for (const layer of layers) {
+      const next = (layer.weights ?? []).map((row, rowIndex) => {
+        let value = Number(layer.bias?.[rowIndex] ?? 0);
+        for (let index = 0; index < row.length; index += 1) value += Number(row[index]) * Number(values[index] ?? 0);
+        return layer.activation === "linear" ? value : Math.max(0, value);
+      });
+      values = next;
+    }
+    if (values.length !== 1 || !Number.isFinite(values[0])) throw new Error("MLP must produce one finite Q value");
+    return values[0] * targetStd + targetMean;
+  };
+}
+
+function gateValue(op, left, right) {
+  const a = left ? 1 : 0;
+  const b = right ? 1 : 0;
+  if (op === "and") return a & b;
+  if (op === "or") return a | b;
+  if (op === "xor") return a ^ b;
+  if (op === "nand") return 1 ^ (a & b);
+  if (op === "nor") return 1 ^ (a | b);
+  if (op === "xnor") return 1 ^ (a ^ b);
+  if (op === "not") return 1 ^ a;
+  if (op === "pass") return a;
+  throw new Error(`unsupported logic gate: ${op}`);
+}
+
+export function createTowerLogicGateEvaluator(model) {
+  const thresholds = model?.thresholds ?? [];
+  const layers = model?.layers ?? [];
+  const outputWeights = model?.outputWeights ?? model?.output_weights ?? [];
+  const outputBias = Number(model?.outputBias ?? model?.output_bias ?? 0);
+  return ({ features }) => {
+    let bits = thresholds.map((entry) => Number(features[Number(entry.index)]) >= Number(entry.value) ? 1 : 0);
+    for (const layer of layers) {
+      bits = (layer ?? []).map((gate) => gateValue(gate.op, bits[Number(gate.a)], bits[Number(gate.b ?? gate.a)]));
+    }
+    return outputBias + bits.reduce((sum, bit, index) => sum + Number(bit) * Number(outputWeights[index] ?? (2 ** index)), 0);
+  };
+}
+
+export function evaluateTowerCard(state, actionInput, options = {}) {
+  const action = typeof actionInput === "string" ? actionForState(state, actionInput) : actionInput;
+  const heuristic = scoreTowerCard(state, action, options);
+  if (!heuristic.legal || typeof options.cardEvaluator !== "function") return heuristic;
+  const features = towerFeatureVector(state, action, options);
+  const modelValue = Number(options.cardEvaluator({ state, action, features, heuristic, featureNames: TOWER_FEATURE_NAMES }));
+  if (!Number.isFinite(modelValue)) throw new Error("cardEvaluator returned a non-finite value");
+  return { ...heuristic, total: modelValue, modelValue, features };
+}
+
 export function applyTowerAiAction(state, actionInput, options = {}) {
   const next = cloneTowerState(state);
   const action = typeof actionInput === "string" ? actionForState(next, actionInput) : actionInput;
@@ -183,7 +290,7 @@ function leafValue(state, options) {
   value += Number(exam.parameterBuff ?? 0) * Number(weights.parameterBuff ?? 0) * statusScale;
 
   const immediate = enumerateTowerActions(state, { includeEnd: false })
-    .map((action) => scoreTowerCard(state, action, options).total)
+    .map((action) => evaluateTowerCard(state, action, options).total)
     .filter(Number.isFinite);
   if (immediate.length) value += Math.max(...immediate) * Number(options.leafHeuristicWeight ?? 1);
   return value;
@@ -232,7 +339,7 @@ export function rankTowerActions(state, options = {}) {
     } catch {
       continue;
     }
-    const immediate = action.type === "play" ? scoreTowerCard(state, action, options).total : 0;
+    const immediate = action.type === "play" ? evaluateTowerCard(state, action, options).total : 0;
     const value = evaluateTowerStateBeam(child, { ...options, depth: Math.max(0, Number(options.depth ?? 4) - 1) });
     ranked.push({ action, actionKey: towerActionKey(action), value, immediate });
   }
@@ -306,11 +413,29 @@ export function rankTowerBeliefActions(belief, options = {}) {
       const child = applyTowerAiAction(result.state, action, options);
       const value = evaluateTowerStateBeam(child, { ...options, depth: Math.max(0, Number(options.depth ?? 4) - 1) });
       expected += weight * value;
-      if (action.type === "play") immediate += weight * scoreTowerCard(result.state, action, options).total;
+      if (action.type === "play") immediate += weight * evaluateTowerCard(result.state, action, options).total;
       perSeedValue[`0x${(Number(result.seed) >>> 0).toString(16).padStart(8, "0")}`] = value;
     }
     ranked.push({ actionKey, value: expected, immediate, perSeedValue });
   }
   ranked.sort((left, right) => (right.value - left.value) || (right.immediate - left.immediate));
   return ranked;
+}
+
+export function createTowerTeacherSamples(state, ranking, options = {}) {
+  const byKey = new Map((ranking ?? []).map((entry) => [entry.actionKey, entry]));
+  const best = Math.max(...(ranking ?? []).map((entry) => Number(entry.value)), Number.NEGATIVE_INFINITY);
+  return enumerateTowerActions(state, { includeEnd: false }).map((action) => {
+    const actionKey = towerActionKey(action);
+    const ranked = byKey.get(actionKey);
+    if (!ranked) return null;
+    return {
+      featureNames: [...TOWER_FEATURE_NAMES],
+      features: towerFeatureVector(state, action, options),
+      actionKey,
+      cardId: String(action.card?.id ?? ""),
+      targetQ: Number(ranked.value),
+      isBest: Number(ranked.value) === best,
+    };
+  }).filter(Boolean);
 }
