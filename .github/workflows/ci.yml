@@ -39,6 +39,7 @@ jobs:
           node --check web/sim_v3.js
           node --check web/tower_preset.js
           node --check web/tower_runtime.js
+          node --check web/tower_ai_v1.js
           node --check web/seed_worker.js
           node --check web/seed_recycle_v11.js
           node --check web/seed_history_ref_v12.js
@@ -55,6 +56,8 @@ jobs:
         run: node test_seed_history_ref_v12.mjs
       - name: Seed runtime replay tests
         run: node test_seed_runtime_replay_v13.mjs
+      - name: Tower AI tests
+        run: node test_tower_ai_v1.mjs
       - name: Catalog UI tests
         run: node test_catalog_v4.mjs
       - name: Memory judgement tests
