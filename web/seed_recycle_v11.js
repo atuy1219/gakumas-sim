@@ -21,22 +21,23 @@ export function firstRecycleRelevantHands(firstCycleCards, drawPerTurn = DEFAULT
   const perTurn = normalizeDrawPerTurn(drawPerTurn);
   if (!cards.length) return [];
 
-  // If the whole initial deck is smaller than a hand, there is no discard pile
-  // while drawing that first hand. The first recycle therefore happens on the
-  // following turn, after this partial hand has been resolved.
-  if (cards.length < perTurn) {
-    return [{ turn: 1, startIndex: 0, cards: cards.slice() }];
-  }
+  // Native SetInitialCard can make the opening hand larger than the ordinary
+  // draw count when several IsInitial cards exist. All such cards are already
+  // at the front of firstCycleCards (native visible order).
+  const initialCount = cards.filter((card) => Boolean(card?.isInitial)).length;
+  const openingSize = Math.min(cards.length, Math.max(perTurn, initialCount));
+  const hands = [{ turn: 1, startIndex: 0, cards: cards.slice(0, openingSize) }];
+  let offset = openingSize;
+  let turn = 2;
 
-  // Otherwise the first recycle either starts at the next turn (exact multiple)
-  // or while filling the final partial hand. In the latter case that partial
-  // hand has not been resolved yet and must not be included in the recycle source.
-  const fullTurnCount = Math.floor(cards.length / perTurn);
-  return Array.from({ length: fullTurnCount }, (_, turnIndex) => ({
-    turn: turnIndex + 1,
-    startIndex: turnIndex * perTurn,
-    cards: cards.slice(turnIndex * perTurn, (turnIndex + 1) * perTurn),
-  }));
+  // A final partial hand is still in Hand when the first recycle begins, so it
+  // must not be included in the Grave/recycle source. Exact full hands are.
+  while (offset + perTurn <= cards.length) {
+    hands.push({ turn, startIndex: offset, cards: cards.slice(offset, offset + perTurn) });
+    offset += perTurn;
+    turn += 1;
+  }
+  return hands;
 }
 
 export function normalizeSeedUseAction(action, handSize) {
@@ -114,8 +115,10 @@ export function predictFirstRecycle(seedInput, firstCycleCards, useHistory, opti
   const cards = Array.isArray(firstCycleCards) ? firstCycleCards : [];
   if (!cards.length) throw new Error("1周目のカード順がありません。");
   const perTurn = normalizeDrawPerTurn(options.drawPerTurn);
+  // The native opening pipeline shuffles the entire Deck. IsInitial cards are
+  // extracted afterwards by SetInitialCard and therefore still consume RNG.
   const shuffledCardCount = options.shuffledCardCount === undefined
-    ? cards.filter((card) => !card?.isInitial).length
+    ? cards.length
     : Number(options.shuffledCardCount);
   if (!Number.isInteger(shuffledCardCount) || shuffledCardCount < 0 || shuffledCardCount > cards.length) {
     throw new Error("初期シャッフル対象枚数が不正です。");
