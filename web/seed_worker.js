@@ -61,8 +61,11 @@ function matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn) {
   return true;
 }
 
-function matches(seed, choices, deckIds, observedIds, drawPerTurn) {
-  if (!matchesChoices(seed, choices)) return false;
+function matches(seed, choices, choiceVariants, deckIds, observedIds, drawPerTurn) {
+  const variants = Array.isArray(choiceVariants) && choiceVariants.length
+    ? choiceVariants
+    : [choices];
+  if (!variants.some((variant) => matchesChoices(seed, variant))) return false;
   if (observedIds.length <= deckIds.length) return true;
   return matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn);
 }
@@ -71,6 +74,9 @@ self.onmessage = (event) => {
   const message = event.data ?? {};
   if (message.type !== 'scan') return;
   const choices = Array.isArray(message.choices) ? message.choices : [];
+  const choiceVariants = Array.isArray(message.choiceVariants)
+    ? message.choiceVariants.filter(Array.isArray)
+    : [];
   const deckIds = Array.isArray(message.deckIds) ? message.deckIds.map(String) : [];
   const observedIds = Array.isArray(message.observedIds) ? message.observedIds.map(String) : [];
   const drawPerTurn = Math.max(1, Math.trunc(Number(message.drawPerTurn ?? 3)));
@@ -79,7 +85,7 @@ self.onmessage = (event) => {
   const maxMatches = Math.max(1, Math.trunc(Number(message.maxMatches ?? 32)));
   const found = [];
   for (let candidate = start; candidate < end; candidate += 1) {
-    if (matches(candidate, choices, deckIds, observedIds, drawPerTurn)) {
+    if (matches(candidate, choices, choiceVariants, deckIds, observedIds, drawPerTurn)) {
       found.push(candidate >>> 0);
       if (found.length >= maxMatches) break;
     }

@@ -94,18 +94,52 @@ function shuffleObjectsWithState(input, stateInput) {
   return { deck, randomState: rng.state >>> 0 };
 }
 
+function normalizeHandLimit(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : Number.POSITIVE_INFINITY;
+}
+
+export function resolveNativeInitialHand(shuffledCards, drawCount = 3, handLimit = Number.POSITIVE_INFINITY) {
+  const count = Number(drawCount);
+  if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
+  const capacity = normalizeHandLimit(handLimit);
+  const deck = (shuffledCards ?? []).map((card) => ({ ...card }));
+  const hand = [];
+
+  // ExamCardMoveController.SetInitialCard @ 0x8239520:
+  // scan Deck backwards, remove IsInitial cards into Hand, then ordinary DrawCard
+  // only fills the remaining opening slots. The routine itself consumes no RNG.
+  for (let index = deck.length - 1; index >= 0; index -= 1) {
+    if (!deck[index]?.isInitial || hand.length >= capacity) continue;
+    hand.push(deck.splice(index, 1)[0]);
+  }
+  const ordinaryCount = Math.min(
+    Math.max(0, count - hand.length),
+    deck.length,
+    Math.max(0, capacity - hand.length),
+  );
+  if (ordinaryCount) hand.push(...deck.splice(0, ordinaryCount));
+  return { hand, deck, visibleOrder: [...hand, ...deck] };
+}
+
 export function createTowerTurnState(cards, seedInput, cardById = new Map(), options = {}) {
   const seed = typeof seedInput === "number" ? seedInput >>> 0 : parseSeed(seedInput);
   const instances = runtimeInstances(cards, cardById, options.cardVariantByKey);
   if (!instances.length) throw new Error("デッキにカードがありません。");
-  const initialCards = instances.filter((card) => card.isInitial);
-  const shuffled = shuffleObjectsWithState(instances.filter((card) => !card.isInitial), seed);
-  const initial = { ...shuffled, deck: [...initialCards, ...shuffled.deck] };
+
+  // Native ExamCardPoolModel.Shuffle does not filter IsInitial. The whole Deck
+  // is shuffled first; SetInitialCard later extracts opening-hand cards.
+  const shuffled = shuffleObjectsWithState(instances, seed);
+  const openingDrawCount = Math.max(1, Math.trunc(Number(options.drawPerTurn ?? options.openingDrawCount ?? 3)));
+  const handLimit = normalizeHandLimit(options.handLimit);
+  const openingPreview = resolveNativeInitialHand(shuffled.deck, openingDrawCount, handLimit);
+
   return {
     seed,
-    randomState: initial.randomState,
-    initialDeck: initial.deck.map((card) => ({ ...card })),
-    deck: initial.deck.map((card) => ({ ...card })),
+    randomState: shuffled.randomState,
+    shuffledInitialDeck: shuffled.deck.map((card) => ({ ...card })),
+    initialDeck: openingPreview.visibleOrder.map((card) => ({ ...card })),
+    deck: shuffled.deck.map((card) => ({ ...card })),
     discard: [],
     lost: [],
     hand: [],
@@ -113,6 +147,9 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     recycleCount: 0,
     history: [],
     lastRecycle: null,
+    openingResolved: false,
+    openingDrawCount,
+    handLimit,
     exam: { ...createExamState({ stamina: options.stamina }), targetScore: Math.max(0, Number(options.targetScore ?? 0)) },
     playsRemaining: 0,
     currentTurnPlays: [],
@@ -166,21 +203,51 @@ function drawCardsIntoHand(state, count) {
   return { drawn, recycleEvents };
 }
 
+function setNativeInitialCard(state, drawCount) {
+  const capacity = normalizeHandLimit(state.handLimit);
+  const moved = [];
+  for (let index = state.deck.length - 1; index >= 0; index -= 1) {
+    if (!state.deck[index]?.isInitial || state.hand.length >= capacity) continue;
+    const [card] = state.deck.splice(index, 1);
+    state.hand.push(card);
+    moved.push(card);
+  }
+
+  const remaining = Math.max(0, Number(drawCount) - state.hand.length);
+  const ordinary = remaining > 0
+    ? drawCardsIntoHand(state, Math.min(remaining, Math.max(0, capacity - state.hand.length)))
+    : { drawn: [], recycleEvents: [] };
+  state.openingResolved = true;
+  return {
+    drawn: [...moved, ...ordinary.drawn],
+    recycleEvents: ordinary.recycleEvents,
+  };
+}
+
 export function drawTowerTurn(state, drawCount = 3) {
   const count = Number(drawCount);
   if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
   if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
+  const isOpeningTurn = state.turn === 0 && !state.openingResolved;
   state.turn += 1;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
-  const result = drawCardsIntoHand(state, count + extraDraw);
+  const requested = count + extraDraw;
+  const result = isOpeningTurn
+    ? setNativeInitialCard(state, requested)
+    : drawCardsIntoHand(state, requested);
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
   }
-  return { turn: state.turn, hand: state.hand.map((card) => ({ ...card })), recycleEvents: result.recycleEvents };
+  return {
+    turn: state.turn,
+    hand: state.hand.map((card) => ({ ...card })),
+    drawn: result.drawn.map((card) => ({ ...card })),
+    recycleEvents: result.recycleEvents,
+  };
 }
 
 function upgradeHandCards(state) {
@@ -340,7 +407,13 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
 
   if (!state.hand.length && !state.currentTurnPlays.length) throw new Error("処理する手札がありません。");
   const remainingHand = state.hand.map((card) => ({ ...card }));
-  state.discard.push(...state.hand);
+  // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
+  // IsEndTurnLost cards are batched to Lost; all other remaining cards are
+  // batched to Grave. Each destination preserves the original Hand order.
+  for (const card of state.hand) {
+    if (card.isEndTurnLost) state.lost.push(card);
+    else state.discard.push(card);
+  }
   state.hand = [];
 
   const plays = state.currentTurnPlays.map((play) => ({
