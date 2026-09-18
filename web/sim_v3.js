@@ -121,7 +121,88 @@ function sameMultiset(a, b) {
   return true;
 }
 
-export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 64) {
+export function applyNativeInitialHandOrder(shuffledCards, drawPerTurn = 3, handLimit = Number.POSITIVE_INFINITY) {
+  const drawCount = Number(drawPerTurn);
+  if (!Number.isInteger(drawCount) || drawCount < 1) throw new Error("1ターンのドロー枚数が不正です。");
+  const capacity = Number.isFinite(Number(handLimit))
+    ? Math.max(0, Math.trunc(Number(handLimit)))
+    : Number.POSITIVE_INFINITY;
+  const deck = (shuffledCards ?? []).slice();
+  const hand = [];
+
+  // Native ExamCardMoveController.SetInitialCard (0x8239520):
+  // scan Deck from Count-1 down to 0, move every IsInitial card to Hand,
+  // then DrawCard only for the remaining opening-hand slots.
+  for (let index = deck.length - 1; index >= 0; index -= 1) {
+    if (!deck[index]?.isInitial || hand.length >= capacity) continue;
+    hand.push(deck.splice(index, 1)[0]);
+  }
+
+  const ordinaryDrawCount = Math.min(
+    Math.max(0, drawCount - hand.length),
+    deck.length,
+    Math.max(0, capacity - hand.length),
+  );
+  if (ordinaryDrawCount) hand.push(...deck.splice(0, ordinaryDrawCount));
+
+  return {
+    hand,
+    remainingDeck: deck,
+    visibleOrder: [...hand, ...deck],
+  };
+}
+
+function enumerateObservedTokenOrders(instances, observedIds, visit, shouldStop) {
+  const byId = new Map();
+  for (const instance of instances) {
+    if (!byId.has(instance.id)) byId.set(instance.id, []);
+    byId.get(instance.id).push(instance);
+  }
+
+  const used = new Set();
+  const current = [];
+  function recurse(index) {
+    if (shouldStop()) return;
+    if (index >= observedIds.length) {
+      visit(current.slice());
+      return;
+    }
+    for (const instance of byId.get(observedIds[index]) ?? []) {
+      if (used.has(instance.token)) continue;
+      used.add(instance.token);
+      current.push(instance);
+      recurse(index + 1);
+      current.pop();
+      used.delete(instance.token);
+      if (shouldStop()) return;
+    }
+  }
+  recurse(0);
+}
+
+function enumerateInterleavings(left, right, visit, shouldStop) {
+  const current = [];
+  function recurse(i, j) {
+    if (shouldStop()) return;
+    if (i >= left.length && j >= right.length) {
+      visit(current.slice());
+      return;
+    }
+    if (i < left.length) {
+      current.push(left[i]);
+      recurse(i + 1, j);
+      current.pop();
+    }
+    if (j < right.length) {
+      current.push(right[j]);
+      recurse(i, j + 1);
+      current.pop();
+    }
+  }
+  recurse(0, 0);
+}
+
+export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 8192) {
   const instances = makeCardInstances(cards);
   const observed = observedIds.map((id) => String(id).trim()).filter(Boolean);
   if (observed.length !== instances.length) {
@@ -133,58 +214,53 @@ export function deriveSeedChoiceVariants(cards, observedIds, maxVariants = 64) {
   }
 
   const initialInstances = instances.filter((item) => item.isInitial);
-  const shuffleInstances = instances.filter((item) => !item.isInitial);
+  const ordinaryInstances = instances.filter((item) => !item.isInitial);
   const observedInitial = observed.slice(0, initialInstances.length);
-  const observedShuffled = observed.slice(initialInstances.length);
+  const observedOrdinary = observed.slice(initialInstances.length);
   if (!sameMultiset(initialInstances.map((item) => item.id), observedInitial)) {
-    throw new Error(`開始時手札の${initialInstances.length}枚を観測順の先頭に入力してください。`);
+    throw new Error(`開始時手札のIsInitialカード${initialInstances.length}枚を観測順の先頭に入力してください。`);
   }
-  if (!sameMultiset(shuffleInstances.map((item) => item.id), observedShuffled)) {
-    throw new Error("開始時手札を除いたカードの構成が現在のデッキと一致しません。");
+  if (!sameMultiset(ordinaryInstances.map((item) => item.id), observedOrdinary)) {
+    throw new Error("IsInitialカードを除いたカード構成が現在のデッキと一致しません。");
   }
 
-  const tokensById = new Map();
-  for (const instance of shuffleInstances) {
-    if (!tokensById.has(instance.id)) tokensById.set(instance.id, []);
-    tokensById.get(instance.id).push(instance.token);
-  }
-  const used = new Set();
-  const finalTokens = new Array(observedShuffled.length);
+  const originalTokens = instances.map((item) => item.token);
   const variantKeys = new Set();
   const variants = [];
   let truncated = false;
+  const shouldStop = () => truncated;
 
-  function addChoices() {
-    const choices = deriveFisherYatesChoices(shuffleInstances.map((item) => item.token), finalTokens);
+  const addRawShuffleOrder = (rawOrder) => {
+    if (variants.length >= maxVariants) {
+      truncated = true;
+      return;
+    }
+    const choices = deriveFisherYatesChoices(originalTokens, rawOrder.map((item) => item.token));
     const key = choices.map((item) => `${item.n}:${item.j}`).join(",");
     if (!variantKeys.has(key)) {
       variantKeys.add(key);
       variants.push(choices);
     }
-  }
+  };
 
-  function visit(index) {
-    if (variants.length >= maxVariants) {
-      truncated = true;
-      return;
-    }
-    if (index >= observedShuffled.length) {
-      addChoices();
-      return;
-    }
-    const candidates = tokensById.get(observedShuffled[index]) ?? [];
-    for (const token of candidates) {
-      if (used.has(token)) continue;
-      used.add(token);
-      finalTokens[index] = token;
-      visit(index + 1);
-      used.delete(token);
-      if (variants.length >= maxVariants) break;
-    }
-  }
-  visit(0);
+  // SetInitialCard hides the original positions of IsInitial cards.
+  // If the observed opening is I0,I1,..., the shuffled Deck contained those
+  // initial cards in the reverse relative order because the native loop scans
+  // Deck from the last index down and appends each match to Hand.
+  enumerateObservedTokenOrders(initialInstances, observedInitial, (visibleInitialOrder) => {
+    const rawInitialOrder = visibleInitialOrder.slice().reverse();
+    enumerateObservedTokenOrders(ordinaryInstances, observedOrdinary, (rawOrdinaryOrder) => {
+      enumerateInterleavings(rawInitialOrder, rawOrdinaryOrder, addRawShuffleOrder, shouldStop);
+    }, shouldStop);
+  }, shouldStop);
+
   if (!variants.length) throw new Error("観測順からseed条件を作成できませんでした。");
-  return { variants, truncated, instanceCount: instances.length, initialCount: initialInstances.length };
+  return {
+    variants,
+    truncated,
+    instanceCount: instances.length,
+    initialCount: initialInstances.length,
+  };
 }
 
 // Backward-compatible entry point for callers introduced with the former
@@ -195,13 +271,30 @@ export function prepareSeedBatchSearch(cards, observedBatches) {
     .flatMap((batch) => Array.isArray(batch) ? batch : [batch])
     .map((id) => String(id).trim())
     .filter(Boolean);
-  const { variants, truncated } = deriveSeedChoiceVariants(cards, observed, 64);
+  const { variants, truncated } = deriveSeedChoiceVariants(cards, observed, 8192);
   if (truncated) {
-    throw new Error("同一カードの重複によるseed条件が64通りを超えました。完全特定を保証できないため、重複カードを見分けられる情報を追加してください。");
+    throw new Error("IsInitial位置や重複カードによるseed条件が8192通りを超えました。完全特定を保証できないため、編成または観測情報を確認してください。");
   }
+
+  // Many raw shuffled orders differ only in the hidden position of IsInitial
+  // cards and therefore share the same first Fisher-Yates interval. Group them
+  // so the worker scans each seed interval once and ORs the full variants.
+  const grouped = new Map();
+  for (const choices of variants) {
+    const first = choices[0];
+    const key = first ? `${first.n}:${first.j}` : "all";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(choices);
+  }
+  const choiceGroups = [...grouped.values()].map((groupVariants) => ({
+    variants: groupVariants,
+    interval: seedIntervalFromChoices(groupVariants[0]),
+  }));
+
   return {
     batches: observed.map((id) => [id]),
     choices: variants,
+    choiceGroups,
     shuffleIds: null,
     shuffledBatches: null,
     prefixVariants: null,
@@ -273,34 +366,62 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
   if (!instances.length) throw new Error("デッキにカードがありません。");
 
   let state = Number(seed) >>> 0;
-  const initialInstances = instances.filter((item) => item.isInitial);
-  const shuffleInstances = instances.filter((item) => !item.isInitial);
-  const initial = shuffleIdsWithState(shuffleInstances.map((item) => item.id), state);
-  const initialDeck = [...initialInstances.map((item) => item.id), ...initial.deck];
-  let deck = initialDeck.slice();
-  state = initial.state;
+  const byToken = new Map(instances.map((item) => [item.token, item]));
+  const shuffled = shuffleIdsWithState(instances.map((item) => item.token), state);
+  const shuffledInstances = shuffled.deck.map((token) => byToken.get(token));
+  const opening = applyNativeInitialHandOrder(shuffledInstances, perTurn);
+  const initialDeck = opening.visibleOrder.map((item) => item.id);
+  let deck = opening.remainingDeck.map((item) => item.id);
+  state = shuffled.state;
   let discard = [];
-  let hand = [];
+  let hand = opening.hand.map((item) => item.id);
   const draws = [];
   const recycleEvents = [];
-  for (let drawIndex = 0; drawIndex < count; drawIndex += 1) {
-    if (!deck.length) {
-      if (!discard.length) break;
-      const source = discard.slice();
-      const recycled = shuffleIdsWithState(discard, state);
-      deck = recycled.deck.slice();
-      discard = [];
-      state = recycled.state;
-      recycleEvents.push({ drawIndex, source, shuffled: deck.slice(), randomState: state });
-    }
 
-    const card = deck.shift();
-    draws.push(card);
-    hand.push(card);
-    if (hand.length === perTurn) {
-      discard.push(...hand);
-      hand = [];
+  const appendVisible = (values) => {
+    for (const value of values) {
+      if (draws.length >= count) break;
+      draws.push(value);
     }
+  };
+
+  appendVisible(hand);
+  if (draws.length >= count) {
+    return { seed: Number(seed) >>> 0, initialDeck, draws, remainingDeck: deck, discard, hand, recycleEvents, randomState: state };
+  }
+
+  // Seed identification observes the first pass while skipping. Once the
+  // opening hand has been fully observed, ResetHand moves it to Grave.
+  discard.push(...hand);
+  hand = [];
+
+  while (draws.length < count) {
+    let completedTurn = true;
+    for (let slot = 0; slot < perTurn && draws.length < count; slot += 1) {
+      if (!deck.length) {
+        if (!discard.length) {
+          completedTurn = false;
+          break;
+        }
+        const source = discard.slice();
+        const recycled = shuffleIdsWithState(discard, state);
+        deck = recycled.deck.slice();
+        discard = [];
+        state = recycled.state;
+        recycleEvents.push({ drawIndex: draws.length, source, shuffled: deck.slice(), randomState: state });
+      }
+      if (!deck.length) {
+        completedTurn = false;
+        break;
+      }
+      const card = deck.shift();
+      draws.push(card);
+      hand.push(card);
+    }
+    if (draws.length >= count) break;
+    if (!completedTurn && !deck.length && !discard.length) break;
+    discard.push(...hand);
+    hand = [];
   }
 
   return {
@@ -316,36 +437,11 @@ export function simulateTurnRecycleDraws(cards, seed, drawCount, drawPerTurn = 3
 }
 
 export function seedMatchesObservedDraws(seed, cards, observedIds, drawPerTurn = 3) {
-  const perTurn = Number(drawPerTurn);
   const observed = (observedIds ?? []).map(String);
-  const instances = makeCardInstances(cards);
-  if (!instances.length || !observed.length) return false;
-
-  const initialInstances = instances.filter((item) => item.isInitial);
-  const shuffleInstances = instances.filter((item) => !item.isInitial);
-  const initial = shuffleIdsWithState(shuffleInstances.map((item) => item.id), Number(seed) >>> 0);
-  let deck = [...initialInstances.map((item) => item.id), ...initial.deck];
-  let discard = [];
-  let hand = [];
-  let state = initial.state;
-
-  for (const expected of observed) {
-    if (!deck.length) {
-      if (!discard.length) return false;
-      const recycled = shuffleIdsWithState(discard, state);
-      deck = recycled.deck;
-      discard = [];
-      state = recycled.state;
-    }
-    if (String(deck[0]) !== String(expected)) return false;
-    hand.push(deck.shift());
-    if (hand.length === perTurn) {
-      // seed特定時は毎ターンスキップするため、使用カード分岐は存在しない。
-      discard.push(...hand);
-      hand = [];
-    }
-  }
-  return true;
+  if (!cards?.length || !observed.length) return false;
+  const simulated = simulateTurnRecycleDraws(cards, seed, observed.length, drawPerTurn);
+  if (simulated.draws.length < observed.length) return false;
+  return observed.every((expected, index) => String(simulated.draws[index]) === String(expected));
 }
 
 export function seedIntervalFromChoices(choices) {
