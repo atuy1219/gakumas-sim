@@ -1385,13 +1385,20 @@ async function startSeedSearch() {
 
     const tasks = [];
     let total = 0;
-    prepared.choices.forEach((choices) => {
-      const interval = seedIntervalFromChoices(choices);
+    const choiceGroups = prepared.choiceGroups?.length
+      ? prepared.choiceGroups
+      : prepared.choices.map((choices) => ({ variants: [choices], interval: seedIntervalFromChoices(choices) }));
+    for (const group of choiceGroups) {
+      const interval = group.interval ?? seedIntervalFromChoices(group.variants[0] ?? []);
       total += interval.size;
       for (let start = interval.start; start < interval.end; start += SEED_TASK_SIZE) {
-        tasks.push({ choices, start, end: Math.min(interval.end, start + SEED_TASK_SIZE) });
+        tasks.push({
+          choiceVariants: group.variants,
+          start,
+          end: Math.min(interval.end, start + SEED_TASK_SIZE),
+        });
       }
-    });
+    }
 
     let scanned = 0;
     const matches = new Set();
@@ -1430,7 +1437,8 @@ async function startSeedSearch() {
         worker.postMessage({
           type: "scan",
           taskId: nextTask,
-          choices: task.choices,
+          choices: task.choiceVariants?.[0] ?? [],
+          choiceVariants: task.choiceVariants ?? [],
           batchSearch: { shuffleIds: prepared.shuffleIds, shuffledBatches: prepared.shuffledBatches, prefixVariants: prepared.prefixVariants },
           start: task.start,
           end: task.end,
