@@ -3,6 +3,7 @@ import { simulateCards } from "./web/engine.js";
 import {
   deriveSeedChoiceVariants,
   observationCardLabel,
+  prepareSeedBatchSearch,
   runOrderMonteCarlo,
   scanSeedRange,
   seedIntervalFromChoices,
@@ -73,6 +74,15 @@ const initialDerived = deriveSeedChoiceVariants(initialCards, initialRun.initial
 assert.equal(initialDerived.truncated, false);
 assert.ok(initialDerived.variants.some((variant) => seedMatchesChoices(seed, variant)));
 assert.equal(seedMatchesObservedDraws(seed, initialCards, initialRun.draws, 3), true);
+
+// IsInitial is removed only after the whole Deck has been shuffled. Its hidden
+// original position therefore expands to several raw permutations, but those
+// permutations share at most two first Fisher-Yates intervals and are grouped.
+const preparedInitial = prepareSeedBatchSearch(initialCards, [initialRun.initialDeck]);
+assert.ok(preparedInitial.choices.length > 1);
+assert.ok(preparedInitial.choiceGroups.length <= 2);
+assert.ok(preparedInitial.choiceGroups.some((group) =>
+  group.variants.some((variant) => seedMatchesChoices(seed, variant))));
 
 const duplicateInitialCards = [
   { id: "A", isInitial: true }, { id: "A", isInitial: false }, { id: "B" }, { id: "C" },
