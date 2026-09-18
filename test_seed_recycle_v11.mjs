@@ -19,6 +19,7 @@ function firstCycleFromState(state) {
     isInitial: Boolean(card.isInitial),
     onceOnly: Boolean(card.onceOnly),
     playMovePositionType: card.playMovePositionType,
+    isEndTurnLost: Boolean(card.isEndTurnLost),
   }));
 }
 
@@ -93,6 +94,25 @@ function firstCycleFromState(state) {
     state.hand.map((card) => card.id),
     prediction.recycledDeck.slice(0, 3).map((card) => card.id),
   );
+}
+
+// Unused IsEndTurnLost cards are removed by ResetHand and cannot enter recycle.
+{
+  const firstCycle = [
+    { id: "A" },
+    { id: "L", isEndTurnLost: true },
+    { id: "B" },
+    { id: "C" },
+    { id: "D" },
+    { id: "E" },
+  ];
+  const resolved = buildDiscardBeforeFirstRecycle(
+    firstCycle,
+    [{ type: "skip" }, { type: "skip" }],
+    3,
+  );
+  assert.equal(resolved.lost.some((card) => card.id === "L"), true);
+  assert.equal(resolved.discard.some((card) => card.id === "L"), false);
 }
 
 assert.throws(
