@@ -138,6 +138,8 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
   const seed = Number(seedInput) >>> 0;
   const state = createTowerTurnState(cards, seed, options.cardById ?? new Map(), {
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
+    drawPerTurn: Number(options.drawPerTurn ?? 3),
+    handLimit: options.handLimit,
     stamina: Number(options.stamina ?? 9999),
     targetScore: Number(options.targetScore ?? 0),
     pItems: options.pItems ?? [],
