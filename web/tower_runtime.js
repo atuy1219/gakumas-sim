@@ -407,7 +407,13 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
 
   if (!state.hand.length && !state.currentTurnPlays.length) throw new Error("処理する手札がありません。");
   const remainingHand = state.hand.map((card) => ({ ...card }));
-  state.discard.push(...state.hand);
+  // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
+  // IsEndTurnLost cards are batched to Lost; all other remaining cards are
+  // batched to Grave. Each destination preserves the original Hand order.
+  for (const card of state.hand) {
+    if (card.isEndTurnLost) state.lost.push(card);
+    else state.discard.push(card);
+  }
   state.hand = [];
 
   const plays = state.currentTurnPlays.map((play) => ({
