@@ -74,6 +74,29 @@ Web上でメモリーを手動登録できます。
 
 同じカード入力と同じseedなら、同じ山札順になります。
 
+### 開幕手札（IL2CPP実装準拠）
+
+解析用ELFで `ExamCardMoveController.SetInitialCard`（`0x8239520`）と
+`ExamCardPoolModel.Shuffle`（`0x803F7C4`）を追跡した結果、`IsInitial`
+カードはシャッフル対象から除外されません。
+
+1. まず **IsInitialを含むDeck全体** をseedでシャッフルする
+2. `SetInitialCard` がDeck末尾から先頭へ走査し、`IsInitial` をHandへ移す
+3. 開幕ドロー枚数に不足する分だけ通常の `DrawCard` でDeck先頭から補充する
+4. `SetInitialCard` 自体はPRNGを進めない
+
+したがって、開幕固定カードが1枚あるN枚デッキでも初回シャッフルは
+`N-1` 回乱数を消費します。以前の「IsInitialを除いたカードだけをシャッフルして
+先頭へ挿入する」モデルは使用しません。
+
+seed逆算では、画面上の開幕順からは `IsInitial` が元のシャッフル済みDeckの
+どの位置に存在したか見えないため、その隠れ位置を列挙してFisher–Yates条件へ
+戻します。同じ先頭乱数区間を共有する候補はWorker側でまとめて走査します。
+
+墓地からDeckへ戻る通常の再循環では、現在のPRNG stateを引き継いでGraveを
+シャッフルしてからDeckへ移します。カード使用済みなら使用カードが先にGraveへ入り、
+ターン終了時に残りHandが続くため、この順序もseedリプレイへ反映します。
+
 `FixedDeckOrder > 0` を含む山札では固定順を使用します。同じ `FixedDeckOrder` を持つカードが複数ある入力は現在明示的に未対応です。
 
 ## 共通Examエンジン
