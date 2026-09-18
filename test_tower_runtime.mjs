@@ -7,6 +7,7 @@ import {
   finishTowerTurn,
   isOnceOnlyMove,
   playTowerCard,
+  resolveNativeInitialHand,
   resolveTowerDefaultDeck,
 } from "./web/tower_runtime.js";
 
@@ -55,8 +56,14 @@ const cards = ["ONCE", "A", "B", "C"].map((id) => ({ id, upgradeCount: 0, fixedD
 const initialCardById = new Map(cardById);
 initialCardById.set("C", { ...initialCardById.get("C"), isInitial: true });
 const initialState = createTowerTurnState(cards, 1, initialCardById);
+assert.deepEqual(initialState.shuffledInitialDeck.map((card) => card.id), ["A", "B", "C", "ONCE"]);
+assert.deepEqual(initialState.initialDeck.map((card) => card.id), ["C", "A", "B", "ONCE"]);
+assert.equal(initialState.randomState, 2647435461);
+const openingPreview = resolveNativeInitialHand(initialState.shuffledInitialDeck, 3);
+assert.deepEqual(openingPreview.hand.map((card) => card.id), ["C", "A", "B"]);
 drawTowerTurn(initialState, 3);
-assert.equal(initialState.hand[0].id, "C");
+assert.deepEqual(initialState.hand.map((card) => card.id), ["C", "A", "B"]);
+assert.equal(initialState.randomState, 2647435461, "SetInitialCard must not consume RNG");
 
 // When a once-only card is used, it leaves the recycle pool.
 let state = createTowerTurnState(cards, 1, cardById);
