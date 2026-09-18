@@ -65,6 +65,28 @@ drawTowerTurn(initialState, 3);
 assert.deepEqual(initialState.hand.map((card) => card.id), ["C", "A", "B"]);
 assert.equal(initialState.randomState, 2647435461, "SetInitialCard must not consume RNG");
 
+// ResetHand preserves the relative Hand order for Grave and sends
+// IsEndTurnLost cards to Lost instead of the recycle source.
+const endTurnCardById = new Map([
+  ["I", { id: "I", isInitial: true, playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+  ["A", { id: "A", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+  ["L", { id: "L", isEndTurnLost: true, playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+  ["B", { id: "B", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+]);
+let endTurnState = createTowerTurnState(
+  ["I", "A", "L", "B"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  endTurnCardById,
+);
+drawTowerTurn(endTurnState, 3);
+const openingHand = endTurnState.hand.map((card) => card.id);
+finishTowerTurn(endTurnState, { type: "skip" });
+assert.deepEqual(
+  endTurnState.discard.map((card) => card.id),
+  openingHand.filter((id) => id !== "L"),
+);
+assert.deepEqual(endTurnState.lost.map((card) => card.id), openingHand.filter((id) => id === "L"));
+
 // When a once-only card is used, it leaves the recycle pool.
 let state = createTowerTurnState(cards, 1, cardById);
 drawTowerTurn(state, 3);
