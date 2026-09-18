@@ -87,7 +87,10 @@ export function buildDiscardBeforeFirstRecycle(firstCycleCards, useHistory, draw
       else discard.push(card);
     }
     for (let index = 0; index < hand.length; index += 1) {
-      if (!used.has(index)) discard.push(hand[index]);
+      if (used.has(index)) continue;
+      const card = hand[index];
+      if (Boolean(card?.isEndTurnLost)) lost.push(card);
+      else discard.push(card);
     }
   }
   return { discard, lost, hands, actions: normalizedActions };
