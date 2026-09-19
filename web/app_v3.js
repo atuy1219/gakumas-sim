@@ -30,6 +30,10 @@ import {
   loadExamItemCatalogs,
   resolveProduceItems,
 } from "./exam_effects_v7.js";
+import {
+  generatedObservationLabel,
+  partitionSeedObservations,
+} from "./seed_observation_v15.js";
 
 const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = "gakumas-sim-memory-library-v3";
@@ -1207,30 +1211,24 @@ function deckNameToIds(composition) {
   return byName;
 }
 
-function parseObservedLine(line, composition) {
-  const ids = new Set(composition.cards.map((card) => card.id));
-  const byName = deckNameToIds(composition);
-  if (ids.has(line)) return line;
-  const suffix = line.match(/(?:—|\||\[)\s*(p_card-[^\]\s]+)\]?\s*$/)?.[1];
-  if (suffix && ids.has(suffix)) return suffix;
-  const normalizedLine = line.replace(/\+{2,}$/, "+");
-  const names = byName.get(line) ?? byName.get(normalizedLine) ?? byName.get(line.replace(/\++$/, ""));
-  if (names?.size === 1) return [...names][0];
-  throw new Error(`観測カード「${line}」を現在のデッキに対応付けできません。カードIDで入力してください。`);
-}
-
-function parseObservedIds(composition) {
-  return observedLines().map((line) => parseObservedLine(line, composition));
-}
-
-function parseObservedBatches(composition) {
-  return observedTextBatches()
-    .map((batch) => batch.map((line) => parseObservedLine(line, composition)))
-    .filter((batch) => batch.length);
+function seedObservationState(composition) {
+  return partitionSeedObservations(
+    observedLines(),
+    composition.cards,
+    catalogs.cardById,
+    catalogs.cardVariantByKey,
+  );
 }
 
 function parseObservedDraws(composition) {
-  return parseObservedBatches(composition);
+  const observation = seedObservationState(composition);
+  if (!observation.complete) {
+    throw new Error(`元デッキの観測が不足しています（${observation.observedInitialCount}/${observation.initialCount}枚）。生成カードは元デッキ枚数には数えません。`);
+  }
+  // Generated cards such as 眠気 are inserted after the initial shuffle. Remove
+  // them only for the Fisher–Yates inversion; the full visible order remains in
+  // tower-observed and is consumed later by the runtime replay.
+  return [observation.initialIds];
 }
 
 function renderObservationButtons() {
@@ -1244,20 +1242,27 @@ function renderObservationButtons() {
     container.textContent = "メモリーと採用カードを設定すると、観測入力ボタンが表示されます。";
     return;
   }
+
   const instances = makeCardInstances(composition.cards);
-  const rawLines = observedLines();
-  if (rawLines.length >= instances.length) {
-    container.textContent = "山札1巡分の入力が完了しました。Seed候補を探索できます。";
+  let observation;
+  try {
+    observation = seedObservationState(composition);
+  } catch (error) {
+    container.textContent = String(error?.message ?? error);
     updateObservationCount(instances.length);
     return;
   }
-  let observedIds = rawLines;
-  try {
-    observedIds = parseObservedIds(composition);
-  } catch {}
+
+  if (observation.complete) {
+    container.textContent = observation.generatedIds.length
+      ? `元デッキ1巡分の入力が完了しました（生成カード ${observation.generatedIds.length}枚も記録済み）。Seed候補を探索できます。`
+      : "山札1巡分の入力が完了しました。Seed候補を探索できます。";
+    updateObservationCount(instances.length);
+    return;
+  }
 
   const used = new Map();
-  for (const id of observedIds) used.set(id, (used.get(id) ?? 0) + 1);
+  for (const id of observation.initialIds) used.set(id, (used.get(id) ?? 0) + 1);
   const seen = new Map();
   const totals = new Map();
   for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
@@ -1274,6 +1279,23 @@ function renderObservationButtons() {
     button.addEventListener("click", () => {
       const batches = observedTextBatches();
       batches.at(-1).push(observationCardName(instance.card));
+      writeObservedTextBatches(batches);
+      renderObservationButtons();
+      updateObservationCount();
+    });
+    container.append(button);
+  }
+
+  for (const target of observation.generatedTargets.values()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "observation-card generated-observation-card-v15";
+    button.title = target.id;
+    button.textContent = `生成: ${generatedObservationLabel(target, catalogs.cardById, catalogs.cardVariantByKey)}`;
+    button.addEventListener("click", () => {
+      const batches = observedTextBatches();
+      const label = generatedObservationLabel(target, catalogs.cardById, catalogs.cardVariantByKey);
+      batches.at(-1).push(`${label} — ${target.id} [生成]`);
       writeObservedTextBatches(batches);
       renderObservationButtons();
       updateObservationCount();
@@ -1305,18 +1327,28 @@ function renderTowerObservedPreview() {
 
 function updateObservationCount(deckCount = null) {
   renderTowerObservedPreview();
-  if (deckCount === null) {
-    try { deckCount = buildComposition("tower").cards.length; } catch { deckCount = 0; }
+  let composition;
+  try {
+    composition = buildComposition("tower");
+    if (deckCount === null) deckCount = composition.cards.length;
+  } catch {
+    deckCount = Number(deckCount ?? 0);
   }
-  const total = observedLines().length;
-  if (!deckCount) {
+  if (!deckCount || !composition) {
     $("tower-observed-count").textContent = "0枚";
     $("tower-find-seed").disabled = true;
     return;
   }
-  const need = Math.max(0, deckCount - total);
-  $("tower-observed-count").textContent = `${Math.min(total, deckCount)} / ${deckCount}枚${need ? ` · あと${need}枚` : " · 入力完了"}`;
-  $("tower-find-seed").disabled = total < deckCount;
+  try {
+    const observation = seedObservationState(composition);
+    const generated = observation.generatedIds.length ? ` · 生成${observation.generatedIds.length}枚` : "";
+    $("tower-observed-count").textContent =
+      `${observation.observedInitialCount} / ${deckCount}枚${observation.missingCount ? ` · あと${observation.missingCount}枚` : " · 入力完了"}${generated}`;
+    $("tower-find-seed").disabled = !observation.complete;
+  } catch {
+    $("tower-observed-count").textContent = "入力を確認";
+    $("tower-find-seed").disabled = true;
+  }
 }
 
 $("tower-observed").addEventListener("input", () => {
@@ -1326,7 +1358,8 @@ $("tower-observed").addEventListener("input", () => {
 $("tower-next-draw").addEventListener("click", () => {
   const batches = observedTextBatches();
   if (!batches.at(-1)?.length) return showError("先に新しく手札へ来たカードを入力してください。");
-  if (observedLines().length < buildComposition("tower").cards.length) batches.push([]);
+  const composition = buildComposition("tower");
+  if (!seedObservationState(composition).complete) batches.push([]);
   writeObservedTextBatches(batches);
   renderObservationButtons();
   updateObservationCount();
@@ -1411,9 +1444,12 @@ async function startSeedSearch() {
   $("tower-cancel-seed").hidden = false;
   try {
     const composition = buildComposition("tower");
+    const observation = seedObservationState(composition);
     const seedCards = cardsWithSeedMetadata(composition.cards);
     const prepared = prepareSeedBatchSearch(seedCards, parseObservedDraws(composition));
-    const observationSummary = `山札由来${prepared.batches.flat().length}枚・${prepared.batches.length}ドロー`;
+    const observationSummary = observation.generatedIds.length
+      ? `元デッキ${observation.initialIds.length}枚 + 生成カード観測${observation.generatedIds.length}枚`
+      : `元デッキ${observation.initialIds.length}枚`;
 
     const tasks = [];
     let total = 0;
