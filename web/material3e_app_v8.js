@@ -296,30 +296,32 @@ function renderExamObservation() {
   document.getElementById("exam-find-seed").disabled = !observation.complete;
   buttons.replaceChildren();
   if (observation.complete) {
-    buttons.textContent = observation.generatedIds.length
-      ? "元デッキ1巡分の入力が完了しました。生成カードも観測履歴に保持しています。"
-      : "山札1巡分の入力が完了しました。";
-    return;
-  }
-
-  const used = new Map();
-  const seen = new Map();
-  const totals = new Map();
-  for (const id of observation.initialIds) used.set(String(id), (used.get(String(id)) ?? 0) + 1);
-  for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
-  for (const instance of instances) {
-    const ordinal = (seen.get(instance.id) ?? 0) + 1;
-    seen.set(instance.id, ordinal);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "observation-card";
-    button.textContent = `${names.get(instance.id) ?? instance.id}${(totals.get(instance.id) ?? 0) > 1 ? ` #${ordinal}` : ""}`;
-    button.disabled = ordinal <= (used.get(instance.id) ?? 0);
-    button.addEventListener("click", () => {
-      examObservedBatches.at(-1).push(instance.id);
-      renderExamObservation();
-    });
-    buttons.append(button);
+    const complete = document.createElement("p");
+    complete.className = "hint seed-message";
+    complete.textContent = observation.generatedIds.length
+      ? "元デッキ1巡分は完了済みです。生成カードがさらに見えた場合は下から追加できます。"
+      : "元デッキ1巡分は完了済みです。生成カードがこの後に見えた場合は下から追加できます。";
+    buttons.append(complete);
+  } else {
+    const used = new Map();
+    const seen = new Map();
+    const totals = new Map();
+    for (const id of observation.initialIds) used.set(String(id), (used.get(String(id)) ?? 0) + 1);
+    for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
+    for (const instance of instances) {
+      const ordinal = (seen.get(instance.id) ?? 0) + 1;
+      seen.set(instance.id, ordinal);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "observation-card";
+      button.textContent = `${names.get(instance.id) ?? instance.id}${(totals.get(instance.id) ?? 0) > 1 ? ` #${ordinal}` : ""}`;
+      button.disabled = ordinal <= (used.get(instance.id) ?? 0);
+      button.addEventListener("click", () => {
+        examObservedBatches.at(-1).push(instance.id);
+        renderExamObservation();
+      });
+      buttons.append(button);
+    }
   }
 
   for (const target of observation.generatedTargets.values()) {
