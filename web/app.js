@@ -257,9 +257,14 @@ async function initializeTowerStageCatalog() {
     towerStageCatalog = await loadTowerStageCatalog();
     renderTowerStageOptions();
     if (status) {
-      status.textContent = towerStageCatalog.layerExams.length
-        ? "ドル道の階層マスタからステージを読み込みました。"
-        : "階層対応表が公開マスタでは空のため、試験設定（ターン数・Vo/Da/Vi）から選択します。";
+      if (towerStageCatalog.layerSource === "api-snapshot") {
+        const meta = towerStageCatalog.liveLayerMeta;
+        status.textContent = `Tower.GetLayer 実データ ${towerStageCatalog.layerFloorCount}階を読み込みました${meta?.appVersion ? `（アプリ ${meta.appVersion}）` : ""}。`;
+      } else if (towerStageCatalog.layerExams.length) {
+        status.textContent = "ドル道の階層マスタからステージを読み込みました。";
+      } else {
+        status.textContent = "階層対応表が公開マスタでは空のため、試験設定（ターン数・Vo/Da/Vi）から選択します。";
+      }
     }
   } catch (error) {
     towerStageCatalog = null;
@@ -765,7 +770,12 @@ function renderTowerStageOptions() {
   const previous = String(select.value ?? "");
   const mainSlot = ensureSlots("tower")[0];
   const mainMemory = mainSlot ? memoryList.find((memory) => memory.userMemoryId === mainSlot.memoryId) : null;
-  const choices = buildTowerStageChoices(towerStageCatalog, mainMemory?.characterId ?? "");
+  const mainIdol = mainMemory ? catalogs.idolCardById.get(String(mainMemory.idolCardId ?? "")) : null;
+  const choices = buildTowerStageChoices(
+    towerStageCatalog,
+    mainMemory?.characterId ?? "",
+    mainIdol?.examEffectType ?? "",
+  );
   towerStageChoicesByKey = new Map(choices.map((choice) => [choice.key, choice]));
 
   select.replaceChildren(new Option("選択してください", ""));

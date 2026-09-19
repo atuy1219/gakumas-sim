@@ -5,6 +5,7 @@ export const TOWER_STAGE_MASTER_URLS = Object.freeze({
   scoreConfigs: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleScoreConfig.yaml",
   towers: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Tower.yaml",
   layerExams: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/TowerLayerExam.yaml",
+  liveLayers: "./data/tower_layer_config.json.gz",
 });
 
 function scalar(raw) {
@@ -115,6 +116,48 @@ export function parseTowerLayerExams(text) {
     .sort((a, b) => a.towerId.localeCompare(b.towerId) || a.number - b.number);
 }
 
+export function parseTowerLiveLayerMap(payload) {
+  const effects = Array.isArray(payload?.effects) ? payload.effects.map(String) : [];
+  const configs = Array.isArray(payload?.configs) ? payload.configs.map(String) : [];
+  const result = [];
+  const towers = payload?.towers && typeof payload.towers === "object" ? payload.towers : {};
+  for (const [towerId, floors] of Object.entries(towers)) {
+    if (!Array.isArray(floors)) continue;
+    for (const floor of floors) {
+      if (!Array.isArray(floor) || floor.length < 3) continue;
+      const number = Number(floor[0] ?? 0);
+      const maxSubMemoryCount = Number(floor[1] ?? 0);
+      const indices = Array.isArray(floor[2]) ? floor[2] : [];
+      indices.forEach((configIndexRaw, effectIndex) => {
+        const configIndex = Number(configIndexRaw);
+        if (!Number.isInteger(configIndex) || configIndex < 0) return;
+        const produceExamBattleConfigId = configs[configIndex] ?? "";
+        const examEffectType = effects[effectIndex] ?? "";
+        if (!towerId || number <= 0 || !produceExamBattleConfigId || !examEffectType) return;
+        result.push({
+          towerId: String(towerId),
+          number,
+          examEffectType,
+          maxSubMemoryCount,
+          produceExamBattleConfigId,
+        });
+      });
+    }
+  }
+  return result.sort((a, b) =>
+    a.towerId.localeCompare(b.towerId)
+    || a.number - b.number
+    || a.examEffectType.localeCompare(b.examEffectType)
+  );
+}
+
+function towerCharacterId(catalog, towerId) {
+  const fromMaster = String(catalog?.towerById?.get?.(towerId)?.characterId ?? "");
+  if (fromMaster) return fromMaster;
+  const match = String(towerId ?? "").match(/^tower_\d+-(.+)$/);
+  return match?.[1] ?? "";
+}
+
 async function fetchRequired(url, fetchImpl) {
   const response = await fetchImpl(url);
   if (!response?.ok) throw new Error(`ドル道マスタを取得できません (${response?.status ?? "network"}): ${url}`);
@@ -133,44 +176,92 @@ async function fetchOptional(url, fetchImpl) {
   }
 }
 
+async function fetchOptionalCompressedJson(url, fetchImpl) {
+  try {
+    const response = await fetchImpl(url);
+    if (!response?.ok || typeof response.arrayBuffer !== "function") return null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let text = "";
+    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      if (typeof DecompressionStream !== "function") return null;
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      text = await new Response(stream).text();
+    } else {
+      text = new TextDecoder().decode(bytes);
+    }
+    return text.trim() ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadTowerStageCatalog(fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") throw new Error("ドル道マスタを取得する fetch がありません。");
-  const [battleText, scoreText, towerText, layerText] = await Promise.all([
+  const [battleText, scoreText, towerText, layerText, liveLayerPayload] = await Promise.all([
     fetchRequired(TOWER_STAGE_MASTER_URLS.battleConfigs, fetchImpl),
     fetchRequired(TOWER_STAGE_MASTER_URLS.scoreConfigs, fetchImpl),
     fetchOptional(TOWER_STAGE_MASTER_URLS.towers, fetchImpl),
     fetchOptional(TOWER_STAGE_MASTER_URLS.layerExams, fetchImpl),
+    fetchOptionalCompressedJson(TOWER_STAGE_MASTER_URLS.liveLayers, fetchImpl),
   ]);
   const configs = parseTowerBattleConfigs(battleText);
   const configById = new Map(configs.map((config) => [config.id, config]));
   const towers = parseTowerCatalog(towerText);
   const towerById = new Map(towers.map((tower) => [tower.id, tower]));
-  const layerExams = parseTowerLayerExams(layerText).filter((layer) => configById.has(layer.produceExamBattleConfigId));
+  const liveLayers = parseTowerLiveLayerMap(liveLayerPayload);
+  const masterLayers = parseTowerLayerExams(layerText);
+  const rawLayerExams = liveLayers.length ? liveLayers : masterLayers;
+  const layerExams = rawLayerExams.filter((layer) => configById.has(layer.produceExamBattleConfigId));
   const scoreRowsById = parseTowerScoreConfigs(scoreText);
-  return { configs, configById, towers, towerById, layerExams, scoreRowsById };
+  const layerFloorCount = new Set(layerExams.map((layer) => `${layer.towerId}#${layer.number}`)).size;
+  return {
+    configs,
+    configById,
+    towers,
+    towerById,
+    layerExams,
+    scoreRowsById,
+    layerFloorCount,
+    layerSource: liveLayers.length ? "api-snapshot" : (masterLayers.length ? "master" : "config-fallback"),
+    liveLayerMeta: liveLayers.length ? {
+      generatedAt: String(liveLayerPayload?.generatedAt ?? ""),
+      appVersion: String(liveLayerPayload?.appVersion ?? ""),
+      masterVersion: String(liveLayerPayload?.masterVersion ?? ""),
+    } : null,
+  };
 }
 
-export function buildTowerStageChoices(catalog, characterId = "") {
+export function buildTowerStageChoices(catalog, characterId = "", examEffectType = "") {
   const character = String(characterId ?? "");
+  const effectType = String(examEffectType ?? "");
   const layers = Array.isArray(catalog?.layerExams) ? catalog.layerExams : [];
   if (layers.length) {
-    return layers
-      .filter((layer) => {
-        if (!character) return true;
-        return String(catalog?.towerById?.get?.(layer.towerId)?.characterId ?? "") === character;
-      })
-      .map((layer) => {
-        const config = catalog.configById.get(layer.produceExamBattleConfigId);
-        const tower = catalog.towerById.get(layer.towerId);
-        return {
-          key: `${layer.towerId}#${layer.number}`,
-          configId: config.id,
-          towerId: layer.towerId,
-          number: layer.number,
-          exactLayer: true,
-          label: `${tower?.title ?? layer.towerId} · ${layer.number}階 · ${config.turn}T · Vo ${config.vocal} / Da ${config.dance} / Vi ${config.visual}`,
-        };
-      });
+    const matching = layers.filter((layer) => {
+      if (character && towerCharacterId(catalog, layer.towerId) !== character) return false;
+      if (effectType && layer.examEffectType !== effectType) return false;
+      return catalog?.configById?.has?.(layer.produceExamBattleConfigId);
+    });
+
+    const byFloor = new Map();
+    for (const layer of matching) {
+      const key = `${layer.towerId}#${layer.number}`;
+      if (!byFloor.has(key)) byFloor.set(key, layer);
+    }
+
+    return [...byFloor.values()].map((layer) => {
+      const config = catalog.configById.get(layer.produceExamBattleConfigId);
+      const tower = catalog.towerById.get(layer.towerId);
+      return {
+        key: `${layer.towerId}#${layer.number}`,
+        configId: config.id,
+        towerId: layer.towerId,
+        number: layer.number,
+        examEffectType: layer.examEffectType,
+        maxSubMemoryCount: Number(layer.maxSubMemoryCount ?? 0),
+        exactLayer: true,
+        label: `${tower?.title ?? layer.towerId} · ${layer.number}階 · ${config.turn}T · Vo ${config.vocal} / Da ${config.dance} / Vi ${config.visual}`,
+      };
+    });
   }
 
   return (catalog?.configs ?? []).map((config) => ({
@@ -178,6 +269,8 @@ export function buildTowerStageChoices(catalog, characterId = "") {
     configId: config.id,
     towerId: "",
     number: 0,
+    examEffectType: "",
+    maxSubMemoryCount: 0,
     exactLayer: false,
     label: `${config.turn}T · Vo ${config.vocal} / Da ${config.dance} / Vi ${config.visual}`,
   }));

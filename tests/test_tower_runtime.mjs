@@ -473,6 +473,7 @@ console.log("tower runtime tests: ok");
     parseTowerBattleConfigs,
     parseTowerCatalog,
     parseTowerLayerExams,
+    parseTowerLiveLayerMap,
     parseTowerScoreConfigs,
   } = await import("../web/tower_stage.js");
 
@@ -538,6 +539,25 @@ console.log("tower runtime tests: ok");
   examEffectType: ProduceExamEffectType_ExamParameterBuff
   produceExamBattleConfigId: p_exam_battle_config-tower_001-test
 `);
+  const liveLayers = parseTowerLiveLayerMap({
+    effects: [
+      "ProduceExamEffectType_ExamParameterBuff",
+      "ProduceExamEffectType_ExamConcentration",
+    ],
+    configs: [
+      "p_exam_battle_config-tower_001-test",
+      "p_exam_battle_config-tower_001-focus",
+    ],
+    towers: {
+      "tower_001-hski": [[12, 3, [0, 1]]],
+    },
+  });
+  assert.equal(liveLayers.length, 2);
+  assert.equal(liveLayers[0].maxSubMemoryCount, 3);
+  assert.equal(
+    liveLayers.find((row) => row.examEffectType === "ProduceExamEffectType_ExamConcentration")?.produceExamBattleConfigId,
+    "p_exam_battle_config-tower_001-focus",
+  );
   const stageCatalog = {
     configs: stageConfigs,
     configById: new Map(stageConfigs.map((config) => [config.id, config])),
@@ -545,8 +565,26 @@ console.log("tower runtime tests: ok");
     towerById: new Map(towers.map((item) => [item.id, item])),
     layerExams: layers,
   };
-  const choices = buildTowerStageChoices(stageCatalog, "hski");
+  const choices = buildTowerStageChoices(stageCatalog, "hski", "ProduceExamEffectType_ExamParameterBuff");
   assert.equal(choices.length, 1);
   assert.equal(choices[0].number, 12);
   assert.match(choices[0].label, /12階/);
+
+  const effectAwareCatalog = {
+    ...stageCatalog,
+    configById: new Map([
+      ...stageCatalog.configById,
+      ["p_exam_battle_config-tower_001-focus", { ...stageConfigs[0], id: "p_exam_battle_config-tower_001-focus", turn: 14 }],
+    ]),
+    layerExams: liveLayers,
+    towerById: new Map(),
+  };
+  const focusChoices = buildTowerStageChoices(
+    effectAwareCatalog,
+    "hski",
+    "ProduceExamEffectType_ExamConcentration",
+  );
+  assert.equal(focusChoices.length, 1);
+  assert.equal(focusChoices[0].configId, "p_exam_battle_config-tower_001-focus");
+  assert.equal(focusChoices[0].maxSubMemoryCount, 3);
 }
