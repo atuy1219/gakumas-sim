@@ -3,7 +3,7 @@
 // test_card_master_effects.mjs
 {
 const { default: assert } = await import("node:assert/strict");
-const { parseProduceCardCatalogYaml } = await import("./web/engine.js");
+const { parseProduceCardCatalogYaml } = await import("../web/engine.js");
 
 const yaml = `
 - id: p_card-test
@@ -53,13 +53,13 @@ const {
   checkCardEffectTrigger,
   createExamState,
   parseExamEffectId,
-} = await import("./web/exam_effects.js");
+} = await import("../web/exam_effects.js");
 const {
   createTowerTurnState,
   drawTowerTurn,
   finishTowerTurn,
   playTowerCard,
-} = await import("./web/tower_runtime.js");
+} = await import("../web/tower_runtime.js");
 
 const requestedEffects = [
   "e_effect-exam_lesson_add_multiple_parameter_buff-0010-1000-01",
@@ -217,7 +217,7 @@ const {
   parseProduceItemEffectCatalog,
   payCardCost,
   resolveProduceItems,
-} = await import("./web/exam_effects.js");
+} = await import("../web/exam_effects.js");
 
 assert.deepEqual(parseExamEffectId("e_effect-exam_lesson-0012-02"), {
   kind: "lesson", id: "e_effect-exam_lesson-0012-02", value: 12, count: 2,
@@ -345,7 +345,7 @@ console.log("exam effect v7 tests: ok");
 // test_exam_setup.mjs
 {
 const { default: assert } = await import("node:assert/strict");
-const { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } = await import("./web/exam_setup.js");
+const { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } = await import("../web/exam_setup.js");
 
 const idols = [
   { id: "idol-a", characterId: "char-a", planType: "ProducePlanType_Plan1", name: "A" },

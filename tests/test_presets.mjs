@@ -8,7 +8,7 @@ const {
   EXAM_PRESET_VERSION,
   createExamPreset,
   parseExamPreset,
-} = await import("./web/exam_preset.js");
+} = await import("../web/exam_preset.js");
 
 const preset = createExamPreset({
   characterId: "hski",
@@ -46,7 +46,7 @@ const {
   parseTowerPreset,
   TOWER_PRESET_FORMAT,
   TOWER_PRESET_VERSION,
-} = await import("./web/tower_preset.js");
+} = await import("../web/tower_preset.js");
 
 const memories = [
   { userMemoryId: "m-main", name: "Main", examBattleProduceCards: [{ id: "A" }, { id: "B" }] },

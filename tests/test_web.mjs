@@ -21,7 +21,7 @@ import {
   simulateMemoryLibrary,
   simulateMemorySelection,
   simulateStartPlayer,
-} from "./web/engine.js";
+} from "../web/engine.js";
 
 const rng = new XorShift32(0x12345678);
 assert.equal(rng.nextU32(), 0x87985aa5);
@@ -183,7 +183,7 @@ const towerFourComposition = composeSelectedMemories(towerLibrary, towerSelectio
 assert.equal(towerFourComposition.memories.length, 4);
 assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "C", "D", "E", "F", "I"]);
 
-const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/index.html", import.meta.url), "utf8"));
+const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/index.html", import.meta.url), "utf8"));
 assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
 assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
 assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
@@ -193,10 +193,10 @@ assert.match(towerHtml, /id="exam-import-preset"/);
 assert.match(towerHtml, /id="exam-selected-card"/);
 assert.match(towerHtml, /id="tower-selected-card"/);
 assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
-const appSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/app.js", import.meta.url), "utf8"));
+const appSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/app.js", import.meta.url), "utf8"));
 assert.doesNotMatch(appSource, /tower-order-result/);
 
-const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/seed_history_ui.js", import.meta.url), "utf8"));
+const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/seed_history_ui.js", import.meta.url), "utf8"));
 assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);
 assert.match(seedReplayUiSource, /ここは「カード使用」の入力ではありません/);
 assert.match(seedReplayUiSource, /まだここは触りません/);

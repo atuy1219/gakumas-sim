@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: "22"
       - name: Python tests
-        run: python -m unittest -v
+        run: PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
       - name: JavaScript syntax checks
         run: |
           for file in web/*.js; do
@@ -27,11 +27,11 @@ jobs:
           done
       - name: Web tests
         run: |
-          node test_web.mjs
-          node test_simulation.mjs
-          node test_seed.mjs
-          node test_catalog.mjs
-          node test_memory.mjs
-          node test_presets.mjs
-          node test_tower_runtime.mjs
-          node test_exam_web.mjs
+          node tests/test_web.mjs
+          node tests/test_simulation.mjs
+          node tests/test_seed.mjs
+          node tests/test_catalog.mjs
+          node tests/test_memory.mjs
+          node tests/test_presets.mjs
+          node tests/test_tower_runtime.mjs
+          node tests/test_exam_web.mjs

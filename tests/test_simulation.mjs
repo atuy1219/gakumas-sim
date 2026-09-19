@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { simulateCards } from "./web/engine.js";
+import { simulateCards } from "../web/engine.js";
 import {
   deriveSeedChoiceVariants,
   observationCardLabel,
@@ -11,7 +11,7 @@ import {
   seedMatchesObservedDraws,
   simulateTurnRecycleDraws,
   validateObservedDraws,
-} from "./web/simulation.js";
+} from "../web/simulation.js";
 
 const cards = "ABCDEFGH".split("").map((id) => ({ id, fixedDeckOrder: 0, upgradeCount: 0 }));
 const seed = 0x12345678;

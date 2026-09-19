@@ -6,7 +6,7 @@ const { default: assert } = await import("node:assert/strict");
 const {
   normalizeSeedObservedName,
   resolveSeedBuilderCardRef,
-} = await import("./web/seed_history_ref.js");
+} = await import("../web/seed_history_ref.js");
 
 const cards = [
   { id: "p_card-02-men-2_054", upgradeCount: 0, name: "本番前夜" },
@@ -68,8 +68,8 @@ const {
   generatedObservationLabel,
   partitionSeedObservations,
   resolveSeedObservationLine,
-} = await import("./web/seed_observation.js");
-const { prepareSeedBatchSearch } = await import("./web/simulation.js");
+} = await import("../web/seed_observation.js");
+const { prepareSeedBatchSearch } = await import("../web/simulation.js");
 
 const sleepyId = "p_card-00-acc-0_002";
 const masters = [
@@ -164,13 +164,13 @@ console.log("seed observation v15 tests: ok");
 // test_seed_runtime_replay.mjs
 {
 const { default: assert } = await import("node:assert/strict");
-const { createTowerTurnState } = await import("./web/tower_runtime.js");
+const { createTowerTurnState } = await import("../web/tower_runtime.js");
 const {
   evaluateTowerSeedCandidates,
   replayTowerSeed,
   replayUncertaintyLabel,
   summarizeReplayUncertainty,
-} = await import("./web/seed_runtime_replay.js");
+} = await import("../web/seed_runtime_replay.js");
 
 function master(id, extra = {}) {
   return {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { XorShift32 } from "./web/engine.js";
+import { XorShift32 } from "../web/engine.js";
 import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
   TOWER_EXAM_EFFECT_LABELS,
@@ -10,7 +10,7 @@ import {
   playTowerCard,
   resolveNativeInitialHand,
   resolveTowerDefaultDeck,
-} from "./web/tower_runtime.js";
+} from "../web/tower_runtime.js";
 
 const effectDeckCases = [
   ["ProduceExamEffectType_ExamParameterBuff", "initial_deck-parameter_buff", "センス / 好調"],

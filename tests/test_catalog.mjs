@@ -11,7 +11,7 @@ import {
   parseProduceCardCatalog,
   parseProduceItemCatalog,
   planLabel,
-} from "./web/catalog.js";
+} from "../web/catalog.js";
 
 const characters = parseCharacterCatalog(`- id: jsna\n  lastName: 十王\n  firstName: 星南\n  isPlayable: true\n  order: 10\n- id: npc\n  lastName: 非\n  firstName: 対象\n  isPlayable: false\n  order: 9999\n`);
 assert.equal(characters[0].id, "jsna");

@@ -8,7 +8,7 @@ const {
   MEMORY_BACKUP_VERSION,
   createMemoryBackup,
   parseMemoryBackup,
-} = await import("./web/memory_backup.js");
+} = await import("../web/memory_backup.js");
 
 const memories = [
   {
@@ -49,7 +49,7 @@ const {
   hasNonZeroMemoryStats,
   hasUsableMemoryStats,
   resolveMemoryPItemIds,
-} = await import("./web/memory_detail_ui.js");
+} = await import("../web/memory_detail_ui.js");
 
 const idolById = new Map([
   ["i-campus", {
@@ -128,7 +128,7 @@ const {
   parseCustomizeCatalog,
   parseCustomizeRarityEvaluations,
   parseGrowEffectCatalog,
-} = await import("./web/memory_judgement.js");
+} = await import("../web/memory_judgement.js");
 
 const cardRules = parseCardMemoryRules(`- id: p_card-test
   upgradeCount: 0
@@ -207,7 +207,7 @@ const {
   availableIdolCardIds,
   availablePlanTypes,
   filterMemoriesForBuilder,
-} = await import("./web/simulator_filter.js");
+} = await import("../web/simulator_filter.js");
 
 const memories = [
   { userMemoryId: "m1", planType: "ProducePlanType_Plan1", characterId: "jsna", idolCardId: "i-campus" },
