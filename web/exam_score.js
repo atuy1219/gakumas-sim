@@ -226,7 +226,10 @@ export function addNativeLessonParameter(exam, baseValue, scoreContext = {}, mod
     settings: scoreContext.settings,
     modifier,
   });
-  const added = scoreContext.isBattle || Number.isFinite(Number(scoreContext.battleBonusPermil))
+  const hasBattleBonus = scoreContext.battleBonusPermil !== null
+    && scoreContext.battleBonusPermil !== undefined
+    && Number.isFinite(Number(scoreContext.battleBonusPermil));
+  const added = scoreContext.isBattle || hasBattleBonus
     ? applyNativeBattleBonus(calculated, scoreContext.battleBonusPermil)
     : calculated;
 
