@@ -30,6 +30,7 @@ jobs:
           node --check web/simulator_filter.js
           node --check web/memory_detail_ui.js
           node --check web/memory_backup.js
+          node --check web/storage_keys.js
           node --check web/engine.js
           node --check web/exam_effects.js
           node --check web/exam_preset.js
@@ -67,6 +68,8 @@ jobs:
         run: node test_memory_detail_ui.mjs
       - name: Memory backup tests
         run: node test_memory_backup.mjs
+      - name: Storage key migration tests
+        run: node test_storage_keys.mjs
       - name: Tower preset tests
         run: node test_tower_preset.mjs
       - name: Exam preset tests
