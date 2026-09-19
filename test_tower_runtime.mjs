@@ -200,4 +200,39 @@ finishTowerTurn(state, { type: "end" });
 const nextDraw = drawTowerTurn(state, 3);
 assert.equal(nextDraw.drawn[0].id, sleepyId, "generated Sleepiness participates in subsequent deck/recycle flow");
 
+// Effects that generate two cards call the native DeckRandom insertion twice.
+// Each insertion consumes one RNG state, including deterministic-width cases.
+const doubleGenerateMasters = [
+  {
+    id: "DOUBLE",
+    isInitial: true,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: `e_effect-exam_card_create_id-${sleepyId}-0-deck_random-2_2` },
+    ],
+  },
+  { id: "DX", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  { id: "DY", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  sleepyId === "unused" ? null : generatedMasters.at(-1),
+].filter(Boolean);
+const doubleCardById = new Map(doubleGenerateMasters.map((card) => [card.id, card]));
+const doubleVariants = new Map(doubleGenerateMasters.map((card) => [`${card.id}@@0`, card]));
+state = createTowerTurnState(
+  ["DOUBLE", "DX", "DY"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  7,
+  doubleCardById,
+  { cardVariantByKey: doubleVariants },
+);
+drawTowerTurn(state, 3);
+const doubleIndex = state.hand.findIndex((card) => card.id === "DOUBLE");
+assert.ok(doubleIndex >= 0);
+const doubleStateBefore = state.randomState >>> 0;
+const doublePlay = playTowerCard(state, doubleIndex);
+assert.equal(doublePlay.created.length, 2);
+assert.equal(state.deck.filter((card) => card.id === sleepyId).length, 2);
+const twoSteps = new XorShift32(doubleStateBefore);
+twoSteps.nextU32();
+twoSteps.nextU32();
+assert.equal(state.randomState, twoSteps.state >>> 0, "two DeckRandom insertions consume two RNG states");
+
 console.log("tower runtime tests: ok");
