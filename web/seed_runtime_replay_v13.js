@@ -156,7 +156,7 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
       postRecycleDraws: [],
       trace: [],
       unsupported: [],
-      error: null,
+      error: "1周目の観測順と初期手札/山札順が一致しません。",
     };
   }
 
@@ -291,7 +291,7 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
 
 function visibleDrawPrefixStatus(result, observedIds) {
   const observed = (observedIds ?? []).map(String).filter(Boolean);
-  if (!observed.length) return "match";
+  if (!observed.length) return { status: "match", index: -1, expected: "", actual: "" };
 
   const predicted = [];
   for (const entry of result.trace ?? []) {
@@ -301,22 +301,46 @@ function visibleDrawPrefixStatus(result, observedIds) {
 
   const comparable = Math.min(observed.length, predicted.length);
   for (let index = 0; index < comparable; index += 1) {
-    if (observed[index] !== predicted[index]) return "mismatch";
+    if (observed[index] !== predicted[index]) {
+      return {
+        status: "mismatch",
+        index,
+        expected: observed[index],
+        actual: predicted[index],
+      };
+    }
   }
-  return predicted.length >= observed.length ? "match" : "pending";
+  return {
+    status: predicted.length >= observed.length ? "match" : "pending",
+    index: comparable,
+    expected: observed[comparable] ?? "",
+    actual: predicted[comparable] ?? "",
+  };
 }
 
 function observedPrefixStatus(result, observedIds) {
   const observed = (observedIds ?? []).map(String).filter(Boolean);
-  if (!observed.length) return "match";
-  if (!result.recycleSeen) return "pending";
+  if (!observed.length) return { status: "match", index: -1, expected: "", actual: "" };
+  if (!result.recycleSeen) return { status: "pending", index: 0, expected: observed[0] ?? "", actual: "" };
 
   const predicted = result.postRecycleDraws.map(cardId);
   const comparable = Math.min(observed.length, predicted.length);
   for (let index = 0; index < comparable; index += 1) {
-    if (observed[index] !== predicted[index]) return "mismatch";
+    if (observed[index] !== predicted[index]) {
+      return {
+        status: "mismatch",
+        index,
+        expected: observed[index],
+        actual: predicted[index],
+      };
+    }
   }
-  return predicted.length >= observed.length ? "match" : "pending";
+  return {
+    status: predicted.length >= observed.length ? "match" : "pending",
+    index: comparable,
+    expected: observed[comparable] ?? "",
+    actual: predicted[comparable] ?? "",
+  };
 }
 
 /**
@@ -327,24 +351,62 @@ function observedPrefixStatus(result, observedIds) {
  */
 export function evaluateTowerSeedCandidates(seeds, cards, turnScript = [], observedAfterRecycle = [], options = {}) {
   const uniqueSeeds = [...new Set((seeds ?? []).map((seed) => Number(seed) >>> 0))];
-  const results = [];
+  let results = [];
 
   for (const seed of uniqueSeeds) {
     const replay = replayTowerSeed(seed, cards, turnScript, options);
     let status = replay.status;
+    let rejectionReason = replay.error || null;
     if (status === "ok") {
       const visiblePrefix = visibleDrawPrefixStatus(replay, options.observedDrawOrder);
       const recyclePrefix = observedPrefixStatus(replay, observedAfterRecycle);
-      if (visiblePrefix === "mismatch" || recyclePrefix === "mismatch") status = "mismatch";
-      else if (visiblePrefix === "pending" || recyclePrefix === "pending") status = "pending";
-      else status = "match";
+      if (visiblePrefix.status === "mismatch") {
+        status = "mismatch";
+        rejectionReason = `1周目の観測 ${visiblePrefix.index + 1}枚目が不一致（実機: ${visiblePrefix.expected} / 再現: ${visiblePrefix.actual}）`;
+      } else if (recyclePrefix.status === "mismatch") {
+        status = "mismatch";
+        rejectionReason = `再シャッフル後の観測 ${recyclePrefix.index + 1}枚目が不一致（実機: ${recyclePrefix.expected} / 再現: ${recyclePrefix.actual}）`;
+      } else if (visiblePrefix.status === "pending" || recyclePrefix.status === "pending") {
+        status = "pending";
+        rejectionReason = null;
+      } else {
+        status = "match";
+        rejectionReason = null;
+      }
     } else if (status === "uncertain") {
       status = "uncertain";
+      rejectionReason = null;
     }
-    results.push({ ...replay, status });
+    results.push({ ...replay, status, rejectionReason });
   }
 
-  const survivors = results.filter((result) => ["match", "pending", "uncertain"].includes(result.status));
+  let survivors = results.filter((result) => ["match", "pending", "uncertain"].includes(result.status));
+  const rejectedBeforeFallback = results.filter((result) => !survivors.includes(result));
+  let conservativeFallback = false;
+
+  // A real-device operation is stronger evidence than an incomplete replay
+  // model. If every first-pass candidate disappears only because the runtime
+  // replay disagrees with the observed operation/draw history, do not report a
+  // mathematically false "0 candidates". Keep the candidates as uncertain and
+  // surface the conflict so the user can continue observing or correct input.
+  const recoverableStatuses = new Set(["mismatch", "action-mismatch"]);
+  if (!survivors.length
+      && results.length
+      && results.every((result) => recoverableStatuses.has(result.status))) {
+    conservativeFallback = true;
+    results = results.map((result) => {
+      const reason = result.rejectionReason || result.error || result.status;
+      const conflict = `replay-conflict:${reason}`;
+      return {
+        ...result,
+        originalStatus: result.status,
+        status: "uncertain",
+        unsupported: [...new Set([...(result.unsupported ?? []), conflict])],
+      };
+    });
+    survivors = [...results];
+  }
+
   const certain = survivors.filter((result) => result.status !== "uncertain");
   const uncertain = survivors.filter((result) => result.status === "uncertain");
   const rejected = results.filter((result) => !survivors.includes(result));
@@ -355,6 +417,8 @@ export function evaluateTowerSeedCandidates(seeds, cards, turnScript = [], obser
     certain,
     uncertain,
     rejected,
+    rejectedBeforeFallback,
+    conservativeFallback,
     seeds: survivors.map((result) => result.seed),
   };
 }
@@ -364,7 +428,10 @@ export function replayUncertaintyLabel(reasonInput) {
   const reason = String(reasonInput ?? "").trim();
   if (!reason) return "原因不明";
 
-  let match = reason.match(/^observed-play:([^:]+):(.*)$/s);
+  let match = reason.match(/^replay-conflict:(.*)$/s);
+  if (match) return `実機操作と再現モデルが矛盾: ${match[1]}`;
+
+  match = reason.match(/^observed-play:([^:]+):(.*)$/s);
   if (match) return `実機操作を優先: ${match[1]} — ${match[2]}`;
 
   match = reason.match(/^effect:(.+)$/s);
