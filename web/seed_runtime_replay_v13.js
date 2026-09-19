@@ -222,6 +222,10 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
             ...entry,
             card: { ...entry.card },
           })),
+          moved: (play.moved ?? []).map((entry) => ({
+            ...entry,
+            card: { ...entry.card },
+          })),
           effects: [...(play.effects ?? [])],
           recycleEvents: play.recycleEvents ?? [],
           observedFallback: Boolean(play.observedFallback),
