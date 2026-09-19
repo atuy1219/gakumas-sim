@@ -94,6 +94,123 @@ function shuffleObjectsWithState(input, stateInput) {
   return { deck, randomState: rng.state >>> 0 };
 }
 
+function consumeNativeRandomInt(state, minimum, maximum) {
+  const min = Number(minimum);
+  const max = Number(maximum);
+  if (!Number.isInteger(min) || !Number.isInteger(max) || max < min) {
+    throw new Error("乱数範囲が不正です。");
+  }
+  const rng = new XorShift32(Number(state.randomState) >>> 0);
+  let value = min;
+  if (max > min) value = rng.nextInt(min, max);
+  else rng.nextU32(); // Native GetRandomInt still advances XorShift when width == 0.
+  state.randomState = rng.state >>> 0;
+  return value;
+}
+
+function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
+  const id = String(cardIdInput ?? "");
+  const upgradeCount = Number(upgradeCountInput ?? 0);
+  const master = state.cardVariantByKey?.get?.(`${id}@@${upgradeCount}`)
+    ?? state.cardById?.get?.(id);
+  if (!master) return null;
+
+  state.generatedCardSerial = Number(state.generatedCardSerial ?? 0) + 1;
+  const card = normalizeProduceCard({
+    id,
+    upgradeCount,
+    fixedDeckOrder: 0,
+    source: "generated",
+  }, { source: "generated" });
+  const playMovePositionType = String(master.playMovePositionType ?? card.playMovePositionType ?? "");
+  return {
+    ...card,
+    token: `generated:${state.generatedCardSerial}:${id}`,
+    originalIndex: -1,
+    generated: true,
+    playMovePositionType,
+    category: String(master.category ?? ""),
+    rarity: String(master.rarity ?? ""),
+    onceOnly: isOnceOnlyMove(playMovePositionType),
+    stamina: Number(master.stamina ?? 0) || 0,
+    forceStamina: Number(master.forceStamina ?? 0) || 0,
+    costType: String(master.costType ?? "ExamCostType_Unknown"),
+    costValue: Number(master.costValue ?? 0) || 0,
+    playProduceExamTriggerId: String(master.playProduceExamTriggerId ?? ""),
+    playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
+    isInitial: Boolean(master.isInitial),
+    isRestrict: Boolean(master.isRestrict),
+    isEndTurnLost: Boolean(master.isEndTurnLost),
+  };
+}
+
+function addGeneratedCard(state, parsed, event) {
+  const min = Math.max(0, Number(parsed.pickCountMin ?? 0) || 0);
+  const max = Math.max(0, Number(parsed.pickCountMax ?? min) || 0);
+  if (min !== max) {
+    rememberUnsupported(state, `card-create-count:${parsed.id}`);
+    event.effects.push(`生成枚数が可変のため判定保留: ${parsed.id}`);
+    return;
+  }
+
+  for (let index = 0; index < min; index += 1) {
+    const card = generatedRuntimeCard(state, parsed.cardId, parsed.upgradeCount);
+    if (!card) {
+      rememberUnsupported(state, `card-create-master:${parsed.cardId}@@${parsed.upgradeCount}`);
+      event.effects.push(`生成カード情報を取得できません: ${parsed.cardId}`);
+      return;
+    }
+
+    const created = {
+      card: { ...card },
+      movePosition: parsed.movePosition,
+      insertIndex: null,
+      randomStateBefore: state.randomState >>> 0,
+      randomStateAfter: state.randomState >>> 0,
+    };
+
+    switch (String(parsed.movePosition ?? "")) {
+      case "deck_first":
+        state.deck.unshift(card);
+        created.insertIndex = 0;
+        break;
+      case "deck_last":
+        created.insertIndex = state.deck.length;
+        state.deck.push(card);
+        break;
+      case "deck_random": {
+        // Native AddCardImpl (0x823A49C) calls GetRandomInt(0, Deck.Count)
+        // through <AddCardImpl>b__0 (0x823BAD4). The upper bound is exclusive.
+        // Count == 0 still consumes one XorShift state and resolves to index 0.
+        const insertIndex = consumeNativeRandomInt(state, 0, state.deck.length);
+        state.deck.splice(insertIndex, 0, card);
+        created.insertIndex = insertIndex;
+        created.randomStateAfter = state.randomState >>> 0;
+        break;
+      }
+      case "grave":
+        state.discard.push(card);
+        break;
+      case "lost":
+        state.lost.push(card);
+        break;
+      case "hold":
+        state.hold.push(card);
+        break;
+      case "hand":
+        if (state.hand.length < normalizeHandLimit(state.handLimit)) state.hand.push(card);
+        else state.deck.unshift(card);
+        break;
+      default:
+        rememberUnsupported(state, `card-create-position:${parsed.movePosition}`);
+        event.effects.push(`未対応の生成位置: ${parsed.movePosition}`);
+        return;
+    }
+    created.randomStateAfter = state.randomState >>> 0;
+    event.created.push(created);
+  }
+}
+
 function normalizeHandLimit(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : Number.POSITIVE_INFINITY;
@@ -142,6 +259,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     deck: shuffled.deck.map((card) => ({ ...card })),
     discard: [],
     lost: [],
+    hold: [],
     hand: [],
     turn: 0,
     recycleCount: 0,
@@ -159,7 +277,9 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     pendingDraw: 0,
     pendingHandUpgradeAll: 0,
     cardEffectPlayCountBuff: null,
+    cardById: cardById ?? new Map(),
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
+    generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
   };
 }
@@ -277,6 +397,9 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       }
       break;
     }
+    case "card_create_id":
+      addGeneratedCard(state, applied, event);
+      break;
     case "playable_add":
       state.playsRemaining += Number(applied.value) || 0;
       break;
@@ -350,6 +473,7 @@ export function playTowerCard(state, indexInput) {
     cost: [],
     effects: [],
     drawn: [],
+    created: [],
     recycleEvents: [],
     onceOnly: Boolean(card.onceOnly),
   };
