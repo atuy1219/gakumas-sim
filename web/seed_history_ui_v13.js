@@ -3,6 +3,7 @@ import { observationCardLabel } from "./sim_v3.js";
 import {
   evaluateTowerSeedCandidates,
   replayHandUnion,
+  summarizeReplayUncertainty,
 } from "./seed_runtime_replay_v13.js";
 import {
   normalizeSeedObservedName,
@@ -598,9 +599,40 @@ function renderResults() {
   const summary = document.createElement("p");
   summary.className = `seed-refine-summary-v11${after === 1 && !evaluation.uncertain.length ? " success" : ""}`;
   summary.textContent = evaluation.uncertain.length
-    ? `${after}候補が残っています。このうち${evaluation.uncertain.length}候補は未対応効果・条件のため安全側で保留しています。`
+    ? `${after}候補が残っています。うち${evaluation.uncertain.length}候補は未対応効果・条件のため安全側で保留しています。`
     : `${before}候補から${after}候補まで絞り込みました。`;
   host.append(summary);
+
+  if (evaluation.uncertain.length) {
+    const causes = summarizeReplayUncertainty(evaluation.uncertain);
+    const details = document.createElement("details");
+    details.className = "seed-uncertainty-details-v13";
+
+    const detailsSummary = document.createElement("summary");
+    detailsSummary.textContent = `判定保留の原因を表示（${causes.length}件）`;
+    details.append(detailsSummary);
+
+    if (!causes.length) {
+      const unknown = document.createElement("p");
+      unknown.className = "hint";
+      unknown.textContent = "保留理由を取得できませんでした。";
+      details.append(unknown);
+    } else {
+      const list = document.createElement("ul");
+      list.className = "seed-uncertainty-list-v13";
+      for (const cause of causes) {
+        const item = document.createElement("li");
+        const label = document.createElement("strong");
+        label.textContent = cause.label;
+        const count = document.createElement("small");
+        count.textContent = ` ${cause.count}/${evaluation.uncertain.length}候補`;
+        item.append(label, count);
+        list.append(item);
+      }
+      details.append(list);
+    }
+    host.append(details);
+  }
 
   if (!after) {
     const warning = document.createElement("p");

@@ -355,6 +355,64 @@ export function evaluateTowerSeedCandidates(seeds, cards, turnScript = [], obser
   };
 }
 
+
+export function replayUncertaintyLabel(reasonInput) {
+  const reason = String(reasonInput ?? "").trim();
+  if (!reason) return "原因不明";
+
+  let match = reason.match(/^observed-play:([^:]+):(.*)$/s);
+  if (match) return `実機操作を優先: ${match[1]} — ${match[2]}`;
+
+  match = reason.match(/^effect:(.+)$/s);
+  if (match) return `未対応効果: ${match[1]}`;
+
+  match = reason.match(/^play-trigger:(.+)$/s);
+  if (match) return `未対応カード使用条件: ${match[1]}`;
+
+  match = reason.match(/^trigger:(.+)$/s);
+  if (match) return `未対応条件: ${match[1]}`;
+
+  match = reason.match(/^card-create-count:(.+)$/s);
+  if (match) return `生成枚数が可変: ${match[1]}`;
+
+  match = reason.match(/^card-create-master:(.+)$/s);
+  if (match) return `生成カード情報不足: ${match[1]}`;
+
+  match = reason.match(/^card-create-position:(.+)$/s);
+  if (match) return `未対応の生成位置: ${match[1]}`;
+
+  match = reason.match(/^runtime:(.+)$/s);
+  if (match) return `ランタイム判定保留: ${match[1]}`;
+
+  return `未対応: ${reason}`;
+}
+
+export function summarizeReplayUncertainty(results) {
+  const byReason = new Map();
+
+  for (const result of results ?? []) {
+    const rawReasons = Array.isArray(result?.unsupported)
+      ? result.unsupported.map((value) => String(value ?? "").trim()).filter(Boolean)
+      : [];
+    if (!rawReasons.length && result?.error) rawReasons.push(`runtime:${String(result.error)}`);
+
+    for (const reason of [...new Set(rawReasons)]) {
+      const entry = byReason.get(reason) ?? {
+        reason,
+        label: replayUncertaintyLabel(reason),
+        count: 0,
+        seeds: [],
+      };
+      entry.count += 1;
+      entry.seeds.push(Number(result?.seed) >>> 0);
+      byReason.set(reason, entry);
+    }
+  }
+
+  return [...byReason.values()].sort((a, b) =>
+    b.count - a.count || a.label.localeCompare(b.label, "ja"));
+}
+
 export function replayHandUnion(results) {
   const active = (results ?? []).filter((result) => ["match", "pending", "uncertain", "ok"].includes(result.status));
   const byKey = new Map();
