@@ -3,6 +3,8 @@ import { createTowerTurnState } from "./web/tower_runtime.js";
 import {
   evaluateTowerSeedCandidates,
   replayTowerSeed,
+  replayUncertaintyLabel,
+  summarizeReplayUncertainty,
 } from "./web/seed_runtime_replay_v13.js";
 
 function master(id, extra = {}) {
@@ -104,6 +106,33 @@ const observedPlay = [...observedReplay.trace].reverse().find((entry) => entry.t
 assert.equal(observedPlay.card.id, "FINISH");
 assert.equal(observedPlay.observedFallback, true);
 assert.ok(observedReplay.unsupported.some((value) => value.startsWith("observed-play:FINISH:")));
+
+const observedUncertainty = summarizeReplayUncertainty([
+  observedReplay,
+  {
+    ...observedReplay,
+    seed: 2,
+    unsupported: [
+      ...observedReplay.unsupported,
+      "effect:e_effect-exam-unsupported-demo",
+      "trigger:t_exam_trigger-unsupported-demo",
+    ],
+  },
+]);
+const observedFallbackCause = observedUncertainty.find((entry) =>
+  entry.reason.startsWith("observed-play:FINISH:"));
+assert.ok(observedFallbackCause);
+assert.equal(observedFallbackCause.count, 2);
+assert.deepEqual(observedFallbackCause.seeds, [1, 2]);
+assert.match(observedFallbackCause.label, /^実機操作を優先: FINISH/);
+
+const effectCause = observedUncertainty.find((entry) =>
+  entry.reason === "effect:e_effect-exam-unsupported-demo");
+assert.equal(effectCause.count, 1);
+assert.equal(
+  replayUncertaintyLabel("trigger:t_exam_trigger-unsupported-demo"),
+  "未対応条件: t_exam_trigger-unsupported-demo",
+);
 
 // Dynamically generated cards must be part of the same seed replay state.
 // This models effects such as 冒険心 generating 眠気 into DeckRandom.
