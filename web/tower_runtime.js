@@ -145,6 +145,7 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
 }
 
 function addGeneratedCard(state, parsed, event) {
+  if (!Array.isArray(event.created)) event.created = [];
   const min = Math.max(0, Number(parsed.pickCountMin ?? 0) || 0);
   const max = Math.max(0, Number(parsed.pickCountMax ?? min) || 0);
   if (min !== max) {
