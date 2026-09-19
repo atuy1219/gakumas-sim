@@ -196,6 +196,10 @@ const randomStep = new XorShift32(randomStateBeforeCreate);
 randomStep.nextU32();
 assert.equal(state.randomState, randomStep.state >>> 0, "DeckRandom consumes exactly one native RNG step even when Deck.Count is zero");
 
+finishTowerTurn(state, { type: "end" });
+const nextDraw = drawTowerTurn(state, 3);
+assert.equal(nextDraw.drawn[0].id, sleepyId, "generated Sleepiness participates in subsequent deck/recycle flow");
+
 // ELF <AddCardImpl>b__0 @ 0x823BAD4 passes GetRandomInt(0, Deck.Count).
 // GetRandomInt @ 0x8043AA0 maps to [minimum, maximum), so with two cards
 // remaining the only insertion indices are 0 or 1 (never after the last card).
@@ -227,10 +231,6 @@ const positionedPlay = playTowerCard(state, state.hand.findIndex((card) => card.
 assert.equal(positionedPlay.created[0].insertIndex, 1);
 assert.deepEqual(state.deck.map((card) => card.id), ["C", sleepyId, "D"]);
 assert.equal(state.randomState >>> 0, 3344977972);
-
-finishTowerTurn(state, { type: "end" });
-const nextDraw = drawTowerTurn(state, 3);
-assert.equal(nextDraw.drawn[0].id, sleepyId, "generated Sleepiness participates in subsequent deck/recycle flow");
 
 // Effects that generate two cards call the native DeckRandom insertion twice.
 // Each insertion consumes one RNG state, including deterministic-width cases.
