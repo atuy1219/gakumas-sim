@@ -384,7 +384,9 @@ assert.equal(exam.block, 5);
 assert.equal(exam.review, 3);
 assert.equal(exam.lessonBuff, 4);
 assert.equal(exam.parameterBuff, 2);
-assert.equal(exam.parameter, 20);
+// Native calculation applies 集中 (+4) and 好調 (x1.5) to each of the two
+// Lesson hits independently: ceil((10 + 4) * 1.5) * 2 = 42.
+assert.equal(exam.parameter, 42);
 
 assert.equal(checkCardEffectTrigger("", exam).triggered, true);
 assert.equal(checkCardEffectTrigger("e_trigger-exam_card_play-review_up-3", exam).triggered, true);
