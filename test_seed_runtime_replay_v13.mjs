@@ -134,6 +134,39 @@ assert.equal(
   "未対応条件: t_exam_trigger-unsupported-demo",
 );
 
+// A real-device operation must not collapse every candidate to a misleading
+// zero just because the replay model cannot place the observed card in Hand.
+const allActionConflict = evaluateTowerSeedCandidates(
+  [1, 2],
+  cards,
+  [{ plays: [{ id: "NOT_IN_HAND", upgradeCount: 0, occurrence: 0 }], ended: false }],
+  [],
+  { cardById, cardVariantByKey },
+);
+assert.equal(allActionConflict.conservativeFallback, true);
+assert.deepEqual(allActionConflict.seeds, [1, 2]);
+assert.equal(allActionConflict.uncertain.length, 2);
+assert.ok(allActionConflict.uncertain.every((result) =>
+  result.unsupported.some((reason) => reason.startsWith("replay-conflict:"))));
+assert.match(
+  replayUncertaintyLabel(allActionConflict.uncertain[0].unsupported.find((reason) => reason.startsWith("replay-conflict:"))),
+  /^実機操作と再現モデルが矛盾:/,
+);
+
+// The same safeguard applies when every candidate disagrees only with the
+// chronological observed-draw trace. This is especially important after an
+// effect becomes newly supported and starts consuming RNG.
+const allDrawConflict = evaluateTowerSeedCandidates(
+  [1, 2],
+  cards,
+  [],
+  [],
+  { cardById, cardVariantByKey, observedDrawOrder: ["IMPOSSIBLE"] },
+);
+assert.equal(allDrawConflict.conservativeFallback, true);
+assert.deepEqual(allDrawConflict.seeds, [1, 2]);
+assert.ok(allDrawConflict.rejectedBeforeFallback.every((result) => result.status === "mismatch"));
+
 // Dynamically generated cards must be part of the same seed replay state.
 // This models effects such as 冒険心 generating 眠気 into DeckRandom.
 const sleepyId = "p_card-00-acc-0_002";
@@ -233,5 +266,6 @@ const generatedFiltered = evaluateTowerSeedCandidates(
   },
 );
 assert.deepEqual(generatedFiltered.seeds, [generatedPair.a.seed]);
+assert.equal(generatedFiltered.conservativeFallback, false, "normal narrowing must still reject only the mismatching candidate");
 
 console.log("seed runtime replay v13 tests: ok");
