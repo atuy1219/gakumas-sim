@@ -586,9 +586,19 @@ function renderResults() {
     button.type = "button";
     button.className = "seed-candidate";
     button.textContent = `${result.seed} / ${asHex(result.seed)}${result.status === "uncertain" ? " · 保留" : ""}`;
+    const input = $("tower-seed");
+    const currentSeed = String(input?.value ?? "").trim();
+    const selected = currentSeed === String(result.seed) || currentSeed.toLowerCase() === asHex(result.seed).toLowerCase();
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
     button.addEventListener("click", () => {
-      const input = $("tower-seed");
       if (input) input.value = String(result.seed);
+      for (const candidate of list.querySelectorAll(".seed-candidate")) {
+        candidate.classList.remove("selected");
+        candidate.setAttribute("aria-pressed", "false");
+      }
+      button.classList.add("selected");
+      button.setAttribute("aria-pressed", "true");
     });
     list.append(button);
   }
@@ -598,6 +608,9 @@ function renderResults() {
     const seed = evaluation.survivors[0].seed;
     const input = $("tower-seed");
     if (input) input.value = String(seed);
+    const only = list.querySelector(".seed-candidate");
+    only?.classList.add("selected");
+    only?.setAttribute("aria-pressed", "true");
   }
 }
 
