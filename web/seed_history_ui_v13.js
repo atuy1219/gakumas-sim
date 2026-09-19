@@ -445,6 +445,13 @@ function renderReplayHand() {
         return `${cardLabel(entry.card)} → ${position}`;
       }).join(" / ")}`);
     }
+    if (lastPlay?.moved?.length) {
+      parts.push(`移動: ${lastPlay.moved.map((entry) => {
+        const from = entry.from === "deck" ? "山札" : entry.from === "grave" ? "捨札" : entry.from;
+        const to = entry.to === "lost" ? "除外" : entry.to;
+        return `${cardLabel(entry.card)}（${from} → ${to}）`;
+      }).join(" / ")}`);
+    }
     if (evaluation.uncertain.length) parts.push(`未対応効果などで判定保留 ${evaluation.uncertain.length}候補`);
     effect.textContent = parts.join(" · ");
   }
