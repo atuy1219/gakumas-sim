@@ -329,6 +329,9 @@ assert.equal(state.deck.some((card) => card.id === sleepyId), false);
 assert.equal(state.discard.some((card) => card.id === sleepyId), false);
 assert.equal(state.lost.some((card) => card.id === sleepyId), true);
 const summerRandomStep = new XorShift32(summerRandomBefore);
+// Native PickCardPositionListImpl consumes one RNG word for the fixed 1_1
+// pick count, then one random sort key for the single matching 眠気.
+summerRandomStep.nextU32();
 summerRandomStep.nextU32();
 assert.equal(state.randomState, summerRandomStep.state >>> 0);
 assert.equal(state.unsupported.length, 0);
@@ -343,6 +346,71 @@ assert.ok(summerFollowupIndex >= 0);
 const parameterBeforeSummerEnchant = state.exam.parameter;
 playTowerCard(state, summerFollowupIndex);
 assert.equal(state.exam.parameter - parameterBeforeSummerEnchant, 4);
+
+// Real-device regression: seed 1866421646 / 0x6F3F558E produced the
+// same initial 13-card order in both normal-play and all-skip runs. In the
+// normal-play run, 冒険心 consumed one DeckRandom RNG word and 夏夜に咲く思い出
+// then removed one 眠気. The first two cards after the first recycle were the
+// original visible-order cards #2 and #13. With only one RNG word for Summer,
+// the replay incorrectly predicted #13 first.
+const observedSummerMaster = {
+  id: "SUMMER-OBSERVED",
+  isInitial: true,
+  category: "ProduceCardCategory_ActiveSkill",
+  playMovePositionType: "ProduceCardMovePositionType_Lost",
+  playEffects: [{
+    produceExamTriggerId: "",
+    produceExamEffectId: `e_effect-exam_card_move-p_card_search-deck_grave-${sleepyId}-lost-random-1_1`,
+  }],
+};
+const observedSummerMasters = [
+  observedSummerMaster,
+  ...["F1", "F2"].map((id) => ({
+    id,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  })),
+  generatedMasters.at(-1),
+];
+const observedSummerById = new Map(observedSummerMasters.map((card) => [card.id, card]));
+const observedSummerVariants = new Map(observedSummerMasters.map((card) => [`${card.id}@@0`, card]));
+state = createTowerTurnState(
+  ["SUMMER-OBSERVED", "F1", "F2"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  observedSummerById,
+  { cardVariantByKey: observedSummerVariants },
+);
+drawTowerTurn(state, 3);
+const observedSummerCard = state.hand.find((card) => card.id === "SUMMER-OBSERVED");
+assert.ok(observedSummerCard);
+state.hand = [observedSummerCard];
+state.playsRemaining = 1;
+// 0x1B90C26C is the RNG state immediately after the known 13-card initial
+// shuffle. 冒険心's DeckRandom advances it once to 0x787533C2.
+state.randomState = 0x787533c2;
+state.deck = [];
+state.discard = [
+  { id: "OBS_02" },
+  { id: "OBS_03" },
+  { id: "OBS_04" },
+  { id: "OBS_06" },
+  { id: "OBS_05" },
+  { id: "OBS_09" },
+  { id: "OBS_12" },
+  { id: "OBS_13" },
+  { id: sleepyId },
+];
+const observedSummerPlay = playTowerCard(state, 0);
+assert.equal(observedSummerPlay.moved.length, 1);
+assert.equal(observedSummerPlay.moved[0].card.id, sleepyId);
+assert.equal(state.randomState >>> 0, 0x2bea1937, "Summer must consume count + candidate-key RNG words");
+finishTowerTurn(state, { type: "end" });
+const observedRecycle = drawTowerTurn(state, 3);
+assert.deepEqual(
+  observedRecycle.drawn.slice(0, 2).map((card) => card.id),
+  ["OBS_02", "OBS_13"],
+  "known real-device seed must reproduce the first two post-recycle cards",
+);
 
 // 輝くキミへ+ adds a persistent "50% of 好印象" lesson effect
 // on subsequent skill-card plays.
