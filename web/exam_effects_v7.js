@@ -221,6 +221,17 @@ export function parseExamEffectId(effectId) {
   if ((match = id.match(/^e_effect-exam_card_draw-(\d+)$/))) {
     return { kind: "card_draw", id, value: integer(match[1]) };
   }
+  if ((match = id.match(/^e_effect-exam_card_create_id-(p_card-.+)-(\d+)-(hand|deck_first|deck_last|deck_random|grave|lost|hold)-(\d+)_(\d+)$/))) {
+    return {
+      kind: "card_create_id",
+      id,
+      cardId: match[1],
+      upgradeCount: integer(match[2]),
+      movePosition: match[3],
+      pickCountMin: integer(match[4]),
+      pickCountMax: integer(match[5]),
+    };
+  }
   if ((match = id.match(/^e_effect-exam_playable_value_add-(\d+)$/))) {
     return { kind: "playable_add", id, value: integer(match[1]) };
   }
@@ -387,6 +398,17 @@ export function applyParsedExamEffect(exam, parsed) {
     case "stamina_consumption_down_fix": exam.staminaConsumptionDownFix += parsed.value; return { applied: true, label: `体力消費固定軽減 +${parsed.value}` };
     case "extra_turn": exam.extraTurns += 1; return { applied: true, label: "追加ターン +1" };
     case "card_draw": return { applied: true, command: "draw", value: parsed.value, label: `${parsed.value}枚ドロー` };
+    case "card_create_id":
+      return {
+        applied: true,
+        command: "card_create_id",
+        cardId: parsed.cardId,
+        upgradeCount: parsed.upgradeCount,
+        movePosition: parsed.movePosition,
+        pickCountMin: parsed.pickCountMin,
+        pickCountMax: parsed.pickCountMax,
+        label: `カード生成: ${parsed.cardId} ×${parsed.pickCountMin}`,
+      };
     case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
     case "effect_timer": return { applied: true, command: "timer", timer: parsed, label: `${parsed.turn}ターン後に効果発動` };
     case "card_search_effect_play_count_buff": return { applied: true, command: "effect_repeat", effect: parsed, label: `次のスキルカードの効果を追加で${parsed.value}回発動` };
