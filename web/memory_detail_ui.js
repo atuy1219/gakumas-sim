@@ -8,8 +8,7 @@ import {
   parseProduceCardCatalog,
   parseProduceItemCatalog,
 } from "./catalog.js";
-
-const MEMORY_STORAGE_KEY = "gakumas-sim-memory-library-v3";
+import { MEMORY_STORAGE_KEY } from "./storage_keys.js";
 
 const state = {
   idols: [],
