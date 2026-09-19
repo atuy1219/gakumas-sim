@@ -58,6 +58,11 @@
           </div>
         </div>
         <p class="hint">読み込んだ内容はこのブラウザのlocalStorageに保存します。ファイル自体はアップロードしません。手動登録だけでも利用できます。</p>
+        <div class="button-row">
+          <button id="export-memory-backup" type="button" class="secondary">全メモリーをエクスポート</button>
+          <label class="file-button">全メモリーをインポート<input id="memory-backup-file" type="file" accept="application/json,.json"></label>
+        </div>
+        <p id="memory-backup-status" class="hint" aria-live="polite">バックアップは手動登録・カード強化・カスタマイズ・Pアイテムを含む現在のメモリー一覧を保存します。インポート時は同じUserMemoryIdを更新し、それ以外は追加します。</p>
         <details class="advanced">
           <summary>JSONを貼り付けて読み込む</summary>
           <textarea id="memory-text" rows="6" spellcheck="false" placeholder="UserMemoryListを含むJSON"></textarea>
