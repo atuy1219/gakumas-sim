@@ -27,6 +27,50 @@ assert.deepEqual(sleepyCreate, {
   pickCountMax: 1,
 });
 assert.equal(applyParsedExamEffect(createExamState(), sleepyCreate).command, "card_create_id");
+
+const sleepyMove = parseExamEffectId(
+  "e_effect-exam_card_move-p_card_search-deck_grave-p_card-00-acc-0_002-lost-random-1_1",
+);
+assert.deepEqual(sleepyMove, {
+  kind: "card_move_search",
+  id: "e_effect-exam_card_move-p_card_search-deck_grave-p_card-00-acc-0_002-lost-random-1_1",
+  searchPosition: "deck_grave",
+  cardId: "p_card-00-acc-0_002",
+  movePosition: "lost",
+  pickRange: "random",
+  pickCountMin: 1,
+  pickCountMax: 1,
+});
+assert.equal(applyParsedExamEffect(createExamState(), sleepyMove).command, "card_move_search");
+
+const reviewDepend = parseExamEffectId("e_effect-exam_lesson_depend_exam_review-0900-01");
+assert.deepEqual(reviewDepend, {
+  kind: "lesson_depend_exam_review",
+  id: "e_effect-exam_lesson_depend_exam_review-0900-01",
+  permil: 900,
+  count: 1,
+});
+const reviewExam = createExamState();
+reviewExam.review = 7;
+applyParsedExamEffect(reviewExam, reviewDepend);
+assert.equal(reviewExam.parameter, 7, "90% of 7 rounds up to 7");
+
+const summerEnchant = parseExamEffectId(
+  "e_effect-exam_status_enchant-inf-enchant-p_card-00-sup-3_152-enc01",
+);
+assert.equal(summerEnchant.kind, "status_enchant");
+assert.equal(summerEnchant.trigger.phase, "card_play");
+assert.equal(summerEnchant.trigger.playCountInterval, 5);
+assert.equal(summerEnchant.effects[0].kind, "lesson");
+
+const shiningEnchant = parseExamEffectId(
+  "e_effect-exam_status_enchant-inf-enchant-p_card-02-act-3_050-enc02",
+);
+assert.equal(shiningEnchant.kind, "status_enchant");
+assert.equal(shiningEnchant.trigger.skillCard, true);
+assert.equal(shiningEnchant.effects[0].kind, "lesson_depend_exam_review");
+assert.equal(shiningEnchant.effects[0].permil, 500);
+
 assert.equal(parseExamEffectId("e_effect-not-yet-supported").kind, "unsupported");
 
 const exam = createExamState({ stamina: 20 });
