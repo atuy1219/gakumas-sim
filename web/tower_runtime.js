@@ -499,7 +499,13 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       else upgradeHandCards(state);
       break;
     case "status_enchant":
-      state.enchants.push({ ...parsed, effects: parsed.effects.map((effect) => ({ ...effect })) });
+      state.enchants.push({
+        ...parsed,
+        effects: parsed.effects.map((effect) => ({ ...effect })),
+        // "以降、N回使用するごとに" is relative to when the enchant is installed,
+        // not the absolute number of cards played since the exam began.
+        installedCardPlayCount: Number(state.exam.cardPlayCount ?? 0),
+      });
       break;
   }
   if (applied.label) event.effects.push(applied.label);
@@ -531,8 +537,12 @@ function runEnchantPhase(state, phase, event, card = null, source = state.enchan
       "ProduceCardCategory_ActiveSkill",
       "ProduceCardCategory_MentalSkill",
     ].includes(String(card?.category ?? ""))) continue;
-    if (Number(trigger.playCountInterval ?? 0) > 0
-        && Number(state.exam.cardPlayCount ?? 0) % Number(trigger.playCountInterval) !== 0) continue;
+    const playCountInterval = Number(trigger.playCountInterval ?? 0);
+    if (playCountInterval > 0) {
+      const playsSinceInstall = Number(state.exam.cardPlayCount ?? 0)
+        - Number(enchant.installedCardPlayCount ?? 0);
+      if (playsSinceInstall <= 0 || playsSinceInstall % playCountInterval !== 0) continue;
+    }
     for (const effect of enchant.effects ?? []) executeParsedTowerEffect(state, effect, event);
   }
 }
