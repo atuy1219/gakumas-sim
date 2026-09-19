@@ -1254,36 +1254,37 @@ function renderObservationButtons() {
   }
 
   if (observation.complete) {
-    container.textContent = observation.generatedIds.length
-      ? `元デッキ1巡分の入力が完了しました（生成カード ${observation.generatedIds.length}枚も記録済み）。Seed候補を探索できます。`
-      : "山札1巡分の入力が完了しました。Seed候補を探索できます。";
-    updateObservationCount(instances.length);
-    return;
-  }
-
-  const used = new Map();
-  for (const id of observation.initialIds) used.set(id, (used.get(id) ?? 0) + 1);
-  const seen = new Map();
-  const totals = new Map();
-  for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
-  for (const instance of instances) {
-    const ordinal = (seen.get(instance.id) ?? 0) + 1;
-    seen.set(instance.id, ordinal);
-    const total = totals.get(instance.id) ?? 1;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "observation-card";
-    button.textContent = `${observationCardName(instance.card)}${total > 1 ? ` #${ordinal}` : ""}`;
-    button.title = instance.id;
-    button.disabled = ordinal <= (used.get(instance.id) ?? 0);
-    button.addEventListener("click", () => {
-      const batches = observedTextBatches();
-      batches.at(-1).push(observationCardName(instance.card));
-      writeObservedTextBatches(batches);
-      renderObservationButtons();
-      updateObservationCount();
-    });
-    container.append(button);
+    const complete = document.createElement("p");
+    complete.className = "hint seed-message";
+    complete.textContent = observation.generatedIds.length
+      ? `元デッキ1巡分は完了済みです（生成カード ${observation.generatedIds.length}枚も記録済み）。生成カードがさらに見えた場合は下から追加できます。`
+      : "元デッキ1巡分は完了済みです。生成カードがこの後に見えた場合は下から追加できます。";
+    container.append(complete);
+  } else {
+    const used = new Map();
+    for (const id of observation.initialIds) used.set(id, (used.get(id) ?? 0) + 1);
+    const seen = new Map();
+    const totals = new Map();
+    for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
+    for (const instance of instances) {
+      const ordinal = (seen.get(instance.id) ?? 0) + 1;
+      seen.set(instance.id, ordinal);
+      const total = totals.get(instance.id) ?? 1;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "observation-card";
+      button.textContent = `${observationCardName(instance.card)}${total > 1 ? ` #${ordinal}` : ""}`;
+      button.title = instance.id;
+      button.disabled = ordinal <= (used.get(instance.id) ?? 0);
+      button.addEventListener("click", () => {
+        const batches = observedTextBatches();
+        batches.at(-1).push(observationCardName(instance.card));
+        writeObservedTextBatches(batches);
+        renderObservationButtons();
+        updateObservationCount();
+      });
+      container.append(button);
+    }
   }
 
   for (const target of observation.generatedTargets.values()) {
