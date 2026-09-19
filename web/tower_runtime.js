@@ -486,10 +486,13 @@ export function currentTowerScoreContext(state) {
   const bonus = parameterType
     ? state?.parameterBonus?.[parameterType.toLowerCase()]?.bonusPermil
     : null;
-  const battleBonusPermil = Number(bonus);
+  const hasBattleBonus = bonus !== null
+    && bonus !== undefined
+    && Number.isFinite(Number(bonus));
+  const battleBonusPermil = hasBattleBonus ? Number(bonus) : null;
   return {
-    isBattle: Number.isFinite(battleBonusPermil),
-    battleBonusPermil: Number.isFinite(battleBonusPermil) ? battleBonusPermil : null,
+    isBattle: hasBattleBonus,
+    battleBonusPermil,
     parameterType,
     settings: state?.examScoreSettings ?? null,
   };
