@@ -22,13 +22,13 @@ jobs:
         run: python -m unittest -v
       - name: JavaScript syntax checks
         run: |
-          node --check web/app_v3.js
+          node --check web/app.js
           node --check web/catalog_bootstrap.js
           node --check web/catalog_v4.js
-          node --check web/app_v4.js
+          node --check web/catalog_memory_ui.js
           node --check web/display_fix_v4.js
-          node --check web/app_v5.js
-          node --check web/app_v6.js
+          node --check web/simulator_filter.js
+          node --check web/memory_detail_ui.js
           node --check web/engine.js
           node --check web/exam_effects_v7.js
           node --check web/exam_preset.js
@@ -61,9 +61,9 @@ jobs:
       - name: Memory judgement tests
         run: node test_memory_judgement_v10.mjs
       - name: Simulator filter tests
-        run: node test_sim_filter_v5.mjs
+        run: node test_simulator_filter.mjs
       - name: Memory detail tests
-        run: node test_app_v6.mjs
+        run: node test_memory_detail_ui.mjs
       - name: Tower preset tests
         run: node test_tower_preset.mjs
       - name: Exam preset tests

@@ -4,7 +4,7 @@ import {
   hasNonZeroMemoryStats,
   hasUsableMemoryStats,
   resolveMemoryPItemIds,
-} from "./web/app_v6.js";
+} from "./web/memory_detail_ui.js";
 
 const idolById = new Map([
   ["i-campus", {
@@ -70,4 +70,4 @@ assert.deepEqual(
   { ids: ["pitem-from-raw"], source: "memory" },
 );
 
-console.log("app v6 tests: ok");
+console.log("memory detail UI tests: ok");

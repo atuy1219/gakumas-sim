@@ -4,7 +4,7 @@ import {
   availableIdolCardIds,
   availablePlanTypes,
   filterMemoriesForBuilder,
-} from "./web/app_v5.js";
+} from "./web/simulator_filter.js";
 
 const memories = [
   { userMemoryId: "m1", planType: "ProducePlanType_Plan1", characterId: "jsna", idolCardId: "i-campus" },
@@ -48,4 +48,4 @@ assert.deepEqual(filterMemoriesForBuilder(memories, "ProducePlanType_Plan2", "hu
 assert.deepEqual(filterMemoriesForBuilder(memories, "", "jsna"), []);
 assert.deepEqual(filterMemoriesForBuilder(memories, "ProducePlanType_Plan1", ""), []);
 
-console.log("sim filter v5 tests: ok");
+console.log("simulator filter tests: ok");

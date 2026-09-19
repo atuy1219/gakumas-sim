@@ -41,7 +41,7 @@ jobs:
           node --check web/engine.js
           node --check web/exam_effects_v7.js
           node --check web/tower_runtime.js
-          node --check web/app_v3.js
+          node --check web/app.js
           node test_exam_effects_v7.mjs
           node test_card_master_effects.mjs
           node test_tower_runtime.mjs
@@ -49,7 +49,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/engine.js web/app_v3.js web/tower_runtime.js web/index.html test_tower_runtime.mjs
+          git add web/engine.js web/app.js web/tower_runtime.js web/index.html test_tower_runtime.mjs
           if git diff --cached --quiet; then
             echo "No changes"
             exit 0

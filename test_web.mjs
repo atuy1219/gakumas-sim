@@ -193,8 +193,8 @@ assert.match(towerHtml, /id="exam-import-preset"/);
 assert.match(towerHtml, /id="exam-selected-card"/);
 assert.match(towerHtml, /id="tower-selected-card"/);
 assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
-const appV3Source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/app_v3.js", import.meta.url), "utf8"));
-assert.doesNotMatch(appV3Source, /tower-order-result/);
+const appSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/app.js", import.meta.url), "utf8"));
+assert.doesNotMatch(appSource, /tower-order-result/);
 
 const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/seed_history_ui_v13.js", import.meta.url), "utf8"));
 assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);
