@@ -152,6 +152,9 @@ export function parseExamEffectId(effectId) {
   if ((match = id.match(/^e_effect-exam_lesson_depend_parameter_buff-(\d+)-(\d+)$/))) {
     return { kind: "lesson_depend_parameter_buff", id, permil: integer(match[1]), count: integer(match[2]) };
   }
+  if ((match = id.match(/^e_effect-exam_lesson_depend_exam_review-(\d+)-(\d+)$/))) {
+    return { kind: "lesson_depend_exam_review", id, permil: integer(match[1]), count: integer(match[2]) };
+  }
   if ((match = id.match(/^e_effect-exam_effect_timer-(\d+)-(\d+)-(e_effect-.+)$/))) {
     return {
       kind: "effect_timer",
@@ -200,6 +203,36 @@ export function parseExamEffectId(effectId) {
       effects: [parseExamEffectId("e_effect-exam_lesson-0005-01")],
     };
   }
+  if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-00-sup-3_152-enc01") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      enchantId: "enchant-p_card-00-sup-3_152-enc01",
+      trigger: { phase: "card_play", playCountInterval: 5 },
+      effects: [parseExamEffectId("e_effect-exam_lesson-0004-01")],
+    };
+  }
+  if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-02-act-3_050-enc01") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      enchantId: "enchant-p_card-02-act-3_050-enc01",
+      trigger: { phase: "card_play", skillCard: true },
+      effects: [parseExamEffectId("e_effect-exam_lesson_depend_exam_review-0300-01")],
+    };
+  }
+  if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-02-act-3_050-enc02") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      enchantId: "enchant-p_card-02-act-3_050-enc02",
+      trigger: { phase: "card_play", skillCard: true },
+      effects: [parseExamEffectId("e_effect-exam_lesson_depend_exam_review-0500-01")],
+    };
+  }
   if ((match = id.match(/^e_effect-exam_block-(\d+)$/))) {
     return { kind: "block", id, value: integer(match[1]) };
   }
@@ -228,6 +261,18 @@ export function parseExamEffectId(effectId) {
       cardId: match[1],
       upgradeCount: integer(match[2]),
       movePosition: match[3],
+      pickCountMin: integer(match[4]),
+      pickCountMax: integer(match[5]),
+    };
+  }
+  if ((match = id.match(/^e_effect-exam_card_move-p_card_search-(deck_grave|deck|grave)-(p_card-.+)-(hand|deck_first|deck_last|deck_random|grave|lost|hold)-random-(\d+)_(\d+)$/))) {
+    return {
+      kind: "card_move_search",
+      id,
+      searchPosition: match[1],
+      cardId: match[2],
+      movePosition: match[3],
+      pickRange: "random",
       pickCountMin: integer(match[4]),
       pickCountMax: integer(match[5]),
     };
@@ -383,6 +428,12 @@ export function applyParsedExamEffect(exam, parsed) {
       exam.parameter += amount;
       return { applied: true, label: `好調に応じてパラメータ +${amount}` };
     }
+    case "lesson_depend_exam_review": {
+      const amount = Math.ceil(Number(exam.review ?? 0) * Number(parsed.permil ?? 0) / 1000)
+        * Math.max(1, Number(parsed.count) || 1);
+      exam.parameter += amount;
+      return { applied: true, label: `好印象に応じてパラメータ +${amount}` };
+    }
     case "block": exam.block += parsed.value; return { applied: true, label: `元気 +${parsed.value}` };
     case "review": exam.review += parsed.value; return { applied: true, label: `好印象 +${parsed.value}` };
     case "aggressive": exam.aggressive += parsed.value; return { applied: true, label: `やる気 +${parsed.value}` };
@@ -409,6 +460,19 @@ export function applyParsedExamEffect(exam, parsed) {
         pickCountMin: parsed.pickCountMin,
         pickCountMax: parsed.pickCountMax,
         label: `カード生成: ${parsed.cardId} ×${parsed.pickCountMin}`,
+      };
+    case "card_move_search":
+      return {
+        applied: true,
+        command: "card_move_search",
+        id: parsed.id,
+        searchPosition: parsed.searchPosition,
+        cardId: parsed.cardId,
+        movePosition: parsed.movePosition,
+        pickRange: parsed.pickRange,
+        pickCountMin: parsed.pickCountMin,
+        pickCountMax: parsed.pickCountMax,
+        label: `${parsed.searchPosition} の ${parsed.cardId} を ${parsed.movePosition} へ移動`,
       };
     case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
     case "effect_timer": return { applied: true, command: "timer", timer: parsed, label: `${parsed.turn}ターン後に効果発動` };
