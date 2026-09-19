@@ -641,14 +641,25 @@ function renderResults() {
 
   const before = state.candidates.length;
   const after = evaluation.survivors.length;
-  badge.textContent = `${before} → ${after}候補`;
-  status.textContent = evaluation.uncertain.length ? `判定保留 ${evaluation.uncertain.length}` : after === 1 ? "Seed特定" : "操作入力中";
+  badge.textContent = evaluation.conservativeFallback
+    ? `${before} → ${after}候補 · 保留`
+    : `${before} → ${after}候補`;
+  status.textContent = evaluation.conservativeFallback
+    ? `再現矛盾 ${after}候補保留`
+    : evaluation.uncertain.length
+      ? `判定保留 ${evaluation.uncertain.length}`
+      : after === 1 ? "Seed特定" : "操作入力中";
 
   const summary = document.createElement("p");
   summary.className = `seed-refine-summary-v11${after === 1 && !evaluation.uncertain.length ? " success" : ""}`;
-  summary.textContent = evaluation.uncertain.length
-    ? `${after}候補が残っています。うち${evaluation.uncertain.length}候補は未対応効果・条件のため安全側で保留しています。`
-    : `${before}候補から${after}候補まで絞り込みました。`;
+  if (evaluation.conservativeFallback) {
+    summary.classList.add("warning");
+    summary.textContent = `実機の入力を適用すると全${before}候補が再現モデルと矛盾しました。0候補にはせず、${after}候補を保留しています。下の原因を確認しつつ実機観測を続けられます。`;
+  } else {
+    summary.textContent = evaluation.uncertain.length
+      ? `${after}候補が残っています。うち${evaluation.uncertain.length}候補は未対応効果・条件のため安全側で保留しています。`
+      : `${before}候補から${after}候補まで絞り込みました。`;
+  }
   host.append(summary);
 
   if (evaluation.uncertain.length) {
@@ -711,7 +722,11 @@ function renderResults() {
   if (!after) {
     const warning = document.createElement("p");
     warning.className = "callout error";
-    warning.textContent = "一致候補が0件です。使用カードまたは再シャッフル後の観測を1つ戻して確認してください。";
+    const rejected = evaluation.rejectedBeforeFallback ?? evaluation.rejected ?? [];
+    const firstReason = rejected.find((result) => result.rejectionReason || result.error);
+    warning.textContent = firstReason
+      ? `一致候補が0件です。最初の矛盾: ${firstReason.rejectionReason || firstReason.error}`
+      : "一致候補が0件です。編成または1周目の観測順がSeed候補生成時から変わっていないか確認してください。";
     host.append(warning);
     return;
   }
