@@ -5,9 +5,7 @@ import {
   parseIdolCardCatalog,
   planLabel,
 } from "./catalog.js";
-
-const MEMORY_STORAGE_KEY = "gakumas-sim-memory-library-v3";
-const FILTER_STORAGE_KEY = "gakumas-sim-builder-filter-v5";
+import { FILTER_STORAGE_KEY, MEMORY_STORAGE_KEY } from "./storage_keys.js";
 const PLAN_ORDER = [
   "ProducePlanType_Plan1",
   "ProducePlanType_Plan2",
