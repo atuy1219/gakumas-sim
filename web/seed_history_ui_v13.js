@@ -63,10 +63,18 @@ function ensurePanel() {
 
     <div class="seed-replay-steps-v14">
       <div class="seed-replay-step-v14">
+        <div id="seed-replay-task-v16" class="seed-replay-task-v16">
+          <span class="seed-replay-task-label-v16">今やること</span>
+          <div>
+            <strong id="seed-replay-task-title-v16">① 実機で「使ったカード」を入力</strong>
+            <small id="seed-replay-task-detail-v16">カードを引いただけでは押しません。実機で使用したカードだけを下から選びます。</small>
+          </div>
+        </div>
+
         <div class="section-head compact-head">
           <div>
-            <h3>実機と同じカードを操作</h3>
-            <p class="hint">実機で使ったカードをタップし、ターンが終わったら「ターン終了 / SKIP」。追加ドローも自動で追跡します。</p>
+            <h3>① 実機で使ったカードを入力</h3>
+            <p class="hint">ここでタップするのは「実機で使用したカード」だけです。新しく引いただけのカードは押しません。ターンが終わったら「ターン終了」。何も使わなかったターンはSKIPとして記録します。</p>
           </div>
           <span id="seed-replay-turn-v13" class="badge">TURN -</span>
         </div>
@@ -76,25 +84,28 @@ function ensurePanel() {
         </div>
         <p id="seed-replay-effect-v13" class="hint seed-replay-effect-v13"></p>
         <div class="button-row seed-replay-controls-v13">
-          <button id="seed-replay-end-turn-v13" type="button" class="secondary" disabled>ターン終了 / SKIP</button>
+          <button id="seed-replay-end-turn-v13" type="button" class="secondary" disabled>ターン終了（使わないならSKIP）</button>
           <button id="seed-replay-undo-v13" type="button" class="ghost-button" disabled>1操作戻す</button>
           <button id="seed-replay-reset-v13" type="button" class="ghost-button" disabled>操作履歴をクリア</button>
         </div>
         <div id="seed-replay-log-v13" class="seed-replay-log-v13"></div>
 
-        <div class="section-head compact-head">
-          <div>
-            <h3>再シャッフル後に見えたカード</h3>
-            <p class="hint">再シャッフルが発生したら、新しく引いたカードを見えた順に追加するとさらに絞れます。</p>
+        <section id="seed-replay-observation-phase-v16" class="seed-replay-observation-phase-v16 is-waiting">
+          <div class="section-head compact-head">
+            <div>
+              <span class="seed-replay-phase-kicker-v16">再シャッフル後のみ</span>
+              <h3>② 新しく引いたカードを記録</h3>
+              <p class="hint">ここは「カード使用」の入力ではありません。再シャッフル後、実機で新しく手札に来たカードを1枚目から順に記録します。</p>
+            </div>
+            <span id="seed-replay-observed-count-v13" class="badge">待機中</span>
           </div>
-          <span id="seed-replay-observed-count-v13" class="badge">0枚</span>
-        </div>
-        <p id="seed-replay-recycle-note-v13" class="callout">操作リプレイを再シャッフル地点まで進めてください。</p>
-        <div id="seed-replay-observation-slots-v13" class="seed-recycle-slots-v11"></div>
-        <div id="seed-replay-picker-v13" class="seed-card-picker-v11" hidden></div>
-        <div class="button-row">
-          <button id="seed-replay-observation-clear-v13" type="button" class="ghost-button" disabled>再シャッフル後の観測をクリア</button>
-        </div>
+          <p id="seed-replay-recycle-note-v13" class="callout">まだ②は入力しません。上の①で実機の操作を続けてください。</p>
+          <div id="seed-replay-observation-slots-v13" class="seed-recycle-slots-v11"></div>
+          <div id="seed-replay-picker-v13" class="seed-card-picker-v11" hidden></div>
+          <div class="button-row">
+            <button id="seed-replay-observation-clear-v13" type="button" class="ghost-button" disabled>新しく引いたカードの記録をクリア</button>
+          </div>
+        </section>
       </div>
 
       <aside class="seed-replay-step-v14 seed-replay-result-v14">
@@ -419,8 +430,8 @@ function renderReplayHand() {
       name.textContent = cardLabel(entry);
       const detail = document.createElement("small");
       detail.textContent = entry.candidateCount === total
-        ? `全${total}候補で手札に存在`
-        : `${entry.candidateCount}/${total}候補で手札に存在`;
+        ? `使用したならタップ · 全${total}候補で手札に存在`
+        : `使用したならタップ · ${entry.candidateCount}/${total}候補で手札に存在`;
       button.append(name, detail);
       button.addEventListener("click", () => playObservedCard(entry));
       host.append(button);
@@ -510,7 +521,7 @@ function renderObservationPicker(index) {
   }
   host.hidden = false;
   const title = document.createElement("strong");
-  title.textContent = `再シャッフル後 ${index + 1}枚目を選択`;
+  title.textContent = `実機で新しく引いた ${index + 1}枚目を選択`;
   const grid = document.createElement("div");
   grid.className = "seed-card-picker-grid-v11";
   for (const card of observationOptions()) {
@@ -537,19 +548,48 @@ function renderRecycleObservation() {
   const note = $("seed-replay-recycle-note-v13");
   const badge = $("seed-replay-observed-count-v13");
   const clear = $("seed-replay-observation-clear-v13");
+  const phase = $("seed-replay-observation-phase-v16");
+  const taskTitle = $("seed-replay-task-title-v16");
+  const taskDetail = $("seed-replay-task-detail-v16");
   if (!slots || !note || !badge) return;
   slots.replaceChildren();
 
   const evaluation = state.evaluation;
   const recycleSeen = evaluation?.survivors.some((result) => result.recycleSeen) ?? false;
   const count = state.observedAfterRecycle.length;
-  badge.textContent = `${count}枚`;
-  if (clear) clear.disabled = count === 0;
 
-  if (!evaluation) note.textContent = "Seed候補と1周目の観測を準備してください。";
-  else if (!recycleSeen) note.textContent = "まだ最初の再シャッフルに到達していません。実機と同じ操作を続けてください。";
-  else if (!count) note.textContent = "再シャッフルが発生しました。実機で新しく引いたカードを1枚目から指定してください。";
-  else note.textContent = `${count}枚の観測でSeed候補を再評価しています。`;
+  phase?.classList.toggle("is-ready", recycleSeen);
+  phase?.classList.toggle("is-waiting", !recycleSeen);
+  badge.textContent = recycleSeen ? `${count}枚` : "待機中";
+  if (clear) clear.disabled = !recycleSeen || count === 0;
+
+  if (!evaluation) {
+    note.textContent = "まだ②は入力しません。Seed候補の探索と①の操作入力を先に進めてください。";
+    if (taskTitle) taskTitle.textContent = "① 実機で「使ったカード」を入力";
+    if (taskDetail) taskDetail.textContent = "カードを引いただけでは押しません。実機で使用したカードだけを下から選びます。";
+  } else if (!recycleSeen) {
+    note.textContent = "まだ②は入力しません。上の①で、実機で使ったカードとターン終了だけを記録してください。";
+    if (taskTitle) taskTitle.textContent = "① 実機で「使ったカード」を入力";
+    if (taskDetail) taskDetail.textContent = "上のカードは「使用したとき」だけタップします。新しく引いたカードの記録は再シャッフル検出後に②へ切り替わります。";
+  } else if (!count) {
+    note.textContent = "再シャッフルを検出しました。ここからは実機で新しく引いたカードを、1枚目から順に指定してください。";
+    if (taskTitle) taskTitle.textContent = "② 実機で「新しく引いたカード」を入力";
+    if (taskDetail) taskDetail.textContent = "ここではカードを使用しません。再シャッフル後に新しく手札へ来たカードを下へ記録します。";
+  } else {
+    note.textContent = `実機で新しく引いたカードを${count}枚記録済みです。Seed候補を再評価しています。`;
+    if (taskTitle) taskTitle.textContent = "② 新しく引いたカードを続けて記録";
+    if (taskDetail) taskDetail.textContent = "再シャッフル後の新規ドローだけを順番に追加します。カードを実際に使用した操作は上の①へ入力します。";
+  }
+
+  if (!recycleSeen) {
+    state.pickerIndex = null;
+    const locked = document.createElement("div");
+    locked.className = "seed-replay-observation-locked-v16";
+    locked.innerHTML = "<strong>まだここは触りません</strong><small>再シャッフルを検出すると、新規ドローの入力欄がここに表示されます。</small>";
+    slots.append(locked);
+    renderObservationPicker(null);
+    return;
+  }
 
   const slotCount = Math.max(6, count + 3);
   for (let index = 0; index < slotCount; index += 1) {
@@ -558,13 +598,13 @@ function renderRecycleObservation() {
     button.type = "button";
     button.className = `seed-recycle-slot-v11${id ? " filled" : ""}`;
     const small = document.createElement("small");
-    small.textContent = `${index + 1}枚目`;
+    small.textContent = `新規ドロー ${index + 1}枚目`;
     const strong = document.createElement("strong");
     const card = id ? observationOptions().find((entry) => String(entry.id) === String(id)) : null;
-    strong.textContent = card ? cardLabel(card) : "+ カードを選択";
+    strong.textContent = card ? cardLabel(card) : "+ 実機で引いたカード";
     button.append(small, strong);
     const firstEmpty = count;
-    button.disabled = !recycleSeen || index > firstEmpty;
+    button.disabled = index > firstEmpty;
     button.addEventListener("click", () => {
       if (id) state.observedAfterRecycle.length = index;
       state.pickerIndex = index;
