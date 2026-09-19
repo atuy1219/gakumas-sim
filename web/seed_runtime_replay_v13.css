@@ -92,3 +92,126 @@
     padding: 8px 9px;
   }
 }
+
+
+/* v16: make "used a card" and "observed a new draw" visually distinct. */
+.seed-replay-task-v16 {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--m3e-primary) 32%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--m3e-primary-container) 52%, var(--m3e-surface));
+}
+
+.seed-replay-task-v16 > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.seed-replay-task-v16 strong {
+  line-height: 1.35;
+}
+
+.seed-replay-task-v16 small {
+  color: var(--m3e-outline);
+  line-height: 1.45;
+}
+
+.seed-replay-task-label-v16,
+.seed-replay-phase-kicker-v16 {
+  width: fit-content;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.seed-replay-task-label-v16 {
+  background: var(--m3e-primary);
+  color: var(--m3e-on-primary);
+}
+
+.seed-replay-phase-kicker-v16 {
+  display: inline-block;
+  margin-bottom: 3px;
+  background: var(--m3e-surface-container-high, var(--m3e-surface-container));
+  color: var(--m3e-outline);
+}
+
+.seed-replay-observation-phase-v16 {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 13px;
+  border: 1px dashed color-mix(in srgb, var(--m3e-outline) 38%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--m3e-surface-container) 46%, transparent);
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.seed-replay-observation-phase-v16.is-ready {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--m3e-primary) 48%, transparent);
+  background: color-mix(in srgb, var(--m3e-primary-container) 18%, var(--m3e-surface));
+}
+
+.seed-replay-observation-phase-v16.is-ready .seed-replay-phase-kicker-v16 {
+  background: var(--m3e-primary-container);
+  color: var(--m3e-on-primary-container);
+}
+
+.seed-replay-observation-phase-v16.is-waiting .button-row {
+  display: none;
+}
+
+.seed-replay-observation-locked-v16 {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  min-height: 76px;
+  align-content: center;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--m3e-outline) 28%, transparent);
+  border-radius: 13px;
+  text-align: center;
+  color: var(--m3e-outline);
+}
+
+.seed-replay-observation-locked-v16 strong {
+  color: inherit;
+  font-size: 12px;
+}
+
+.seed-replay-observation-locked-v16 small {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (max-width: 600px) {
+  .seed-replay-task-v16 {
+    grid-template-columns: 1fr;
+  }
+
+  .seed-replay-task-label-v16 {
+    margin-bottom: -2px;
+  }
+
+  .seed-replay-observation-phase-v16 {
+    padding: 11px;
+  }
+
+  .seed-replay-controls-v13 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .seed-replay-controls-v13 > :first-child {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
