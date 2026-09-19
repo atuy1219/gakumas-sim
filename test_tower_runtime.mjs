@@ -1,4 +1,5 @@
-import assert from "node:assert/strict";\nimport { XorShift32 } from "./web/engine.js";
+import assert from "node:assert/strict";
+import { XorShift32 } from "./web/engine.js";
 import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
   TOWER_EXAM_EFFECT_LABELS,
