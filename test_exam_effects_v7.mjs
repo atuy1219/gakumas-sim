@@ -16,6 +16,17 @@ assert.deepEqual(parseExamEffectId("e_effect-exam_lesson-0012-02"), {
 });
 assert.equal(parseExamEffectId("e_effect-exam_block-0007").kind, "block");
 assert.equal(parseExamEffectId("e_effect-exam_card_draw-0002").kind, "card_draw");
+const sleepyCreate = parseExamEffectId("e_effect-exam_card_create_id-p_card-00-acc-0_002-0-deck_random-1_1");
+assert.deepEqual(sleepyCreate, {
+  kind: "card_create_id",
+  id: "e_effect-exam_card_create_id-p_card-00-acc-0_002-0-deck_random-1_1",
+  cardId: "p_card-00-acc-0_002",
+  upgradeCount: 0,
+  movePosition: "deck_random",
+  pickCountMin: 1,
+  pickCountMax: 1,
+});
+assert.equal(applyParsedExamEffect(createExamState(), sleepyCreate).command, "card_create_id");
 assert.equal(parseExamEffectId("e_effect-not-yet-supported").kind, "unsupported");
 
 const exam = createExamState({ stamina: 20 });

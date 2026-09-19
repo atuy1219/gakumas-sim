@@ -105,4 +105,38 @@ assert.equal(observedPlay.card.id, "FINISH");
 assert.equal(observedPlay.observedFallback, true);
 assert.ok(observedReplay.unsupported.some((value) => value.startsWith("observed-play:FINISH:")));
 
+// Dynamically generated cards must be part of the same seed replay state.
+// This models effects such as 冒険心 generating 眠気 into DeckRandom.
+const sleepyId = "p_card-00-acc-0_002";
+const generatedMasters = [
+  master("ADVENTURE", {
+    isInitial: true,
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_card_draw-0001" },
+      { produceExamTriggerId: "", produceExamEffectId: `e_effect-exam_card_create_id-${sleepyId}-0-deck_random-1_1` },
+    ],
+  }),
+  master("GA"),
+  master("GB"),
+  master("GC"),
+  master(sleepyId, { category: "ProduceCardCategory_Trouble", name: "眠気" }),
+];
+const generatedCardById = new Map(generatedMasters.map((card) => [card.id, card]));
+const generatedVariants = new Map(generatedMasters.map((card) => [`${card.id}@@0`, card]));
+const generatedDeck = ["ADVENTURE", "GA", "GB", "GC"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 }));
+const generatedReplay = replayTowerSeed(
+  1,
+  generatedDeck,
+  [{ plays: [{ id: "ADVENTURE", upgradeCount: 0, occurrence: 0 }], ended: true }],
+  { cardById: generatedCardById, cardVariantByKey: generatedVariants },
+);
+assert.equal(generatedReplay.status, "ok");
+const generatedTrace = generatedReplay.trace.find((entry) => entry.type === "play" && entry.card?.id === "ADVENTURE");
+assert.ok(generatedTrace);
+assert.equal(generatedTrace.created.length, 1);
+assert.equal(generatedTrace.created[0].card.id, sleepyId);
+assert.equal(generatedReplay.state.discard.some((card) => card.id === sleepyId)
+  || generatedReplay.state.hand.some((card) => card.id === sleepyId)
+  || generatedReplay.state.deck.some((card) => card.id === sleepyId), true);
+
 console.log("seed runtime replay v13 tests: ok");

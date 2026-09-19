@@ -218,6 +218,10 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
           card: { ...play.card },
           hand: cloneHand(state.hand),
           drawn: cloneHand(play.drawn),
+          created: (play.created ?? []).map((entry) => ({
+            ...entry,
+            card: { ...entry.card },
+          })),
           effects: [...(play.effects ?? [])],
           recycleEvents: play.recycleEvents ?? [],
           observedFallback: Boolean(play.observedFallback),
