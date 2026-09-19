@@ -112,9 +112,10 @@ export function partitionSeedObservations(lines, initialCards, cardById = new Ma
   const entries = [];
   for (const line of lines ?? []) {
     const id = resolveSeedObservationLine(line, initialCards, generatedTargets, cardById, cardVariantByKey);
+    const explicitGenerated = /\[生成\]\s*$/.test(String(line).trim());
     allIds.push(id);
     const left = remaining.get(id) ?? 0;
-    if (left > 0) {
+    if (!explicitGenerated && left > 0) {
       initialIds.push(id);
       entries.push({ line: String(line), id, kind: "initial" });
       remaining.set(id, left - 1);
