@@ -35,11 +35,14 @@ import {
   partitionSeedObservations,
 } from "./seed_observation.js";
 import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
+import {
+  FILTER_STORAGE_KEY,
+  MEMORY_STORAGE_KEY,
+  migrateStorageKeys,
+} from "./storage_keys.js";
 
 const $ = (id) => document.getElementById(id);
-const STORAGE_KEY = "gakumas-sim-memory-library-v3";
-const LEGACY_STORAGE_KEY = "gakumas-card-order-memory-library-v2";
-const FILTER_STORAGE_KEY = "gakumas-sim-builder-filter-v5";
+const STORAGE_KEY = MEMORY_STORAGE_KEY;
 const MEMORY_PAGE_SIZE = 40;
 const MAX_SEED_MATCHES = 100;
 const SEED_TASK_SIZE = 1_000_000;
@@ -138,14 +141,11 @@ function persistLibrary() {
 }
 
 function restoreLibrary() {
-  for (const key of [STORAGE_KEY, LEGACY_STORAGE_KEY]) {
-    try {
-      const raw = JSON.parse(localStorage.getItem(key) || "[]");
-      if (!Array.isArray(raw) || !raw.length) continue;
-      memoryList = sanitizeManagedLibrary(extractMemories({ userMemoryList: raw }));
-      return;
-    } catch {}
-  }
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    if (!Array.isArray(raw) || !raw.length) return;
+    memoryList = sanitizeManagedLibrary(extractMemories({ userMemoryList: raw }));
+  } catch {}
 }
 
 function catalogName(cardOrId) {
@@ -583,7 +583,6 @@ $("clear-memory-library").addEventListener("click", () => {
   if (!confirm("保存しているメモリー一覧をすべて消去しますか？")) return;
   memoryList = [];
   localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
   simState.contest.slots = [];
   simState.tower.slots = [];
   renderMemoryList();
@@ -1607,6 +1606,7 @@ $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(sho
 
 const tabParam = new URLSearchParams(location.search).get("tab");
 activateTab(["memory", "cards", "items", "exam", "contest", "tower"].includes(tabParam) ? tabParam : "memory");
+migrateStorageKeys(localStorage);
 restoreLibrary();
 renderMemoryList();
 renderSimBuilder("contest");
