@@ -553,7 +553,7 @@ console.log("tower runtime tests: ok");
       "tower_001-amao": [[12, 4, [0, 1]]],
     },
   });
-  assert.equal(liveLayers.length, 2);
+  assert.equal(liveLayers.length, 4);
   assert.equal(liveLayers[0].maxSubMemoryCount, 3);
   assert.equal(
     liveLayers.find((row) => row.examEffectType === "ProduceExamEffectType_ExamConcentration")?.produceExamBattleConfigId,
