@@ -1,3 +1,8 @@
+import {
+  applyNativeLessonHits,
+  calculateNativeDependentLessonBase,
+} from "./exam_score.js";
+
 export const EXAM_ITEM_URLS = Object.freeze({
   itemsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceItem.yaml",
   itemsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceItem.yaml",
@@ -154,6 +159,12 @@ export function parseExamEffectId(effectId) {
   }
   if ((match = id.match(/^e_effect-exam_lesson_depend_exam_review-(\d+)-(\d+)$/))) {
     return { kind: "lesson_depend_exam_review", id, permil: integer(match[1]), count: integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_lesson_depend_exam_aggressive-(\d+)-(\d+)$/))) {
+    return { kind: "lesson_depend_exam_aggressive", id, permil: integer(match[1]), count: integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_lesson_depend_review_or_aggressive-(\d+)-(\d+)$/))) {
+    return { kind: "lesson_depend_review_or_aggressive", id, permil: integer(match[1]), count: integer(match[2]) };
   }
   if ((match = id.match(/^e_effect-exam_effect_timer-(\d+)-(\d+)-(e_effect-.+)$/))) {
     return {
@@ -337,15 +348,42 @@ export function checkCardEffectTrigger(triggerId, exam) {
 export function createExamState({ stamina = 0 } = {}) {
   const maxStamina = Math.max(0, Number(stamina) || 0);
   return {
+    // Native JudgeParameter and its battle-attribute subtotals.
     parameter: 0,
+    parameterVocal: 0,
+    parameterDance: 0,
+    parameterVisual: 0,
+
     stamina: maxStamina,
     maxStamina,
     block: 0,
+
+    // Common score-affecting statuses.
     review: 0,
+    reviewMultiple: 1,
+    reviewCountAdd: 0,
+    reviewTurnEndReduceLock: 0,
     aggressive: 0,
     lessonBuff: 0,
+    lessonDebuff: 0,
+    lessonBuffMultiple: 1,
     parameterBuff: 0,
     parameterBuffMultiplePerTurn: 0,
+    parameterDebuff: 0,
+    enthusiastic: 0,
+    lessonParameterMultiple: 1,
+    lessonParameterDown: 0,
+    lessonValueDependReviewAggressive: false,
+    slump: false,
+
+    // Anomaly stance state used by CalculateAddingParameter.
+    idolStatusType: 0,
+    idolStatusStep: 0,
+    concentrationLessonMultipleAdditive: 1,
+    fullPowerLessonMultipleAdditive: 1,
+    lessonChangeSpecifyMoreThan: null,
+    lessonChangeSpecifyLessThan: null,
+
     staminaConsumptionDown: 0,
     staminaConsumptionAdd: 0,
     staminaConsumptionDownFix: 0,
@@ -407,33 +445,79 @@ export function payCardCost(exam, card) {
   return events;
 }
 
-export function applyParsedExamEffect(exam, parsed) {
+export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
+  const lessonResult = (baseValue, count = 1, modifier = null) => {
+    const result = applyNativeLessonHits(exam, baseValue, count, scoreContext, modifier);
+    return {
+      applied: true,
+      label: `パラメータ +${result.added}`,
+      score: result,
+    };
+  };
+
   switch (parsed.kind) {
     case "none": return { applied: false, label: "" };
-    case "lesson": {
-      const amount = Number(parsed.value) * Math.max(1, Number(parsed.count) || 1);
-      exam.parameter += amount;
-      return { applied: true, label: `パラメータ +${amount}` };
-    }
+
+    case "lesson":
+      // Native LessonEffectExecutor calculates and adds every repeat
+      // independently. Do not aggregate value * count before rounding.
+      return lessonResult(Number(parsed.value), Math.max(1, Number(parsed.count) || 1));
+
     case "lesson_add_multiple_parameter_buff": {
-      const base = Number(parsed.value) * Math.max(1, Number(parsed.count) || 1);
-      const bonus = Number(exam.parameterBuff ?? 0) > 0 ? Number(parsed.permil ?? 0) / 1000 : 0;
-      const amount = Math.ceil(base * (1 + bonus));
-      exam.parameter += amount;
-      return { applied: true, label: `パラメータ +${amount}` };
+      // ExamAddingParameterAdditionalData.ParameterBuffMultiple receives
+      // 1 + effectPermil/1000 and modifies only the ParameterBuff component.
+      const modifier = {
+        parameterBuffMultiple: Math.fround(
+          Math.fround(1) + Math.fround(Math.fround(Number(parsed.permil)) / Math.fround(1000)),
+        ),
+      };
+      return lessonResult(
+        Number(parsed.value),
+        Math.max(1, Number(parsed.count) || 1),
+        modifier,
+      );
     }
+
     case "lesson_depend_parameter_buff": {
-      const amount = Math.ceil(Number(exam.parameterBuff ?? 0) * Number(parsed.permil ?? 0) / 1000)
-        * Math.max(1, Number(parsed.count) || 1);
-      exam.parameter += amount;
-      return { applied: true, label: `好調に応じてパラメータ +${amount}` };
+      const base = calculateNativeDependentLessonBase(
+        Number(exam.parameterBuff ?? 0),
+        Number(parsed.permil ?? 0),
+      );
+      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+      result.label = `好調に応じて${result.label}`;
+      return result;
     }
+
     case "lesson_depend_exam_review": {
-      const amount = Math.ceil(Number(exam.review ?? 0) * Number(parsed.permil ?? 0) / 1000)
-        * Math.max(1, Number(parsed.count) || 1);
-      exam.parameter += amount;
-      return { applied: true, label: `好印象に応じてパラメータ +${amount}` };
+      const base = calculateNativeDependentLessonBase(
+        Number(exam.review ?? 0),
+        Number(parsed.permil ?? 0),
+      );
+      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+      result.label = `好印象に応じて${result.label}`;
+      return result;
     }
+
+    case "lesson_depend_exam_aggressive": {
+      const base = calculateNativeDependentLessonBase(
+        Number(exam.aggressive ?? 0),
+        Number(parsed.permil ?? 0),
+      );
+      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+      result.label = `やる気に応じて${result.label}`;
+      return result;
+    }
+
+    case "lesson_depend_review_or_aggressive": {
+      const base = calculateNativeDependentLessonBase(
+        Math.max(Number(exam.review ?? 0), Number(exam.aggressive ?? 0)),
+        Number(parsed.permil ?? 0),
+      );
+      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+      result.label = `好印象/やる気に応じて${result.label}`;
+      return result;
+    }
+
     case "block": exam.block += parsed.value; return { applied: true, label: `元気 +${parsed.value}` };
     case "review": exam.review += parsed.value; return { applied: true, label: `好印象 +${parsed.value}` };
     case "aggressive": exam.aggressive += parsed.value; return { applied: true, label: `やる気 +${parsed.value}` };
@@ -486,7 +570,6 @@ export function applyParsedExamEffect(exam, parsed) {
     default: return { applied: false, unsupported: true, label: `未対応: ${parsed.id}` };
   }
 }
-
 export function describeParsedEffect(parsed) {
   const clone = createExamState();
   const result = applyParsedExamEffect(clone, parsed);

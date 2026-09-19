@@ -6,6 +6,7 @@ import {
   parseExamEffectId,
   payCardCost,
 } from "./exam_effects.js";
+import { applyNativeReviewTurnEnd } from "./exam_score.js";
 
 export const TOWER_DEFAULT_DECK_BY_EXAM_EFFECT = Object.freeze({
   ProduceExamEffectType_ExamParameterBuff: "initial_deck-parameter_buff",
@@ -479,8 +480,23 @@ function upgradeHandCards(state) {
   });
 }
 
+export function currentTowerScoreContext(state) {
+  const turnIndex = Math.max(0, Number(state?.turn ?? 0) - 1);
+  const parameterType = String(state?.turnParameterTypes?.[turnIndex] ?? "");
+  const bonus = parameterType
+    ? state?.parameterBonus?.[parameterType.toLowerCase()]?.bonusPermil
+    : null;
+  const battleBonusPermil = Number(bonus);
+  return {
+    isBattle: Number.isFinite(battleBonusPermil),
+    battleBonusPermil: Number.isFinite(battleBonusPermil) ? battleBonusPermil : null,
+    parameterType,
+    settings: state?.examScoreSettings ?? null,
+  };
+}
+
 function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) {
-  const applied = applyParsedExamEffect(state.exam, parsed);
+  const applied = applyParsedExamEffect(state.exam, parsed, currentTowerScoreContext(state));
   if (applied.unsupported) {
     rememberUnsupported(state, `effect:${parsed.id}`);
     event.effects.push(applied.label);
@@ -629,6 +645,13 @@ export function playTowerCard(state, indexInput) {
 }
 
 function tickTurnDurations(exam) {
+  // Review's automatic score is resolved before status spending. Native
+  // ReviewStatusEffect.SpendTurn then consumes one Review unless the turn-end
+  // reduce lock is active.
+  const reviewLocked = Number(exam.reviewTurnEndReduceLock ?? 0) > 0;
+  if (!reviewLocked && Number(exam.review ?? 0) > 0) exam.review -= 1;
+  if (Number(exam.reviewTurnEndReduceLock ?? 0) > 0) exam.reviewTurnEndReduceLock -= 1;
+
   for (const field of ["parameterBuff", "parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
     if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
@@ -693,9 +716,21 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   state.currentTurnPlays = [];
   state.playsRemaining = 0;
   const turnEndEvent = { effects: [], drawn: [], recycleEvents: [] };
+
+  // ExamSequence turn-end path (native state machine around 0x8096850)
+  // materializes Review as a Lesson effect before Review spends one turn.
+  const reviewScore = applyNativeReviewTurnEnd(state.exam, currentTowerScoreContext(state));
+  if (reviewScore.added > 0) {
+    turnEndEvent.effects.push(
+      `好印象ターン終了スコア +${reviewScore.added}`
+      + (reviewScore.count > 1 ? `（${reviewScore.count}回）` : ""),
+    );
+  }
+
   tickTimers(state, turnEndEvent);
   runEnchantPhase(state, "end_turn", turnEndEvent);
   if (turnEndEvent.effects.length) entry.turnEndEffects = turnEndEvent.effects;
   tickTurnDurations(state.exam);
+  entry.examAfterTurnEnd = { ...state.exam };
   return entry;
 }

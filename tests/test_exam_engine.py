@@ -5,6 +5,7 @@ from exam_engine import (
     ExamCardMoveController,
     ExamCardPoolModel,
     ExamEffectCalculateContext,
+    ExamEffectUtility,
     ExamParameterModel,
     ExamParameterType,
     ExamPhase,
@@ -164,6 +165,38 @@ class TurnParameterTypeTests(unittest.TestCase):
         turns = parameter.calc_turn_parameter_type(12)
         parameter.current_turn = 13
         self.assertEqual(parameter.get_current_turn_parameter_type(), turns[-1])
+
+
+class NativeScoreTests(unittest.TestCase):
+    def test_plain_calculate_adding_parameter(self):
+        seq = make_sequence()
+        context = ExamEffectCalculateContext.create(seq)
+        self.assertEqual(ExamEffectUtility.calculate_adding_parameter(10, context), 10)
+
+    def test_parameter_buff_native_multiplier_and_epsilon(self):
+        status = StatusEffect(
+            kind=StatusKind.PARAMETER_BUFF.value,
+            turn=4,
+            turn_limited=True,
+        )
+        seq = make_sequence(statuses=[status])
+        seq.parameter.setting.set(37, 1500)
+        context = ExamEffectCalculateContext.create(seq)
+        self.assertEqual(ExamEffectUtility.calculate_adding_parameter(10, context), 15)
+
+    def test_battle_bonus_applies_after_native_score(self):
+        seq = make_sequence()
+        parameter = seq.parameter
+        parameter.is_battle = True
+        parameter.turn_status_parameter_type_list = [int(ExamParameterType.VOCAL)]
+        parameter.vocal_bonus_permil = 1500
+        context = ExamEffectCalculateContext.create(seq)
+
+        ExamEffectUtility.add_parameter_fix(1, context)
+        self.assertEqual(parameter.judge_parameter, 2)
+        self.assertEqual(parameter.judge_parameter_vocal, 2)
+        self.assertEqual(parameter.judge_parameter_dance, 0)
+        self.assertEqual(parameter.judge_parameter_visual, 0)
 
 
 class StatusVirtualTests(unittest.TestCase):

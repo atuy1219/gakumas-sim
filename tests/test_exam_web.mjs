@@ -45,6 +45,83 @@ assert.deepEqual(card.moveProduceExamEffectIds, ["e_effect-exam_card_draw-0001"]
 console.log("card master effect parser tests: ok");
 }
 
+// test_native_exam_score.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  EXAM_IDOL_STATUS_TYPE,
+  addNativeLessonParameter,
+  applyNativeBattleBonus,
+  applyNativeLessonHits,
+  calculateNativeAddingParameter,
+  calculateNativeDependentLessonBase,
+} = await import("../web/exam_score.js");
+const { createExamState } = await import("../web/exam_effects.js");
+
+let exam = createExamState();
+assert.equal(calculateNativeAddingParameter(exam, 8), 8, "plain Lesson");
+
+exam = createExamState();
+exam.parameterBuff = 4;
+assert.equal(calculateNativeAddingParameter(exam, 10), 15, "好調 uses native 1500 permil");
+
+exam.parameterBuffMultiplePerTurn = 4;
+assert.equal(
+  calculateNativeAddingParameter(exam, 10),
+  19,
+  "絶好調 adds 100 permil per remaining 好調 turn",
+);
+
+exam = createExamState();
+exam.lessonBuff = 5;
+assert.equal(calculateNativeAddingParameter(exam, 8), 13, "集中 is added before multipliers");
+
+exam = createExamState();
+exam.review = 20;
+exam.aggressive = 7;
+exam.lessonValueDependReviewAggressive = true;
+assert.equal(
+  calculateNativeAddingParameter(exam, 10),
+  14,
+  "好印象/やる気 dependent multiplier is capped after native float32 math",
+);
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.FullPower;
+assert.equal(calculateNativeAddingParameter(exam, 10), 30, "FullPower stance uses 3000 permil");
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Preservation;
+exam.idolStatusStep = 1;
+assert.equal(calculateNativeAddingParameter(exam, 10), 5, "Preservation step 1 uses 500 permil");
+
+assert.equal(calculateNativeDependentLessonBase(4, 1500), 6);
+assert.equal(applyNativeBattleBonus(15, 1234), 19);
+assert.equal(applyNativeBattleBonus(10, 1500), 15, "negative epsilon must not round exact integers up");
+
+exam = createExamState();
+const repeated = applyNativeLessonHits(exam, 1, 2, {
+  isBattle: true,
+  battleBonusPermil: 1500,
+  parameterType: "Vocal",
+});
+assert.equal(repeated.added, 4, "repeated Lesson effects round per hit, not after aggregation");
+assert.equal(exam.parameter, 4);
+assert.equal(exam.parameterVocal, 4);
+
+exam = createExamState();
+const direct = addNativeLessonParameter(exam, 10, {
+  isBattle: true,
+  battleBonusPermil: 1234,
+  parameterType: "Dance",
+});
+assert.equal(direct.calculated, 10);
+assert.equal(direct.added, 13);
+assert.equal(exam.parameterDance, 13);
+
+console.log("native exam score tests: ok");
+}
+
 // test_effect_runtime.mjs
 {
 const { default: assert } = await import("node:assert/strict");
@@ -93,7 +170,7 @@ exam.parameterBuff = 4;
 applyParsedExamEffect(exam, parseExamEffectId("e_effect-exam_lesson_add_multiple_parameter_buff-0010-1000-01"));
 assert.equal(exam.parameter, 20);
 applyParsedExamEffect(exam, parseExamEffectId("e_effect-exam_lesson_depend_parameter_buff-1500-01"));
-assert.equal(exam.parameter, 26);
+assert.equal(exam.parameter, 29);
 applyParsedExamEffect(exam, parseExamEffectId("e_effect-exam_parameter_buff_multiple_per_turn-04"));
 assert.equal(exam.parameterBuffMultiplePerTurn, 4);
 
@@ -112,6 +189,22 @@ function createState(cards, masters) {
   const byId = new Map(masters.map((card) => [card.id, card]));
   return createTowerTurnState(cards.map((id) => ({ id })), 1, byId, { stamina: 20 });
 }
+
+// Native turn end converts Review into a Lesson score before Review spends one turn.
+const reviewState = createState(["review-filler"], [masterCard("review-filler")]);
+reviewState.turnParameterTypes = ["Vocal"];
+reviewState.parameterBonus = {
+  vocal: { bonusPermil: 1500 },
+  dance: { bonusPermil: 1000 },
+  visual: { bonusPermil: 1000 },
+};
+reviewState.exam.review = 5;
+drawTowerTurn(reviewState, 1);
+finishTowerTurn(reviewState, { type: "skip" });
+assert.equal(reviewState.exam.parameter, 8);
+assert.equal(reviewState.exam.parameterVocal, 8);
+assert.equal(reviewState.exam.review, 4);
+assert.match(reviewState.history[0].turnEndEffects.join(" / "), /好印象ターン終了スコア \+8/);
 
 const timerCard = masterCard("timer", ["e_effect-exam_effect_timer-0001-01-e_effect-exam_lesson-0040-01"]);
 const timerState = createState(["timer"], [timerCard]);

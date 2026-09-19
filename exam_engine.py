@@ -743,6 +743,10 @@ class ExamParameterModel:
     judge_parameter_vocal: int = 0
     judge_parameter_dance: int = 0
     judge_parameter_visual: int = 0
+    is_battle: bool = False
+    vocal_bonus_permil: int = 1000
+    dance_bonus_permil: int = 1000
+    visual_bonus_permil: int = 1000
     config_parameter_type_ordered_list: list[tuple[int, int]] = field(default_factory=list)
     turn_status_parameter_type_list: list[int] = field(default_factory=list)
     turn_card_play_count: int = 0
@@ -878,6 +882,26 @@ class ExamParameterModel:
         )
         return int(self.turn_status_parameter_type_list[index])
 
+    def calc_current_turn_battle_bonus(self, value: int) -> int:
+        """Port CalcCurrentTurnBattleBonus @ 0x804B634.
+
+        The current Vo/Da/Vi bonus is applied after CalculateAddingParameter.
+        Native performs float32 (permil / 1000 * value - 0.0001) and ceil.
+        """
+        parameter_type = self.get_current_turn_parameter_type()
+        if parameter_type == int(ExamParameterType.VOCAL):
+            permil = self.vocal_bonus_permil
+        elif parameter_type == int(ExamParameterType.DANCE):
+            permil = self.dance_bonus_permil
+        else:
+            permil = self.visual_bonus_permil
+
+        scaled = _f32(
+            _f32(_from_permil(int(permil)) * _f32(float(int(value))))
+            + _f32(-0.0001)
+        )
+        return max(0, _ceil_f32(scaled))
+
     def deep_copy(self) -> "ExamParameterModel":
         # ExamParameterModel.DeepCopy.
         return ExamParameterModel(
@@ -894,6 +918,10 @@ class ExamParameterModel:
             judge_parameter_vocal=self.judge_parameter_vocal,
             judge_parameter_dance=self.judge_parameter_dance,
             judge_parameter_visual=self.judge_parameter_visual,
+            is_battle=self.is_battle,
+            vocal_bonus_permil=self.vocal_bonus_permil,
+            dance_bonus_permil=self.dance_bonus_permil,
+            visual_bonus_permil=self.visual_bonus_permil,
             config_parameter_type_ordered_list=list(self.config_parameter_type_ordered_list),
             turn_status_parameter_type_list=list(self.turn_status_parameter_type_list),
             turn_card_play_count=self.turn_card_play_count,
@@ -1335,8 +1363,8 @@ class ExamEffectUtility:
         multiple=_f32(lesson_multiple + dep)
         result=_f32(_f32(_f32(_f32(stance_multiple*down_factor)*multiple)*parameter_debuff_multiple)*parameter_buff_multiple)
         result=_f32(result*_f32(float(base)))
-        # adds 0.0001 and uses ceil, then clamps through long/int helpers.
-        out=_ceil_f32(_f32(result+_f32(0.0001)))
+        # Native constant at 0x272BA00 is -0.0001f.
+        out=_ceil_f32(_f32(result+_f32(-0.0001)))
         return min(0x7fffffff,max(0,int(out)))
 
     @staticmethod
@@ -1346,10 +1374,28 @@ class ExamEffectUtility:
 
     @staticmethod
     def add_parameter_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter; before=p.judge_parameter
-        after=before+int(value)
-        if p.parameter_add_limit is not None: after=min(after,int(p.parameter_add_limit))
-        p.judge_parameter=after; context.log_diff('Parameter',before,after)
+        p=context.parameter
+        added=int(value)
+        parameter_type: int | None = None
+        if p.is_battle:
+            parameter_type=p.get_current_turn_parameter_type()
+            added=p.calc_current_turn_battle_bonus(added)
+
+        before=p.judge_parameter
+        after=before+added
+        if p.parameter_add_limit is not None:
+            after=min(after,int(p.parameter_add_limit))
+        actual_added=max(0,after-before)
+        p.judge_parameter=after
+
+        if parameter_type == int(ExamParameterType.VOCAL):
+            p.judge_parameter_vocal += actual_added
+        elif parameter_type == int(ExamParameterType.DANCE):
+            p.judge_parameter_dance += actual_added
+        elif parameter_type == int(ExamParameterType.VISUAL):
+            p.judge_parameter_visual += actual_added
+
+        context.log_diff('Parameter',before,after)
 
     @staticmethod
     def calculate_add_block(value: int, context: ExamEffectCalculateContext, aggressive_multiple: float=1.0) -> int:
