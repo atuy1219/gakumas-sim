@@ -199,6 +199,75 @@ class NativeScoreTests(unittest.TestCase):
         self.assertEqual(parameter.judge_parameter_visual, 0)
 
 
+    def test_lesson_parameter_down_starts_from_zero(self):
+        seq = make_sequence()
+        seq.parameter.status_effects.add_lesson_parameter_down(200, 5)
+        context = ExamEffectCalculateContext.create(seq)
+        self.assertEqual(ExamEffectUtility.calculate_adding_parameter(10, context), 8)
+
+    def test_timed_value_status_merges_only_same_remaining_turn(self):
+        statuses = ExamStatusEffectCollection()
+        statuses.add_lesson_parameter_multiple(100, 5)
+        statuses.add_lesson_parameter_multiple(100, 5)
+        statuses.add_lesson_parameter_multiple(100, 3)
+        rows = statuses.by_kind(StatusKind.LESSON_PARAMETER_MULTIPLE)
+        self.assertEqual([(int(x.value), x.turn) for x in rows], [(200, 5), (100, 3)])
+        self.assertAlmostEqual(statuses.ratio_multiple(StatusKind.LESSON_PARAMETER_MULTIPLE), 1.3, places=6)
+
+    def test_pride_uses_review_turn_value(self):
+        review = StatusEffect(kind=StatusKind.REVIEW.value, turn=20, turn_limited=True)
+        seq = make_sequence(statuses=[review])
+        seq.parameter.status_effects.add_lesson_value_depend_review_aggressive(2)
+        seq.parameter.setting.set(44, 20)
+        seq.parameter.setting.set(45, 500)
+        context = ExamEffectCalculateContext.create(seq)
+        self.assertEqual(ExamEffectUtility.calculate_adding_parameter(10, context), 14)
+
+    def test_review_turn_end_score_and_count_add(self):
+        review = StatusEffect(kind=StatusKind.REVIEW.value, turn=5, turn_limited=True)
+        seq = make_sequence(statuses=[review])
+        statuses = seq.parameter.status_effects
+        statuses.add_review_multiple(500, 5)
+        statuses.add_review_count_add(1, 5)
+
+        seq.execute_command(-1)
+        self.assertEqual(seq.parameter.judge_parameter, 16)
+        self.assertEqual(seq.turn_end_logs()[-1]["reviewScore"], 16)
+        self.assertEqual(statuses.turn(StatusKind.REVIEW), 5)
+
+        context = ExamEffectCalculateContext.create(seq)
+        statuses.spend_turn(context)
+        self.assertEqual(statuses.turn(StatusKind.REVIEW), 4)
+        self.assertEqual(statuses.by_kind(StatusKind.REVIEW_MULTIPLE)[0].turn, 4)
+        self.assertEqual(statuses.by_kind(StatusKind.REVIEW_COUNT_ADD)[0].turn, 4)
+
+    def test_review_and_parameter_buff_turn_end_locks(self):
+        seq = make_sequence(statuses=[
+            StatusEffect(kind=StatusKind.REVIEW.value, turn=3, turn_limited=True),
+            StatusEffect(kind=StatusKind.PARAMETER_BUFF.value, turn=3, turn_limited=True),
+        ])
+        statuses = seq.parameter.status_effects
+        statuses.add_review_turn_end_reduce_lock(2)
+        statuses.add_parameter_buff_turn_end_reduce_lock(2)
+        context = ExamEffectCalculateContext.create(seq)
+
+        statuses.spend_turn(context)
+        self.assertEqual(statuses.turn(StatusKind.REVIEW), 3)
+        self.assertEqual(statuses.turn(StatusKind.PARAMETER_BUFF), 3)
+        self.assertEqual(statuses.turn(StatusKind.REVIEW_TURN_END_REDUCE_LOCK), 1)
+        self.assertEqual(statuses.turn(StatusKind.PARAMETER_BUFF_TURN_END_REDUCE_LOCK), 1)
+
+        statuses.spend_turn(context)
+        self.assertEqual(statuses.turn(StatusKind.REVIEW), 3)
+        self.assertEqual(statuses.turn(StatusKind.PARAMETER_BUFF), 3)
+        self.assertFalse(statuses.has(StatusKind.REVIEW_TURN_END_REDUCE_LOCK))
+        self.assertFalse(statuses.has(StatusKind.PARAMETER_BUFF_TURN_END_REDUCE_LOCK))
+
+        statuses.spend_turn(context)
+        self.assertEqual(statuses.turn(StatusKind.REVIEW), 2)
+        self.assertEqual(statuses.turn(StatusKind.PARAMETER_BUFF), 2)
+
+
 class StatusVirtualTests(unittest.TestCase):
     def test_review_spend_turn_tracks_consumption(self):
         review = StatusEffect(kind=StatusKind.REVIEW.value, turn=3, turn_limited=True)

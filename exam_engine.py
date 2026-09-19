@@ -173,6 +173,7 @@ class StatusKind(str, Enum):
     ENTHUSIASTIC_MULTIPLE = "EnthusiasticMultiple"
     ENTHUSIASTIC_ADDITIVE = "EnthusiasticAdditive"
     REVIEW_MULTIPLE = "ReviewMultiple"
+    REVIEW_COUNT_ADD = "ReviewCountAdd"
     REVIEW_ADDITIVE = "ReviewAdditive"
     LESSON_BUFF_ADDITIVE = "LessonBuffAdditive"
     PARAMETER_BUFF_ADDITIVE = "ParameterBuffAdditive"
@@ -541,6 +542,13 @@ class ExamStatusEffectCollection:
             v = _f32(v + _f32(_f32(float(e.value)) / _f32(1000.0)))
         return v
 
+    def ratio_additive(self, kind: str | StatusKind) -> float:
+        # Down/additive ratio getters start from 0.0, not 1.0.
+        v = _f32(0.0)
+        for e in self.by_kind(kind):
+            v = _f32(v + _f32(_f32(float(e.value)) / _f32(1000.0)))
+        return v
+
     def reduce_value(self, kind: str | StatusKind, amount: int) -> int:
         remaining=max(0,int(amount)); before=self.total_value(kind)
         for e in list(self.by_kind(kind)):
@@ -565,6 +573,77 @@ class ExamStatusEffectCollection:
     def _next_uid(self) -> int:
         self.effect_create_count += 1
         return self.effect_create_count
+
+    def add_timed_value_status(self, kind: str | StatusKind, value: int, turn: int) -> bool:
+        """Port the common TryAdd* value+turn status pattern.
+
+        Native status collections merge value into an existing status only
+        when both type and remaining turn match; different durations remain
+        separate so they can expire independently.
+        """
+        k = str(kind.value if isinstance(kind, StatusKind) else kind)
+        value = int(value)
+        turn = int(turn)
+        for e in self.by_kind(k):
+            if int(e.turn) == turn:
+                e.value = int(e.value) + value
+                return True
+        self.effects.append(
+            StatusEffect(
+                kind=k,
+                value=value,
+                turn=turn,
+                turn_limited=turn >= 0,
+                uid=self._next_uid(),
+            )
+        )
+        return True
+
+    def add_single_turn_status(self, kind: str | StatusKind, turn: int) -> bool:
+        """Port single-instance TryAdd* status lifetime accumulation."""
+        k = str(kind.value if isinstance(kind, StatusKind) else kind)
+        turn = int(turn)
+        e = self.first(k)
+        if e is not None:
+            if not e.turn_limited or turn < 0:
+                e.turn = -1
+                e.turn_limited = False
+            else:
+                e.turn += turn
+            return True
+        self.effects.append(
+            StatusEffect(
+                kind=k,
+                turn=turn,
+                turn_limited=turn >= 0,
+                uid=self._next_uid(),
+            )
+        )
+        return True
+
+    def add_lesson_parameter_multiple(self, permil: int, turn: int) -> bool:
+        return self.add_timed_value_status(StatusKind.LESSON_PARAMETER_MULTIPLE, permil, turn)
+
+    def add_lesson_parameter_down(self, permil: int, turn: int) -> bool:
+        return self.add_timed_value_status(StatusKind.LESSON_PARAMETER_DOWN, permil, turn)
+
+    def add_lesson_buff_multiple(self, permil: int, turn: int) -> bool:
+        return self.add_timed_value_status(StatusKind.LESSON_BUFF_MULTIPLE, permil, turn)
+
+    def add_review_multiple(self, permil: int, turn: int) -> bool:
+        return self.add_timed_value_status(StatusKind.REVIEW_MULTIPLE, permil, turn)
+
+    def add_review_count_add(self, value: int, turn: int) -> bool:
+        return self.add_timed_value_status(StatusKind.REVIEW_COUNT_ADD, value, turn)
+
+    def add_lesson_value_depend_review_aggressive(self, turn: int) -> bool:
+        return self.add_single_turn_status(StatusKind.LESSON_VALUE_DEPEND_REVIEW_AGGRESSIVE, turn)
+
+    def add_review_turn_end_reduce_lock(self, turn: int) -> bool:
+        return self.add_single_turn_status(StatusKind.REVIEW_TURN_END_REDUCE_LOCK, turn)
+
+    def add_parameter_buff_turn_end_reduce_lock(self, turn: int) -> bool:
+        return self.add_single_turn_status(StatusKind.PARAMETER_BUFF_TURN_END_REDUCE_LOCK, turn)
 
     def _apply_additive(self, value: int, fix_kind: StatusKind, multiple_kind: StatusKind) -> int:
         fixed = int(value) + self.total_value(fix_kind)
@@ -687,7 +766,8 @@ class ExamStatusEffectCollection:
 
     def spend_turn(self, context: "ExamEffectCalculateContext") -> None:
         # Collection SpendTurn also handles timer/enchant/unique-status hooks.
-        # Reject those, then the base status decrement is exact.
+        # Reject those, then port the two native turn-end-reduction locks before
+        # applying the common base status decrement.
         complex_kinds = {
             StatusKind.TIMER.value,
             StatusKind.TRIGGER.value,
@@ -699,7 +779,14 @@ class ExamStatusEffectCollection:
                 "ExamStatusEffectCollection.SpendTurn",
                 "complex status present: " + ", ".join(bad),
             )
+
+        review_locked = self.has(StatusKind.REVIEW_TURN_END_REDUCE_LOCK)
+        parameter_buff_locked = self.has(StatusKind.PARAMETER_BUFF_TURN_END_REDUCE_LOCK)
         for e in list(self.effects):
+            if e.kind == StatusKind.REVIEW.value and review_locked:
+                continue
+            if e.kind == StatusKind.PARAMETER_BUFF.value and parameter_buff_locked:
+                continue
             e.spend_turn(context)
             if e.ended:
                 self.effects.remove(e)
@@ -1313,16 +1400,15 @@ class ExamEffectUtility:
             enthusiastic=_ceil_f32(_f32(_f32(modifier.enthusiastic_multiple)*_f32(float(enthusiastic))))
 
         lesson_multiple=s.ratio_multiple(StatusKind.LESSON_PARAMETER_MULTIPLE)
-        lesson_down=s.ratio_multiple(StatusKind.LESSON_PARAMETER_DOWN)
-        # The Down getter's neutral value is 1.0 only when the status exists;
-        # absent branch feeds 0 into 1-x. Preserve that exact branch here.
-        if not s.has(StatusKind.LESSON_PARAMETER_DOWN):
-            lesson_down=_f32(0.0)
+        # GetLessonParameterMultipleDown starts from 0.0 and sums permil.
+        lesson_down=s.ratio_additive(StatusKind.LESSON_PARAMETER_DOWN)
         down_factor=_f32(max(_f32(0.0), _f32(_f32(1.0)-lesson_down)))
 
         dep=_f32(0.0)
         if s.has(StatusKind.LESSON_VALUE_DEPEND_REVIEW_AGGRESSIVE):
-            rv=max(s.total_value(StatusKind.REVIEW),s.total_value(StatusKind.AGGRESSIVE))
+            # Review is represented by its remaining turn/value field in the
+            # native ReviewStatusEffect, whereas Aggressive is a value status.
+            rv=max(s.turn(StatusKind.REVIEW),s.total_value(StatusKind.AGGRESSIVE))
             dep=_f32(_f32(float(rv))*_from_permil(st.get(44)))
             dep=min(dep,_from_permil(st.get(45)))
             dep=_f32(dep)
@@ -1371,6 +1457,21 @@ class ExamEffectUtility:
     def add_parameter(value: int, context: ExamEffectCalculateContext) -> None:
         if context.parameter.status_effects.has(StatusKind.SLUMP): value=0
         ExamEffectUtility.add_parameter_fix(value,context)
+
+    @staticmethod
+    def apply_review_turn_end(context: ExamEffectCalculateContext) -> int:
+        """Port the automatic Review score emitted during TURN_END."""
+        s = context.parameter.status_effects
+        review = s.turn(StatusKind.REVIEW)
+        if review < 1:
+            return 0
+        base = _ceil_f32(_f32(s.ratio_multiple(StatusKind.REVIEW_MULTIPLE) * _f32(float(review))))
+        count = max(0, s.total_value(StatusKind.REVIEW_COUNT_ADD)) + 1
+        before = context.parameter.judge_parameter
+        for _ in range(count):
+            calculated = ExamEffectUtility.calculate_adding_parameter(base, context)
+            ExamEffectUtility.add_parameter(calculated, context)
+        return context.parameter.judge_parameter - before
 
     @staticmethod
     def add_parameter_fix(value: int, context: ExamEffectCalculateContext) -> None:
@@ -1804,6 +1905,10 @@ class StrictExamSequence:
         context = ExamEffectCalculateContext.create(self)
         p.phase = ExamPhase.TURN_END
 
+        # Native TURN_END materializes Review as a Lesson score before the
+        # next turn's SpendTurn consumes Review/status durations.
+        review_score = ExamEffectUtility.apply_review_turn_end(context)
+
         # The ResetHand path requires per-card reset destinations.
         self.card_controller.reset_hand(context)
 
@@ -1813,6 +1918,7 @@ class StrictExamSequence:
                 "parameter": p.judge_parameter,
                 "stamina": p.stamina,
                 "block": p.block,
+                "reviewScore": review_score,
                 "remainTurn": p.remain_turn,
             }
         )
