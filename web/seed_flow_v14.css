@@ -494,3 +494,19 @@
   font-size: 10px;
   font-weight: 900;
 }
+
+
+.generated-observation-card-v15 {
+  border-style: dashed !important;
+  border-color: color-mix(in srgb, var(--m3e-primary) 55%, var(--m3e-outline)) !important;
+  background: color-mix(in srgb, var(--m3e-primary-container) 42%, var(--m3e-surface)) !important;
+}
+
+.generated-observation-card-v15::after {
+  content: "動的生成";
+  display: block;
+  margin-top: 3px;
+  color: var(--m3e-primary);
+  font-size: 9px;
+  font-weight: 900;
+}
