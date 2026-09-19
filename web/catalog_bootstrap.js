@@ -20,13 +20,6 @@
     return nativeFetch(input, init);
   };
 
-  for (const href of ["./v5.css", "./v6.css", "./v7.css"]) {
-    const style = document.createElement("link");
-    style.rel = "stylesheet";
-    style.href = href;
-    document.head.append(style);
-  }
-
   window.addEventListener("DOMContentLoaded", () => {
     import("./display_fix_v4.js").catch((error) => console.warn("display name fix load failed", error));
     import("./app_v5.js").catch((error) => console.warn("simulator filter load failed", error));
