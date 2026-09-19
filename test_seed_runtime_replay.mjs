@@ -5,7 +5,7 @@ import {
   replayTowerSeed,
   replayUncertaintyLabel,
   summarizeReplayUncertainty,
-} from "./web/seed_runtime_replay_v13.js";
+} from "./web/seed_runtime_replay.js";
 
 function master(id, extra = {}) {
   return {

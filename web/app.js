@@ -15,7 +15,7 @@ import {
   prepareSeedBatchSearch,
   runOrderMonteCarlo,
   seedIntervalFromChoices,
-} from "./sim_v3.js";
+} from "./simulation.js";
 import { createTowerPreset, parseTowerPreset } from "./tower_preset.js";
 import {
   createTowerTurnState,
@@ -29,11 +29,11 @@ import {
   describeProduceItemEffect,
   loadExamItemCatalogs,
   resolveProduceItems,
-} from "./exam_effects_v7.js";
+} from "./exam_effects.js";
 import {
   generatedObservationLabel,
   partitionSeedObservations,
-} from "./seed_observation_v15.js";
+} from "./seed_observation.js";
 import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
 
 const $ = (id) => document.getElementById(id);

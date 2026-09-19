@@ -4,7 +4,7 @@ import {
   parseCharacterCatalog,
   parseIdolCardCatalog,
   planLabel,
-} from "./catalog_v4.js";
+} from "./catalog.js";
 
 const MEMORY_STORAGE_KEY = "gakumas-sim-memory-library-v3";
 const FILTER_STORAGE_KEY = "gakumas-sim-builder-filter-v5";

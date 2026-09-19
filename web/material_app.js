@@ -1,9 +1,9 @@
-import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, planLabel } from "./catalog_v4.js";
+import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, planLabel } from "./catalog.js";
 import { parseProduceCardCatalogYaml } from "./engine.js";
-import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup_v9.js";
+import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
-import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./sim_v3.js";
-import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation_v15.js";
+import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
+import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
 const routeLabels = Object.freeze({ memory: "メモリー管理", cards: "P図鑑 · カード", items: "P図鑑 · Pアイテム", exam: "試験（オーディション）", contest: "コンテスト", tower: "ドル道" });
 const MAX_SEED_MATCHES = 100;

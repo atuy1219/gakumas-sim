@@ -1,5 +1,5 @@
-import { observationCardLabel } from "./sim_v3.js";
-import { parseExamEffectId } from "./exam_effects_v7.js";
+import { observationCardLabel } from "./simulation.js";
+import { parseExamEffectId } from "./exam_effects.js";
 
 function cardId(card) {
   return String(card?.id ?? card?.produceCardId ?? "");

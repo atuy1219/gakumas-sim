@@ -11,7 +11,7 @@ import {
   seedMatchesObservedDraws,
   simulateTurnRecycleDraws,
   validateObservedDraws,
-} from "./web/sim_v3.js";
+} from "./web/simulation.js";
 
 const cards = "ABCDEFGH".split("").map((id) => ({ id, fixedDeckOrder: 0, upgradeCount: 0 }));
 const seed = 0x12345678;

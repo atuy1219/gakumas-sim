@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   normalizeSeedObservedName,
   resolveSeedBuilderCardRef,
-} from "./web/seed_history_ref_v12.js";
+} from "./web/seed_history_ref.js";
 
 const cards = [
   { id: "p_card-02-men-2_054", upgradeCount: 0, name: "本番前夜" },

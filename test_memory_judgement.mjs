@@ -6,7 +6,7 @@ import {
   parseCustomizeCatalog,
   parseCustomizeRarityEvaluations,
   parseGrowEffectCatalog,
-} from "./web/memory_judgement_v10.js";
+} from "./web/memory_judgement.js";
 
 const cardRules = parseCardMemoryRules(`- id: p_card-test
   upgradeCount: 0

@@ -7,7 +7,7 @@ import {
   parseIdolCardCatalog,
   parseProduceCardCatalog,
   parseProduceItemCatalog,
-} from "./catalog_v4.js";
+} from "./catalog.js";
 
 const MEMORY_STORAGE_KEY = "gakumas-sim-memory-library-v3";
 

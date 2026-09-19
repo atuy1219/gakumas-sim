@@ -9,7 +9,7 @@ import {
   f32,
   getRatioEffectIntValue,
   spendTurnStrict,
-} from "./web/exam_runtime_v8.js";
+} from "./web/exam_runtime.js";
 
 assert.equal(f32(0.1 + 0.2), Math.fround(0.1 + 0.2));
 assert.equal(getRatioEffectIntValue(10, 1500, true), 16);

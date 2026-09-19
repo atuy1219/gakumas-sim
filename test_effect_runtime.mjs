@@ -4,7 +4,7 @@ import {
   checkCardEffectTrigger,
   createExamState,
   parseExamEffectId,
-} from "./web/exam_effects_v7.js";
+} from "./web/exam_effects.js";
 import {
   createTowerTurnState,
   drawTowerTurn,

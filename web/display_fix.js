@@ -4,7 +4,7 @@ import {
   fetchTextWithFallback,
   parseCharacterCatalog,
   parseIdolCardCatalog,
-} from "./catalog_v4.js";
+} from "./catalog.js";
 
 const memoryList = document.getElementById("memory-list");
 

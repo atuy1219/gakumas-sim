@@ -4,8 +4,8 @@ import {
   generatedObservationLabel,
   partitionSeedObservations,
   resolveSeedObservationLine,
-} from "./web/seed_observation_v15.js";
-import { prepareSeedBatchSearch } from "./web/sim_v3.js";
+} from "./web/seed_observation.js";
+import { prepareSeedBatchSearch } from "./web/simulation.js";
 
 const sleepyId = "p_card-00-acc-0_002";
 const masters = [

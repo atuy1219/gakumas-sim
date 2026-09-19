@@ -1,16 +1,16 @@
 import { loadCatalogs } from "./engine.js";
-import { observationCardLabel } from "./sim_v3.js";
+import { observationCardLabel } from "./simulation.js";
 import {
   evaluateTowerSeedCandidates,
   replayHandUnion,
   summarizeReplayUncertainty,
-} from "./seed_runtime_replay_v13.js";
+} from "./seed_runtime_replay.js";
 import {
   normalizeSeedObservedName,
   resolveSeedBuilderCardRef,
   seedRefLabels,
-} from "./seed_history_ref_v12.js";
-import { partitionSeedObservations } from "./seed_observation_v15.js";
+} from "./seed_history_ref.js";
+import { partitionSeedObservations } from "./seed_observation.js";
 
 const $ = (id) => document.getElementById(id);
 const DRAW_PER_TURN = 3;
@@ -32,7 +32,7 @@ const state = {
 };
 
 function ensureStylesheets() {
-  for (const href of ["./seed_history_v11.css", "./seed_runtime_replay_v13.css"]) {
+  for (const href of ["./seed_history.css", "./seed_runtime_replay.css"]) {
     if (document.querySelector(`link[href="${href}"]`)) continue;
     const link = document.createElement("link");
     link.rel = "stylesheet";

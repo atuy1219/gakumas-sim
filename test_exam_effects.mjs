@@ -9,7 +9,7 @@ import {
   parseProduceItemEffectCatalog,
   payCardCost,
   resolveProduceItems,
-} from "./web/exam_effects_v7.js";
+} from "./web/exam_effects.js";
 
 assert.deepEqual(parseExamEffectId("e_effect-exam_lesson-0012-02"), {
   kind: "lesson", id: "e_effect-exam_lesson-0012-02", value: 12, count: 2,

@@ -5,7 +5,7 @@ import {
   createExamState,
   parseExamEffectId,
   payCardCost,
-} from "./exam_effects_v7.js";
+} from "./exam_effects.js";
 
 export const TOWER_DEFAULT_DECK_BY_EXAM_EFFECT = Object.freeze({
   ProduceExamEffectType_ExamParameterBuff: "initial_deck-parameter_buff",

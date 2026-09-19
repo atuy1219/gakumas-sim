@@ -5,7 +5,7 @@ import {
   firstRecycleRelevantHands,
   matchesFirstRecycleObservation,
   predictFirstRecycle,
-} from "./web/seed_recycle_v11.js";
+} from "./web/seed_recycle.js";
 import {
   createTowerTurnState,
   drawTowerTurn,

@@ -10,7 +10,7 @@ import {
   parseProduceCardCatalog,
   parseProduceItemCatalog,
   planLabel,
-} from "./catalog_v4.js";
+} from "./catalog.js";
 import {
   describeCustomize,
   judgeCardCustomization,
@@ -19,7 +19,7 @@ import {
   parseCustomizeCatalog,
   parseCustomizeRarityEvaluations,
   parseGrowEffectCatalog,
-} from "./memory_judgement_v10.js";
+} from "./memory_judgement.js";
 
 const $ = (id) => document.getElementById(id);
 const CUSTOM_STORE_KEY = "gakumas-sim-custom-count-v4";

@@ -21,10 +21,10 @@
   };
 
   window.addEventListener("DOMContentLoaded", () => {
-    import("./display_fix_v4.js").catch((error) => console.warn("display name fix load failed", error));
+    import("./display_fix.js").catch((error) => console.warn("display name fix load failed", error));
     import("./simulator_filter.js").catch((error) => console.warn("simulator filter load failed", error));
     import("./memory_detail_ui.js").catch((error) => console.warn("memory detail UI load failed", error));
-    import("./seed_history_ui_v13.js").catch((error) => console.warn("seed runtime replay UI load failed", error));
-    import("./memory_upgrade_ui_v12.js").catch((error) => console.warn("memory upgrade checkbox UI load failed", error));
+    import("./seed_history_ui.js").catch((error) => console.warn("seed runtime replay UI load failed", error));
+    import("./memory_upgrade_ui.js").catch((error) => console.warn("memory upgrade checkbox UI load failed", error));
   }, { once: true });
 })();

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./web/exam_setup_v9.js";
+import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./web/exam_setup.js";
 
 const idols = [
   { id: "idol-a", characterId: "char-a", planType: "ProducePlanType_Plan1", name: "A" },
