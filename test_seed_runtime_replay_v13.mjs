@@ -139,4 +139,70 @@ assert.equal(generatedReplay.state.discard.some((card) => card.id === sleepyId)
   || generatedReplay.state.hand.some((card) => card.id === sleepyId)
   || generatedReplay.state.deck.some((card) => card.id === sleepyId), true);
 
+// Seeds with the same initial permutation can diverge when DeckRandom consumes
+// the next RNG value. A generated-card observation from the first cycle must
+// therefore narrow candidates once the user replays the generating action.
+const generatedLongDeck = [
+  master("ADVENTURE2", {
+    isInitial: true,
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: `e_effect-exam_card_create_id-${sleepyId}-0-deck_random-1_1` },
+    ],
+  }),
+  master("LA"),
+  master("LB"),
+  master("LC"),
+  master("LD"),
+  master(sleepyId, { category: "ProduceCardCategory_Trouble", name: "眠気" }),
+];
+const generatedLongById = new Map(generatedLongDeck.map((card) => [card.id, card]));
+const generatedLongVariants = new Map(generatedLongDeck.map((card) => [`${card.id}@@0`, card]));
+const generatedLongCards = ["ADVENTURE2", "LA", "LB", "LC", "LD"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 }));
+const generatedScript = [{ plays: [{ id: "ADVENTURE2", upgradeCount: 0, occurrence: 0 }], ended: true }];
+
+function visibleDrawIds(result) {
+  return (result.trace ?? []).flatMap((entry) =>
+    ["draw", "play"].includes(entry.type)
+      ? (entry.drawn ?? []).map((card) => String(card.id))
+      : []);
+}
+
+const generatedSeen = new Map();
+let generatedPair = null;
+for (let seed = 1; seed < 50000 && !generatedPair; seed += 1) {
+  const initial = createTowerTurnState(generatedLongCards, seed, generatedLongById, { cardVariantByKey: generatedLongVariants });
+  const initialKey = initial.initialDeck.map((card) => card.id).join(",");
+  const replay = replayTowerSeed(seed, generatedLongCards, generatedScript, {
+    cardById: generatedLongById,
+    cardVariantByKey: generatedLongVariants,
+  });
+  if (replay.status !== "ok") continue;
+  const draws = visibleDrawIds(replay);
+  const previous = generatedSeen.get(initialKey);
+  if (previous && previous.draws.join(",") !== draws.join(",")) {
+    generatedPair = { a: previous, b: { seed, initial, replay, draws } };
+    break;
+  }
+  if (!previous) generatedSeen.set(initialKey, { seed, initial, replay, draws });
+}
+assert.ok(generatedPair, "same initial order / different generated-card insertion seeds should exist");
+
+const generatedExpectedInitial = generatedPair.a.initial.initialDeck.map((card) => ({
+  id: card.id,
+  upgradeCount: Number(card.upgradeCount ?? 0),
+}));
+const generatedFiltered = evaluateTowerSeedCandidates(
+  [generatedPair.a.seed, generatedPair.b.seed],
+  generatedLongCards,
+  generatedScript,
+  [],
+  {
+    cardById: generatedLongById,
+    cardVariantByKey: generatedLongVariants,
+    expectedInitialOrder: generatedExpectedInitial,
+    observedDrawOrder: generatedPair.a.draws,
+  },
+);
+assert.deepEqual(generatedFiltered.seeds, [generatedPair.a.seed]);
+
 console.log("seed runtime replay v13 tests: ok");
