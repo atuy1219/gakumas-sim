@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import assert from "node:assert/strict";\nimport { XorShift32 } from "./web/engine.js";
 import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
   TOWER_EXAM_EFFECT_LABELS,
@@ -148,5 +148,55 @@ assert.equal(state.exam.block, 4);
 assert.equal(state.playsRemaining, 1);
 assert.match(play.effects.join(" / "), /パラメータ \+8/);
 assert.equal(state.discard.some((card) => card.id === "EFFECT"), true);
+
+// Cards such as 冒険心 generate 眠気 into a random Deck position.
+// The native CardCreateId path uses p_card-00-acc-0_002 and DeckRandom.
+const sleepyId = "p_card-00-acc-0_002";
+const generatedMasters = [
+  {
+    id: "ADVENTURE",
+    isInitial: true,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_playable_value_add-0001" },
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_card_draw-0001" },
+      { produceExamTriggerId: "", produceExamEffectId: `e_effect-exam_card_create_id-${sleepyId}-0-deck_random-1_1` },
+    ],
+  },
+  { id: "GX", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  { id: "GY", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  { id: "GZ", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  {
+    id: sleepyId,
+    name: "眠気",
+    category: "ProduceCardCategory_Trouble",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const generatedCardById = new Map(generatedMasters.map((card) => [card.id, card]));
+const generatedVariants = new Map(generatedMasters.map((card) => [`${card.id}@@0`, card]));
+const generatedCards = ["ADVENTURE", "GX", "GY", "GZ"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 }));
+state = createTowerTurnState(generatedCards, 1, generatedCardById, { cardVariantByKey: generatedVariants });
+drawTowerTurn(state, 3);
+const adventureIndex = state.hand.findIndex((card) => card.id === "ADVENTURE");
+assert.ok(adventureIndex >= 0);
+const randomStateBeforeCreate = state.randomState >>> 0;
+const generatedPlay = playTowerCard(state, adventureIndex);
+assert.equal(generatedPlay.drawn.length, 1, "draw resolves before the create effect");
+assert.equal(generatedPlay.created.length, 1);
+assert.equal(generatedPlay.created[0].card.id, sleepyId);
+assert.equal(generatedPlay.created[0].movePosition, "deck_random");
+assert.equal(generatedPlay.created[0].insertIndex, 0, "empty Deck resolves DeckRandom to index 0");
+assert.deepEqual(state.deck.map((card) => card.id), [sleepyId]);
+assert.equal(state.hand.some((card) => card.id === sleepyId), false, "generated after draw, so it is not drawn by the same effect");
+
+const randomStep = new XorShift32(randomStateBeforeCreate);
+randomStep.nextU32();
+assert.equal(state.randomState, randomStep.state >>> 0, "DeckRandom consumes exactly one native RNG step even when Deck.Count is zero");
+
+finishTowerTurn(state, { type: "end" });
+const nextDraw = drawTowerTurn(state, 3);
+assert.equal(nextDraw.drawn[0].id, sleepyId, "generated Sleepiness participates in subsequent deck/recycle flow");
 
 console.log("tower runtime tests: ok");
