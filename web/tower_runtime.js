@@ -108,6 +108,18 @@ function consumeNativeRandomInt(state, minimum, maximum) {
   return value;
 }
 
+function consumeNativeRandomSortKey(state) {
+  // ExamParameterModel.GetRandomInt() @ 0x8043A80 returns the current
+  // XorShift word with the sign bit flipped, then advances the state.
+  // When that Int32 is sorted ascending, its order is exactly the unsigned
+  // order of the pre-advance XorShift word.
+  const key = Number(state.randomState) >>> 0;
+  const rng = new XorShift32(key);
+  rng.nextU32();
+  state.randomState = rng.state >>> 0;
+  return key;
+}
+
 function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
   const id = String(cardIdInput ?? "");
   const upgradeCount = Number(upgradeCountInput ?? 0);
@@ -232,9 +244,9 @@ function moveSearchedCards(state, parsed, event) {
   if (!Array.isArray(event.moved)) event.moved = [];
   const min = Math.max(0, Number(parsed.pickCountMin ?? 0) || 0);
   const max = Math.max(0, Number(parsed.pickCountMax ?? min) || 0);
-  if (min !== max) {
+  if (max < min) {
     rememberUnsupported(state, `card-move-count:${parsed.id}`);
-    event.effects.push(`移動枚数が可変のため判定保留: ${parsed.id}`);
+    event.effects.push(`移動枚数の範囲が不正なため判定保留: ${parsed.id}`);
     return;
   }
   if (String(parsed.pickRange ?? "") !== "random") {
@@ -255,34 +267,50 @@ function moveSearchedCards(state, parsed, event) {
     return;
   }
 
-  for (let pick = 0; pick < min; pick += 1) {
-    const matches = [];
-    for (const pool of pools) {
-      for (let index = 0; index < pool.cards.length; index += 1) {
-        if (String(pool.cards[index]?.id ?? "") !== String(parsed.cardId ?? "")) continue;
-        matches.push({ pool, index, card: pool.cards[index] });
-      }
+  const matches = [];
+  for (const pool of pools) {
+    for (let index = 0; index < pool.cards.length; index += 1) {
+      if (String(pool.cards[index]?.id ?? "") !== String(parsed.cardId ?? "")) continue;
+      matches.push({ pool, index, card: pool.cards[index], sourceOrder: matches.length });
     }
-    if (!matches.length) break;
+  }
 
-    // ProducePickRangeType_Random selects through the exam XorShift stream.
-    // Keep the RNG step even when only one matching card exists so subsequent
-    // DeckRandom/recycle shuffles stay aligned with the native client.
-    const randomStateBefore = state.randomState >>> 0;
-    const selectedIndex = consumeNativeRandomInt(state, 0, matches.length);
-    const selected = matches[selectedIndex];
-    const [card] = selected.pool.cards.splice(selected.index, 1);
+  // Native path:
+  // ExamEffectUtility.PickCardPositionListImpl @ 0x7FE99E8
+  //   1) GetPickCountMinMax
+  //   2) GetRandomInt(min, max + 1) @ 0x7FEA0C8 -- ALWAYS consumes one
+  //      XorShift word, even for a fixed 1_1 count.
+  //   3) ProducePickRangeType_Random orders every candidate by a random Int32.
+  //      <PickCardPositionListImpl>b__3 @ 0x7FFE17C calls
+  //      ExamEffectCalculateContext.GetRandomInt() once PER candidate.
+  //
+  // The old replay consumed only one RNG word for selecting an index. For
+  // 夏夜に咲く思い出 with exactly one 眠気, native consumes two words:
+  // fixed pick-count + the candidate's random sort key.
+  const randomStateBefore = state.randomState >>> 0;
+  const pickCount = consumeNativeRandomInt(state, min, max + 1);
+  const randomized = matches.map((entry) => ({
+    ...entry,
+    randomKey: consumeNativeRandomSortKey(state),
+  }));
+  randomized.sort((a, b) => a.randomKey - b.randomKey || a.sourceOrder - b.sourceOrder);
+
+  const selected = randomized.slice(0, Math.min(pickCount, randomized.length));
+  const randomStateAfterSelection = state.randomState >>> 0;
+  for (const entry of selected) {
+    const currentIndex = entry.pool.cards.indexOf(entry.card);
+    if (currentIndex < 0) continue;
+    const [card] = entry.pool.cards.splice(currentIndex, 1);
     state.lost.push(card);
     event.moved.push({
       card: { ...card },
-      from: selected.pool.name,
+      from: entry.pool.name,
       to: "lost",
       randomStateBefore,
-      randomStateAfter: state.randomState >>> 0,
+      randomStateAfter: randomStateAfterSelection,
     });
   }
 }
-
 
 function normalizeHandLimit(value) {
   const numeric = Number(value);
