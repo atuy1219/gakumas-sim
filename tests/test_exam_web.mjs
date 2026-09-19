@@ -50,9 +50,11 @@ console.log("card master effect parser tests: ok");
 const { default: assert } = await import("node:assert/strict");
 const {
   EXAM_IDOL_STATUS_TYPE,
+  NATIVE_LESSON_MODIFIER_KIND,
   addNativeLessonParameter,
   applyNativeBattleBonus,
   applyNativeLessonHits,
+  applyNativeModifiedLessonRepeat,
   calculateNativeAddingParameter,
   calculateNativeDependentLessonBase,
 } = await import("../web/exam_score.js");
@@ -118,6 +120,45 @@ const direct = addNativeLessonParameter(exam, 10, {
 assert.equal(direct.calculated, 10);
 assert.equal(direct.added, 13);
 assert.equal(exam.parameterDance, 13);
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Concentration;
+exam.idolStatusStep = 1;
+let special = applyNativeModifiedLessonRepeat(
+  exam,
+  10,
+  500,
+  2,
+  NATIVE_LESSON_MODIFIER_KIND.Concentration,
+);
+assert.equal(special.calculated, 25);
+assert.equal(special.added, 50);
+
+exam = createExamState();
+exam.enthusiastic = 10;
+special = applyNativeModifiedLessonRepeat(
+  exam,
+  10,
+  500,
+  2,
+  NATIVE_LESSON_MODIFIER_KIND.Enthusiastic,
+);
+assert.equal(special.calculated, 25);
+assert.equal(special.added, 50);
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.FullPower;
+special = applyNativeModifiedLessonRepeat(
+  exam,
+  10,
+  500,
+  2,
+  NATIVE_LESSON_MODIFIER_KIND.FullPower,
+  { isBattle: true, battleBonusPermil: 1500, parameterType: "Visual" },
+);
+assert.equal(special.calculated, 40);
+assert.equal(special.added, 120);
+assert.equal(exam.parameterVisual, 120);
 
 console.log("native exam score tests: ok");
 }

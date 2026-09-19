@@ -225,11 +225,31 @@ function parameterField(parameterType) {
   }
 }
 
-export function addNativeLessonParameter(exam, baseValue, scoreContext = {}, modifier = null) {
-  const calculated = calculateNativeAddingParameter(exam, baseValue, {
-    settings: scoreContext.settings,
-    modifier,
-  });
+export const NATIVE_LESSON_MODIFIER_KIND = Object.freeze({
+  ParameterBuff: "parameterBuff",
+  Enthusiastic: "enthusiastic",
+  Concentration: "concentration",
+  FullPower: "fullPower",
+});
+
+function nativeLessonModifier(kindInput, permilInput) {
+  const rate = f32(f32(1) + fromPermil(permilInput));
+  switch (String(kindInput ?? "")) {
+    case NATIVE_LESSON_MODIFIER_KIND.ParameterBuff:
+      return { parameterBuffMultiple: rate };
+    case NATIVE_LESSON_MODIFIER_KIND.Enthusiastic:
+      return { enthusiasticMultiple: rate };
+    case NATIVE_LESSON_MODIFIER_KIND.Concentration:
+      return { concentrationMultiple: rate };
+    case NATIVE_LESSON_MODIFIER_KIND.FullPower:
+      return { fullPowerMultiple: rate };
+    default:
+      throw new Error(`未知のパラメータ追加倍率です: ${kindInput}`);
+  }
+}
+
+export function addNativeCalculatedParameter(exam, calculatedInput, scoreContext = {}, baseValue = null) {
+  const calculated = clampInt32NonNegative(calculatedInput);
   const hasBattleBonus = scoreContext.battleBonusPermil !== null
     && scoreContext.battleBonusPermil !== undefined
     && Number.isFinite(Number(scoreContext.battleBonusPermil));
@@ -242,16 +262,20 @@ export function addNativeLessonParameter(exam, baseValue, scoreContext = {}, mod
   if (field) exam[field] = clampInt32NonNegative(Number(exam?.[field] ?? 0) + added);
 
   return {
-    baseValue: Math.trunc(Number(baseValue) || 0),
+    baseValue: baseValue === null ? null : Math.trunc(Number(baseValue) || 0),
     calculated,
     added,
     parameterType: String(scoreContext.parameterType ?? ""),
-    battleBonusPermil: scoreContext.battleBonusPermil !== null
-      && scoreContext.battleBonusPermil !== undefined
-      && Number.isFinite(Number(scoreContext.battleBonusPermil))
-      ? Number(scoreContext.battleBonusPermil)
-      : null,
+    battleBonusPermil: hasBattleBonus ? Number(scoreContext.battleBonusPermil) : null,
   };
+}
+
+export function addNativeLessonParameter(exam, baseValue, scoreContext = {}, modifier = null) {
+  const calculated = calculateNativeAddingParameter(exam, baseValue, {
+    settings: scoreContext.settings,
+    modifier,
+  });
+  return addNativeCalculatedParameter(exam, calculated, scoreContext, baseValue);
 }
 
 export function applyNativeLessonHits(exam, baseValue, countInput = 1, scoreContext = {}, modifier = null) {
@@ -261,6 +285,38 @@ export function applyNativeLessonHits(exam, baseValue, countInput = 1, scoreCont
     hits.push(addNativeLessonParameter(exam, baseValue, scoreContext, modifier));
   }
   return {
+    hits,
+    added: hits.reduce((sum, hit) => sum + hit.added, 0),
+  };
+}
+
+export function applyNativeModifiedLessonRepeat(
+  exam,
+  baseValue,
+  permil,
+  countInput,
+  modifierKind,
+  scoreContext = {},
+) {
+  // LessonMultiple{Concentration,Enthusiastic,FullPower}EffectExecutor:
+  // construct ExamAddingParameterAdditionalData, CalculateAddingParameter ONCE,
+  // then invoke AddParameter with the same calculated value Count times.
+  const count = Math.max(0, Math.trunc(Number(countInput) || 0));
+  const modifier = nativeLessonModifier(modifierKind, permil);
+  const calculated = calculateNativeAddingParameter(exam, baseValue, {
+    settings: scoreContext.settings,
+    modifier,
+  });
+  const hits = [];
+  for (let index = 0; index < count; index += 1) {
+    hits.push(addNativeCalculatedParameter(exam, calculated, scoreContext, baseValue));
+  }
+  return {
+    baseValue: Math.trunc(Number(baseValue) || 0),
+    permil: Math.trunc(Number(permil) || 0),
+    modifierKind: String(modifierKind ?? ""),
+    calculated,
+    count,
     hits,
     added: hits.reduce((sum, hit) => sum + hit.added, 0),
   };

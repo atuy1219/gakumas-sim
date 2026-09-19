@@ -268,6 +268,40 @@ class NativeScoreTests(unittest.TestCase):
         self.assertEqual(statuses.turn(StatusKind.PARAMETER_BUFF), 2)
 
 
+    def test_modified_lesson_executors_calculate_once_then_repeat(self):
+        seq = make_sequence()
+        seq.parameter.status_effects.idol_status_type = 1
+        seq.parameter.status_effects.idol_status_step = 1
+        seq.parameter.setting.set(23, 2000)
+        context = ExamEffectCalculateContext.create(seq)
+        calculated, added = ExamEffectUtility.apply_modified_parameter_repeat(
+            10, 500, 2, "concentration", context
+        )
+        self.assertEqual((calculated, added), (25, 50))
+
+        seq = make_sequence(statuses=[
+            StatusEffect(kind=StatusKind.ENTHUSIASTIC.value, value=10),
+        ])
+        context = ExamEffectCalculateContext.create(seq)
+        calculated, added = ExamEffectUtility.apply_modified_parameter_repeat(
+            10, 500, 2, "enthusiastic", context
+        )
+        self.assertEqual((calculated, added), (25, 50))
+
+        seq = make_sequence()
+        seq.parameter.status_effects.idol_status_type = 3
+        seq.parameter.setting.set(9, 3000)
+        seq.parameter.is_battle = True
+        seq.parameter.turn_status_parameter_type_list = [int(ExamParameterType.VISUAL)]
+        seq.parameter.visual_bonus_permil = 1500
+        context = ExamEffectCalculateContext.create(seq)
+        calculated, added = ExamEffectUtility.apply_modified_parameter_repeat(
+            10, 500, 2, "full_power", context
+        )
+        self.assertEqual((calculated, added), (40, 120))
+        self.assertEqual(seq.parameter.judge_parameter_visual, 120)
+
+
 class StatusVirtualTests(unittest.TestCase):
     def test_review_spend_turn_tracks_consumption(self):
         review = StatusEffect(kind=StatusKind.REVIEW.value, turn=3, turn_limited=True)

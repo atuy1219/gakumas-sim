@@ -1459,6 +1459,52 @@ class ExamEffectUtility:
         ExamEffectUtility.add_parameter_fix(value,context)
 
     @staticmethod
+    def apply_modified_parameter_repeat(
+        value: int,
+        permil: int,
+        count: int,
+        modifier_kind: str,
+        context: ExamEffectCalculateContext,
+    ) -> tuple[int, int]:
+        """Port LessonMultiple*EffectExecutor's calculate-once repeat path.
+
+        Native constructs ExamAddingParameterAdditionalData with one multiplier
+        set to 1 + permil/1000, calls CalculateAddingParameter exactly once,
+        then calls AddParameter with that same calculated value count times.
+        """
+        rate = _f32(_f32(1.0) + _from_permil(int(permil)))
+        kwargs = {
+            "parameter_buff_multiple": _f32(1.0),
+            "enthusiastic_multiple": _f32(1.0),
+            "concentration_multiple": _f32(1.0),
+            "full_power_multiple": _f32(1.0),
+        }
+        field_by_kind = {
+            "parameter_buff": "parameter_buff_multiple",
+            "enthusiastic": "enthusiastic_multiple",
+            "concentration": "concentration_multiple",
+            "full_power": "full_power_multiple",
+        }
+        field = field_by_kind.get(str(modifier_kind))
+        if field is None:
+            raise UnsupportedPath(
+                "LessonMultiple*EffectExecutor",
+                f"unknown modifier kind: {modifier_kind}",
+            )
+        kwargs[field] = rate
+        modifier = ParameterCalculationModifier(**kwargs)
+
+        calculated = ExamEffectUtility.calculate_adding_parameter(
+            int(value),
+            context,
+            modifier,
+        )
+        before = context.parameter.judge_parameter
+        for _ in range(max(0, int(count))):
+            ExamEffectUtility.add_parameter(calculated, context)
+        return calculated, context.parameter.judge_parameter - before
+
+    @staticmethod
     def apply_review_turn_end(context: ExamEffectCalculateContext) -> int:
         """Port the automatic Review score emitted during TURN_END."""
         s = context.parameter.status_effects
