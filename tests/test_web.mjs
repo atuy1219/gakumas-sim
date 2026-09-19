@@ -259,3 +259,12 @@ assert.equal(richer.grade, "ResultGrade_SsPlus");
 assert.deepEqual(richer.examBattleProduceItemIds, ["p_item-test"]);
 
 console.log("web parity tests: ok");
+
+
+const towerStageHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/index.html", import.meta.url), "utf8"));
+assert.match(towerStageHtml, /id="tower-stage-config"/);
+assert.match(towerStageHtml, /id="tower-stage-summary"/);
+assert.match(towerStageHtml, /id="tower-turn-order-preview"/);
+
+const appCss = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/app.css", import.meta.url), "utf8"));
+assert.match(appCss, /\[data-sim-stage\]\[hidden\]\s*\{\s*display:\s*none\s*!important;/);

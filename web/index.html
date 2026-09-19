@@ -273,7 +273,10 @@
         <p id="tower-preset-status" class="hint" aria-live="polite"></p>
         <div class="sim-config-grid">
           <label><span>メモリー枚数</span><select id="tower-memory-count"><option value="2">2枚</option><option value="3" selected>3枚</option><option value="4">4枚</option></select></label>
+          <label><span>ドル道ステージ</span><select id="tower-stage-config" required><option value="">ステージ設定を読み込み中...</option></select></label>
         </div>
+        <p id="tower-stage-source-status" class="hint" aria-live="polite"></p>
+        <div id="tower-stage-summary" class="tower-stage-summary" aria-live="polite"><span class="hint">ドル道ステージとメモリーを選択してください。</span></div>
         <p class="hint">アイドルへの道のデッキは、選択メモリーの採用カード + MainのPアイドルのタイプに対応する基本カード2枚で構成します。</p>
         <div id="tower-builder" class="sim-builder"></div>
         <div class="base-deck-box">
@@ -299,6 +302,10 @@
               <span class="seed-route-badge-v14">最短</span>
             </div>
             <label class="seed-field-v14"><span>Seed</span><input id="tower-seed" inputmode="text" spellcheck="false" autocomplete="off" placeholder="例: 0x12345678 または 305419896"></label>
+            <div class="tower-turn-order-box">
+              <strong>このSeedのターン属性順</strong>
+              <div id="tower-turn-order-preview" class="chip-list tower-turn-order-preview"><span class="hint">Seedを入力すると表示します。</span></div>
+            </div>
             <button type="button" class="primary seed-continue-v14" data-tower-next="simulation">このSeedでシミュレーションへ</button>
           </div>
         </section>

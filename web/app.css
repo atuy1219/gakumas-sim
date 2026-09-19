@@ -990,3 +990,45 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
   .tower-turn-card-v7 { background: #20242b; border-color: #30353d; }
   .tower-turn-card-v7 small { color: #a9afb9; }
 }
+
+
+/* Simulation stage visibility must override component display declarations. */
+[data-sim-stage][hidden] {
+  display: none !important;
+}
+
+.tower-stage-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.tower-stage-stat {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #d7d7df);
+  border-radius: 12px;
+  background: var(--surface-soft, #f7f8fa);
+}
+.tower-stage-stat small {
+  opacity: .72;
+}
+.tower-stage-stat strong {
+  font-variant-numeric: tabular-nums;
+}
+.tower-stage-note {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+}
+.tower-turn-order-box {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.tower-turn-order-preview {
+  align-items: stretch;
+}
+.tower-turn-chip {
+  font-variant-numeric: tabular-nums;
+}

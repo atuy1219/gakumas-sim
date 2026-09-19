@@ -81,7 +81,8 @@ function setSimulationStage(mode, stage) {
   if (["memory", "setup"].includes(stage)) for (const result of panel.querySelectorAll("[data-sim-result]")) result.hidden = true;
   for (const chip of panel.querySelectorAll(".m3e-flow-nav [data-stage]")) chip.classList.toggle("active", chip.dataset.stage === stage);
   panel.dataset.stage = stage;
-  window.scrollTo?.({ top: 0, behavior: "smooth" });
+  const activeStage = panel.querySelector(`[data-sim-stage="${stage}"]`);
+  requestAnimationFrame(() => activeStage?.scrollIntoView({ behavior: "smooth", block: "start" }));
 }
 
 addFlowNavigation("contest");
@@ -583,6 +584,14 @@ document.getElementById("exam-run").addEventListener("click", () => {
 });
 for (const button of document.querySelectorAll("#tab-tower [data-tower-next]")) {
   button.addEventListener("click", () => {
+    if (button.dataset.towerNext === "seed") {
+      const stage = document.getElementById("tower-stage-config");
+      if (!String(stage?.value ?? "").trim()) {
+        showExamError("先にドル道ステージを選択してください。");
+        stage?.focus();
+        return;
+      }
+    }
     if (button.dataset.towerNext === "simulation") {
       const input = document.getElementById("tower-seed");
       if (!String(input?.value ?? "").trim()) {

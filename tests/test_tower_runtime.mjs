@@ -462,3 +462,91 @@ playTowerCard(state, nextSkillIndex);
 assert.equal(state.exam.parameter, 5);
 
 console.log("tower runtime tests: ok");
+
+
+{
+  const {
+    buildTowerStageChoices,
+    calculateTowerMemoryParameters,
+    calculateTowerParameterBonus,
+    calculateTowerTurnTypes,
+    parseTowerBattleConfigs,
+    parseTowerCatalog,
+    parseTowerLayerExams,
+    parseTowerScoreConfigs,
+  } = await import("../web/tower_stage.js");
+
+  const stageConfigs = parseTowerBattleConfigs(`
+- id: p_exam_battle_config-other
+  turn: 12
+  vocal: 1
+  dance: 1
+  visual: 1
+- id: p_exam_battle_config-tower_001-test
+  turn: 12
+  vocal: 40
+  dance: 27
+  visual: 33
+  produceExamBattleScoreConfigId: p_exam_battle_score_config-tower_001-test
+`);
+  assert.equal(stageConfigs.length, 1);
+  assert.deepEqual(
+    calculateTowerTurnTypes(stageConfigs[0], 0x12345678),
+    ["Vocal", "Visual", "Vocal", "Vocal", "Visual", "Visual", "Vocal", "Dance", "Dance", "Dance", "Visual", "Vocal"],
+  );
+
+  assert.deepEqual(
+    calculateTowerMemoryParameters([
+      { vocal: 1000, dance: 800, visual: 600 },
+      { vocal: 500, dance: 400, visual: 300 },
+      { raw: { vocal: 250, dance: 200, visual: 150 } },
+    ]),
+    { vocal: 1150, dance: 920, visual: 690 },
+  );
+
+  const scoreRows = parseTowerScoreConfigs(`
+- id: p_exam_battle_score_config-tower_001-test
+  parameter: 0
+  vocalPermil: 0
+  dancePermil: 0
+  visualPermil: 0
+- id: p_exam_battle_score_config-tower_001-test
+  parameter: 100
+  vocalPermil: 1000
+  dancePermil: 1000
+  visualPermil: 1000
+`);
+  const bonus = calculateTowerParameterBonus(
+    { ...stageConfigs[0], vocal: 100, dance: 100, visual: 100 },
+    scoreRows,
+    { vocal: 100, dance: 50, visual: 0 },
+  );
+  assert.equal(bonus.totalPenaltyPermil, 425);
+  assert.equal(bonus.vocal.percent, 158);
+  assert.equal(bonus.dance.percent, 129);
+  assert.equal(bonus.visual.percent, 100);
+
+  const towers = parseTowerCatalog(`
+- id: tower_001-hski
+  characterId: hski
+  title: 花海咲季のアイドルへの道
+  order: 1
+`);
+  const layers = parseTowerLayerExams(`
+- towerId: tower_001-hski
+  number: 12
+  examEffectType: ProduceExamEffectType_ExamParameterBuff
+  produceExamBattleConfigId: p_exam_battle_config-tower_001-test
+`);
+  const stageCatalog = {
+    configs: stageConfigs,
+    configById: new Map(stageConfigs.map((config) => [config.id, config])),
+    towers,
+    towerById: new Map(towers.map((item) => [item.id, item])),
+    layerExams: layers,
+  };
+  const choices = buildTowerStageChoices(stageCatalog, "hski");
+  assert.equal(choices.length, 1);
+  assert.equal(choices[0].number, 12);
+  assert.match(choices[0].label, /12階/);
+}

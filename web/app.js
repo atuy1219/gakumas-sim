@@ -36,6 +36,14 @@ import {
 } from "./seed_observation.js";
 import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
 import {
+  buildTowerStageChoices,
+  calculateTowerMemoryParameters,
+  calculateTowerParameterBonus,
+  calculateTowerTurnTypes,
+  loadTowerStageCatalog,
+  towerParameterLabel,
+} from "./tower_stage.js";
+import {
   FILTER_STORAGE_KEY,
   MEMORY_STORAGE_KEY,
 } from "./storage_keys.js";
@@ -62,6 +70,8 @@ let examSelectedCardIndex = 0;
 let examItemCatalogs = {
   items: [], itemById: new Map(), itemEffects: [], itemEffectById: new Map(),
 };
+let towerStageCatalog = null;
+let towerStageChoicesByKey = new Map();
 
 const simState = {
   contest: { slots: [], baseCards: [] },
@@ -237,6 +247,28 @@ async function initializeExamItemCatalogs() {
   } catch (error) {
     console.warn("P-item effect catalog load failed", error);
   }
+}
+
+async function initializeTowerStageCatalog() {
+  const select = $("tower-stage-config");
+  const status = $("tower-stage-source-status");
+  if (!select) return;
+  try {
+    towerStageCatalog = await loadTowerStageCatalog();
+    renderTowerStageOptions();
+    if (status) {
+      status.textContent = towerStageCatalog.layerExams.length
+        ? "ドル道の階層マスタからステージを読み込みました。"
+        : "階層対応表が公開マスタでは空のため、試験設定（ターン数・Vo/Da/Vi）から選択します。";
+    }
+  } catch (error) {
+    towerStageCatalog = null;
+    towerStageChoicesByKey = new Map();
+    select.replaceChildren(new Option("ステージ設定を取得できません", ""));
+    if (status) status.textContent = "ドル道ステージ設定を取得できません。";
+    console.warn("tower stage catalog load failed", error);
+  }
+  renderTowerStageSummary();
 }
 
 function searchMemoryText(memory) {
@@ -705,7 +737,138 @@ function renderSimBuilder(mode) {
   });
   renderBaseCards(mode);
   renderPItems(mode);
-  if (mode === "tower") renderObservationButtons();
+  if (mode === "tower") {
+    renderTowerStageOptions();
+    renderTowerStageSummary();
+    renderObservationButtons();
+  }
+}
+
+function selectedTowerMemories() {
+  return ensureSlots("tower")
+    .map((slot) => slot ? memoryList.find((memory) => memory.userMemoryId === slot.memoryId) : null)
+    .filter(Boolean);
+}
+
+function currentTowerStageChoice() {
+  return towerStageChoicesByKey.get(String($("tower-stage-config")?.value ?? "")) ?? null;
+}
+
+function currentTowerStageConfig() {
+  const choice = currentTowerStageChoice();
+  return choice && towerStageCatalog ? towerStageCatalog.configById.get(choice.configId) ?? null : null;
+}
+
+function renderTowerStageOptions() {
+  const select = $("tower-stage-config");
+  if (!select || !towerStageCatalog) return;
+  const previous = String(select.value ?? "");
+  const mainSlot = ensureSlots("tower")[0];
+  const mainMemory = mainSlot ? memoryList.find((memory) => memory.userMemoryId === mainSlot.memoryId) : null;
+  const choices = buildTowerStageChoices(towerStageCatalog, mainMemory?.characterId ?? "");
+  towerStageChoicesByKey = new Map(choices.map((choice) => [choice.key, choice]));
+
+  select.replaceChildren(new Option("選択してください", ""));
+  let lastTurn = null;
+  let group = null;
+  for (const choice of choices) {
+    const config = towerStageCatalog.configById.get(choice.configId);
+    if (!choice.exactLayer && config?.turn !== lastTurn) {
+      lastTurn = config?.turn;
+      group = document.createElement("optgroup");
+      group.label = `${lastTurn}ターン`;
+      select.append(group);
+    }
+    const option = new Option(choice.label, choice.key);
+    (group && !choice.exactLayer ? group : select).append(option);
+  }
+  if (towerStageChoicesByKey.has(previous)) select.value = previous;
+}
+
+function towerPercentText(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toLocaleString("ja-JP")}%` : "—";
+}
+
+function renderTowerStageSummary() {
+  const host = $("tower-stage-summary");
+  if (!host) return;
+  host.replaceChildren();
+  const config = currentTowerStageConfig();
+  if (!config) {
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "ドル道ステージを選択すると、メモリー実効ステータスと各属性ターンの倍率を表示します。";
+    host.append(hint);
+    const orderHost = $("tower-turn-order-preview");
+    if (orderHost) {
+      orderHost.replaceChildren();
+      const orderHint = document.createElement("span");
+      orderHint.className = "hint";
+      orderHint.textContent = "ステージとSeedを指定するとターン属性順を表示します。";
+      orderHost.append(orderHint);
+    }
+    return;
+  }
+
+  const memories = selectedTowerMemories();
+  const parameters = calculateTowerMemoryParameters(memories);
+  const bonus = towerStageCatalog
+    ? calculateTowerParameterBonus(config, towerStageCatalog.scoreRowsById, parameters)
+    : null;
+  const cards = [
+    ["ステージ", `${config.turn}T`],
+    ["実効 Vo", parameters.vocal.toLocaleString("ja-JP")],
+    ["実効 Da", parameters.dance.toLocaleString("ja-JP")],
+    ["実効 Vi", parameters.visual.toLocaleString("ja-JP")],
+    ["Voターン", towerPercentText(bonus?.vocal?.percent)],
+    ["Daターン", towerPercentText(bonus?.dance?.percent)],
+    ["Viターン", towerPercentText(bonus?.visual?.percent)],
+  ];
+  for (const [label, value] of cards) {
+    const item = document.createElement("span");
+    item.className = "tower-stage-stat";
+    const small = document.createElement("small");
+    const strong = document.createElement("strong");
+    small.textContent = label;
+    strong.textContent = value;
+    item.append(small, strong);
+    host.append(item);
+  }
+
+  const note = document.createElement("p");
+  note.className = "hint tower-stage-note";
+  note.textContent = memories.length
+    ? `実効値 = Main 100% + Sub各20%。ステージ基準 Vo ${config.vocal} / Da ${config.dance} / Vi ${config.visual}。`
+    : "メモリーを選択すると実効ステータスを計算します。";
+  host.append(note);
+
+  const orderHost = $("tower-turn-order-preview");
+  if (!orderHost) return;
+  orderHost.replaceChildren();
+  const seedText = String($("tower-seed")?.value ?? "").trim();
+  if (!seedText) {
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "Seedを入力するとターン属性順を表示します。";
+    orderHost.append(hint);
+    return;
+  }
+  try {
+    const order = calculateTowerTurnTypes(config, seedText);
+    order.forEach((type, index) => {
+      const chip = document.createElement("span");
+      chip.className = "chip tower-turn-chip";
+      const percent = bonus?.[String(type).toLowerCase()]?.percent;
+      chip.textContent = `${index + 1}T ${towerParameterLabel(type)}${Number.isFinite(Number(percent)) ? ` ${percent}%` : ""}`;
+      orderHost.append(chip);
+    });
+  } catch (error) {
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = String(error?.message ?? error);
+    orderHost.append(hint);
+  }
 }
 
 function selectedMemoryComposition(mode) {
@@ -1064,7 +1227,12 @@ function renderTurnState(mode, state) {
   if (!state) return;
 
   $(`${mode}-turn-number`).textContent = String(state.turn);
-  $(`${mode}-turn-meta`).textContent = `使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
+  const currentType = mode === "tower" ? state.turnParameterTypes?.[Math.max(0, Number(state.turn) - 1)] : null;
+  const currentBonus = currentType ? state.parameterBonus?.[String(currentType).toLowerCase()]?.percent : null;
+  const turnAttribute = currentType
+    ? `${towerParameterLabel(currentType)}ターン${Number.isFinite(Number(currentBonus)) ? ` · ${currentBonus}%` : ""} · `
+    : "";
+  $(`${mode}-turn-meta`).textContent = `${turnAttribute}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
   const statusGrid = $(`${mode}-status-grid`);
   statusGrid.replaceChildren(...examStateTiles(state.exam).map(([label, value]) => {
     const tile = document.createElement("div");
@@ -1188,11 +1356,23 @@ $("tower-run").addEventListener("click", () => {
       memory.examBattleProduceItemIds?.length ? memory.examBattleProduceItemIds : rawArray(memory, "examBattleProduceItemIds")
     ).map(String))];
     const resolvedPItems = resolveProduceItems(pItemIds, examItemCatalogs.itemById, examItemCatalogs.itemEffectById);
+    const stageConfig = currentTowerStageConfig();
+    if (!stageConfig) throw new Error("ドル道ステージを選択してください。");
+    const effectiveParameters = calculateTowerMemoryParameters(composition.memories);
+    const parameterBonus = towerStageCatalog
+      ? calculateTowerParameterBonus(stageConfig, towerStageCatalog.scoreRowsById, effectiveParameters)
+      : null;
+    const turnParameterTypes = calculateTowerTurnTypes(stageConfig, $("tower-seed").value);
     towerTurnState = createTowerTurnState(composition.cards, $("tower-seed").value, catalogs.cardById, {
       cardVariantByKey: catalogs.cardVariantByKey,
       stamina: Number(composition.memories[0]?.stamina ?? getField(composition.memories[0]?.raw, "stamina") ?? 0),
       pItems: resolvedPItems.items,
     });
+    towerTurnState.stageConfig = { ...stageConfig };
+    towerTurnState.effectiveParameters = { ...effectiveParameters };
+    towerTurnState.parameterBonus = parameterBonus;
+    towerTurnState.turnParameterTypes = [...turnParameterTypes];
+    towerTurnState.turnLimit = Number(stageConfig.turn);
     towerSelectedCardIndex = 0;
     drawTowerTurn(towerTurnState, 3);
     renderTowerTurnState();
@@ -1462,6 +1642,7 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
     button.setAttribute("aria-pressed", seedMatchesCurrent ? "true" : "false");
     button.addEventListener("click", () => {
       $("tower-seed").value = String(seed);
+      renderTowerStageSummary();
       for (const candidate of container.querySelectorAll(".seed-candidate")) {
         candidate.classList.remove("selected");
         candidate.setAttribute("aria-pressed", "false");
@@ -1591,6 +1772,7 @@ async function startSeedSearch() {
     renderSeedCandidates(result, scanned, total, complete, complete ? `探索完了: ${result.length}候補` : "探索を停止しました。" );
     if (complete && result.length === 1) {
       $("tower-seed").value = String(result[0]);
+      renderTowerStageSummary();
     }
   } finally {
     for (const worker of seedWorkers) worker.terminate();
@@ -1602,6 +1784,8 @@ async function startSeedSearch() {
 }
 
 $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(showError));
+$("tower-stage-config")?.addEventListener("change", renderTowerStageSummary);
+$("tower-seed")?.addEventListener("input", renderTowerStageSummary);
 
 const tabParam = new URLSearchParams(location.search).get("tab");
 activateTab(["memory", "cards", "items", "exam", "contest", "tower"].includes(tabParam) ? tabParam : "memory");
@@ -1611,3 +1795,4 @@ renderSimBuilder("contest");
 renderSimBuilder("tower");
 initializeCatalogs();
 initializeExamItemCatalogs();
+initializeTowerStageCatalog();
