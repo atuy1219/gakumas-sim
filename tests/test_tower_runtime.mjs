@@ -554,7 +554,7 @@ console.log("tower runtime tests: ok");
     },
   });
   assert.equal(liveLayers.length, 4);
-  assert.equal(liveLayers[0].maxSubMemoryCount, 3);
+  assert.equal(liveLayers.find((row) => row.towerId === "tower_001-hski")?.maxSubMemoryCount, 3);
   assert.equal(
     liveLayers.find((row) => row.examEffectType === "ProduceExamEffectType_ExamConcentration")?.produceExamBattleConfigId,
     "p_exam_battle_config-tower_001-focus",
