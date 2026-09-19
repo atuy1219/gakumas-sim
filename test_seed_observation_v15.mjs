@@ -70,22 +70,23 @@ assert.equal(incomplete.generatedIds.length, 1);
 
 // An explicit [生成] marker wins even if a future generated effect creates a
 // card ID that also exists in the original deck.
+const duplicateId = "p_card-test-a";
 const duplicateTargetMasters = [
   {
     id: "CREATOR",
     name: "生成役",
     upgradeCount: 0,
     playEffects: [
-      { produceExamEffectId: "e_effect-exam_card_create_id-A-0-deck_random-1_1" },
+      { produceExamEffectId: `e_effect-exam_card_create_id-${duplicateId}-0-deck_random-1_1` },
     ],
   },
-  { id: "A", name: "A", upgradeCount: 0, playEffects: [] },
+  { id: duplicateId, name: "A", upgradeCount: 0, playEffects: [] },
 ];
 const duplicateById = new Map(duplicateTargetMasters.map((card) => [card.id, card]));
 const duplicateVariants = new Map(duplicateTargetMasters.map((card) => [`${card.id}@@0`, card]));
-const duplicateDeck = ["CREATOR", "A"].map((id) => ({ id, upgradeCount: 0 }));
+const duplicateDeck = ["CREATOR", duplicateId].map((id) => ({ id, upgradeCount: 0 }));
 const duplicateObservation = partitionSeedObservations(
-  ["CREATOR", "A — A [生成]", "A"],
+  ["CREATOR", `A — ${duplicateId} [生成]`, duplicateId],
   duplicateDeck,
   duplicateById,
   duplicateVariants,
