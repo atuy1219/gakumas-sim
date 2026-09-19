@@ -160,11 +160,32 @@ export function parseExamEffectId(effectId) {
   if ((match = id.match(/^e_effect-exam_lesson_depend_exam_review-(\d+)-(\d+)$/))) {
     return { kind: "lesson_depend_exam_review", id, permil: integer(match[1]), count: integer(match[2]) };
   }
-  if ((match = id.match(/^e_effect-exam_lesson_depend_exam_aggressive-(\d+)-(\d+)$/))) {
+  if ((match = id.match(/^e_effect-exam_lesson_depend_exam_card_play_aggressive-(\d+)-(\d+)$/))) {
     return { kind: "lesson_depend_exam_aggressive", id, permil: integer(match[1]), count: integer(match[2]) };
   }
-  if ((match = id.match(/^e_effect-exam_lesson_depend_review_or_aggressive-(\d+)-(\d+)$/))) {
-    return { kind: "lesson_depend_review_or_aggressive", id, permil: integer(match[1]), count: integer(match[2]) };
+  if ((match = id.match(/^e_effect-exam_lesson_value_multiple-(\d+)-(inf|\d+)$/))) {
+    return { kind: "lesson_value_multiple", id, permil: integer(match[1]), turn: match[2] === "inf" ? -1 : integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_lesson_value_multiple_down-(\d+)-(inf|\d+)$/))) {
+    return { kind: "lesson_value_multiple_down", id, permil: integer(match[1]), turn: match[2] === "inf" ? -1 : integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_lesson_buff_multiple-(\d+)-(inf|\d+)$/))) {
+    return { kind: "lesson_buff_multiple", id, permil: integer(match[1]), turn: match[2] === "inf" ? -1 : integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_review_multiple-(\d+)-(inf|\d+)$/))) {
+    return { kind: "review_multiple", id, permil: integer(match[1]), turn: match[2] === "inf" ? -1 : integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_review_count_add-(\d+)-(inf|\d+)$/))) {
+    return { kind: "review_count_add", id, value: integer(match[1]), turn: match[2] === "inf" ? -1 : integer(match[2]) };
+  }
+  if ((match = id.match(/^e_effect-exam_lesson_value_multiple_depend_review_or_aggressive-(inf|\d+)$/))) {
+    return { kind: "lesson_value_multiple_depend_review_or_aggressive", id, turn: match[1] === "inf" ? -1 : integer(match[1]) };
+  }
+  if ((match = id.match(/^e_effect-exam_review_turn_end_reduce_lock-(inf|\d+)$/))) {
+    return { kind: "review_turn_end_reduce_lock", id, turn: match[1] === "inf" ? -1 : integer(match[1]) };
+  }
+  if ((match = id.match(/^e_effect-exam_parameter_buff_turn_end_reduce_lock-(inf|\d+)$/))) {
+    return { kind: "parameter_buff_turn_end_reduce_lock", id, turn: match[1] === "inf" ? -1 : integer(match[1]) };
   }
   if ((match = id.match(/^e_effect-exam_effect_timer-(\d+)-(\d+)-(e_effect-.+)$/))) {
     return {
@@ -363,6 +384,7 @@ export function createExamState({ stamina = 0 } = {}) {
     reviewMultiple: 1,
     reviewCountAdd: 0,
     reviewTurnEndReduceLock: 0,
+    parameterBuffTurnEndReduceLock: 0,
     aggressive: 0,
     lessonBuff: 0,
     lessonDebuff: 0,
@@ -389,7 +411,121 @@ export function createExamState({ stamina = 0 } = {}) {
     staminaConsumptionDownFix: 0,
     cardPlayCount: 0,
     extraTurns: 0,
+
+    // Native timed score-related status effects. Value statuses with the same
+    // remaining turn are merged, matching TryAdd*Status predicates.
+    scoreTimedStatuses: [],
   };
+}
+
+const VALUE_SCORE_STATUS_KINDS = new Set([
+  "lessonParameterMultiple",
+  "lessonParameterDown",
+  "lessonBuffMultiple",
+  "reviewMultiple",
+  "reviewCountAdd",
+]);
+
+const SINGLE_TURN_SCORE_STATUS_KINDS = new Set([
+  "lessonValueDependReviewAggressive",
+  "reviewTurnEndReduceLock",
+  "parameterBuffTurnEndReduceLock",
+]);
+
+function f32AddPermil(base, value) {
+  return Math.fround(
+    Math.fround(base)
+    + Math.fround(Math.fround(Number(value) || 0) / Math.fround(1000)),
+  );
+}
+
+export function syncNativeScoreTimedStatuses(exam) {
+  const statuses = Array.isArray(exam?.scoreTimedStatuses) ? exam.scoreTimedStatuses : [];
+  let lessonParameterMultiple = Math.fround(1);
+  let lessonParameterDown = Math.fround(0);
+  let lessonBuffMultiple = Math.fround(1);
+  let reviewMultiple = Math.fround(1);
+  let reviewCountAdd = 0;
+
+  for (const status of statuses) {
+    switch (status.kind) {
+      case "lessonParameterMultiple":
+        lessonParameterMultiple = f32AddPermil(lessonParameterMultiple, status.value);
+        break;
+      case "lessonParameterDown":
+        lessonParameterDown = f32AddPermil(lessonParameterDown, status.value);
+        break;
+      case "lessonBuffMultiple":
+        lessonBuffMultiple = f32AddPermil(lessonBuffMultiple, status.value);
+        break;
+      case "reviewMultiple":
+        reviewMultiple = f32AddPermil(reviewMultiple, status.value);
+        break;
+      case "reviewCountAdd":
+        reviewCountAdd += Math.trunc(Number(status.value) || 0);
+        break;
+    }
+  }
+
+  exam.lessonParameterMultiple = lessonParameterMultiple;
+  exam.lessonParameterDown = lessonParameterDown;
+  exam.lessonBuffMultiple = lessonBuffMultiple;
+  exam.reviewMultiple = reviewMultiple;
+  exam.reviewCountAdd = Math.max(0, reviewCountAdd);
+
+  const pride = statuses.find((status) => status.kind === "lessonValueDependReviewAggressive");
+  const reviewLock = statuses.find((status) => status.kind === "reviewTurnEndReduceLock");
+  const parameterBuffLock = statuses.find((status) => status.kind === "parameterBuffTurnEndReduceLock");
+  exam.lessonValueDependReviewAggressive = Boolean(pride);
+  exam.reviewTurnEndReduceLock = reviewLock ? Number(reviewLock.turn) : 0;
+  exam.parameterBuffTurnEndReduceLock = parameterBuffLock ? Number(parameterBuffLock.turn) : 0;
+  return exam;
+}
+
+export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput) {
+  const kind = String(kindInput ?? "");
+  const turn = Math.trunc(Number(turnInput));
+  if (!Number.isFinite(turn) || turn === 0) return false;
+  if (!Array.isArray(exam.scoreTimedStatuses)) exam.scoreTimedStatuses = [];
+
+  const statuses = exam.scoreTimedStatuses.map((status) => ({ ...status }));
+  if (VALUE_SCORE_STATUS_KINDS.has(kind)) {
+    const value = Math.trunc(Number(valueInput) || 0);
+    const index = statuses.findIndex((status) => status.kind === kind && Number(status.turn) === turn);
+    if (index >= 0) statuses[index] = { ...statuses[index], value: Number(statuses[index].value || 0) + value };
+    else statuses.push({ kind, value, turn });
+  } else if (SINGLE_TURN_SCORE_STATUS_KINDS.has(kind)) {
+    const index = statuses.findIndex((status) => status.kind === kind);
+    if (index >= 0) {
+      const previous = Number(statuses[index].turn);
+      // Native single-status TryAdd implementations extend an active finite
+      // status by the new duration.
+      statuses[index] = {
+        ...statuses[index],
+        turn: previous < 0 || turn < 0 ? -1 : previous + turn,
+      };
+    } else {
+      statuses.push({ kind, value: 0, turn });
+    }
+  } else {
+    return false;
+  }
+
+  exam.scoreTimedStatuses = statuses;
+  syncNativeScoreTimedStatuses(exam);
+  return true;
+}
+
+export function tickNativeScoreTimedStatuses(exam) {
+  if (!Array.isArray(exam?.scoreTimedStatuses) || !exam.scoreTimedStatuses.length) return exam;
+  exam.scoreTimedStatuses = exam.scoreTimedStatuses
+    .map((status) => ({
+      ...status,
+      turn: Number(status.turn) < 0 ? -1 : Number(status.turn) - 1,
+    }))
+    .filter((status) => Number(status.turn) !== 0);
+  syncNativeScoreTimedStatuses(exam);
+  return exam;
 }
 
 function consumeStatus(exam, field, value, label) {
@@ -508,15 +644,37 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       return result;
     }
 
-    case "lesson_depend_review_or_aggressive": {
-      const base = calculateNativeDependentLessonBase(
-        Math.max(Number(exam.review ?? 0), Number(exam.aggressive ?? 0)),
-        Number(parsed.permil ?? 0),
-      );
-      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
-      result.label = `好印象/やる気に応じて${result.label}`;
-      return result;
-    }
+    case "lesson_value_multiple":
+      addNativeScoreTimedStatus(exam, "lessonParameterMultiple", parsed.permil, parsed.turn);
+      return { applied: true, label: `パラメータ上昇量 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "lesson_value_multiple_down":
+      addNativeScoreTimedStatus(exam, "lessonParameterDown", parsed.permil, parsed.turn);
+      return { applied: true, label: `パラメータ上昇量 -${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "lesson_buff_multiple":
+      addNativeScoreTimedStatus(exam, "lessonBuffMultiple", parsed.permil, parsed.turn);
+      return { applied: true, label: `集中効果量 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "review_multiple":
+      addNativeScoreTimedStatus(exam, "reviewMultiple", parsed.permil, parsed.turn);
+      return { applied: true, label: `好印象強化 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "review_count_add":
+      addNativeScoreTimedStatus(exam, "reviewCountAdd", parsed.value, parsed.turn);
+      return { applied: true, label: `好印象追加発動 +${parsed.value}（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "lesson_value_multiple_depend_review_or_aggressive":
+      addNativeScoreTimedStatus(exam, "lessonValueDependReviewAggressive", 0, parsed.turn);
+      return { applied: true, label: `プライド（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "review_turn_end_reduce_lock":
+      addNativeScoreTimedStatus(exam, "reviewTurnEndReduceLock", 0, parsed.turn);
+      return { applied: true, label: `好印象ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+
+    case "parameter_buff_turn_end_reduce_lock":
+      addNativeScoreTimedStatus(exam, "parameterBuffTurnEndReduceLock", 0, parsed.turn);
+      return { applied: true, label: `好調ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
 
     case "block": exam.block += parsed.value; return { applied: true, label: `元気 +${parsed.value}` };
     case "review": exam.review += parsed.value; return { applied: true, label: `好印象 +${parsed.value}` };

@@ -145,6 +145,14 @@ const requestedEffects = [
   "e_effect-exam_effect_timer-0001-01-e_effect-exam_card_draw-0002",
   "e_effect-exam_effect_timer-0002-01-e_effect-exam_card_draw-0001",
   "e_effect-exam_lesson_depend_parameter_buff-1500-01",
+  "e_effect-exam_lesson_depend_exam_card_play_aggressive-1100-01",
+  "e_effect-exam_lesson_value_multiple-0100-05",
+  "e_effect-exam_lesson_value_multiple_down-0200-05",
+  "e_effect-exam_review_multiple-0500-05",
+  "e_effect-exam_review_count_add-01-05",
+  "e_effect-exam_lesson_value_multiple_depend_review_or_aggressive-02",
+  "e_effect-exam_review_turn_end_reduce_lock-02",
+  "e_effect-exam_parameter_buff_turn_end_reduce_lock-02",
   "e_effect-exam_hand_grave_count_card_draw",
   "e_effect-exam_status_enchant-inf-enchant-p_card-01-men-3_035-enc01",
   "e_effect-exam_effect_timer-0001-01-e_effect-exam_card_upgrade-p_card_search-hand-all-0_0",
@@ -173,6 +181,32 @@ applyParsedExamEffect(exam, parseExamEffectId("e_effect-exam_lesson_depend_param
 assert.equal(exam.parameter, 29);
 applyParsedExamEffect(exam, parseExamEffectId("e_effect-exam_parameter_buff_multiple_per_turn-04"));
 assert.equal(exam.parameterBuffMultiplePerTurn, 4);
+
+const multiplierExam = createExamState();
+applyParsedExamEffect(multiplierExam, parseExamEffectId("e_effect-exam_lesson_value_multiple-0100-05"));
+applyParsedExamEffect(multiplierExam, parseExamEffectId("e_effect-exam_lesson_value_multiple-0100-05"));
+assert.ok(Math.abs(multiplierExam.lessonParameterMultiple - 1.2) < 1e-6);
+applyParsedExamEffect(multiplierExam, parseExamEffectId("e_effect-exam_lesson_value_multiple_down-0200-05"));
+applyParsedExamEffect(multiplierExam, parseExamEffectId("e_effect-exam_lesson-0010-01"));
+assert.equal(multiplierExam.parameter, 10, "1.2 × (1 - 0.2) × 10 rounds to 10");
+
+const prideExam = createExamState();
+prideExam.review = 20;
+applyParsedExamEffect(
+  prideExam,
+  parseExamEffectId("e_effect-exam_lesson_value_multiple_depend_review_or_aggressive-02"),
+);
+assert.equal(prideExam.lessonValueDependReviewAggressive, true);
+applyParsedExamEffect(prideExam, parseExamEffectId("e_effect-exam_lesson-0010-01"));
+assert.equal(prideExam.parameter, 14, "Pride adds max(Review,Aggressive) × 2%, capped at 50%");
+
+const aggressiveExam = createExamState();
+aggressiveExam.aggressive = 10;
+applyParsedExamEffect(
+  aggressiveExam,
+  parseExamEffectId("e_effect-exam_lesson_depend_exam_card_play_aggressive-1100-01"),
+);
+assert.equal(aggressiveExam.parameter, 11);
 
 function masterCard(id, effectIds = [], extra = {}) {
   return {
@@ -205,6 +239,49 @@ assert.equal(reviewState.exam.parameter, 8);
 assert.equal(reviewState.exam.parameterVocal, 8);
 assert.equal(reviewState.exam.review, 4);
 assert.match(reviewState.history[0].turnEndEffects.join(" / "), /好印象ターン終了スコア \+8/);
+
+// ReviewMultiple and ReviewCountAdd are finite native statuses. They affect the
+// same turn's automatic Review score, then spend one status turn.
+const reviewBoostState = createState(["review-boost-filler"], [masterCard("review-boost-filler")]);
+reviewBoostState.exam.review = 5;
+applyParsedExamEffect(
+  reviewBoostState.exam,
+  parseExamEffectId("e_effect-exam_review_multiple-0500-05"),
+);
+applyParsedExamEffect(
+  reviewBoostState.exam,
+  parseExamEffectId("e_effect-exam_review_count_add-01-05"),
+);
+drawTowerTurn(reviewBoostState, 1);
+finishTowerTurn(reviewBoostState, { type: "skip" });
+assert.equal(reviewBoostState.exam.parameter, 16, "ceil(5 × 1.5) fires twice");
+assert.equal(reviewBoostState.exam.review, 4);
+assert.ok(Math.abs(reviewBoostState.exam.reviewMultiple - 1.5) < 1e-6);
+assert.equal(reviewBoostState.exam.reviewCountAdd, 1);
+assert.deepEqual(
+  reviewBoostState.exam.scoreTimedStatuses.map((status) => [status.kind, status.turn]),
+  [["reviewMultiple", 4], ["reviewCountAdd", 4]],
+);
+
+// Turn-end locks prevent Review/ParameterBuff spending while their finite
+// status is active; the lock itself still spends a turn.
+const lockState = createState(["lock-filler"], [masterCard("lock-filler")]);
+lockState.exam.review = 3;
+lockState.exam.parameterBuff = 3;
+applyParsedExamEffect(lockState.exam, parseExamEffectId("e_effect-exam_review_turn_end_reduce_lock-02"));
+applyParsedExamEffect(lockState.exam, parseExamEffectId("e_effect-exam_parameter_buff_turn_end_reduce_lock-02"));
+for (let turn = 0; turn < 2; turn += 1) {
+  drawTowerTurn(lockState, 1);
+  finishTowerTurn(lockState, { type: "skip" });
+  assert.equal(lockState.exam.review, 3);
+  assert.equal(lockState.exam.parameterBuff, 3);
+}
+assert.equal(lockState.exam.reviewTurnEndReduceLock, 0);
+assert.equal(lockState.exam.parameterBuffTurnEndReduceLock, 0);
+drawTowerTurn(lockState, 1);
+finishTowerTurn(lockState, { type: "skip" });
+assert.equal(lockState.exam.review, 2);
+assert.equal(lockState.exam.parameterBuff, 2);
 
 const timerCard = masterCard("timer", ["e_effect-exam_effect_timer-0001-01-e_effect-exam_lesson-0040-01"]);
 const timerState = createState(["timer"], [timerCard]);
@@ -350,6 +427,32 @@ assert.deepEqual(reviewDepend, {
   id: "e_effect-exam_lesson_depend_exam_review-0900-01",
   permil: 900,
   count: 1,
+});
+const aggressiveDepend = parseExamEffectId("e_effect-exam_lesson_depend_exam_card_play_aggressive-1100-01");
+assert.deepEqual(aggressiveDepend, {
+  kind: "lesson_depend_exam_aggressive",
+  id: "e_effect-exam_lesson_depend_exam_card_play_aggressive-1100-01",
+  permil: 1100,
+  count: 1,
+});
+assert.equal(parseExamEffectId("e_effect-exam_lesson_depend_exam_aggressive-1100-01").kind, "unsupported");
+
+assert.deepEqual(parseExamEffectId("e_effect-exam_lesson_value_multiple-0100-05"), {
+  kind: "lesson_value_multiple",
+  id: "e_effect-exam_lesson_value_multiple-0100-05",
+  permil: 100,
+  turn: 5,
+});
+assert.deepEqual(parseExamEffectId("e_effect-exam_review_multiple-0500-05"), {
+  kind: "review_multiple",
+  id: "e_effect-exam_review_multiple-0500-05",
+  permil: 500,
+  turn: 5,
+});
+assert.deepEqual(parseExamEffectId("e_effect-exam_lesson_value_multiple_depend_review_or_aggressive-02"), {
+  kind: "lesson_value_multiple_depend_review_or_aggressive",
+  id: "e_effect-exam_lesson_value_multiple_depend_review_or_aggressive-02",
+  turn: 2,
 });
 const reviewExam = createExamState();
 reviewExam.review = 7;

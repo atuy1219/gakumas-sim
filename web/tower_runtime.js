@@ -5,6 +5,7 @@ import {
   createExamState,
   parseExamEffectId,
   payCardCost,
+  tickNativeScoreTimedStatuses,
 } from "./exam_effects.js";
 import { applyNativeReviewTurnEnd } from "./exam_score.js";
 
@@ -648,16 +649,21 @@ export function playTowerCard(state, indexInput) {
 }
 
 function tickTurnDurations(exam) {
-  // Review's automatic score is resolved before status spending. Native
-  // ReviewStatusEffect.SpendTurn then consumes one Review unless the turn-end
-  // reduce lock is active.
-  const reviewLocked = Number(exam.reviewTurnEndReduceLock ?? 0) > 0;
-  if (!reviewLocked && Number(exam.review ?? 0) > 0) exam.review -= 1;
-  if (Number(exam.reviewTurnEndReduceLock ?? 0) > 0) exam.reviewTurnEndReduceLock -= 1;
+  // Review's automatic score is resolved before status spending. Native lock
+  // statuses are checked before their own duration is spent.
+  const reviewLocked = Number(exam.reviewTurnEndReduceLock ?? 0) !== 0;
+  const parameterBuffLocked = Number(exam.parameterBuffTurnEndReduceLock ?? 0) !== 0;
 
-  for (const field of ["parameterBuff", "parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
+  if (!reviewLocked && Number(exam.review ?? 0) > 0) exam.review -= 1;
+  if (!parameterBuffLocked && Number(exam.parameterBuff ?? 0) > 0) exam.parameterBuff -= 1;
+
+  for (const field of ["parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
     if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
+
+  // LessonParameterMultiple/Down, ReviewMultiple/CountAdd, Pride, and the
+  // turn-end locks all inherit the common finite-turn status lifetime.
+  tickNativeScoreTimedStatuses(exam);
 }
 
 function tickTimers(state, event) {
