@@ -402,6 +402,7 @@ export function applyParsedExamEffect(exam, parsed) {
       return {
         applied: true,
         command: "card_create_id",
+        id: parsed.id,
         cardId: parsed.cardId,
         upgradeCount: parsed.upgradeCount,
         movePosition: parsed.movePosition,
