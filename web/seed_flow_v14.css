@@ -476,3 +476,21 @@
     border-color: color-mix(in srgb, var(--m3e-outline) 22%, transparent);
   }
 }
+
+
+.seed-results-v14 .seed-candidate.selected,
+.seed-replay-result-v14 .seed-candidate.selected {
+  border-color: var(--m3e-primary);
+  background: var(--m3e-primary-container);
+  color: var(--m3e-on-primary-container);
+  box-shadow: inset 0 0 0 1px var(--m3e-primary);
+}
+
+.seed-results-v14 .seed-candidate.selected::after,
+.seed-replay-result-v14 .seed-candidate.selected::after {
+  content: "選択中";
+  float: right;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 900;
+}
