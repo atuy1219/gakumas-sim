@@ -178,11 +178,15 @@ export function calculateNativeAddingParameter(exam, valueInput, options = {}) {
   // GetLessonChangeSpecifyMoreThanStatus / LessThanStatus can replace the
   // incoming base. The web state exposes the resolved override values directly.
   let adjusted = Math.trunc(Number(valueInput) || 0);
-  if (Number.isFinite(Number(exam?.lessonChangeSpecifyMoreThan))
+  if (exam?.lessonChangeSpecifyMoreThan !== null
+      && exam?.lessonChangeSpecifyMoreThan !== undefined
+      && Number.isFinite(Number(exam.lessonChangeSpecifyMoreThan))
       && Number(exam.lessonChangeSpecifyMoreThan) >= 0) {
     adjusted = Math.trunc(Number(exam.lessonChangeSpecifyMoreThan));
   }
-  if (Number.isFinite(Number(exam?.lessonChangeSpecifyLessThan))
+  if (exam?.lessonChangeSpecifyLessThan !== null
+      && exam?.lessonChangeSpecifyLessThan !== undefined
+      && Number.isFinite(Number(exam.lessonChangeSpecifyLessThan))
       && Number(exam.lessonChangeSpecifyLessThan) >= 0) {
     adjusted = Math.trunc(Number(exam.lessonChangeSpecifyLessThan));
   }
@@ -242,7 +246,9 @@ export function addNativeLessonParameter(exam, baseValue, scoreContext = {}, mod
     calculated,
     added,
     parameterType: String(scoreContext.parameterType ?? ""),
-    battleBonusPermil: Number.isFinite(Number(scoreContext.battleBonusPermil))
+    battleBonusPermil: scoreContext.battleBonusPermil !== null
+      && scoreContext.battleBonusPermil !== undefined
+      && Number.isFinite(Number(scoreContext.battleBonusPermil))
       ? Number(scoreContext.battleBonusPermil)
       : null,
   };
