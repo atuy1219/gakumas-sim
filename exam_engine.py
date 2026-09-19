@@ -101,6 +101,14 @@ class ExamPhase(IntEnum):
     EXAM_END = 8
 
 
+class ExamParameterType(IntEnum):
+    # Native StatusParameterType values used by turn attribute assignment.
+    NONE = 0
+    VOCAL = 1
+    DANCE = 2
+    VISUAL = 3
+
+
 class CardPosition(str, Enum):
     HAND = "hand"
     DECK = "deck"
@@ -735,6 +743,8 @@ class ExamParameterModel:
     judge_parameter_vocal: int = 0
     judge_parameter_dance: int = 0
     judge_parameter_visual: int = 0
+    config_parameter_type_ordered_list: list[tuple[int, int]] = field(default_factory=list)
+    turn_status_parameter_type_list: list[int] = field(default_factory=list)
     turn_card_play_count: int = 0
     is_turn_card_grave: bool = False
     is_turn_card_lost: bool = False
@@ -752,6 +762,122 @@ class ExamParameterModel:
             self.rng = XorShift32(self.seed)
         self.stamina = max(0, min(self.stamina, self.max_stamina))
 
+    def set_config_parameter(self, vocal: int, dance: int, visual: int) -> None:
+        """Mirror SetConfigParameter's stable OrderByDescending(weight)."""
+        pairs = [
+            (int(ExamParameterType.VOCAL), int(vocal)),
+            (int(ExamParameterType.DANCE), int(dance)),
+            (int(ExamParameterType.VISUAL), int(visual)),
+        ]
+        self.config_parameter_type_ordered_list = sorted(
+            pairs,
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+
+    def calc_turn_parameter_type(self, limit_turn: int) -> list[int]:
+        """Port ExamParameterModel.CalcTurnParameterType @ 0x804CE44.
+
+        The last three normal turns are fixed to low -> middle -> high config
+        weight. Earlier turns use a weighted count split, then remove one
+        random element per turn using the shared Exam RNG.
+        """
+        limit_turn = int(limit_turn)
+        if limit_turn <= 0:
+            self.turn_status_parameter_type_list = []
+            return []
+
+        ordered = self.config_parameter_type_ordered_list
+        if len(ordered) != 3:
+            raise UnsupportedPath(
+                "ExamParameterModel.CalcTurnParameterType",
+                "SetConfigParameter must be called first",
+            )
+
+        high, middle, low = ordered
+        random_turn_count = limit_turn - 3
+        pool: list[int] = []
+
+        if random_turn_count > 0:
+            total_weight = high[1] + middle[1] + low[1]
+            if total_weight == 0:
+                raise UnsupportedPath(
+                    "ExamParameterModel.CalcTurnParameterType",
+                    "sum of Vocal/Dance/Visual config parameters is zero",
+                )
+
+            high_ratio = _f32(
+                _f32(_f32(float(random_turn_count)) * _f32(float(high[1])))
+                / _f32(float(total_weight))
+            )
+            high_count = _ceil_f32(high_ratio)
+            remaining = random_turn_count - high_count
+
+            middle_low_weight = middle[1] + low[1]
+            if middle_low_weight == 0 and remaining != 0:
+                raise UnsupportedPath(
+                    "ExamParameterModel.CalcTurnParameterType",
+                    "middle + low config parameter sum is zero",
+                )
+            if remaining == 0:
+                middle_count = 0
+            else:
+                middle_ratio = _f32(
+                    _f32(_f32(float(remaining)) * _f32(float(middle[1])))
+                    / _f32(float(middle_low_weight))
+                )
+                # System.Math.Round(double) defaults to midpoint-to-even.
+                middle_count = int(round(float(middle_ratio)))
+            low_count = remaining - middle_count
+
+            pool.extend([high[0]] * max(0, high_count))
+            pool.extend([middle[0]] * max(0, middle_count))
+            pool.extend([low[0]] * max(0, low_count))
+
+            if len(pool) != random_turn_count:
+                raise UnsupportedPath(
+                    "ExamParameterModel.CalcTurnParameterType",
+                    f"invalid generated turn counts: {len(pool)} != {random_turn_count}",
+                )
+
+        result: list[int] = []
+        for _ in range(max(0, random_turn_count)):
+            if self.rng is None:
+                raise UnsupportedPath(
+                    "ExamParameterModel.CalcTurnParameterType",
+                    "RNG is not initialized",
+                )
+            index = self.rng.next_int(0, len(pool))
+            result.append(pool.pop(index))
+
+        # Native loop selects ordered[2], ordered[1], ordered[0] for the
+        # third-last, second-last, and final normal turn respectively.
+        fixed_tail = [low[0], middle[0], high[0]]
+        result.extend(fixed_tail[-min(limit_turn, 3):])
+
+        self.turn_status_parameter_type_list = result
+        return list(result)
+
+    def get_current_turn_parameter_type(self) -> int:
+        """Battle-side list lookup used by GetCurrentParameterType.
+
+        CurrentTurn is 1-based; values outside the generated list are clamped,
+        so extra turns continue using the final normal-turn attribute.
+        """
+        if not self.turn_status_parameter_type_list:
+            raise UnsupportedPath(
+                "ExamParameterModel.GetCurrentParameterType",
+                "turn parameter type list is empty",
+            )
+        index = max(
+            0,
+            min(
+                int(self.current_turn) - 1,
+                len(self.turn_status_parameter_type_list) - 1,
+            ),
+        )
+        return int(self.turn_status_parameter_type_list[index])
+
     def deep_copy(self) -> "ExamParameterModel":
         # ExamParameterModel.DeepCopy.
         return ExamParameterModel(
@@ -768,6 +894,8 @@ class ExamParameterModel:
             judge_parameter_vocal=self.judge_parameter_vocal,
             judge_parameter_dance=self.judge_parameter_dance,
             judge_parameter_visual=self.judge_parameter_visual,
+            config_parameter_type_ordered_list=list(self.config_parameter_type_ordered_list),
+            turn_status_parameter_type_list=list(self.turn_status_parameter_type_list),
             turn_card_play_count=self.turn_card_play_count,
             is_turn_card_grave=self.is_turn_card_grave,
             is_turn_card_lost=self.is_turn_card_lost,
@@ -805,7 +933,10 @@ class ExamParameterModel:
             self.max_stamina, self.judge_parameter, self.block,
             self.main_effect_type, self.extra_turn,
             self.judge_parameter_vocal, self.judge_parameter_dance,
-            self.judge_parameter_visual, self.turn_card_play_count,
+            self.judge_parameter_visual,
+            tuple(self.config_parameter_type_ordered_list),
+            tuple(self.turn_status_parameter_type_list),
+            self.turn_card_play_count,
             self.is_turn_card_grave, self.is_turn_card_lost,
             self.is_turn_card_play_end, self.current_turn_consume_stamina,
             self.review_consumption_sum_count, self.parameter_add_limit, self.parameter_limit_ends_exam,
