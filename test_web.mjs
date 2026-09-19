@@ -196,6 +196,12 @@ assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
 const appV3Source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/app_v3.js", import.meta.url), "utf8"));
 assert.doesNotMatch(appV3Source, /tower-order-result/);
 
+const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./web/seed_history_ui_v13.js", import.meta.url), "utf8"));
+assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);
+assert.match(seedReplayUiSource, /ここは「カード使用」の入力ではありません/);
+assert.match(seedReplayUiSource, /まだここは触りません/);
+assert.match(seedReplayUiSource, /新規ドロー \$\{index \+ 1\}枚目/);
+
 
 // Checkbox insertion order must never change the pre-shuffle deck order.
 const orderMemory = extractMemories({ userMemoryList: [{
