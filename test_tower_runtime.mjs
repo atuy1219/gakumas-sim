@@ -267,4 +267,128 @@ twoSteps.nextU32();
 twoSteps.nextU32();
 assert.equal(state.randomState, twoSteps.state >>> 0, "two DeckRandom insertions consume two RNG states");
 
+
+// 夏夜に咲く思い出 removes one random 眠気 from Deck/Grave into Lost.
+// Random selection uses the same XorShift stream even when only one target exists.
+const summerMasters = [
+  {
+    id: "SUMMER",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Lost",
+    playEffects: [
+      {
+        produceExamTriggerId: "",
+        produceExamEffectId: `e_effect-exam_card_move-p_card_search-deck_grave-${sleepyId}-lost-random-1_1`,
+      },
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_playable_value_add-01" },
+      {
+        produceExamTriggerId: "",
+        produceExamEffectId: "e_effect-exam_status_enchant-inf-enchant-p_card-00-sup-3_152-enc01",
+      },
+    ],
+  },
+  ...["SA", "SB"].map((id) => ({
+    id,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  })),
+  {
+    id: sleepyId,
+    name: "眠気",
+    category: "ProduceCardCategory_Trouble",
+    playMovePositionType: "ProduceCardMovePositionType_Lost",
+    playEffects: [],
+  },
+];
+const summerById = new Map(summerMasters.map((card) => [card.id, card]));
+const summerVariants = new Map(summerMasters.map((card) => [`${card.id}@@0`, card]));
+state = createTowerTurnState(
+  ["SUMMER", "SA", "SB", sleepyId].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  11,
+  summerById,
+  { cardVariantByKey: summerVariants },
+);
+drawTowerTurn(state, 3);
+let sleepyHandIndex = state.hand.findIndex((card) => card.id === sleepyId);
+if (sleepyHandIndex >= 0) state.discard.push(state.hand.splice(sleepyHandIndex, 1)[0]);
+assert.equal(
+  state.deck.some((card) => card.id === sleepyId) || state.discard.some((card) => card.id === sleepyId),
+  true,
+);
+const summerIndex = state.hand.findIndex((card) => card.id === "SUMMER");
+assert.ok(summerIndex >= 0);
+const summerRandomBefore = state.randomState >>> 0;
+const summerPlay = playTowerCard(state, summerIndex);
+assert.equal(summerPlay.moved.length, 1);
+assert.equal(summerPlay.moved[0].card.id, sleepyId);
+assert.equal(["deck", "grave"].includes(summerPlay.moved[0].from), true);
+assert.equal(summerPlay.moved[0].to, "lost");
+assert.equal(state.deck.some((card) => card.id === sleepyId), false);
+assert.equal(state.discard.some((card) => card.id === sleepyId), false);
+assert.equal(state.lost.some((card) => card.id === sleepyId), true);
+const summerRandomStep = new XorShift32(summerRandomBefore);
+summerRandomStep.nextU32();
+assert.equal(state.randomState, summerRandomStep.state >>> 0);
+assert.equal(state.unsupported.length, 0);
+assert.equal(state.enchants.some((entry) => entry.enchantId === "enchant-p_card-00-sup-3_152-enc01"), true);
+
+// The Summer Night enchant fires on every 5th skill-card play.
+state.exam.cardPlayCount = 4;
+const summerFollowupIndex = state.hand.findIndex((card) => card.category === "ProduceCardCategory_ActiveSkill");
+assert.ok(summerFollowupIndex >= 0);
+const parameterBeforeSummerEnchant = state.exam.parameter;
+playTowerCard(state, summerFollowupIndex);
+assert.equal(state.exam.parameter - parameterBeforeSummerEnchant, 4);
+
+// 輝くキミへ+ adds a persistent "50% of 好印象" lesson effect
+// on subsequent skill-card plays.
+const shiningMasters = [
+  {
+    id: "SHINE",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Lost",
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_playable_value_add-01" },
+      {
+        produceExamTriggerId: "",
+        produceExamEffectId: "e_effect-exam_status_enchant-inf-enchant-p_card-02-act-3_050-enc02",
+      },
+    ],
+  },
+  {
+    id: "SNEXT",
+    category: "ProduceCardCategory_MentalSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+  {
+    id: "SX",
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const shiningById = new Map(shiningMasters.map((card) => [card.id, card]));
+const shiningVariants = new Map(shiningMasters.map((card) => [`${card.id}@@0`, card]));
+state = createTowerTurnState(
+  shiningMasters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  13,
+  shiningById,
+  { cardVariantByKey: shiningVariants },
+);
+drawTowerTurn(state, 3);
+state.exam.review = 10;
+const shineIndex = state.hand.findIndex((card) => card.id === "SHINE");
+assert.ok(shineIndex >= 0);
+playTowerCard(state, shineIndex);
+assert.equal(state.unsupported.length, 0);
+assert.equal(state.exam.parameter, 0, "the new enchant does not trigger on its own installing card");
+const nextSkillIndex = state.hand.findIndex((card) => card.id === "SNEXT");
+assert.ok(nextSkillIndex >= 0);
+playTowerCard(state, nextSkillIndex);
+assert.equal(state.exam.parameter, 5);
+
 console.log("tower runtime tests: ok");
