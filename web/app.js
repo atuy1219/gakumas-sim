@@ -34,6 +34,7 @@ import {
   generatedObservationLabel,
   partitionSeedObservations,
 } from "./seed_observation_v15.js";
+import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
 
 const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = "gakumas-sim-memory-library-v3";
@@ -475,6 +476,50 @@ function saveMemoryEditor() {
   }
 }
 
+function refreshMemoryConsumers() {
+  persistLibrary();
+  sanitizeSelections();
+  renderMemoryList();
+  renderSimBuilder("contest");
+  renderSimBuilder("tower");
+}
+
+function setMemoryBackupStatus(message) {
+  const target = $("memory-backup-status");
+  if (target) target.textContent = String(message ?? "");
+}
+
+function exportAllMemories() {
+  clearError();
+  try {
+    const stored = memoryList.map(compactStoredMemory);
+    const backup = createMemoryBackup(stored);
+    const blob = new Blob([`${JSON.stringify(backup, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+    anchor.href = url;
+    anchor.download = `gakumas-memory-backup-${stamp}.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setMemoryBackupStatus(`${stored.length}件のメモリーをエクスポートしました。`);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function importAllMemoriesBackup(file) {
+  if (!file) throw new Error("バックアップファイルを選択してください。");
+  const entries = parseMemoryBackup(await file.text());
+  const imported = sanitizeManagedLibrary(extractMemories({ userMemoryList: entries }));
+  if (entries.length && !imported.length) throw new Error("バックアップからメモリーを復元できませんでした。");
+  memoryList = mergeMemoryLibraries(memoryList, imported);
+  refreshMemoryConsumers();
+  setMemoryBackupStatus(`${imported.length}件を読み込みました。既存の同一UserMemoryIdはバックアップ側で更新しました。`);
+}
+
 async function importMemoryFiles(fileList) {
   const imported = [];
   for (const file of fileList) {
@@ -483,12 +528,21 @@ async function importMemoryFiles(fileList) {
   }
   if (!imported.length) throw new Error("UserMemoryを検出できませんでした。");
   memoryList = mergeMemoryLibraries(memoryList, imported);
-  persistLibrary();
-  sanitizeSelections();
-  renderMemoryList();
-  renderSimBuilder("contest");
-  renderSimBuilder("tower");
+  refreshMemoryConsumers();
 }
+
+$("export-memory-backup").addEventListener("click", exportAllMemories);
+
+$("memory-backup-file").addEventListener("change", async () => {
+  try {
+    clearError();
+    await importAllMemoriesBackup($("memory-backup-file").files?.[0] ?? null);
+  } catch (error) {
+    showError(error);
+  } finally {
+    $("memory-backup-file").value = "";
+  }
+});
 
 $("memory-file").addEventListener("change", async () => {
   try {
@@ -507,11 +561,7 @@ $("load-memory-text").addEventListener("click", () => {
     const imported = sanitizeManagedLibrary(extractMemories(parseMemoryJsonText($("memory-text").value)));
     if (!imported.length) throw new Error("UserMemoryを検出できませんでした。");
     memoryList = mergeMemoryLibraries(memoryList, imported);
-    persistLibrary();
-    sanitizeSelections();
-    renderMemoryList();
-    renderSimBuilder("contest");
-    renderSimBuilder("tower");
+    refreshMemoryConsumers();
   } catch (error) {
     showError(error);
   }
