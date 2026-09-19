@@ -200,6 +200,38 @@ finishTowerTurn(state, { type: "end" });
 const nextDraw = drawTowerTurn(state, 3);
 assert.equal(nextDraw.drawn[0].id, sleepyId, "generated Sleepiness participates in subsequent deck/recycle flow");
 
+// ELF <AddCardImpl>b__0 @ 0x823BAD4 passes GetRandomInt(0, Deck.Count).
+// GetRandomInt @ 0x8043AA0 maps to [minimum, maximum), so with two cards
+// remaining the only insertion indices are 0 or 1 (never after the last card).
+const positionedMasters = [
+  {
+    id: "POSITION",
+    isInitial: true,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [
+      { produceExamTriggerId: "", produceExamEffectId: `e_effect-exam_card_create_id-${sleepyId}-0-deck_random-1_1` },
+    ],
+  },
+  ...["A", "B", "C", "D"].map((id) => ({ id, playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] })),
+  generatedMasters.at(-1),
+];
+const positionedById = new Map(positionedMasters.map((card) => [card.id, card]));
+const positionedVariants = new Map(positionedMasters.map((card) => [`${card.id}@@0`, card]));
+state = createTowerTurnState(
+  ["POSITION", "A", "B", "C", "D"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  4,
+  positionedById,
+  { cardVariantByKey: positionedVariants },
+);
+drawTowerTurn(state, 3);
+assert.deepEqual(state.hand.map((card) => card.id), ["POSITION", "A", "B"]);
+assert.deepEqual(state.deck.map((card) => card.id), ["C", "D"]);
+assert.equal(state.randomState >>> 0, 3341906444);
+const positionedPlay = playTowerCard(state, state.hand.findIndex((card) => card.id === "POSITION"));
+assert.equal(positionedPlay.created[0].insertIndex, 1);
+assert.deepEqual(state.deck.map((card) => card.id), ["C", sleepyId, "D"]);
+assert.equal(state.randomState >>> 0, 3344977972);
+
 // Effects that generate two cards call the native DeckRandom insertion twice.
 // Each insertion consumes one RNG state, including deterministic-width cases.
 const doubleGenerateMasters = [

@@ -1,7 +1,9 @@
-import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, parseProduceCardCatalog, planLabel } from "./catalog_v4.js";
+import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, planLabel } from "./catalog_v4.js";
+import { parseProduceCardCatalogYaml } from "./engine.js";
 import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup_v9.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./sim_v3.js";
+import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation_v15.js";
 
 const routeLabels = Object.freeze({ memory: "メモリー管理", cards: "P図鑑 · カード", items: "P図鑑 · Pアイテム", exam: "試験（オーディション）", contest: "コンテスト", tower: "ドル道" });
 const MAX_SEED_MATCHES = 100;
@@ -91,6 +93,8 @@ setSimulationStage("exam", "setup");
 let examCharacters = [];
 let examIdols = [];
 let examCards = [];
+let examCardById = new Map();
+let examCardVariantByKey = new Map();
 let examCounts = new Map();
 let examObservedBatches = [[]];
 let examSeedWorkers = [];
@@ -230,13 +234,41 @@ function renderExamDeckSummary() {
   }
 }
 
+function examObservationState() {
+  return partitionSeedObservations(
+    examObservedBatches.flat(),
+    examDeck(),
+    examCardById,
+    examCardVariantByKey,
+  );
+}
+
 function renderExamObservation() {
   const deck = examDeck();
   const instances = makeCardInstances(deck);
   const observed = examObservedBatches.flat();
   const list = document.getElementById("exam-observed-list");
   const buttons = document.getElementById("exam-observation-buttons");
+  let observation;
+  try {
+    observation = examObservationState();
+  } catch (error) {
+    list.replaceChildren();
+    const message = document.createElement("span");
+    message.className = "hint error";
+    message.textContent = String(error?.message ?? error);
+    list.append(message);
+    buttons.replaceChildren();
+    document.getElementById("exam-observed-count").textContent = "入力を確認";
+    document.getElementById("exam-find-seed").disabled = true;
+    return;
+  }
+
   const names = new Map(deck.map((card) => [String(card.id), card.name]));
+  for (const target of observation.generatedTargets.values()) {
+    names.set(String(target.id), generatedObservationLabel(target, examCardById, examCardVariantByKey));
+  }
+
   list.replaceChildren();
   if (!observed.length) list.innerHTML = '<span class="hint">まだカードがありません。</span>';
   let sequence = 0;
@@ -245,40 +277,61 @@ function renderExamObservation() {
     const group = document.createElement("span");
     group.className = "observed-batch";
     const label = document.createElement("small");
-    label.textContent = `ドロー${batchIndex + 1}（順不同）`;
+    label.textContent = `ドロー${batchIndex + 1}`;
     group.append(label);
     for (const id of batch) {
       sequence += 1;
       const chip = document.createElement("span");
       chip.className = "observed-card";
-      chip.textContent = `${sequence}. ${names.get(String(id)) ?? id}`;
+      const isGenerated = observation.entries[sequence - 1]?.kind === "generated";
+      chip.textContent = `${sequence}. ${names.get(String(id)) ?? id}${isGenerated ? " [生成]" : ""}`;
       group.append(chip);
     }
     list.append(group);
   });
-  const complete = Boolean(deck.length) && observed.length === deck.length;
-  document.getElementById("exam-observed-count").textContent = `${observed.length} / ${deck.length}枚${complete ? " · 入力完了" : ""}`;
-  document.getElementById("exam-find-seed").disabled = !complete;
+
+  const generatedSuffix = observation.generatedIds.length ? ` · 生成${observation.generatedIds.length}枚` : "";
+  document.getElementById("exam-observed-count").textContent =
+    `${observation.observedInitialCount} / ${deck.length}枚${observation.complete ? " · 入力完了" : ` · あと${observation.missingCount}枚`}${generatedSuffix}`;
+  document.getElementById("exam-find-seed").disabled = !observation.complete;
   buttons.replaceChildren();
-  if (complete) {
-    buttons.textContent = "山札1巡分の入力が完了しました。";
-    return;
+  if (observation.complete) {
+    const complete = document.createElement("p");
+    complete.className = "hint seed-message";
+    complete.textContent = observation.generatedIds.length
+      ? "元デッキ1巡分は完了済みです。生成カードがさらに見えた場合は下から追加できます。"
+      : "元デッキ1巡分は完了済みです。生成カードがこの後に見えた場合は下から追加できます。";
+    buttons.append(complete);
+  } else {
+    const used = new Map();
+    const seen = new Map();
+    const totals = new Map();
+    for (const id of observation.initialIds) used.set(String(id), (used.get(String(id)) ?? 0) + 1);
+    for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
+    for (const instance of instances) {
+      const ordinal = (seen.get(instance.id) ?? 0) + 1;
+      seen.set(instance.id, ordinal);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "observation-card";
+      button.textContent = `${names.get(instance.id) ?? instance.id}${(totals.get(instance.id) ?? 0) > 1 ? ` #${ordinal}` : ""}`;
+      button.disabled = ordinal <= (used.get(instance.id) ?? 0);
+      button.addEventListener("click", () => {
+        examObservedBatches.at(-1).push(instance.id);
+        renderExamObservation();
+      });
+      buttons.append(button);
+    }
   }
-  const used = new Map();
-  const seen = new Map();
-  const totals = new Map();
-  for (const id of observed) used.set(String(id), (used.get(String(id)) ?? 0) + 1);
-  for (const instance of instances) totals.set(instance.id, (totals.get(instance.id) ?? 0) + 1);
-  for (const instance of instances) {
-    const ordinal = (seen.get(instance.id) ?? 0) + 1;
-    seen.set(instance.id, ordinal);
+
+  for (const target of observation.generatedTargets.values()) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "observation-card";
-    button.textContent = `${names.get(instance.id) ?? instance.id}${(totals.get(instance.id) ?? 0) > 1 ? ` #${ordinal}` : ""}`;
-    button.disabled = ordinal <= (used.get(instance.id) ?? 0);
+    button.className = "observation-card generated-observation-card-v15";
+    button.textContent = `生成: ${generatedObservationLabel(target, examCardById, examCardVariantByKey)}`;
+    button.title = target.id;
     button.addEventListener("click", () => {
-      examObservedBatches.at(-1).push(instance.id);
+      examObservedBatches.at(-1).push(target.id);
       renderExamObservation();
     });
     buttons.append(button);
@@ -358,7 +411,9 @@ async function startExamSeedSearch() {
   cancelExamSeedSearch();
   examSearchCancelled = false;
   const deck = examDeck();
-  const prepared = prepareSeedBatchSearch(deck, examObservedBatches);
+  const observation = examObservationState();
+  if (!observation.complete) throw new Error(`元デッキの観測が不足しています（${observation.observedInitialCount}/${observation.initialCount}枚）。`);
+  const prepared = prepareSeedBatchSearch(deck, [observation.initialIds]);
   const tasks = [];
   let total = 0;
   const choiceGroups = prepared.choiceGroups?.length
@@ -383,7 +438,10 @@ async function startExamSeedSearch() {
   progress.value = 0;
   findButton.disabled = true;
   cancelButton.hidden = false;
-  renderExamSeedCandidates([], 0, total, false, `山札${deck.length}枚の順番から探索します。`);
+  renderExamSeedCandidates([], 0, total, false,
+    observation.generatedIds.length
+      ? `元デッキ${deck.length}枚の順番から探索します（生成カード観測 ${observation.generatedIds.length}枚は初期Shuffle逆算から除外）。`
+      : `山札${deck.length}枚の順番から探索します。`);
   let scanned = 0;
   const matches = new Set();
   let nextTask = 0;
@@ -441,7 +499,11 @@ async function startExamSeedSearch() {
     examSeedWorkers = [];
     progress.hidden = true;
     cancelButton.hidden = true;
-    findButton.disabled = examObservedBatches.flat().length !== deck.length;
+    try {
+      findButton.disabled = !examObservationState().complete;
+    } catch {
+      findButton.disabled = true;
+    }
   }
 }
 
@@ -454,7 +516,10 @@ async function initializeExamSetup() {
     ]);
     examCharacters = parseCharacterCatalog(characterText).filter((character) => character.isPlayable);
     examIdols = parseIdolCardCatalog(idolText);
-    examCards = buildCanonicalCardCatalog(parseProduceCardCatalog(cardText));
+    const fullExamCards = parseProduceCardCatalogYaml(cardText);
+    examCardById = new Map(fullExamCards.map((card) => [String(card.id), card]));
+    examCardVariantByKey = new Map(fullExamCards.map((card) => [`${String(card.id)}@@${Number(card.upgradeCount ?? 0)}`, card]));
+    examCards = buildCanonicalCardCatalog(fullExamCards);
     examCharacter.replaceChildren(new Option("選択してください", ""));
     for (const character of examCharacters) examCharacter.add(new Option(character.name, character.id));
     refreshExamIdols();

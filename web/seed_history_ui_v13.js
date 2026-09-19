@@ -9,6 +9,7 @@ import {
   resolveSeedBuilderCardRef,
   seedRefLabels,
 } from "./seed_history_ref_v12.js";
+import { partitionSeedObservations } from "./seed_observation_v15.js";
 
 const $ = (id) => document.getElementById(id);
 const DRAW_PER_TURN = 3;
@@ -17,6 +18,7 @@ const state = {
   catalogs: null,
   deckRefs: [],
   expectedInitialOrder: [],
+  observedDrawOrder: [],
   deckSignature: "",
   candidates: [],
   turnScript: [],
@@ -209,33 +211,47 @@ function labelsForRef(ref) {
   );
 }
 
-function resolveInitialOrder(lines, refsInput) {
+function resolveInitialObservation(lines, refsInput) {
   const refs = refsInput.map((ref, index) => ({ ...ref, occurrence: index }));
   if (!refs.length) throw new Error("ドル道の編成からカードを取得できません。");
-  if (lines.length < refs.length) {
-    throw new Error(`1周目の観測が不足しています（${lines.length}/${refs.length}枚）。`);
+
+  const partition = partitionSeedObservations(
+    lines,
+    refs,
+    state.catalogs?.cardById ?? new Map(),
+    state.catalogs?.cardVariantByKey ?? new Map(),
+  );
+  if (!partition.complete) {
+    throw new Error(`元デッキの観測が不足しています（${partition.observedInitialCount}/${partition.initialCount}枚）。生成カードは元デッキ枚数には数えません。`);
   }
 
   const remaining = refs.slice();
   const order = [];
-  for (const rawLine of lines.slice(0, refs.length)) {
-    const line = normalizeSeedObservedName(rawLine);
-    const directId = line.match(/(?:^|—|\||\[)\s*(p_card-[^\]\s]+)\]?\s*$/)?.[1];
-    let matches = remaining.filter((ref) => directId ? ref.id === directId : labelsForRef(ref).has(line));
+  for (const entry of partition.entries) {
+    if (entry.kind !== "initial") continue;
+    const line = normalizeSeedObservedName(entry.line);
+    let matches = remaining.filter((ref) => ref.id === entry.id);
+    if (matches.length > 1) {
+      const byLabel = matches.filter((ref) => labelsForRef(ref).has(line));
+      if (byLabel.length) matches = byLabel;
+    }
     const buttonIds = state.observationButtonMap.get(line);
     if (matches.length > 1 && buttonIds?.size) {
       const narrowed = matches.filter((ref) => buttonIds.has(ref.id));
       if (narrowed.length) matches = narrowed;
     }
-    if (!matches.length) throw new Error(`観測カード「${rawLine}」を現在の編成に対応付けできません。`);
-    if (new Set(matches.map((ref) => ref.id)).size > 1) {
-      throw new Error(`観測カード「${rawLine}」が複数カードに一致します。観測ボタンから入力してください。`);
-    }
+    if (!matches.length) throw new Error(`観測カード「${entry.line}」を現在の編成に対応付けできません。`);
     const ref = matches[0];
     remaining.splice(remaining.findIndex((item) => item.occurrence === ref.occurrence), 1);
     order.push({ id: ref.id, upgradeCount: Number(ref.upgradeCount ?? 0), label: cardLabel(ref) });
   }
-  return order;
+
+  return {
+    order,
+    observedDrawOrder: partition.allIds,
+    generatedCount: partition.generatedIds.length,
+    observedInitialCount: partition.observedInitialCount,
+  };
 }
 
 function readCandidateSeeds() {
@@ -256,16 +272,20 @@ function syncDeckModel() {
   state.deckRefs = refs;
   state.lastError = "";
 
-  const status = $("seed-replay-deck-status-v13");
-  if (status) status.textContent = `現在の編成 ${refs.length}枚 / 1周目の観測 ${Math.min(lines.length, refs.length)}枚 / Seed候補 ${state.candidates.length}件`;
-
-  if (!refs.length || lines.length < refs.length) {
+  if (!refs.length) {
     state.expectedInitialOrder = [];
+    state.observedDrawOrder = [];
     return false;
   }
 
   try {
-    const order = resolveInitialOrder(lines, refs);
+    const resolved = resolveInitialObservation(lines, refs);
+    const status = $("seed-replay-deck-status-v13");
+    if (status) {
+      const generated = resolved.generatedCount ? ` + 生成${resolved.generatedCount}枚` : "";
+      status.textContent = `現在の編成 ${refs.length}枚 / 元デッキ観測 ${resolved.observedInitialCount}枚${generated} / Seed候補 ${state.candidates.length}件`;
+    }
+    const order = resolved.order;
     const signature = `${refs.map((ref) => `${ref.id}@@${ref.upgradeCount}`).join("|")}::${order.map((card) => `${card.id}@@${card.upgradeCount}`).join("|")}`;
     if (signature !== state.deckSignature) {
       state.deckSignature = signature;
@@ -274,9 +294,13 @@ function syncDeckModel() {
       state.pickerIndex = null;
     }
     state.expectedInitialOrder = order;
+    state.observedDrawOrder = resolved.observedDrawOrder;
     return true;
   } catch (error) {
+    const status = $("seed-replay-deck-status-v13");
+    if (status) status.textContent = `現在の編成 ${refs.length}枚 / Seed候補 ${state.candidates.length}件`;
     state.expectedInitialOrder = [];
+    state.observedDrawOrder = [];
     state.lastError = String(error?.message ?? error);
     return false;
   }
@@ -287,6 +311,7 @@ function replayOptions() {
     cardById: state.catalogs?.cardById ?? new Map(),
     cardVariantByKey: state.catalogs?.cardVariantByKey ?? new Map(),
     expectedInitialOrder: state.expectedInitialOrder,
+    observedDrawOrder: state.observedDrawOrder,
     drawPerTurn: DRAW_PER_TURN,
     stamina: 9999,
     targetScore: 0,
@@ -412,6 +437,12 @@ function renderReplayHand() {
     const parts = [];
     if (lastPlay?.effects?.length) parts.push(`直前の効果: ${lastPlay.effects.join(" / ")}`);
     if (lastPlay?.drawn?.length) parts.push(`追加ドロー: ${lastPlay.drawn.map(cardLabel).join(" / ")}`);
+    if (lastPlay?.created?.length) {
+      parts.push(`生成: ${lastPlay.created.map((entry) => {
+        const position = entry.movePosition === "deck_random" ? "山札ランダム位置" : entry.movePosition;
+        return `${cardLabel(entry.card)} → ${position}`;
+      }).join(" / ")}`);
+    }
     if (evaluation.uncertain.length) parts.push(`未対応効果などで判定保留 ${evaluation.uncertain.length}候補`);
     effect.textContent = parts.join(" · ");
   }
