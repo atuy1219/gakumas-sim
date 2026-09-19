@@ -106,7 +106,7 @@ function ensurePanel() {
     </div>
 
     <div class="seed-flow-footer-v14">
-      <button type="button" class="primary" data-tower-next="simulation">選択中のSeedでシミュレーションへ</button>
+      <button id="seed-replay-continue-v14" type="button" class="primary">選択中のSeedでシミュレーションへ</button>
     </div>
   `;
   anchor.replaceChildren(panel);
@@ -123,6 +123,9 @@ function ensurePanel() {
     state.observedAfterRecycle = [];
     state.pickerIndex = null;
     renderAll();
+  });
+  $("seed-replay-continue-v14")?.addEventListener("click", () => {
+    document.querySelector(".seed-route-direct-v14 [data-tower-next='simulation']")?.click();
   });
 }
 
