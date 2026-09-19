@@ -545,6 +545,10 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     ...play,
     card: { ...play.card },
     drawn: play.drawn.map((card) => ({ ...card })),
+    created: (play.created ?? []).map((entry) => ({
+      ...entry,
+      card: { ...entry.card },
+    })),
   }));
   const used = plays[0]?.card ?? compatibilityUse?.card ?? null;
   const onceOnly = Boolean(plays[0]?.onceOnly);
