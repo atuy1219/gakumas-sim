@@ -6,6 +6,7 @@ from exam_engine import (
     ExamCardPoolModel,
     ExamEffectCalculateContext,
     ExamParameterModel,
+    ExamParameterType,
     ExamPhase,
     ExamStatusEffectCollection,
     StatusEffect,
@@ -79,6 +80,90 @@ class RandomTests(unittest.TestCase):
         ])
         with self.assertRaises(UnsupportedPath):
             pool.shuffle(XorShift32(1))
+
+
+class TurnParameterTypeTests(unittest.TestCase):
+    def make_parameter(self, seed=0x12345678):
+        return ExamParameterModel(
+            seed=seed,
+            current_turn=0,
+            remain_turn=12,
+            stamina=100,
+            max_stamina=100,
+        )
+
+    def test_native_turn_parameter_vector_and_rng_consumption(self):
+        parameter = self.make_parameter()
+        parameter.set_config_parameter(vocal=40, dance=27, visual=33)
+
+        self.assertEqual(
+            parameter.config_parameter_type_ordered_list,
+            [
+                (int(ExamParameterType.VOCAL), 40),
+                (int(ExamParameterType.VISUAL), 33),
+                (int(ExamParameterType.DANCE), 27),
+            ],
+        )
+
+        turns = parameter.calc_turn_parameter_type(12)
+        self.assertEqual(
+            turns,
+            [
+                int(ExamParameterType.VOCAL),
+                int(ExamParameterType.VISUAL),
+                int(ExamParameterType.VOCAL),
+                int(ExamParameterType.VOCAL),
+                int(ExamParameterType.VISUAL),
+                int(ExamParameterType.VISUAL),
+                int(ExamParameterType.VOCAL),
+                int(ExamParameterType.DANCE),
+                int(ExamParameterType.DANCE),
+                int(ExamParameterType.DANCE),
+                int(ExamParameterType.VISUAL),
+                int(ExamParameterType.VOCAL),
+            ],
+        )
+        self.assertEqual(turns.count(int(ExamParameterType.VOCAL)), 5)
+        self.assertEqual(turns.count(int(ExamParameterType.DANCE)), 3)
+        self.assertEqual(turns.count(int(ExamParameterType.VISUAL)), 4)
+        self.assertEqual(
+            turns[-3:],
+            [
+                int(ExamParameterType.DANCE),
+                int(ExamParameterType.VISUAL),
+                int(ExamParameterType.VOCAL),
+            ],
+        )
+        # 12 turns consume RNG only for the first 9 assignments.
+        self.assertEqual(parameter.rng.state, 0xD37862A7)
+
+    def test_equal_weights_keep_native_stable_vo_da_vi_order(self):
+        parameter = self.make_parameter()
+        parameter.set_config_parameter(vocal=100, dance=100, visual=100)
+        self.assertEqual(
+            parameter.config_parameter_type_ordered_list,
+            [
+                (int(ExamParameterType.VOCAL), 100),
+                (int(ExamParameterType.DANCE), 100),
+                (int(ExamParameterType.VISUAL), 100),
+            ],
+        )
+        self.assertEqual(
+            parameter.calc_turn_parameter_type(3),
+            [
+                int(ExamParameterType.VISUAL),
+                int(ExamParameterType.DANCE),
+                int(ExamParameterType.VOCAL),
+            ],
+        )
+        self.assertEqual(parameter.rng.state, 0x12345678)
+
+    def test_extra_turn_clamps_to_final_attribute(self):
+        parameter = self.make_parameter()
+        parameter.set_config_parameter(vocal=40, dance=27, visual=33)
+        turns = parameter.calc_turn_parameter_type(12)
+        parameter.current_turn = 13
+        self.assertEqual(parameter.get_current_turn_parameter_type(), turns[-1])
 
 
 class StatusVirtualTests(unittest.TestCase):
