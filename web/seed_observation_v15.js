@@ -109,17 +109,20 @@ export function partitionSeedObservations(lines, initialCards, cardById = new Ma
   const allIds = [];
   const initialIds = [];
   const generatedIds = [];
+  const entries = [];
   for (const line of lines ?? []) {
     const id = resolveSeedObservationLine(line, initialCards, generatedTargets, cardById, cardVariantByKey);
     allIds.push(id);
     const left = remaining.get(id) ?? 0;
     if (left > 0) {
       initialIds.push(id);
+      entries.push({ line: String(line), id, kind: "initial" });
       remaining.set(id, left - 1);
       continue;
     }
     if (generatedTargets.has(id)) {
       generatedIds.push(id);
+      entries.push({ line: String(line), id, kind: "generated" });
       continue;
     }
     throw new Error(`観測カード ${id} が元デッキの枚数を超えています。生成効果がある場合は対応カードを確認してください。`);
@@ -130,6 +133,7 @@ export function partitionSeedObservations(lines, initialCards, cardById = new Ma
     allIds,
     initialIds,
     generatedIds,
+    entries,
     generatedTargets,
     initialCount,
     observedInitialCount: initialIds.length,
