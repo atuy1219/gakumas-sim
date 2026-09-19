@@ -41,72 +41,75 @@ function ensurePanel() {
   $("tower-seed-history-v11")?.remove();
   $("tower-seed-history-v12")?.remove();
   if ($("tower-seed-history-v13")) return;
-  const observed = $("tower-observed");
-  const anchor = observed?.closest("label");
+
+  const anchor = $("tower-seed-replay-anchor-v14");
   if (!anchor) return;
 
   const panel = document.createElement("section");
   panel.id = "tower-seed-history-v13";
-  panel.className = "seed-history-v11 seed-runtime-replay-v13";
+  panel.className = "seed-history-v11 seed-runtime-replay-v13 seed-replay-shell-v14";
   panel.innerHTML = `
-    <div class="section-head compact-head">
+    <div class="seed-replay-overview-v14">
       <div>
-        <h3>Seed特定・操作リプレイ</h3>
-        <p class="hint">1周目の並びで残ったSeed候補を、実際のカード使用と同じランタイムで再生して絞ります。</p>
+        <strong>3. 実機操作で候補を絞る</strong>
+        <small id="seed-replay-deck-status-v13">Seed候補を探索すると、ここに予測手札が表示されます。</small>
       </div>
       <span id="seed-replay-status-v13" class="badge">準備中</span>
     </div>
 
-    <div class="callout seed-replay-guide-v13">
-      <strong>使い方</strong><br>
-      ① 上で山札1巡分を実際に引いた順に入力し、「Seed候補を探索」する<br>
-      ② 下の手札で、実機で使用したカードを使用順にタップする<br>
-      ③ そのターンでこれ以上使わなければ「ターン終了 / SKIP」を押す<br>
-      ④ 追加ドロー・仕切り直しもカード効果として再生される。最初の再シャッフル後に見えたカードを観測欄へ入力する
-    </div>
+    <div class="seed-replay-steps-v14">
+      <div class="seed-replay-step-v14">
+        <div class="section-head compact-head">
+          <div>
+            <h3>実機と同じカードを操作</h3>
+            <p class="hint">実機で使ったカードをタップし、ターンが終わったら「ターン終了 / SKIP」。追加ドローも自動で追跡します。</p>
+          </div>
+          <span id="seed-replay-turn-v13" class="badge">TURN -</span>
+        </div>
 
-    <p id="seed-replay-deck-status-v13" class="hint"></p>
+        <div id="seed-replay-hand-v13" class="m3e-battle-hand seed-history-hand-v11 seed-replay-hand-v13">
+          <p class="hint">まず「Seed候補を探索」を実行してください。</p>
+        </div>
+        <p id="seed-replay-effect-v13" class="hint seed-replay-effect-v13"></p>
+        <div class="button-row seed-replay-controls-v13">
+          <button id="seed-replay-end-turn-v13" type="button" class="secondary" disabled>ターン終了 / SKIP</button>
+          <button id="seed-replay-undo-v13" type="button" class="ghost-button" disabled>1操作戻す</button>
+          <button id="seed-replay-reset-v13" type="button" class="ghost-button" disabled>操作履歴をクリア</button>
+        </div>
+        <div id="seed-replay-log-v13" class="seed-replay-log-v13"></div>
 
-    <div class="section-head compact-head">
-      <div>
-        <h3>実機操作をリプレイ</h3>
-        <p class="hint">点線のカードは現在の候補から予測された手札です。実機で使ったカードだけをタップしてください。</p>
+        <div class="section-head compact-head">
+          <div>
+            <h3>再シャッフル後に見えたカード</h3>
+            <p class="hint">再シャッフルが発生したら、新しく引いたカードを見えた順に追加するとさらに絞れます。</p>
+          </div>
+          <span id="seed-replay-observed-count-v13" class="badge">0枚</span>
+        </div>
+        <p id="seed-replay-recycle-note-v13" class="callout">操作リプレイを再シャッフル地点まで進めてください。</p>
+        <div id="seed-replay-observation-slots-v13" class="seed-recycle-slots-v11"></div>
+        <div id="seed-replay-picker-v13" class="seed-card-picker-v11" hidden></div>
+        <div class="button-row">
+          <button id="seed-replay-observation-clear-v13" type="button" class="ghost-button" disabled>再シャッフル後の観測をクリア</button>
+        </div>
       </div>
-      <span id="seed-replay-turn-v13" class="badge">TURN -</span>
+
+      <aside class="seed-replay-step-v14 seed-replay-result-v14">
+        <div class="section-head compact-head">
+          <div>
+            <h3>4. 絞り込み結果</h3>
+            <p class="hint">1候補になればSeed欄へ自動反映します。複数候補なら操作を続けてください。</p>
+          </div>
+          <span id="seed-replay-result-count-v13" class="badge">未計算</span>
+        </div>
+        <div id="seed-replay-results-v13" class="seed-refined-results-v11"></div>
+      </aside>
     </div>
 
-    <div id="seed-replay-hand-v13" class="m3e-battle-hand seed-history-hand-v11 seed-replay-hand-v13">
-      <p class="hint">Seed候補の探索が完了すると手札を再現します。</p>
+    <div class="seed-flow-footer-v14">
+      <button id="seed-replay-continue-v14" type="button" class="primary">選択中のSeedでシミュレーションへ</button>
     </div>
-    <p id="seed-replay-effect-v13" class="hint seed-replay-effect-v13"></p>
-    <div class="button-row seed-replay-controls-v13">
-      <button id="seed-replay-end-turn-v13" type="button" class="secondary" disabled>ターン終了 / SKIP</button>
-      <button id="seed-replay-undo-v13" type="button" class="ghost-button" disabled>1操作戻す</button>
-      <button id="seed-replay-reset-v13" type="button" class="ghost-button" disabled>操作履歴をクリア</button>
-    </div>
-    <div id="seed-replay-log-v13" class="seed-replay-log-v13"></div>
-
-    <div class="section-head compact-head">
-      <div>
-        <h3>最初の再シャッフル後の観測</h3>
-        <p class="hint">再シャッフルが発生した瞬間以降に新しく引いたカードを、見えた順に入力します。</p>
-      </div>
-      <span id="seed-replay-observed-count-v13" class="badge">0枚</span>
-    </div>
-    <p id="seed-replay-recycle-note-v13" class="callout">操作リプレイを再シャッフル発生地点まで進めてください。</p>
-    <div id="seed-replay-observation-slots-v13" class="seed-recycle-slots-v11"></div>
-    <div id="seed-replay-picker-v13" class="seed-card-picker-v11" hidden></div>
-    <div class="button-row">
-      <button id="seed-replay-observation-clear-v13" type="button" class="ghost-button" disabled>再シャッフル後の観測をクリア</button>
-    </div>
-
-    <div class="section-head compact-head seed-replay-result-head-v13">
-      <div><h3>絞り込み結果</h3></div>
-      <span id="seed-replay-result-count-v13" class="badge">未計算</span>
-    </div>
-    <div id="seed-replay-results-v13" class="seed-refined-results-v11"></div>
   `;
-  anchor.after(panel);
+  anchor.replaceChildren(panel);
 
   $("seed-replay-end-turn-v13")?.addEventListener("click", endCurrentTurn);
   $("seed-replay-undo-v13")?.addEventListener("click", undoLastAction);
@@ -120,6 +123,9 @@ function ensurePanel() {
     state.observedAfterRecycle = [];
     state.pickerIndex = null;
     renderAll();
+  });
+  $("seed-replay-continue-v14")?.addEventListener("click", () => {
+    document.querySelector(".seed-route-direct-v14 [data-tower-next='simulation']")?.click();
   });
 }
 
@@ -580,9 +586,19 @@ function renderResults() {
     button.type = "button";
     button.className = "seed-candidate";
     button.textContent = `${result.seed} / ${asHex(result.seed)}${result.status === "uncertain" ? " · 保留" : ""}`;
+    const input = $("tower-seed");
+    const currentSeed = String(input?.value ?? "").trim();
+    const selected = currentSeed === String(result.seed) || currentSeed.toLowerCase() === asHex(result.seed).toLowerCase();
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
     button.addEventListener("click", () => {
-      const input = $("tower-seed");
       if (input) input.value = String(result.seed);
+      for (const candidate of list.querySelectorAll(".seed-candidate")) {
+        candidate.classList.remove("selected");
+        candidate.setAttribute("aria-pressed", "false");
+      }
+      button.classList.add("selected");
+      button.setAttribute("aria-pressed", "true");
     });
     list.append(button);
   }
@@ -592,6 +608,9 @@ function renderResults() {
     const seed = evaluation.survivors[0].seed;
     const input = $("tower-seed");
     if (input) input.value = String(seed);
+    const only = list.querySelector(".seed-candidate");
+    only?.classList.add("selected");
+    only?.setAttribute("aria-pressed", "true");
   }
 }
 

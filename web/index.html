@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="./v3.css">
   <link rel="stylesheet" href="./v4.css">
   <link rel="stylesheet" href="./material3e.css">
+  <link rel="stylesheet" href="./seed_flow_v14.css">
 </head>
 <body>
   <div class="m3e-topbar">
@@ -146,21 +147,59 @@
         <p id="exam-card-summary" class="hint">0枚選択</p>
         <button id="exam-next" type="button" class="primary">Seed設定へ</button>
       </section>
-      <section class="panel" data-sim-stage="seed" hidden>
-        <div class="section-head"><div><p class="step">02</p><h2>Seedを入力・特定</h2></div><button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button></div>
-        <div id="exam-deck-summary" class="chip-list"></div>
-        <div class="sim-config-grid seed-direct-input">
-          <label><span>Seed</span><input id="exam-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
+      <section class="panel seed-stage-v14" data-sim-stage="seed" hidden>
+        <div class="section-head seed-stage-head-v14">
+          <div><p class="step">02</p><h2>Seedを設定</h2><p class="hint">Seedが分かっている場合は直接入力。不明な場合は実機の手札を記録して特定します。</p></div>
+          <button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button>
         </div>
-        <p class="callout">手札へ出たカードを順にタップしてください。最初の山札1巡分が揃うとSeedを探索できます。途中でカードを使用して進めても構いません。</p>
-        <div class="section-head compact-head"><h3>観測した順番</h3><span id="exam-observed-count" class="badge">0 / 0枚</span></div>
-        <div id="exam-observed-list" class="observed-sequence"><span class="hint">まだカードがありません。</span></div>
-        <div id="exam-observation-buttons" class="observation-grid"></div>
-        <div class="button-row"><button id="exam-next-draw" type="button" class="secondary" hidden disabled style="display:none">次のドロー</button><button id="exam-find-seed" type="button" class="primary">Seed候補を探索</button><button id="exam-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="exam-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="exam-reset-observation" type="button" class="ghost-button">クリア</button></div>
-        <progress id="exam-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
-        <div id="exam-seed-results" class="seed-results"></div>
-        <button id="exam-seed-next" type="button" class="primary">シミュレーションへ</button>
+
+        <div id="exam-deck-summary" class="chip-list seed-deck-summary-v14"></div>
+
+        <section class="seed-route-card-v14 seed-route-direct-v14" aria-labelledby="exam-seed-direct-title">
+          <div class="seed-route-number-v14" aria-hidden="true">A</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong id="exam-seed-direct-title">Seedが分かっている</strong><small>入力して、そのままシミュレーションへ進めます。</small></div>
+              <span class="seed-route-badge-v14">最短</span>
+            </div>
+            <label class="seed-field-v14"><span>Seed</span><input id="exam-seed" inputmode="text" spellcheck="false" autocomplete="off" placeholder="例: 0x12345678 または 305419896"></label>
+            <button id="exam-seed-next" type="button" class="primary seed-continue-v14">このSeedでシミュレーションへ</button>
+          </div>
+        </section>
+
+        <section class="seed-route-card-v14 seed-route-identify-v14" aria-labelledby="exam-seed-identify-title">
+          <div class="seed-route-number-v14" aria-hidden="true">B</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong id="exam-seed-identify-title">Seedが分からない</strong><small>実機で出たカードを順番に記録し、候補を探索します。</small></div>
+              <span id="exam-observed-count" class="badge">0 / 0枚</span>
+            </div>
+
+            <div class="seed-identify-grid-v14">
+              <div class="seed-work-card-v14">
+                <div class="seed-work-head-v14"><span>1</span><div><strong>1周目を記録</strong><small>実機の手札に現れた順にカードをタップ。</small></div></div>
+                <div id="exam-observed-list" class="observed-sequence seed-observed-v14"><span class="hint">まだカードがありません。</span></div>
+                <div id="exam-observation-buttons" class="observation-grid seed-card-grid-v14"></div>
+                <div class="seed-mobile-actions-v14">
+                  <button id="exam-undo-observation" type="button" class="ghost-button">1枚戻す</button>
+                  <button id="exam-reset-observation" type="button" class="ghost-button">記録をクリア</button>
+                </div>
+                <button id="exam-next-draw" type="button" class="secondary" hidden disabled style="display:none">次のドロー</button>
+              </div>
+
+              <div class="seed-work-card-v14 seed-search-card-v14">
+                <div class="seed-work-head-v14"><span>2</span><div><strong>Seed候補を探索</strong><small>1周分を入力すると探索できます。</small></div></div>
+                <button id="exam-find-seed" type="button" class="primary seed-search-button-v14">Seed候補を探索</button>
+                <button id="exam-cancel-seed" type="button" class="secondary" hidden>探索を中止</button>
+                <progress id="exam-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
+                <div id="exam-seed-results" class="seed-results seed-results-v14" aria-live="polite"></div>
+                <p class="hint seed-result-hint-v14">候補を選ぶと上のSeed欄へ反映されます。</p>
+              </div>
+            </div>
+          </div>
+        </section>
       </section>
+
       <section class="panel m3e-play-panel" data-sim-stage="simulation" hidden>
         <div class="section-head"><div><p class="step">03</p><h2>試験・オーディション</h2></div><button type="button" class="secondary" data-exam-back="seed">Seed設定へ戻る</button></div>
         <button id="exam-run" type="button" class="primary">シミュレーション開始 / リセット</button>
@@ -243,19 +282,61 @@
         <button type="button" class="primary" data-tower-next="seed">Seed設定へ</button>
       </section>
 
-      <section class="panel" data-sim-stage="seed" hidden>
-        <div class="section-head"><div><p class="step">02</p><h2>Seedを入力・特定</h2></div><button type="button" class="secondary" data-tower-back="memory">編成へ戻る</button></div>
-        <div class="sim-config-grid">
-          <label><span>Seed</span><input id="tower-seed" value="0x12345678" inputmode="text" spellcheck="false"></label>
+      <section class="panel seed-stage-v14" data-sim-stage="seed" hidden>
+        <div class="section-head seed-stage-head-v14">
+          <div><p class="step">02</p><h2>Seedを設定</h2><p class="hint">Seedが分かっている場合は直接入力。不明な場合は実機を見ながら下の手順で特定します。</p></div>
+          <button type="button" class="secondary" data-tower-back="memory">編成へ戻る</button>
         </div>
-        <div class="section-head compact-head"><h3>プレイしながら特定</h3><span id="tower-observed-count" class="badge">0 / 0枚</span></div>
-        <p class="callout">手札へ出たカードを順にタップしてください。最初の山札1巡分が揃うとSeedを探索できます。途中でカードを使用して進めても構いません。</p>
-        <div id="tower-observation-buttons" class="observation-grid">編成を設定すると観測入力ボタンが表示されます。</div>
-        <label class="wide-label"><span>観測したドロー順</span><textarea id="tower-observed" rows="8" spellcheck="false" placeholder="カードボタンを実際のドロー順に押してください"></textarea></label>
-        <div class="button-row"><button id="tower-next-draw" type="button" class="secondary" hidden disabled style="display:none">次のドロー</button><button id="tower-find-seed" type="button" class="primary">Seed候補を探索</button><button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button><button id="tower-undo-observation" type="button" class="ghost-button">1枚戻す</button><button id="tower-reset-observation" type="button" class="ghost-button">観測順をクリア</button></div>
-        <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
-        <div id="tower-seed-results" class="seed-results"></div>
-        <button type="button" class="primary" data-tower-next="simulation">シミュレーションへ</button>
+
+        <section class="seed-route-card-v14 seed-route-direct-v14" aria-labelledby="tower-seed-direct-title">
+          <div class="seed-route-number-v14" aria-hidden="true">A</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong id="tower-seed-direct-title">Seedが分かっている</strong><small>入力して、そのままシミュレーションへ進めます。</small></div>
+              <span class="seed-route-badge-v14">最短</span>
+            </div>
+            <label class="seed-field-v14"><span>Seed</span><input id="tower-seed" inputmode="text" spellcheck="false" autocomplete="off" placeholder="例: 0x12345678 または 305419896"></label>
+            <button type="button" class="primary seed-continue-v14" data-tower-next="simulation">このSeedでシミュレーションへ</button>
+          </div>
+        </section>
+
+        <section class="seed-route-card-v14 seed-route-identify-v14" aria-labelledby="tower-seed-identify-title">
+          <div class="seed-route-number-v14" aria-hidden="true">B</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong id="tower-seed-identify-title">Seedが分からない</strong><small>まず1周目を記録し、候補が出たら実機操作をリプレイして絞ります。</small></div>
+              <span id="tower-observed-count" class="badge">0 / 0枚</span>
+            </div>
+
+            <div class="seed-identify-grid-v14">
+              <div class="seed-work-card-v14">
+                <div class="seed-work-head-v14"><span>1</span><div><strong>1周目を記録</strong><small>手札に現れたカードを、見えた順にタップ。</small></div></div>
+                <div id="tower-observation-buttons" class="observation-grid seed-card-grid-v14">編成を設定するとカードが表示されます。</div>
+                <div id="tower-observed-preview-v14" class="observed-sequence seed-observed-v14" aria-live="polite"><span class="hint">まだカードがありません。</span></div>
+                <details class="seed-observed-details-v14">
+                  <summary>記録した順番を確認・手入力</summary>
+                  <label class="wide-label"><span>観測したドロー順</span><textarea id="tower-observed" rows="6" spellcheck="false" placeholder="カードボタンを押すとここへ記録されます"></textarea></label>
+                </details>
+                <div class="seed-mobile-actions-v14">
+                  <button id="tower-undo-observation" type="button" class="ghost-button">1枚戻す</button>
+                  <button id="tower-reset-observation" type="button" class="ghost-button">記録をクリア</button>
+                </div>
+                <button id="tower-next-draw" type="button" class="secondary" hidden disabled style="display:none">次のドロー</button>
+              </div>
+
+              <div class="seed-work-card-v14 seed-search-card-v14">
+                <div class="seed-work-head-v14"><span>2</span><div><strong>Seed候補を探索</strong><small>1周分を入力すると探索できます。</small></div></div>
+                <button id="tower-find-seed" type="button" class="primary seed-search-button-v14">Seed候補を探索</button>
+                <button id="tower-cancel-seed" type="button" class="secondary" hidden>探索を中止</button>
+                <progress id="tower-seed-progress" class="progress-wide" value="0" max="1" hidden></progress>
+                <div id="tower-seed-results" class="seed-results seed-results-v14" aria-live="polite"></div>
+                <p class="hint seed-result-hint-v14">候補が複数なら、次の「実機操作をリプレイ」で絞り込みます。</p>
+              </div>
+            </div>
+
+            <div id="tower-seed-replay-anchor-v14"></div>
+          </div>
+        </section>
       </section>
 
       <section class="panel m3e-play-panel" data-sim-stage="simulation" hidden>

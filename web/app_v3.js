@@ -1283,7 +1283,28 @@ function renderObservationButtons() {
   updateObservationCount(instances.length);
 }
 
+function renderTowerObservedPreview() {
+  const host = $("tower-observed-preview-v14");
+  if (!host) return;
+  const lines = observedLines();
+  host.replaceChildren();
+  if (!lines.length) {
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "まだカードがありません。";
+    host.append(hint);
+    return;
+  }
+  lines.forEach((line, index) => {
+    const chip = document.createElement("span");
+    chip.className = "observed-card";
+    chip.textContent = `${index + 1}. ${line}`;
+    host.append(chip);
+  });
+}
+
 function updateObservationCount(deckCount = null) {
+  renderTowerObservedPreview();
   if (deckCount === null) {
     try { deckCount = buildComposition("tower").cards.length; } catch { deckCount = 0; }
   }
@@ -1322,6 +1343,7 @@ $("tower-reset-observation").addEventListener("click", () => {
   $("tower-observed").value = "";
   $("tower-seed-results").innerHTML = "";
   renderObservationButtons();
+  updateObservationCount();
 });
 
 function cancelSeedSearch() {
@@ -1352,8 +1374,18 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
     button.type = "button";
     button.className = "seed-candidate";
     button.textContent = `${seed} / ${asHex(seed)}`;
+    const currentSeed = String($("tower-seed")?.value ?? "").trim();
+    const seedMatchesCurrent = currentSeed === String(seed) || currentSeed.toLowerCase() === asHex(seed).toLowerCase();
+    button.classList.toggle("selected", seedMatchesCurrent);
+    button.setAttribute("aria-pressed", seedMatchesCurrent ? "true" : "false");
     button.addEventListener("click", () => {
       $("tower-seed").value = String(seed);
+      for (const candidate of container.querySelectorAll(".seed-candidate")) {
+        candidate.classList.remove("selected");
+        candidate.setAttribute("aria-pressed", "false");
+      }
+      button.classList.add("selected");
+      button.setAttribute("aria-pressed", "true");
     });
     container.append(button);
   }
