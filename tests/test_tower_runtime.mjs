@@ -550,6 +550,7 @@ console.log("tower runtime tests: ok");
     ],
     towers: {
       "tower_001-hski": [[12, 3, [0, 1]]],
+      "tower_001-amao": [[12, 4, [0, 1]]],
     },
   });
   assert.equal(liveLayers.length, 2);
@@ -585,6 +586,12 @@ console.log("tower runtime tests: ok");
     "ProduceExamEffectType_ExamConcentration",
   );
   assert.equal(focusChoices.length, 1);
+  assert.equal(focusChoices[0].towerId, "tower_001-hski");
   assert.equal(focusChoices[0].configId, "p_exam_battle_config-tower_001-focus");
   assert.equal(focusChoices[0].maxSubMemoryCount, 3);
+  assert.equal(
+    focusChoices.some((choice) => choice.towerId === "tower_001-amao"),
+    false,
+    "characterId must automatically filter out other idols' towers",
+  );
 }

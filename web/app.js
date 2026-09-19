@@ -258,12 +258,11 @@ async function initializeTowerStageCatalog() {
     renderTowerStageOptions();
     if (status) {
       if (towerStageCatalog.layerSource === "api-snapshot") {
-        const meta = towerStageCatalog.liveLayerMeta;
-        status.textContent = `Tower.GetLayer 実データ ${towerStageCatalog.layerFloorCount}階を読み込みました${meta?.appVersion ? `（アプリ ${meta.appVersion}）` : ""}。`;
+        status.textContent = "MainメモリーのPアイドルに対応するドル道だけを自動表示します。";
       } else if (towerStageCatalog.layerExams.length) {
-        status.textContent = "ドル道の階層マスタからステージを読み込みました。";
+        status.textContent = "MainメモリーのPアイドルに対応するドル道だけを自動表示します。";
       } else {
-        status.textContent = "階層対応表が公開マスタでは空のため、試験設定（ターン数・Vo/Da/Vi）から選択します。";
+        status.textContent = "階層対応表がないため、試験設定（ターン数・Vo/Da/Vi）から選択します。";
       }
     }
   } catch (error) {
@@ -771,14 +770,19 @@ function renderTowerStageOptions() {
   const mainSlot = ensureSlots("tower")[0];
   const mainMemory = mainSlot ? memoryList.find((memory) => memory.userMemoryId === mainSlot.memoryId) : null;
   const mainIdol = mainMemory ? catalogs.idolCardById.get(String(mainMemory.idolCardId ?? "")) : null;
-  const choices = buildTowerStageChoices(
-    towerStageCatalog,
-    mainMemory?.characterId ?? "",
-    mainIdol?.examEffectType ?? "",
-  );
+  const characterId = String(mainIdol?.characterId ?? mainMemory?.characterId ?? "");
+  const examEffectType = String(mainIdol?.examEffectType ?? "");
+
+  if (!mainMemory || !characterId || !examEffectType) {
+    towerStageChoicesByKey = new Map();
+    select.replaceChildren(new Option("先にMainメモリーを選択してください", ""));
+    return;
+  }
+
+  const choices = buildTowerStageChoices(towerStageCatalog, characterId, examEffectType);
   towerStageChoicesByKey = new Map(choices.map((choice) => [choice.key, choice]));
 
-  select.replaceChildren(new Option("選択してください", ""));
+  select.replaceChildren(new Option("階を選択してください", ""));
   let lastTurn = null;
   let group = null;
   for (const choice of choices) {
@@ -793,6 +797,16 @@ function renderTowerStageOptions() {
     (group && !choice.exactLayer ? group : select).append(option);
   }
   if (towerStageChoicesByKey.has(previous)) select.value = previous;
+
+  const status = $("tower-stage-source-status");
+  if (status && towerStageCatalog.layerSource === "api-snapshot") {
+    const towerId = choices[0]?.towerId ?? "";
+    const floorCount = new Set(choices.map((choice) => choice.number).filter(Boolean)).size;
+    const idolLabel = String(mainIdol?.name ?? characterId);
+    status.textContent = towerId
+      ? `${idolLabel}に対応するドル道 ${floorCount}階だけを表示しています。`
+      : `${idolLabel}に対応するドル道階層が見つかりません。`;
+  }
 }
 
 function towerPercentText(value) {
