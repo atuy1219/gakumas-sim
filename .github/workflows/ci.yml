@@ -22,64 +22,16 @@ jobs:
         run: python -m unittest -v
       - name: JavaScript syntax checks
         run: |
-          node --check web/app.js
-          node --check web/catalog_bootstrap.js
-          node --check web/catalog.js
-          node --check web/catalog_memory_ui.js
-          node --check web/display_fix.js
-          node --check web/simulator_filter.js
-          node --check web/memory_detail_ui.js
-          node --check web/memory_backup.js
-          node --check web/storage_keys.js
-          node --check web/engine.js
-          node --check web/exam_effects.js
-          node --check web/exam_preset.js
-          node --check web/exam_setup.js
-          node --check web/material_app.js
-          node --check web/memory_upgrade_ui.js
-          node --check web/simulation.js
-          node --check web/tower_preset.js
-          node --check web/tower_runtime.js
-          node --check web/seed_worker.js
-          node --check web/seed_recycle.js
-          node --check web/seed_history_ref.js
-          node --check web/seed_runtime_replay.js
-          node --check web/seed_history_ui.js
-          node --check web/seed_observation.js
-      - name: Web parity tests
-        run: node test_web.mjs
-      - name: Three-tab simulator tests
-        run: node test_simulation.mjs
-      - name: Seed recycle history tests
-        run: node test_seed_recycle.mjs
-      - name: Seed history card reference tests
-        run: node test_seed_history_ref.mjs
-      - name: Seed runtime replay tests
-        run: node test_seed_runtime_replay.mjs
-      - name: Generated seed observation tests
-        run: node test_seed_observation.mjs
-      - name: Catalog UI tests
-        run: node test_catalog.mjs
-      - name: Memory judgement tests
-        run: node test_memory_judgement.mjs
-      - name: Simulator filter tests
-        run: node test_simulator_filter.mjs
-      - name: Memory detail tests
-        run: node test_memory_detail_ui.mjs
-      - name: Memory backup tests
-        run: node test_memory_backup.mjs
-      - name: Storage key migration tests
-        run: node test_storage_keys.mjs
-      - name: Tower preset tests
-        run: node test_tower_preset.mjs
-      - name: Exam preset tests
-        run: node test_exam_preset.mjs
-      - name: Tower runtime tests
-        run: node test_tower_runtime.mjs
-      - name: Exam effect tests
+          for file in web/*.js; do
+            node --check "$file"
+          done
+      - name: Web tests
         run: |
-          node test_exam_effects.mjs
-          node test_card_master_effects.mjs
-          node test_exam_runtime.mjs
-          node test_effect_runtime.mjs
-          node test_exam_setup.mjs
+          node test_web.mjs
+          node test_simulation.mjs
+          node test_seed.mjs
+          node test_catalog.mjs
+          node test_memory.mjs
+          node test_presets.mjs
+          node test_tower_runtime.mjs
+          node test_exam_web.mjs

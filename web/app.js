@@ -38,7 +38,6 @@ import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
 import {
   FILTER_STORAGE_KEY,
   MEMORY_STORAGE_KEY,
-  migrateStorageKeys,
 } from "./storage_keys.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1606,7 +1605,6 @@ $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(sho
 
 const tabParam = new URLSearchParams(location.search).get("tab");
 activateTab(["memory", "cards", "items", "exam", "contest", "tower"].includes(tabParam) ? tabParam : "memory");
-migrateStorageKeys(localStorage);
 restoreLibrary();
 renderMemoryList();
 renderSimBuilder("contest");
