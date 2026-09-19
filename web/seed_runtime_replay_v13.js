@@ -285,6 +285,23 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
   }
 }
 
+function visibleDrawPrefixStatus(result, observedIds) {
+  const observed = (observedIds ?? []).map(String).filter(Boolean);
+  if (!observed.length) return "match";
+
+  const predicted = [];
+  for (const entry of result.trace ?? []) {
+    if (entry?.type !== "draw" && entry?.type !== "play") continue;
+    for (const card of entry.drawn ?? []) predicted.push(cardId(card));
+  }
+
+  const comparable = Math.min(observed.length, predicted.length);
+  for (let index = 0; index < comparable; index += 1) {
+    if (observed[index] !== predicted[index]) return "mismatch";
+  }
+  return predicted.length >= observed.length ? "match" : "pending";
+}
+
 function observedPrefixStatus(result, observedIds) {
   const observed = (observedIds ?? []).map(String).filter(Boolean);
   if (!observed.length) return "match";
@@ -312,9 +329,10 @@ export function evaluateTowerSeedCandidates(seeds, cards, turnScript = [], obser
     const replay = replayTowerSeed(seed, cards, turnScript, options);
     let status = replay.status;
     if (status === "ok") {
-      const prefix = observedPrefixStatus(replay, observedAfterRecycle);
-      if (prefix === "mismatch") status = "mismatch";
-      else if (prefix === "pending") status = "pending";
+      const visiblePrefix = visibleDrawPrefixStatus(replay, options.observedDrawOrder);
+      const recyclePrefix = observedPrefixStatus(replay, observedAfterRecycle);
+      if (visiblePrefix === "mismatch" || recyclePrefix === "mismatch") status = "mismatch";
+      else if (visiblePrefix === "pending" || recyclePrefix === "pending") status = "pending";
       else status = "match";
     } else if (status === "uncertain") {
       status = "uncertain";
