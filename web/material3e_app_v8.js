@@ -323,10 +323,20 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
     button.className = "seed-candidate";
     button.textContent = `${seed} / ${asHex(seed)}`;
     button.title = "このSeedを使用";
-    button.addEventListener("click", async () => {
-      document.getElementById("exam-seed").value = String(seed);
-      await navigator.clipboard?.writeText(String(seed));
-      button.textContent = `${seed} / ${asHex(seed)} · 選択済み`;
+    const seedInput = document.getElementById("exam-seed");
+    const currentSeed = String(seedInput?.value ?? "").trim();
+    const selected = currentSeed === String(seed) || currentSeed.toLowerCase() === asHex(seed).toLowerCase();
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+    button.addEventListener("click", () => {
+      seedInput.value = String(seed);
+      for (const candidate of container.querySelectorAll(".seed-candidate")) {
+        candidate.classList.remove("selected");
+        candidate.setAttribute("aria-pressed", "false");
+      }
+      button.classList.add("selected");
+      button.setAttribute("aria-pressed", "true");
+      navigator.clipboard?.writeText(String(seed)).catch(() => {});
     });
     container.append(button);
   }
@@ -484,7 +494,16 @@ document.getElementById("exam-next").addEventListener("click", () => {
 for (const button of document.querySelectorAll("#tab-exam [data-exam-back]")) {
   button.addEventListener("click", () => setSimulationStage("exam", button.dataset.examBack));
 }
-document.getElementById("exam-seed-next").addEventListener("click", () => setSimulationStage("exam", "simulation"));
+document.getElementById("exam-seed-next").addEventListener("click", () => {
+  const input = document.getElementById("exam-seed");
+  if (!String(input?.value ?? "").trim()) {
+    showExamError("Seedを入力するか、下の手順でSeed候補を特定してください。");
+    input?.focus();
+    return;
+  }
+  document.getElementById("global-error").hidden = true;
+  setSimulationStage("exam", "simulation");
+});
 document.getElementById("exam-run").addEventListener("click", () => {
   const deck = examDeck();
   if (!deck.length) return showExamError("使用するカードを1枚以上追加してください。");
@@ -498,7 +517,18 @@ document.getElementById("exam-run").addEventListener("click", () => {
   }));
 });
 for (const button of document.querySelectorAll("#tab-tower [data-tower-next]")) {
-  button.addEventListener("click", () => setSimulationStage("tower", button.dataset.towerNext));
+  button.addEventListener("click", () => {
+    if (button.dataset.towerNext === "simulation") {
+      const input = document.getElementById("tower-seed");
+      if (!String(input?.value ?? "").trim()) {
+        showExamError("Seedを入力するか、下の手順でSeed候補を特定してください。");
+        input?.focus();
+        return;
+      }
+      document.getElementById("global-error").hidden = true;
+    }
+    setSimulationStage("tower", button.dataset.towerNext);
+  });
 }
 for (const button of document.querySelectorAll("#tab-tower [data-tower-back]")) {
   button.addEventListener("click", () => setSimulationStage("tower", button.dataset.towerBack));
