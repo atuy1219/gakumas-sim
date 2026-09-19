@@ -27,6 +27,7 @@ const state = {
   observationButtonMap: new Map(),
   pickerIndex: null,
   evaluation: null,
+  uncertaintyExpanded: true,
   lastError: "",
 };
 
@@ -605,33 +606,59 @@ function renderResults() {
 
   if (evaluation.uncertain.length) {
     const causes = summarizeReplayUncertainty(evaluation.uncertain);
-    const details = document.createElement("details");
-    details.className = "seed-uncertainty-details-v13";
+    const panel = document.createElement("section");
+    panel.className = "seed-uncertainty-panel-v13";
 
-    const detailsSummary = document.createElement("summary");
-    detailsSummary.textContent = `判定保留の原因を表示（${causes.length}件）`;
-    details.append(detailsSummary);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "seed-uncertainty-toggle-v13";
+    toggle.setAttribute("aria-expanded", state.uncertaintyExpanded ? "true" : "false");
+    toggle.textContent = state.uncertaintyExpanded
+      ? `▼ 判定保留の原因（${causes.length}件）を隠す`
+      : `▶ 判定保留の原因を表示（${causes.length}件）`;
+    toggle.addEventListener("click", () => {
+      state.uncertaintyExpanded = !state.uncertaintyExpanded;
+      renderResults();
+    });
+    panel.append(toggle);
 
-    if (!causes.length) {
-      const unknown = document.createElement("p");
-      unknown.className = "hint";
-      unknown.textContent = "保留理由を取得できませんでした。";
-      details.append(unknown);
-    } else {
-      const list = document.createElement("ul");
-      list.className = "seed-uncertainty-list-v13";
-      for (const cause of causes) {
-        const item = document.createElement("li");
-        const label = document.createElement("strong");
-        label.textContent = cause.label;
-        const count = document.createElement("small");
-        count.textContent = ` ${cause.count}/${evaluation.uncertain.length}候補`;
-        item.append(label, count);
-        list.append(item);
+    if (state.uncertaintyExpanded) {
+      if (!causes.length) {
+        const unknown = document.createElement("p");
+        unknown.className = "hint seed-uncertainty-empty-v13";
+        unknown.textContent = "保留理由を取得できませんでした。";
+        panel.append(unknown);
+      } else {
+        const list = document.createElement("div");
+        list.className = "seed-uncertainty-list-v13";
+        for (const cause of causes) {
+          const item = document.createElement("article");
+          item.className = "seed-uncertainty-item-v13";
+
+          const head = document.createElement("div");
+          head.className = "seed-uncertainty-head-v13";
+          const label = document.createElement("strong");
+          label.textContent = cause.label;
+          const count = document.createElement("span");
+          count.className = "badge";
+          count.textContent = `${cause.count}/${evaluation.uncertain.length}候補`;
+          head.append(label, count);
+
+          const raw = document.createElement("code");
+          raw.className = "seed-uncertainty-raw-v13";
+          raw.textContent = cause.reason;
+
+          const seeds = document.createElement("small");
+          seeds.className = "seed-uncertainty-seeds-v13";
+          seeds.textContent = `影響Seed: ${cause.seeds.map((seed) => `${seed} / ${asHex(seed)}`).join("、")}`;
+
+          item.append(head, raw, seeds);
+          list.append(item);
+        }
+        panel.append(list);
       }
-      details.append(list);
     }
-    host.append(details);
+    host.append(panel);
   }
 
   if (!after) {
