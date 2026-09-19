@@ -22,7 +22,6 @@ jobs:
         run: python -m unittest -v
       - name: JavaScript syntax checks
         run: |
-          node --check web/app.js
           node --check web/app_v3.js
           node --check web/catalog_bootstrap.js
           node --check web/catalog_v4.js
@@ -42,7 +41,6 @@ jobs:
           node --check web/seed_worker.js
           node --check web/seed_recycle_v11.js
           node --check web/seed_history_ref_v12.js
-          node --check web/seed_history_ui_v12.js
           node --check web/seed_runtime_replay_v13.js
           node --check web/seed_history_ui_v13.js
           node --check web/seed_observation_v15.js
