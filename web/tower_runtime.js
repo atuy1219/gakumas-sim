@@ -212,6 +212,78 @@ function addGeneratedCard(state, parsed, event) {
   }
 }
 
+function cardMoveSearchPools(state, searchPosition) {
+  switch (String(searchPosition ?? "")) {
+    case "deck":
+      return [{ name: "deck", cards: state.deck }];
+    case "grave":
+      return [{ name: "grave", cards: state.discard }];
+    case "deck_grave":
+      return [
+        { name: "deck", cards: state.deck },
+        { name: "grave", cards: state.discard },
+      ];
+    default:
+      return [];
+  }
+}
+
+function moveSearchedCards(state, parsed, event) {
+  if (!Array.isArray(event.moved)) event.moved = [];
+  const min = Math.max(0, Number(parsed.pickCountMin ?? 0) || 0);
+  const max = Math.max(0, Number(parsed.pickCountMax ?? min) || 0);
+  if (min !== max) {
+    rememberUnsupported(state, `card-move-count:${parsed.id}`);
+    event.effects.push(`移動枚数が可変のため判定保留: ${parsed.id}`);
+    return;
+  }
+  if (String(parsed.pickRange ?? "") !== "random") {
+    rememberUnsupported(state, `card-move-range:${parsed.pickRange}`);
+    event.effects.push(`未対応のカード選択方法: ${parsed.pickRange}`);
+    return;
+  }
+  if (String(parsed.movePosition ?? "") !== "lost") {
+    rememberUnsupported(state, `card-move-position:${parsed.movePosition}`);
+    event.effects.push(`未対応のカード移動先: ${parsed.movePosition}`);
+    return;
+  }
+
+  const pools = cardMoveSearchPools(state, parsed.searchPosition);
+  if (!pools.length) {
+    rememberUnsupported(state, `card-move-search-position:${parsed.searchPosition}`);
+    event.effects.push(`未対応のカード検索範囲: ${parsed.searchPosition}`);
+    return;
+  }
+
+  for (let pick = 0; pick < min; pick += 1) {
+    const matches = [];
+    for (const pool of pools) {
+      for (let index = 0; index < pool.cards.length; index += 1) {
+        if (String(pool.cards[index]?.id ?? "") !== String(parsed.cardId ?? "")) continue;
+        matches.push({ pool, index, card: pool.cards[index] });
+      }
+    }
+    if (!matches.length) break;
+
+    // ProducePickRangeType_Random selects through the exam XorShift stream.
+    // Keep the RNG step even when only one matching card exists so subsequent
+    // DeckRandom/recycle shuffles stay aligned with the native client.
+    const randomStateBefore = state.randomState >>> 0;
+    const selectedIndex = consumeNativeRandomInt(state, 0, matches.length);
+    const selected = matches[selectedIndex];
+    const [card] = selected.pool.cards.splice(selected.index, 1);
+    state.lost.push(card);
+    event.moved.push({
+      card: { ...card },
+      from: selected.pool.name,
+      to: "lost",
+      randomStateBefore,
+      randomStateAfter: state.randomState >>> 0,
+    });
+  }
+}
+
+
 function normalizeHandLimit(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : Number.POSITIVE_INFINITY;
@@ -401,6 +473,9 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     case "card_create_id":
       addGeneratedCard(state, applied, event);
       break;
+    case "card_move_search":
+      moveSearchedCards(state, applied, event);
+      break;
     case "playable_add":
       state.playsRemaining += Number(applied.value) || 0;
       break;
@@ -452,6 +527,12 @@ function runEnchantPhase(state, phase, event, card = null, source = state.enchan
     if (trigger.phase !== phase) continue;
     if (trigger.field && Number(state.exam[trigger.field] ?? 0) < Number(trigger.min ?? 0)) continue;
     if (trigger.category && String(card?.category ?? "") !== trigger.category) continue;
+    if (trigger.skillCard && ![
+      "ProduceCardCategory_ActiveSkill",
+      "ProduceCardCategory_MentalSkill",
+    ].includes(String(card?.category ?? ""))) continue;
+    if (Number(trigger.playCountInterval ?? 0) > 0
+        && Number(state.exam.cardPlayCount ?? 0) % Number(trigger.playCountInterval) !== 0) continue;
     for (const effect of enchant.effects ?? []) executeParsedTowerEffect(state, effect, event);
   }
 }
@@ -475,6 +556,7 @@ export function playTowerCard(state, indexInput) {
     effects: [],
     drawn: [],
     created: [],
+    moved: [],
     recycleEvents: [],
     onceOnly: Boolean(card.onceOnly),
   };
@@ -546,6 +628,10 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     card: { ...play.card },
     drawn: play.drawn.map((card) => ({ ...card })),
     created: (play.created ?? []).map((entry) => ({
+      ...entry,
+      card: { ...entry.card },
+    })),
+    moved: (play.moved ?? []).map((entry) => ({
       ...entry,
       card: { ...entry.card },
     })),
