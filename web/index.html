@@ -126,7 +126,7 @@
     </section>
 
     <section id="tab-exam" class="tab-panel section-stack m3e-simulator" hidden>
-      <div class="m3e-flow-nav"><span class="active" data-stage="setup">1&nbsp; 編成</span><i></i><span data-stage="order">2&nbsp; Shuffle前順</span><i></i><span data-stage="seed">3&nbsp; Seed</span><i></i><span data-stage="simulation">4&nbsp; シミュレーション</span></div>
+      <div class="m3e-flow-nav"><span class="active" data-stage="setup">1&nbsp; 編成</span><i></i><span data-stage="seed">2&nbsp; Seed</span><i></i><span data-stage="simulation">3&nbsp; シミュレーション</span></div>
       <section class="panel input-panel" data-sim-stage="setup">
         <div class="section-head">
           <div><p class="step">01</p><h2>試験・オーディション編成</h2></div>
@@ -137,6 +137,23 @@
         </div>
         <p id="exam-preset-status" class="hint" aria-live="polite"></p>
         <p class="hint">キャラクター、プラン、Pアイドルを選び、使用するカードを必要な枚数だけ追加してください。</p>
+        <section class="seed-route-card-v14" aria-labelledby="exam-progress-title">
+          <div class="seed-route-number-v14" aria-hidden="true">実</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong id="exam-progress-title">進行中produceCardsを読み込む</strong><small>Seed特定では実機のUserProduceProgressを使い、Deletedを除外してNumber昇順でShuffle前Deckを自動構築します。</small></div>
+            </div>
+            <div class="button-row">
+              <label class="file-button">進行中プロデュースJSON<input id="exam-progress-file" type="file" accept="application/json,.json"></label>
+            </div>
+            <details class="advanced">
+              <summary>JSONを貼り付けて読み込む</summary>
+              <textarea id="exam-progress-text" rows="5" spellcheck="false" placeholder="UserProduceProgress / produceCards を含むJSON"></textarea>
+              <button id="exam-load-progress-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
+            </details>
+            <p id="exam-progress-status" class="hint" aria-live="polite">Seed特定には、Number付きproduceCardsを含む進行中プロデュースJSONを読み込んでください。</p>
+          </div>
+        </section>
         <div class="sim-config-grid">
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
           <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
@@ -149,31 +166,13 @@
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
         <p id="exam-card-summary" class="hint">0枚選択</p>
-        <button id="exam-next" type="button" class="primary">Shuffle前の順番を設定</button>
-      </section>
-
-      <section class="panel input-panel" data-sim-stage="order" hidden>
-        <div class="section-head">
-          <div><p class="step">02</p><h2>Shuffle前のカード順</h2><p class="hint">実機でShuffleへ渡される1枚目から順番にカードを選んでください。この順序をSeed逆算と試験シミュレーションの両方に使用します。</p></div>
-          <button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button>
-        </div>
-        <p class="callout">Seed特定時の手札入力と同じ要領です。1枚目、2枚目、3枚目…の順に下のカードをタップしてください。</p>
-        <div class="seed-work-card-v14">
-          <div class="seed-work-head-v14"><span>1</span><div><strong>Shuffle前順を入力</strong><small>実機の順番どおりにカードを1枚ずつ選択します。</small></div><span id="exam-order-count" class="badge">0 / 0枚</span></div>
-          <div id="exam-order-selected" class="observed-sequence seed-observed-v14"><span class="hint">まだカードがありません。</span></div>
-          <div id="exam-deck-order" class="observation-grid seed-card-grid-v14"></div>
-          <div class="seed-mobile-actions-v14">
-            <button id="exam-order-undo" type="button" class="ghost-button">1枚戻す</button>
-            <button id="exam-order-reset" type="button" class="ghost-button">最初から</button>
-          </div>
-        </div>
-        <button id="exam-order-next" type="button" class="primary" disabled>この順番でSeed設定へ</button>
+        <button id="exam-next" type="button" class="primary">Seed設定へ</button>
       </section>
 
       <section class="panel seed-stage-v14" data-sim-stage="seed" hidden>
         <div class="section-head seed-stage-head-v14">
-          <div><p class="step">03</p><h2>Seedを設定</h2><p class="hint">Seedが分かっている場合は直接入力。不明な場合は実機の手札を記録して特定します。</p></div>
-          <button type="button" class="secondary" data-exam-back="order">Shuffle前順へ戻る</button>
+          <div><p class="step">02</p><h2>Seedを設定</h2><p class="hint">Seedが分かっている場合は直接入力。不明な場合は実機の手札を記録して特定します。Seed特定には進行中produceCardsのNumber順を使用します。</p></div>
+          <button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button>
         </div>
 
         <div id="exam-deck-summary" class="chip-list seed-deck-summary-v14"></div>
@@ -225,7 +224,7 @@
       </section>
 
       <section class="panel m3e-play-panel" data-sim-stage="simulation" hidden>
-        <div class="section-head"><div><p class="step">04</p><h2>試験・オーディション</h2></div><button type="button" class="secondary" data-exam-back="seed">Seed設定へ戻る</button></div>
+        <div class="section-head"><div><p class="step">03</p><h2>試験・オーディション</h2></div><button type="button" class="secondary" data-exam-back="seed">Seed設定へ戻る</button></div>
         <button id="exam-run" type="button" class="primary">シミュレーション開始 / リセット</button>
         <div id="exam-turn-result" class="m3e-battle-surface" hidden>
           <div class="m3e-battle-hud">
