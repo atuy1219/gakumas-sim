@@ -185,7 +185,10 @@ assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "
 
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/index.html", import.meta.url), "utf8"));
 assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
-assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
+assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="order">2[^<]*Shuffle前順[\s\S]*data-stage="seed">3[^<]*Seed[\s\S]*data-stage="simulation">4[^<]*シミュレーション/);
+assert.match(towerHtml, /id="exam-deck-order"/);
+assert.match(towerHtml, /id="exam-order-next"/);
+assert.match(towerHtml, /data-exam-back="order">Shuffle前順へ戻る/);
 assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
 assert.match(towerHtml, /id="exam-seed"/);
 assert.match(towerHtml, /id="exam-export-preset"/);
