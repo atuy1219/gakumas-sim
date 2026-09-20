@@ -9,6 +9,14 @@ import {
   tickNativeScoreTimedStatuses,
 } from "./exam_effects.js";
 import { applyNativeReviewTurnEnd } from "./exam_score.js";
+import {
+  NATIVE_EFFECT_PHASE,
+  captureNativeStatusSnapshot,
+  createNativeEffectScheduler,
+  dispatchNativeEffectPhase,
+  dispatchNativeStatusDiff,
+  tickNativeEffectSchedulerTurn,
+} from "./native_effect_scheduler.js";
 
 export const TOWER_DEFAULT_DECK_BY_EXAM_EFFECT = Object.freeze({
   ProduceExamEffectType_ExamParameterBuff: "initial_deck-parameter_buff",
@@ -381,6 +389,9 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     turnLimit: Number.isFinite(Number(options.turnLimit)) ? Math.max(0, Math.trunc(Number(options.turnLimit))) : null,
     ended: false,
     exam,
+    effectScheduler: options.effectScheduler ?? createNativeEffectScheduler({
+      traceEnabled: Boolean(options.effectSchedulerTrace),
+    }),
     playsRemaining: 0,
     currentTurnPlays: [],
     unsupported: [],
@@ -399,6 +410,61 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
 function rememberUnsupported(state, value) {
   const text = String(value ?? "").trim();
   if (text && !state.unsupported.includes(text)) state.unsupported.push(text);
+}
+
+function nativeRuntimeEvent() {
+  return {
+    effects: [],
+    drawn: [],
+    created: [],
+    moved: [],
+    recycleEvents: [],
+  };
+}
+
+function schedulerParsedEffect(effect) {
+  if (effect && typeof effect === "object" && effect.kind) return effect;
+  if (effect && typeof effect === "object" && effect.produceExamEffectId) {
+    return parseExamEffectId(effect.produceExamEffectId);
+  }
+  return parseExamEffectId(effect);
+}
+
+function nativeSchedulerHooks(state, runtimeEvent) {
+  return {
+    executeEffect(effect) {
+      executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent);
+    },
+  };
+}
+
+function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
+  return dispatchNativeEffectPhase(
+    state.effectScheduler,
+    phase,
+    {
+      state,
+      exam: state.exam,
+      event: runtimeEvent,
+      ...extra,
+    },
+    nativeSchedulerHooks(state, runtimeEvent),
+  );
+}
+
+function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
+  return dispatchNativeStatusDiff(
+    state.effectScheduler,
+    before,
+    captureNativeStatusSnapshot(state.exam),
+    {
+      state,
+      exam: state.exam,
+      event: runtimeEvent,
+      ...extra,
+    },
+    nativeSchedulerHooks(state, runtimeEvent),
+  );
 }
 
 function recycleIfNeeded(state) {
@@ -480,10 +546,20 @@ export function drawTowerTurn(state, drawCount = 3) {
   }
 
   state.ended = false;
+  const phaseEvent = nativeRuntimeEvent();
+  runNativeEffectPhase(
+    state,
+    NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
+    phaseEvent,
+    { nextTurn: Number(state.turn ?? 0) + 1 },
+  );
+
   const isOpeningTurn = state.turn === 0 && !state.openingResolved;
   state.turn += 1;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.START_OF_TURN, phaseEvent);
+
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
   const requested = count + extraDraw;
@@ -494,11 +570,13 @@ export function drawTowerTurn(state, drawCount = 3) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
   }
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
   return {
     turn: state.turn,
     hand: state.hand.map((card) => ({ ...card })),
     drawn: result.drawn.map((card) => ({ ...card })),
     recycleEvents: result.recycleEvents,
+    nativePhaseEffects: [...phaseEvent.effects],
   };
 }
 
@@ -535,6 +613,7 @@ export function currentTowerScoreContext(state) {
 }
 
 function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) {
+  const beforeStatus = captureNativeStatusSnapshot(state.exam);
   const applied = applyParsedExamEffect(state.exam, parsed, currentTowerScoreContext(state));
   if (applied.unsupported) {
     rememberUnsupported(state, `effect:${parsed.id}`);
@@ -601,6 +680,12 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       break;
   }
   if (applied.label) event.effects.push(applied.label);
+  emitNativeStatusDiff(
+    state,
+    beforeStatus,
+    event,
+    { cause: "effect", parsedEffect: parsed },
+  );
 }
 
 function applyCardEffectEntry(state, entry, event) {
@@ -695,10 +780,19 @@ export function playTowerCard(state, indexInput) {
     throw new Error(`${card.id}: カード使用条件を満たしていません。`);
   }
 
+  const beforeCostStatus = captureNativeStatusSnapshot(state.exam);
   event.cost.push(...payCardCost(state.exam, card));
+  emitNativeStatusDiff(
+    state,
+    beforeCostStatus,
+    event,
+    { cause: "cardCost", card },
+  );
+
   state.hand.splice(index, 1);
   state.playsRemaining -= 1;
   state.exam.cardPlayCount += 1;
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card });
   const repeatBuff = state.cardEffectPlayCountBuff;
   const repeatMatches = Boolean(
     repeatBuff
@@ -716,6 +810,7 @@ export function playTowerCard(state, indexInput) {
     for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
   }
   runEnchantPhase(state, "card_play", event, card, cardPlayEnchants);
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card });
 
   if (card.onceOnly) state.lost.push(card);
   else state.discard.push(card);
@@ -831,10 +926,25 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   }
 
   tickTimers(state, turnEndEvent);
+  runNativeEffectPhase(
+    state,
+    NATIVE_EFFECT_PHASE.END_TURN,
+    turnEndEvent,
+    { action: type, used },
+  );
   runEnchantPhase(state, "end_turn", turnEndEvent);
   if (turnEndEvent.effects.length) entry.turnEndEffects = turnEndEvent.effects;
+
+  const beforeTurnSpendStatus = captureNativeStatusSnapshot(state.exam);
   tickTurnDurations(state.exam);
+  emitNativeStatusDiff(
+    state,
+    beforeTurnSpendStatus,
+    turnEndEvent,
+    { cause: "turnEndSpend", action: type, used },
+  );
   tickCardEffectPlayCountBuff(state);
+  tickNativeEffectSchedulerTurn(state.effectScheduler);
   entry.examAfterTurnEnd = { ...state.exam };
   return entry;
 }
