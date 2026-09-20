@@ -1,0 +1,193 @@
+import assert from "node:assert/strict";
+
+import {
+  parseExamEffectMaster,
+  parseProduceCardSearchCatalog,
+  parseProduceExamEffectCatalog,
+  parseProduceExamStatusEnchantCatalog,
+  parseProduceExamTriggerCatalog,
+  parseProduceItemCatalogForExam,
+  parseProduceItemEffectCatalog,
+  resolveProduceItems,
+} from "../web/exam_effects.js";
+import {
+  createTowerTurnState,
+  drawTowerTurn,
+  playTowerCard,
+} from "../web/tower_runtime.js";
+
+const items = parseProduceItemCatalogForExam(`
+- id: pitem-test
+  name: テストPアイテム
+  planType: ProducePlanType_Plan1
+  produceItemEffectIds:
+  - pitem-effect-test
+  libraryHidden: false
+`);
+const itemEffects = parseProduceItemEffectCatalog(`
+- id: pitem-effect-test
+  effectType: ProduceItemEffectType_ExamStatusEnchant
+  effectTurn: -1
+  effectCount: 2
+  produceEffectId: ""
+  produceExamStatusEnchantId: enchant-test
+`);
+const enchants = parseProduceExamStatusEnchantCatalog(`
+- id: enchant-test
+  assetId: ""
+  produceExamTriggerId: trigger-test
+  produceExamEffectIds:
+  - effect-test
+`);
+const triggers = parseProduceExamTriggerCatalog(`
+- id: trigger-test
+  phaseTypes:
+  - ProduceExamPhaseType_ExamCardPlayAfter
+  phaseValues: []
+  fieldStatusCheckTypes: []
+  fieldStatusTypes: []
+  fieldStatusValues: []
+  fieldStatusProduceCardSearchIds: []
+  produceCardSearchId: search-active
+  upperSearchCount: 0
+  lowerSearchCount: 0
+  cardMovePositionType: ProduceCardMovePositionType_Unknown
+  effectTypes: []
+  lessonType: ProduceStepLessonType_Unknown
+`);
+const examEffects = parseProduceExamEffectCatalog(`
+- id: effect-test
+  effectType: ProduceExamEffectType_ExamReview
+  effectValue1: 3
+  effectValue2: 0
+  effectCount: 1
+  effectTurn: 0
+  targetProduceCardId: ""
+  targetUpgradeCount: 0
+  targetExamEffectType: ProduceExamEffectType_Unknown
+  produceCardSearchId: ""
+  movePositionType: ProduceCardMovePositionType_Unknown
+  pickRangeType: ProducePickRangeType_Unknown
+  pickCountMin: 0
+  pickCountMax: 0
+  chainProduceExamEffectId: ""
+  chainProduceExamEffectIds: []
+  produceExamStatusEnchantId: ""
+  produceCardStatusEnchantId: ""
+  produceCardGrowEffectIds: []
+  effectGroupIds: []
+`);
+const cardSearches = parseProduceCardSearchCatalog(`
+- id: search-active
+  cardRarities: []
+  produceCardIds: []
+  upgradeCounts: []
+  planType: ProducePlanType_Unknown
+  cardCategories:
+  - ProduceCardCategory_ActiveSkill
+  cardStatusType: ProduceCardSearchStatusType_Unknown
+  orderType: ProduceCardOrderType_Unknown
+  cardPositionType: ProduceCardPositionType_Playing
+  cardSearchTag: ""
+  produceCardRandomPoolId: ""
+  limitCount: 0
+  staminaMinMaxType: ConditionMinMaxType_Unknown
+  staminaMin: 0
+  staminaMax: 0
+  examEffectType: ProduceExamEffectType_Unknown
+  effectGroupIds: []
+  isSelf: false
+  produceCardPoolId: ""
+  costType: ExamCostType_Unknown
+  isCustomized: false
+`);
+
+const catalogs = {
+  examStatusEnchantById: new Map(enchants.map((row) => [row.id, row])),
+  examTriggerById: new Map(triggers.map((row) => [row.id, row])),
+  examEffectById: new Map(examEffects.map((row) => [row.id, row])),
+  cardSearchById: new Map(cardSearches.map((row) => [row.id, row])),
+};
+const resolved = resolveProduceItems(
+  ["pitem-test"],
+  new Map(items.map((row) => [row.id, row])),
+  new Map(itemEffects.map((row) => [row.id, row])),
+  catalogs,
+);
+
+assert.equal(resolved.items.length, 1);
+const resolvedEffect = resolved.items[0].effects[0];
+assert.equal(resolvedEffect.examStatusEnchant.trigger.id, "trigger-test");
+assert.equal(resolvedEffect.examStatusEnchant.trigger.cardSearch.id, "search-active");
+assert.equal(resolvedEffect.examStatusEnchant.examEffects[0].effectType, "ProduceExamEffectType_ExamReview");
+assert.deepEqual(parseExamEffectMaster(examEffects[0]), {
+  kind: "review",
+  id: "effect-test",
+  value: 3,
+});
+
+const masters = [
+  {
+    id: "MENTAL",
+    category: "ProduceCardCategory_MentalSkill",
+    rarity: "ProduceCardRarity_R",
+    planType: "ProducePlanType_Plan1",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+  {
+    id: "ACTIVE-A",
+    category: "ProduceCardCategory_ActiveSkill",
+    rarity: "ProduceCardRarity_R",
+    planType: "ProducePlanType_Plan1",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+  {
+    id: "ACTIVE-B",
+    category: "ProduceCardCategory_ActiveSkill",
+    rarity: "ProduceCardRarity_R",
+    planType: "ProducePlanType_Plan1",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const cardById = new Map(masters.map((card) => [card.id, card]));
+const state = createTowerTurnState(
+  masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  0x12345678,
+  cardById,
+  { pItems: resolved.items, stamina: 20 },
+);
+
+assert.equal(state.unsupported.length, 0);
+assert.equal(state.effectScheduler.registrations.filter((entry) => entry.sourceType === "pItem").length, 1);
+assert.equal(state.pItemEffectRemainingCounts.get("pitem-test::pitem-effect-test"), 2);
+
+drawTowerTurn(state, 3);
+state.playsRemaining = 3;
+
+let index = state.hand.findIndex((card) => card.id === "MENTAL");
+assert.ok(index >= 0);
+playTowerCard(state, index);
+assert.equal(state.exam.review, 0, "card search must reject MentalSkill");
+
+index = state.hand.findIndex((card) => card.id === "ACTIVE-A");
+assert.ok(index >= 0);
+playTowerCard(state, index);
+assert.equal(state.exam.review, 3);
+assert.equal(state.pItemEffectRemainingCounts.get("pitem-test::pitem-effect-test"), 1);
+
+index = state.hand.findIndex((card) => card.id === "ACTIVE-B");
+assert.ok(index >= 0);
+playTowerCard(state, index);
+assert.equal(state.exam.review, 6);
+assert.equal(state.pItemEffectRemainingCounts.get("pitem-test::pitem-effect-test"), 0);
+assert.equal(
+  state.effectScheduler.registrations
+    .filter((entry) => entry.sourceType === "pItem")
+    .every((entry) => entry.active === false),
+  true,
+);
+
+console.log("P-item runtime tests: ok");
