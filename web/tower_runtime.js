@@ -463,8 +463,11 @@ export function drawTowerTurn(state, drawCount = 3) {
   if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
   if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
 
-  const turnLimit = Number(state.turnLimit);
-  if (Number.isFinite(turnLimit) && Number(state.turn ?? 0) >= turnLimit) {
+  const hasTurnLimit = state.turnLimit !== null
+    && state.turnLimit !== undefined
+    && Number.isFinite(Number(state.turnLimit));
+  const turnLimit = hasTurnLimit ? Number(state.turnLimit) : Number.POSITIVE_INFINITY;
+  if (hasTurnLimit && Number(state.turn ?? 0) >= turnLimit) {
     state.playsRemaining = 0;
     state.ended = true;
     return {
@@ -561,7 +564,11 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       break;
     case "extra_turn": {
       const value = Math.max(1, Math.trunc(Number(applied.value) || 1));
-      if (Number.isFinite(Number(state.turnLimit))) state.turnLimit += value;
+      if (
+        state.turnLimit !== null
+        && state.turnLimit !== undefined
+        && Number.isFinite(Number(state.turnLimit))
+      ) state.turnLimit += value;
       break;
     }
     case "timer":
