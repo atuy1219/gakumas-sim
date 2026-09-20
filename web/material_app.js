@@ -270,7 +270,7 @@ async function importExamPreset(file) {
   examIdol.value = preset.idolCardId;
   if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
   examCounts = nextCounts;
-  invalidateExamDeckOrder();
+  clearExamProgressDeck();
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
@@ -320,14 +320,14 @@ function renderExamCards() {
     minus.disabled = !examCounts.get(card.id);
     plus.disabled = card.noDeckDuplication && examCounts.get(card.id) === 1;
     minus.addEventListener("click", () => {
+      clearExamProgressDeck("カードを手動編集したため、進行中produceCardsのinstance情報を解除しました。");
       examCounts = changeExamCardCount(examCounts, card, -1);
-      invalidateExamDeckOrder();
       resetExamObservation();
       renderExamCards();
     });
     plus.addEventListener("click", () => {
+      clearExamProgressDeck("カードを手動編集したため、進行中produceCardsのinstance情報を解除しました。");
       examCounts = changeExamCardCount(examCounts, card, 1);
-      invalidateExamDeckOrder();
       resetExamObservation();
       renderExamCards();
     });
@@ -649,27 +649,27 @@ async function initializeExamSetup() {
 
 examCharacter.addEventListener("change", () => {
   examCounts = new Map();
-  invalidateExamDeckOrder();
+  clearExamProgressDeck();
   refreshExamIdols();
   renderExamCards();
   resetExamObservation();
 });
 examPlan.addEventListener("change", () => {
   examCounts = new Map();
-  invalidateExamDeckOrder();
+  clearExamProgressDeck();
   refreshExamIdols();
   renderExamCards();
   resetExamObservation();
 });
 examIdol.addEventListener("change", () => {
   examCounts = new Map();
-  invalidateExamDeckOrder();
+  clearExamProgressDeck();
   renderExamCards();
   resetExamObservation();
 });
 examCardPoolMode?.addEventListener("change", () => {
   examCounts = new Map();
-  invalidateExamDeckOrder();
+  clearExamProgressDeck();
   renderExamCards();
   resetExamObservation();
 });
@@ -693,20 +693,7 @@ document.getElementById("exam-next").addEventListener("click", () => {
   if (!examCharacter.value || !examPlan.value || !examIdol.value) return showExamError("キャラクター、プラン、Pアイドルを選択してください。");
   if (!examDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
   document.getElementById("global-error").hidden = true;
-  sanitizeExamDeckOrder();
   resetExamObservation();
-  renderExamDeckOrder();
-  setSimulationStage("exam", "order");
-});
-document.getElementById("exam-order-undo")?.addEventListener("click", undoExamDeckOrder);
-document.getElementById("exam-order-reset")?.addEventListener("click", () => {
-  examDeckOrder = [];
-  resetExamObservation();
-  renderExamDeckOrder();
-});
-document.getElementById("exam-order-next")?.addEventListener("click", () => {
-  if (!isExamDeckOrderComplete()) return showExamError("Shuffle前のカード順を最後まで入力してください。");
-  document.getElementById("global-error").hidden = true;
   renderExamDeckSummary();
   setSimulationStage("exam", "seed");
 });
