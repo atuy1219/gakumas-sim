@@ -397,7 +397,6 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     currentTurnPlays: [],
     unsupported: [],
     timers: [],
-    enchants: [],
     pendingDraw: 0,
     pendingHandUpgradeAll: 0,
     cardEffectPlayCountBuff: null,
