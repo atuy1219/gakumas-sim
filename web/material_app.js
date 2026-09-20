@@ -2,7 +2,7 @@ import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCh
 import { parseProduceCardCatalogYaml } from "./engine.js";
 import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
-import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
+import { normalizeProgressProduceCards, parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
@@ -224,6 +224,7 @@ function exportExamPreset() {
       idolCardId: examIdol.value,
       cardPoolMode: examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL,
       cards: [...examCounts].map(([id, count]) => ({ id, count })),
+      progressCards: examProgressDeck.map((card) => ({ ...(card.progressCard ?? card) })),
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
     });
@@ -270,12 +271,19 @@ async function importExamPreset(file) {
   examIdol.value = preset.idolCardId;
   if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
   examCounts = nextCounts;
-  clearExamProgressDeck();
+  if (preset.progressCards?.length) {
+    examProgressDeck = normalizeProgressProduceCards(preset.progressCards, examCardById, examCardVariantByKey);
+    examProgressPath = "preset.progressCards";
+    examCounts = progressDeckCounts(examProgressDeck);
+  } else {
+    clearExamProgressDeck();
+  }
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
   renderExamCards();
   resetExamObservation();
+  renderExamProgressStatus();
   examPresetStatus(`${examDeck().length}枚の編成をインポートしました。`);
 }
 
