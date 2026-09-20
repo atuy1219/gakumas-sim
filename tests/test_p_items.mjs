@@ -190,4 +190,81 @@ assert.equal(
   true,
 );
 
+
+// The same ProduceItem identity fires at most once at a single native timing,
+// even when multiple enchant/effect rows are attached to that item.
+{
+  const trigger = {
+    id: "same-item-trigger",
+    phaseTypes: ["ProduceExamPhaseType_ExamCardPlayAfter"],
+    phaseValues: [],
+    fieldStatusCheckTypes: [],
+    fieldStatusTypes: [],
+    fieldStatusValues: [],
+    fieldStatusProduceCardSearchIds: [],
+    produceCardSearchId: "",
+    upperSearchCount: 0,
+    lowerSearchCount: 0,
+    cardMovePositionType: "ProduceCardMovePositionType_Unknown",
+    effectTypes: [],
+    lessonType: "ProduceStepLessonType_Unknown",
+    cardSearch: null,
+  };
+  const sameItem = {
+    id: "same-item",
+    effects: [
+      {
+        id: "same-item-effect-a",
+        effectType: "ProduceItemEffectType_ExamStatusEnchant",
+        effectTurn: -1,
+        effectCount: 1,
+        examStatusEnchant: {
+          id: "same-item-enchant-a",
+          trigger,
+          examEffects: [{
+            id: "same-item-review-a",
+            effectType: "ProduceExamEffectType_ExamReview",
+            effectValue1: 1,
+            effectCount: 1,
+          }],
+        },
+      },
+      {
+        id: "same-item-effect-b",
+        effectType: "ProduceItemEffectType_ExamStatusEnchant",
+        effectTurn: -1,
+        effectCount: 1,
+        examStatusEnchant: {
+          id: "same-item-enchant-b",
+          trigger,
+          examEffects: [{
+            id: "same-item-review-b",
+            effectType: "ProduceExamEffectType_ExamReview",
+            effectValue1: 10,
+            effectCount: 1,
+          }],
+        },
+      },
+    ],
+  };
+  const localState = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    0x12345678,
+    cardById,
+    { pItems: [sameItem], stamina: 20 },
+  );
+  drawTowerTurn(localState, 3);
+  localState.playsRemaining = 2;
+
+  const firstIndex = localState.hand.findIndex((card) => card.id === "ACTIVE-A");
+  assert.ok(firstIndex >= 0);
+  playTowerCard(localState, firstIndex);
+  assert.equal(localState.exam.review, 1, "only the first same-item enchant fires at this timing");
+
+  const secondIndex = localState.hand.findIndex((card) => card.id === "ACTIVE-B");
+  assert.ok(secondIndex >= 0);
+  playTowerCard(localState, secondIndex);
+  assert.equal(localState.exam.review, 11, "the skipped same-item enchant remains eligible at the next timing");
+}
+
 console.log("P-item runtime tests: ok");
