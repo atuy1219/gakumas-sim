@@ -15,6 +15,7 @@ import {
   createNativeEffectScheduler,
   dispatchNativeEffectPhase,
   dispatchNativeStatusDiff,
+  registerNativeEnchantEffects,
   tickNativeEffectSchedulerTurn,
 } from "./native_effect_scheduler.js";
 
@@ -467,6 +468,82 @@ function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
   );
 }
 
+function schedulerPhaseForLegacyEnchant(trigger = {}) {
+  switch (String(trigger.phase ?? "")) {
+    case "card_play":
+      // Legacy hard-coded enchants ran after the card's own effects.
+      return NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY;
+    case "end_turn":
+      return NATIVE_EFFECT_PHASE.END_TURN;
+    default:
+      return null;
+  }
+}
+
+function registerParsedStatusEnchant(state, parsed) {
+  const trigger = parsed?.trigger ?? {};
+  const phase = schedulerPhaseForLegacyEnchant(trigger);
+  if (!phase) {
+    rememberUnsupported(state, `enchant-trigger:${String(trigger.phase ?? "")}`);
+    return null;
+  }
+
+  const installedCardPlayCount = Number(state.exam.cardPlayCount ?? 0);
+  const conditions = [];
+
+  if (trigger.field) {
+    conditions.push({
+      field: `exam.${trigger.field}`,
+      op: "gte",
+      value: Number(trigger.min ?? 0),
+    });
+  }
+  if (trigger.category) {
+    conditions.push({ cardCategory: String(trigger.category) });
+  }
+  if (trigger.skillCard) {
+    conditions.push({
+      field: "card.category",
+      op: "in",
+      value: [
+        "ProduceCardCategory_ActiveSkill",
+        "ProduceCardCategory_MentalSkill",
+      ],
+    });
+  }
+  if (phase === NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY) {
+    // A status enchant installed by the currently playing card must not
+    // trigger on that same card.
+    conditions.push({
+      field: "exam.cardPlayCount",
+      op: "gt",
+      value: installedCardPlayCount,
+    });
+  }
+  if (Number(trigger.playCountInterval ?? 0) > 0) {
+    conditions.push({
+      playCountSinceInstallInterval: Number(trigger.playCountInterval),
+    });
+  }
+
+  const [registration] = registerNativeEnchantEffects(
+    state.effectScheduler,
+    parsed.enchantId,
+    [{
+      id: parsed.id,
+      phase,
+      turn: parsed.turn,
+      condition: conditions.length ? { all: conditions } : null,
+      effects: (parsed.effects ?? []).map((effect) => ({ ...effect })),
+      metadata: {
+        installedCardPlayCount,
+        legacyTrigger: { ...trigger },
+      },
+    }],
+  );
+  return registration;
+}
+
 function recycleIfNeeded(state) {
   if (state.deck.length || !state.discard.length) return null;
   const source = state.discard.map((card) => ({ ...card }));
@@ -670,13 +747,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       else upgradeHandCards(state);
       break;
     case "status_enchant":
-      state.enchants.push({
-        ...parsed,
-        effects: parsed.effects.map((effect) => ({ ...effect })),
-        // "以降、N回使用するごとに" is relative to when the enchant is installed,
-        // not the absolute number of cards played since the exam began.
-        installedCardPlayCount: Number(state.exam.cardPlayCount ?? 0),
-      });
+      registerParsedStatusEnchant(state, parsed);
       break;
   }
   if (applied.label) event.effects.push(applied.label);
@@ -729,26 +800,6 @@ function cardMatchesSearchId(card, searchIdInput) {
   return true;
 }
 
-function runEnchantPhase(state, phase, event, card = null, source = state.enchants) {
-  for (const enchant of [...source]) {
-    const trigger = enchant.trigger ?? {};
-    if (trigger.phase !== phase) continue;
-    if (trigger.field && Number(state.exam[trigger.field] ?? 0) < Number(trigger.min ?? 0)) continue;
-    if (trigger.category && String(card?.category ?? "") !== trigger.category) continue;
-    if (trigger.skillCard && ![
-      "ProduceCardCategory_ActiveSkill",
-      "ProduceCardCategory_MentalSkill",
-    ].includes(String(card?.category ?? ""))) continue;
-    const playCountInterval = Number(trigger.playCountInterval ?? 0);
-    if (playCountInterval > 0) {
-      const playsSinceInstall = Number(state.exam.cardPlayCount ?? 0)
-        - Number(enchant.installedCardPlayCount ?? 0);
-      if (playsSinceInstall <= 0 || playsSinceInstall % playCountInterval !== 0) continue;
-    }
-    for (const effect of enchant.effects ?? []) executeParsedTowerEffect(state, effect, event);
-  }
-}
-
 export function playTowerCard(state, indexInput) {
   if (!state.hand.length) throw new Error("使用する手札がありません。");
   if (Number(state.playsRemaining ?? 0) <= 0) throw new Error("このターンのカード使用回数が残っていません。");
@@ -757,7 +808,6 @@ export function playTowerCard(state, indexInput) {
     throw new Error("使用するカード位置が不正です。");
   }
   const card = state.hand[index];
-  const cardPlayEnchants = [...state.enchants];
   if (!isSupportedSimpleMove(card.playMovePositionType)) {
     throw new Error(`${card.id}: 使用後移動先 ${card.playMovePositionType} は未対応です。`);
   }
@@ -809,7 +859,6 @@ export function playTowerCard(state, indexInput) {
   for (let n = 0; n <= repeat; n += 1) {
     for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
   }
-  runEnchantPhase(state, "card_play", event, card, cardPlayEnchants);
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card });
 
   if (card.onceOnly) state.lost.push(card);
@@ -932,7 +981,6 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     turnEndEvent,
     { action: type, used },
   );
-  runEnchantPhase(state, "end_turn", turnEndEvent);
   if (turnEndEvent.effects.length) entry.turnEndEffects = turnEndEvent.effects;
 
   const beforeTurnSpendStatus = captureNativeStatusSnapshot(state.exam);
