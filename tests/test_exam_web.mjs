@@ -382,6 +382,48 @@ enchantState.playsRemaining = 1;
 playTowerCard(enchantState, 0);
 assert.equal(enchantState.exam.parameter, 5);
 
+const reviewThirtyEnchant = masterCard(
+  "review-thirty-enchant",
+  ["e_effect-exam_status_enchant-inf-enchant-p_card-02-act-3_050-enc01"],
+);
+const reviewThirtySkill = masterCard("review-thirty-skill", [], {
+  category: "ProduceCardCategory_MentalSkill",
+});
+const reviewThirtyState = createState(
+  ["review-thirty-enchant", "review-thirty-skill"],
+  [reviewThirtyEnchant, reviewThirtySkill],
+);
+reviewThirtyState.exam.review = 10;
+reviewThirtyState.hand = [
+  reviewThirtyState.deck.splice(
+    reviewThirtyState.deck.findIndex((card) => card.id === "review-thirty-enchant"),
+    1,
+  )[0],
+];
+reviewThirtyState.playsRemaining = 1;
+playTowerCard(reviewThirtyState, 0);
+assert.equal(
+  reviewThirtyState.exam.parameter,
+  0,
+  "newly installed 30% enchant must not trigger on its own card",
+);
+finishTowerTurn(reviewThirtyState);
+reviewThirtyState.hand = [
+  reviewThirtyState.deck.splice(
+    reviewThirtyState.deck.findIndex((card) => card.id === "review-thirty-skill"),
+    1,
+  )[0],
+];
+reviewThirtyState.playsRemaining = 1;
+playTowerCard(reviewThirtyState, 0);
+assert.equal(reviewThirtyState.exam.parameter, 3);
+assert.equal(
+  reviewThirtyState.effectScheduler.registrations.some(
+    (entry) => entry.sourceId === "enchant-p_card-02-act-3_050-enc01",
+  ),
+  true,
+);
+
 const endEnchant = masterCard("end-enchant", ["e_effect-exam_status_enchant-inf-enchant-p_card-01-men-3_035-enc01"]);
 const endEnchantState = createState(["end-enchant"], [endEnchant]);
 endEnchantState.exam.lessonBuff = 3;
