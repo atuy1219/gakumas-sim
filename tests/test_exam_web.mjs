@@ -415,8 +415,13 @@ reviewThirtyState.hand = [
   )[0],
 ];
 reviewThirtyState.playsRemaining = 1;
+const reviewThirtyParameterBefore = reviewThirtyState.exam.parameter;
 playTowerCard(reviewThirtyState, 0);
-assert.equal(reviewThirtyState.exam.parameter, 3);
+assert.equal(
+  reviewThirtyState.exam.parameter - reviewThirtyParameterBefore,
+  3,
+  "30% of the post-turn Review value (9) rounds up to 3",
+);
 assert.equal(
   reviewThirtyState.effectScheduler.registrations.some(
     (entry) => entry.sourceId === "enchant-p_card-02-act-3_050-enc01",
