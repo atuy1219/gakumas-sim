@@ -828,8 +828,8 @@ function registerResolvedPItems(state) {
         if (row.unresolved) rememberUnsupported(state, `pitem-exam-effect:${String(row.id ?? "")}`);
       }
 
-      const sharedKey = `pItem::${pItemId}::${String(effect.id ?? enchant.id ?? "")}`;
-      const activationKey = sharedKey;
+      const sharedKey = `${pItemId}::${String(effect.id ?? enchant.id ?? "")}`;
+      const activationKey = `pItem::${sharedKey}`;
       const rawCount = Number(effect.effectCount ?? 0);
       state.pItemEffectRemainingCounts.set(sharedKey, rawCount > 0 ? Math.trunc(rawCount) : null);
       const rawTurn = Number(effect.effectTurn ?? -1);
