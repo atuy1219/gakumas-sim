@@ -1,6 +1,6 @@
 import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, planLabel } from "./catalog.js";
 import { parseProduceCardCatalogYaml } from "./engine.js";
-import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
+import { EXAM_CARD_POOL_MODE, applyExamDeckOrder, buildExamDeck, changeExamCardCount, examDeckOrderEntries, filterExamCards, filterExamIdols, moveExamDeckOrder } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
@@ -99,6 +99,7 @@ let examCards = [];
 let examCardById = new Map();
 let examCardVariantByKey = new Map();
 let examCounts = new Map();
+let examDeckOrder = [];
 let examObservedBatches = [[]];
 let examSeedWorkers = [];
 let examSearchCancelled = false;
@@ -107,7 +108,8 @@ const examPlan = document.getElementById("exam-plan");
 const examIdol = document.getElementById("exam-idol");
 const examCardPoolMode = document.getElementById("exam-card-pool-mode");
 const examCardSearch = document.getElementById("exam-card-search");
-const examDeck = () => buildExamDeck(examCards, examCounts);
+const baseExamDeck = () => buildExamDeck(examCards, examCounts);
+const examDeck = () => applyExamDeckOrder(baseExamDeck(), examDeckOrder);
 
 function currentExamCardFilter(search = examCardSearch?.value ?? "") {
   return {
@@ -168,6 +170,85 @@ function updateExamSummary() {
   document.getElementById("exam-card-summary").textContent = `${examDeck().length}枚 · ${examCounts.size}種類選択`;
 }
 
+function invalidateExamDeckOrder() {
+  examDeckOrder = [];
+}
+
+function ensureExamDeckOrder() {
+  const entries = examDeckOrderEntries(baseExamDeck());
+  const validKeys = new Set(entries.map((entry) => entry.key));
+  const valid = examDeckOrder.length === entries.length
+    && examDeckOrder.every((key) => validKeys.has(key))
+    && new Set(examDeckOrder).size === entries.length;
+  if (!valid) examDeckOrder = entries.map((entry) => entry.key);
+  return examDeckOrder;
+}
+
+function moveExamOrder(fromIndex, toIndex) {
+  ensureExamDeckOrder();
+  examDeckOrder = moveExamDeckOrder(examDeckOrder, fromIndex, toIndex);
+  resetExamObservation();
+  renderExamDeckOrder();
+}
+
+function renderExamDeckOrder() {
+  const container = document.getElementById("exam-deck-order");
+  const count = document.getElementById("exam-order-count");
+  if (!container) return;
+  ensureExamDeckOrder();
+  const deck = examDeck();
+  container.replaceChildren();
+  if (count) count.textContent = `${deck.length}枚 · 上から順にShuffleへ渡します`;
+
+  deck.forEach((card, index) => {
+    const row = document.createElement("div");
+    row.className = "m3e-select-card m3e-quantity-card";
+    row.draggable = true;
+    row.dataset.orderIndex = String(index);
+
+    const text = document.createElement("span");
+    const title = document.createElement("strong");
+    const meta = document.createElement("small");
+    title.textContent = `${index + 1}. ${card.name ?? card.id}`;
+    meta.textContent = String(card.id ?? "");
+    text.append(title, meta);
+
+    const controls = document.createElement("span");
+    controls.className = "quantity-controls";
+    const up = document.createElement("button");
+    const down = document.createElement("button");
+    up.type = down.type = "button";
+    up.textContent = "↑";
+    down.textContent = "↓";
+    up.title = "1つ上へ";
+    down.title = "1つ下へ";
+    up.setAttribute("aria-label", `${card.name ?? card.id}を1つ上へ`);
+    down.setAttribute("aria-label", `${card.name ?? card.id}を1つ下へ`);
+    up.disabled = index === 0;
+    down.disabled = index === deck.length - 1;
+    up.addEventListener("click", () => moveExamOrder(index, index - 1));
+    down.addEventListener("click", () => moveExamOrder(index, index + 1));
+    controls.append(up, down);
+
+    row.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("text/plain", String(index));
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    });
+    row.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    });
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const from = Number(event.dataTransfer?.getData("text/plain"));
+      if (Number.isInteger(from)) moveExamOrder(from, index);
+    });
+
+    row.append(text, controls);
+    container.append(row);
+  });
+}
+
 function examPresetStatus(message) {
   document.getElementById("exam-preset-status").textContent = String(message ?? "");
 }
@@ -226,6 +307,7 @@ async function importExamPreset(file) {
   examIdol.value = preset.idolCardId;
   if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
   examCounts = nextCounts;
+  invalidateExamDeckOrder();
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
@@ -274,8 +356,18 @@ function renderExamCards() {
     plus.setAttribute("aria-label", `${title.textContent}を1枚増やす`);
     minus.disabled = !examCounts.get(card.id);
     plus.disabled = card.noDeckDuplication && examCounts.get(card.id) === 1;
-    minus.addEventListener("click", () => { examCounts = changeExamCardCount(examCounts, card, -1); renderExamCards(); });
-    plus.addEventListener("click", () => { examCounts = changeExamCardCount(examCounts, card, 1); renderExamCards(); });
+    minus.addEventListener("click", () => {
+      examCounts = changeExamCardCount(examCounts, card, -1);
+      invalidateExamDeckOrder();
+      resetExamObservation();
+      renderExamCards();
+    });
+    plus.addEventListener("click", () => {
+      examCounts = changeExamCardCount(examCounts, card, 1);
+      invalidateExamDeckOrder();
+      resetExamObservation();
+      renderExamCards();
+    });
     controls.append(minus, count, plus);
     row.append(text, controls);
     container.append(row);
@@ -286,12 +378,10 @@ function renderExamCards() {
 function renderExamDeckSummary() {
   const container = document.getElementById("exam-deck-summary");
   container.replaceChildren();
-  const grouped = new Map();
-  for (const card of examDeck()) grouped.set(card.id, { card, count: (grouped.get(card.id)?.count ?? 0) + 1 });
-  for (const { card, count } of grouped.values()) {
+  for (const [index, card] of examDeck().entries()) {
     const chip = document.createElement("span");
     chip.className = "chip";
-    chip.textContent = `${card.name} ×${count}`;
+    chip.textContent = `${index + 1}. ${card.name ?? card.id}`;
     container.append(chip);
   }
 }
@@ -596,23 +686,27 @@ async function initializeExamSetup() {
 
 examCharacter.addEventListener("change", () => {
   examCounts = new Map();
+  invalidateExamDeckOrder();
   refreshExamIdols();
   renderExamCards();
   resetExamObservation();
 });
 examPlan.addEventListener("change", () => {
   examCounts = new Map();
+  invalidateExamDeckOrder();
   refreshExamIdols();
   renderExamCards();
   resetExamObservation();
 });
 examIdol.addEventListener("change", () => {
   examCounts = new Map();
+  invalidateExamDeckOrder();
   renderExamCards();
   resetExamObservation();
 });
 examCardPoolMode?.addEventListener("change", () => {
   examCounts = new Map();
+  invalidateExamDeckOrder();
   renderExamCards();
   resetExamObservation();
 });
@@ -636,7 +730,19 @@ document.getElementById("exam-next").addEventListener("click", () => {
   if (!examCharacter.value || !examPlan.value || !examIdol.value) return showExamError("キャラクター、プラン、Pアイドルを選択してください。");
   if (!examDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
   document.getElementById("global-error").hidden = true;
+  ensureExamDeckOrder();
   resetExamObservation();
+  renderExamDeckOrder();
+  setSimulationStage("exam", "order");
+});
+document.getElementById("exam-order-reset")?.addEventListener("click", () => {
+  examDeckOrder = examDeckOrderEntries(baseExamDeck()).map((entry) => entry.key);
+  resetExamObservation();
+  renderExamDeckOrder();
+});
+document.getElementById("exam-order-next")?.addEventListener("click", () => {
+  ensureExamDeckOrder();
+  document.getElementById("global-error").hidden = true;
   renderExamDeckSummary();
   setSimulationStage("exam", "seed");
 });
