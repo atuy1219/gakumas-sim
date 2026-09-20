@@ -22,6 +22,7 @@ const yaml = `
     produceExamEffectId: e_effect-exam_block-0005
   playMovePositionType: ProduceCardMovePositionType_Lost
   isInitial: false
+  isInitialDeckProduceCard: true
   isRestrict: true
   noDeckDuplication: true
   originCharacterId: char-a
@@ -46,6 +47,7 @@ assert.equal(card.playEffects.length, 2);
 assert.equal(card.playEffects[0].produceExamEffectId, "e_effect-exam_lesson-0010-01");
 assert.equal(card.playEffects[1].produceExamTriggerId, "e_trigger-exam_card_play-review_up-3");
 assert.equal(card.playMovePositionType, "ProduceCardMovePositionType_Lost");
+assert.equal(card.isInitialDeckProduceCard, true);
 assert.equal(card.isRestrict, true);
 assert.equal(card.noDeckDuplication, true);
 assert.equal(card.originCharacterId, "char-a");
@@ -668,9 +670,10 @@ assert.deepEqual(filterExamCards(cards, "ProducePlanType_Plan1", "アピール")
 
 const idolById = new Map(idols.map((idol) => [idol.id, idol]));
 const originCards = [
-  { id: "sense-base", name: "Sense", planType: "ProducePlanType_Plan1", rarity: "ProduceCardRarity_R" },
-  { id: "logic-base", name: "Logic", planType: "ProducePlanType_Plan2", rarity: "ProduceCardRarity_R" },
-  { id: "common-base", name: "Common", planType: "ProducePlanType_Common", rarity: "ProduceCardRarity_R" },
+  { id: "sense-base", name: "Sense basic", planType: "ProducePlanType_Plan1", rarity: "ProduceCardRarity_N", isInitialDeckProduceCard: true },
+  { id: "logic-base", name: "Logic basic", planType: "ProducePlanType_Plan2", rarity: "ProduceCardRarity_N", isInitialDeckProduceCard: true },
+  { id: "logic-normal", name: "Logic normal", planType: "ProducePlanType_Plan2", rarity: "ProduceCardRarity_R", isInitialDeckProduceCard: false },
+  { id: "common-base", name: "Common basic", planType: "ProducePlanType_Common", rarity: "ProduceCardRarity_N", isInitialDeckProduceCard: true },
   { id: "own-idol", name: "Own idol", planType: "ProducePlanType_Plan1", rarity: "ProduceCardRarity_Sr", originIdolCardId: "idol-a" },
   { id: "same-char-other-idol", name: "Same char other idol", planType: "ProducePlanType_Plan1", rarity: "ProduceCardRarity_Ssr", originIdolCardId: "idol-b" },
   { id: "foreign-idol-ssr", name: "Foreign SSR", planType: "ProducePlanType_Plan1", rarity: "ProduceCardRarity_Ssr", originIdolCardId: "idol-c" },
@@ -693,8 +696,8 @@ assert.deepEqual(
 );
 assert.deepEqual(
   filterExamCards(originCards, { ...identityFilter, poolMode: "research" }).map((card) => card.id),
-  ["sense-base", "logic-base", "common-base", "own-idol", "own-character"],
-  "research mode unlocks other plans but keeps identity-specific cards restricted",
+  ["sense-base", "logic-normal", "common-base", "own-idol", "own-character"],
+  "research mode unlocks other-plan normal cards but excludes their basic cards",
 );
 assert.deepEqual(
   filterExamCards(originCards, { ...identityFilter, poolMode: "highScore" }).map((card) => card.id),

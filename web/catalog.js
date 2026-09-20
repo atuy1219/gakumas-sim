@@ -111,6 +111,7 @@ export function parseProduceCardCatalog(text) {
     "playMovePositionType",
     "moveEffectTriggerType",
     "isInitial",
+    "isInitialDeckProduceCard",
   ])
     .filter((entry) => entry.name)
     .map((entry) => ({
@@ -126,6 +127,7 @@ export function parseProduceCardCatalog(text) {
       isCharacterAsset: entry.isCharacterAsset === true,
       unlockProducerLevel: Number(entry.unlockProducerLevel ?? 0),
       isInitial: entry.isInitial === true,
+      isInitialDeckProduceCard: entry.isInitialDeckProduceCard === true,
     }));
 }
 

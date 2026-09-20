@@ -55,9 +55,11 @@ function isSsrCard(card) {
 function cardPlanAllowed(card, planType, poolMode) {
   const cardPlan = String(card?.planType ?? "");
   if (poolMode === EXAM_CARD_POOL_MODE.RESEARCH) {
-    // あさり先生のプロデュースゼミでは通常プラン外のスキルカードも
-    // 出現する。Unknown 等の内部カードまでは広げず、3プラン＋共通に限定する。
-    return cardPlan === COMMON_PLAN || STANDARD_PLANS.has(cardPlan);
+    // あさり先生のプロデュースゼミでは他プランの通常カードも出現する。
+    // ただし isInitialDeckProduceCard=true の基本カードは現在のプラン分だけにする。
+    if (cardPlan === COMMON_PLAN || cardPlan === planType) return true;
+    if (!STANDARD_PLANS.has(cardPlan)) return false;
+    return card?.isInitialDeckProduceCard !== true;
   }
   return cardPlan === COMMON_PLAN || cardPlan === planType;
 }
