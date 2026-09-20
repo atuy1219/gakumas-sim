@@ -156,12 +156,12 @@ import {
     { executeEffect: (effect) => hits.push(effect) },
   );
 
-  assert.deepEqual(hits, ["review-up-effect", "block-down-effect"]);
+  assert.deepEqual(hits, ["block-down-effect", "review-up-effect"]);
   assert.deepEqual(
     events.map((event) => [event.phase, event.statusChange.field, event.statusChange.delta]),
     [
-      [NATIVE_EFFECT_PHASE.STATUS_INCREASED, "review", 2],
       [NATIVE_EFFECT_PHASE.STATUS_DECREASED, "block", -2],
+      [NATIVE_EFFECT_PHASE.STATUS_INCREASED, "review", 2],
     ],
   );
 }
