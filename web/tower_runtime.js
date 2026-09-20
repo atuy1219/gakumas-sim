@@ -3,6 +3,7 @@ import {
   applyParsedExamEffect,
   checkCardEffectTrigger,
   createExamState,
+  getExamRuntimeSetting,
   parseExamEffectId,
   payCardCost,
   tickNativeScoreTimedStatuses,
@@ -350,8 +351,13 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   // Native ExamCardPoolModel.Shuffle does not filter IsInitial. The whole Deck
   // is shuffled first; SetInitialCard later extracts opening-hand cards.
   const shuffled = shuffleObjectsWithState(instances, seed);
+  const exam = {
+    ...createExamState({ stamina: options.stamina }),
+    targetScore: Math.max(0, Number(options.targetScore ?? 0)),
+  };
   const openingDrawCount = Math.max(1, Math.trunc(Number(options.drawPerTurn ?? options.openingDrawCount ?? 3)));
-  const handLimit = normalizeHandLimit(options.handLimit);
+  const handLimit = normalizeHandLimit(options.handLimit ?? getExamRuntimeSetting(exam, "handLimit"));
+  const holdLimit = normalizeHandLimit(options.holdLimit ?? getExamRuntimeSetting(exam, "holdLimit"));
   const openingPreview = resolveNativeInitialHand(shuffled.deck, openingDrawCount, handLimit);
 
   return {
@@ -371,7 +377,10 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     openingResolved: false,
     openingDrawCount,
     handLimit,
-    exam: { ...createExamState({ stamina: options.stamina }), targetScore: Math.max(0, Number(options.targetScore ?? 0)) },
+    holdLimit,
+    turnLimit: Number.isFinite(Number(options.turnLimit)) ? Math.max(0, Math.trunc(Number(options.turnLimit))) : null,
+    ended: false,
+    exam,
     playsRemaining: 0,
     currentTurnPlays: [],
     unsupported: [],
@@ -413,7 +422,9 @@ function recycleIfNeeded(state) {
 function drawCardsIntoHand(state, count) {
   const recycleEvents = [];
   const drawn = [];
+  const capacity = normalizeHandLimit(state.handLimit);
   for (let i = 0; i < count; i += 1) {
+    if (state.hand.length >= capacity) break;
     if (!state.deck.length) {
       const event = recycleIfNeeded(state);
       if (event) recycleEvents.push(event);
@@ -451,6 +462,24 @@ export function drawTowerTurn(state, drawCount = 3) {
   const count = Number(drawCount);
   if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
   if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
+
+  const hasTurnLimit = state.turnLimit !== null
+    && state.turnLimit !== undefined
+    && Number.isFinite(Number(state.turnLimit));
+  const turnLimit = hasTurnLimit ? Number(state.turnLimit) : Number.POSITIVE_INFINITY;
+  if (hasTurnLimit && Number(state.turn ?? 0) >= turnLimit) {
+    state.playsRemaining = 0;
+    state.ended = true;
+    return {
+      turn: state.turn,
+      hand: [],
+      drawn: [],
+      recycleEvents: [],
+      ended: true,
+    };
+  }
+
+  state.ended = false;
   const isOpeningTurn = state.turn === 0 && !state.openingResolved;
   state.turn += 1;
   state.playsRemaining = 1;
@@ -483,7 +512,13 @@ function upgradeHandCards(state) {
 
 export function currentTowerScoreContext(state) {
   const turnIndex = Math.max(0, Number(state?.turn ?? 0) - 1);
-  const parameterType = String(state?.turnParameterTypes?.[turnIndex] ?? "");
+  const turnTypes = Array.isArray(state?.turnParameterTypes) ? state.turnParameterTypes : [];
+  // Native GetCurrentParameterType clamps extra turns to the final normal
+  // turn's attribute instead of indexing past the generated turn list.
+  const typeIndex = turnTypes.length
+    ? Math.min(turnIndex, turnTypes.length - 1)
+    : -1;
+  const parameterType = typeIndex >= 0 ? String(turnTypes[typeIndex] ?? "") : "";
   const bonus = parameterType
     ? state?.parameterBonus?.[parameterType.toLowerCase()]?.bonusPermil
     : null;
@@ -527,6 +562,15 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     case "playable_add":
       state.playsRemaining += Number(applied.value) || 0;
       break;
+    case "extra_turn": {
+      const value = Math.max(1, Math.trunc(Number(applied.value) || 1));
+      if (
+        state.turnLimit !== null
+        && state.turnLimit !== undefined
+        && Number.isFinite(Number(state.turnLimit))
+      ) state.turnLimit += value;
+      break;
+    }
     case "timer":
       state.timers.push({ turn: parsed.turn, count: parsed.count, child: parsed.child, id: parsed.id });
       break;
@@ -573,6 +617,31 @@ function applyCardEffectEntry(state, entry, event) {
 
   const parsed = parseExamEffectId(entry?.produceExamEffectId);
   executeParsedTowerEffect(state, parsed, event);
+}
+
+function cardMatchesSearchId(card, searchIdInput) {
+  const searchId = String(searchIdInput ?? "");
+  if (!searchId.startsWith("p_card_search-")) return true;
+
+  const tokens = searchId.slice("p_card_search-".length).split("-");
+  const category = String(card?.category ?? "");
+  if (tokens.includes("active_skill") && category !== "ProduceCardCategory_ActiveSkill") return false;
+  if (tokens.includes("mental_skill") && category !== "ProduceCardCategory_MentalSkill") return false;
+
+  const rarityTokens = new Set(["n", "r", "sr", "ssr", "l", "t"]);
+  const allowedRarities = tokens.filter((token) => rarityTokens.has(token));
+  if (allowedRarities.length) {
+    const rarity = String(card?.rarity ?? "")
+      .replace(/^ProduceCardRarity_/i, "")
+      .toLowerCase();
+    if (!allowedRarities.includes(rarity)) return false;
+  }
+
+  // Position selectors such as "playing" and "deck_all" describe where the
+  // native card search is evaluated. At card-use time the candidate here is
+  // precisely the playing card; category/rarity are the predicates that
+  // determine whether this play consumes the repeat status.
+  return true;
 }
 
 function runEnchantPhase(state, phase, event, card = null, source = state.enchants) {
@@ -630,12 +699,18 @@ export function playTowerCard(state, indexInput) {
   state.hand.splice(index, 1);
   state.playsRemaining -= 1;
   state.exam.cardPlayCount += 1;
-  const repeat = state.cardEffectPlayCountBuff && Number(state.cardEffectPlayCountBuff.count ?? 0) > 0
-    ? Math.max(0, Number(state.cardEffectPlayCountBuff.value ?? 0))
+  const repeatBuff = state.cardEffectPlayCountBuff;
+  const repeatMatches = Boolean(
+    repeatBuff
+    && Number(repeatBuff.count ?? 0) > 0
+    && cardMatchesSearchId(card, repeatBuff.searchId),
+  );
+  const repeat = repeatMatches
+    ? Math.max(0, Math.trunc(Number(repeatBuff.value ?? 0)))
     : 0;
-  if (repeat) {
-    state.cardEffectPlayCountBuff.count -= 1;
-    if (state.cardEffectPlayCountBuff.count <= 0) state.cardEffectPlayCountBuff = null;
+  if (repeatMatches) {
+    repeatBuff.count -= 1;
+    if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
   }
   for (let n = 0; n <= repeat; n += 1) {
     for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
@@ -666,6 +741,13 @@ function tickTurnDurations(exam) {
   tickNativeScoreTimedStatuses(exam);
 }
 
+function tickCardEffectPlayCountBuff(state) {
+  const buff = state.cardEffectPlayCountBuff;
+  if (!buff || Number(buff.turn) < 0) return;
+  buff.turn = Math.max(0, Number(buff.turn ?? 0) - 1);
+  if (buff.turn <= 0) state.cardEffectPlayCountBuff = null;
+}
+
 function tickTimers(state, event) {
   const expired = [];
   for (const timer of state.timers) {
@@ -683,6 +765,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   else if (type !== "skip" && type !== "end") throw new Error(`未知のターン操作です: ${type}`);
 
   if (!state.hand.length && !state.currentTurnPlays.length) throw new Error("処理する手札がありません。");
+  const recoverStaminaAtTurnEnd = Number(state.playsRemaining ?? 0) > 0;
   const remainingHand = state.hand.map((card) => ({ ...card }));
   // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
   // IsEndTurnLost cards are batched to Lost; all other remaining cards are
@@ -726,6 +809,17 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   state.playsRemaining = 0;
   const turnEndEvent = { effects: [], drawn: [], recycleEvents: [] };
 
+  if (recoverStaminaAtTurnEnd) {
+    const recovery = Math.max(0, Math.trunc(getExamRuntimeSetting(state.exam, "examTurnEndRecoveryStamina")));
+    const before = Number(state.exam.stamina ?? 0);
+    const maxStamina = Math.max(0, Number(state.exam.maxStamina ?? 0));
+    state.exam.stamina = maxStamina > 0
+      ? Math.min(maxStamina, before + recovery)
+      : before + recovery;
+    const recovered = state.exam.stamina - before;
+    if (recovered > 0) turnEndEvent.effects.push(`ターンスキップ: 体力 +${recovered}`);
+  }
+
   // ExamSequence turn-end path (native state machine around 0x8096850)
   // materializes Review as a Lesson effect before Review spends one turn.
   const reviewScore = applyNativeReviewTurnEnd(state.exam, currentTowerScoreContext(state));
@@ -740,6 +834,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   runEnchantPhase(state, "end_turn", turnEndEvent);
   if (turnEndEvent.effects.length) entry.turnEndEffects = turnEndEvent.effects;
   tickTurnDurations(state.exam);
+  tickCardEffectPlayCountBuff(state);
   entry.examAfterTurnEnd = { ...state.exam };
   return entry;
 }

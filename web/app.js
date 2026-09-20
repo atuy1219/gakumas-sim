@@ -1251,12 +1251,16 @@ function renderTurnState(mode, state) {
   if (!state) return;
 
   $(`${mode}-turn-number`).textContent = String(state.turn);
-  const currentType = mode === "tower" ? state.turnParameterTypes?.[Math.max(0, Number(state.turn) - 1)] : null;
+  const turnTypes = mode === "tower" && Array.isArray(state.turnParameterTypes) ? state.turnParameterTypes : [];
+  const currentTurnIndex = Math.max(0, Number(state.turn) - 1);
+  const currentType = turnTypes.length
+    ? turnTypes[Math.min(currentTurnIndex, turnTypes.length - 1)]
+    : null;
   const currentBonus = currentType ? state.parameterBonus?.[String(currentType).toLowerCase()]?.percent : null;
   const turnAttribute = currentType
     ? `${towerParameterLabel(currentType)}ターン${Number.isFinite(Number(currentBonus)) ? ` · ${currentBonus}%` : ""} · `
     : "";
-  $(`${mode}-turn-meta`).textContent = `${turnAttribute}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
+  $(`${mode}-turn-meta`).textContent = `${turnAttribute}${state.ended ? "試験終了 · " : ""}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
   const statusGrid = $(`${mode}-status-grid`);
   statusGrid.replaceChildren(...examStateTiles(state.exam).map(([label, value]) => {
     const tile = document.createElement("div");
@@ -1299,7 +1303,7 @@ function renderTurnState(mode, state) {
     use.type = "button";
     use.className = "primary";
     use.textContent = "このカードを使用";
-    use.disabled = Number(state.playsRemaining ?? 0) <= 0;
+    use.disabled = Boolean(state.ended) || Number(state.playsRemaining ?? 0) <= 0;
     use.addEventListener("click", () => advanceSimulationTurn(mode, { type: "use", index: selectedIndex }));
     copy.append(eyebrow, title, detail);
     selectedBox.append(copy, use);
@@ -1391,6 +1395,7 @@ $("tower-run").addEventListener("click", () => {
       cardVariantByKey: catalogs.cardVariantByKey,
       stamina: Number(composition.memories[0]?.stamina ?? getField(composition.memories[0]?.raw, "stamina") ?? 0),
       pItems: resolvedPItems.items,
+      turnLimit: Number(stageConfig.turn),
     });
     towerTurnState.stageConfig = { ...stageConfig };
     towerTurnState.effectiveParameters = { ...effectiveParameters };
