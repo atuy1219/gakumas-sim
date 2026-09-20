@@ -647,7 +647,7 @@ console.log("exam effect v7 tests: ok");
 // test_exam_setup.mjs
 {
 const { default: assert } = await import("node:assert/strict");
-const { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } = await import("../web/exam_setup.js");
+const { applyExamDeckOrder, buildExamDeck, changeExamCardCount, examDeckOrderEntries, filterExamCards, filterExamIdols, moveExamDeckOrder } = await import("../web/exam_setup.js");
 
 const idols = [
   { id: "idol-a", characterId: "char-a", planType: "ProducePlanType_Plan1", name: "A" },
@@ -725,7 +725,32 @@ assert.equal(deck[2].isInitial, false);
 const reorderedCounts = new Map([["unique", 1], ["sense", 2]]);
 assert.deepEqual(buildExamDeck(cards, reorderedCounts), deck);
 
-console.log("exam setup v9 tests: ok");
+const orderEntries = examDeckOrderEntries(deck);
+assert.deepEqual(orderEntries.map((entry) => entry.key), [
+  "sense@@0@@1",
+  "sense@@0@@2",
+  "unique@@0@@1",
+]);
+const manualOrder = [
+  orderEntries[2].key,
+  orderEntries[0].key,
+  orderEntries[1].key,
+];
+assert.deepEqual(
+  applyExamDeckOrder(deck, manualOrder).map((card) => card.id),
+  ["unique", "sense", "sense"],
+  "manual pre-shuffle order must override catalog order without losing duplicate instances",
+);
+assert.deepEqual(
+  moveExamDeckOrder(manualOrder, 2, 0),
+  [orderEntries[1].key, orderEntries[2].key, orderEntries[0].key],
+);
+assert.throws(
+  () => applyExamDeckOrder(deck, manualOrder.slice(0, 2)),
+  /Shuffle前順序の枚数/,
+);
+
+console.log("exam setup v10 tests: ok");
 }
 
 
