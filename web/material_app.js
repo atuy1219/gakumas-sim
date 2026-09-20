@@ -1,6 +1,6 @@
 import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, planLabel } from "./catalog.js";
 import { parseProduceCardCatalogYaml } from "./engine.js";
-import { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
+import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
@@ -92,7 +92,9 @@ setSimulationStage("tower", "memory");
 setSimulationStage("exam", "setup");
 
 let examCharacters = [];
+let examCharacterById = new Map();
 let examIdols = [];
+let examIdolById = new Map();
 let examCards = [];
 let examCardById = new Map();
 let examCardVariantByKey = new Map();
@@ -103,8 +105,50 @@ let examSearchCancelled = false;
 const examCharacter = document.getElementById("exam-character");
 const examPlan = document.getElementById("exam-plan");
 const examIdol = document.getElementById("exam-idol");
+const examCardPoolMode = document.getElementById("exam-card-pool-mode");
 const examCardSearch = document.getElementById("exam-card-search");
 const examDeck = () => buildExamDeck(examCards, examCounts);
+
+function currentExamCardFilter(search = examCardSearch?.value ?? "") {
+  return {
+    planType: examPlan.value,
+    characterId: examCharacter.value,
+    idolCardId: examIdol.value,
+    poolMode: examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL,
+    search,
+    idolById: examIdolById,
+  };
+}
+
+function examCardPoolHint() {
+  switch (String(examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL)) {
+    case EXAM_CARD_POOL_MODE.RESEARCH:
+      return "あさりゼミ: 共通＋3プランを候補表示。固有カードは選択中のキャラクター/Pアイドルだけです。開催回ごとの特別出現枠はこの候補から選択してください。";
+    case EXAM_CARD_POOL_MODE.HIGH_SCORE:
+      return "強化月間: 共通＋選択プランに加え、他キャラのSSR固有カードも候補表示します。開催回ごとの対象差は手動で選択してください。";
+    default:
+      return "通常: 共通＋選択プラン。固有カードは選択中のキャラクター/Pアイドルだけ表示します。";
+  }
+}
+
+function updateExamCardPoolHint() {
+  const hint = document.getElementById("exam-card-pool-hint");
+  if (hint) hint.textContent = examCardPoolHint();
+}
+
+function examCardOriginLabel(card) {
+  const originIdolId = String(card?.originIdolCardId ?? card?.originPrimaStellaIdolCardId ?? "").trim();
+  if (originIdolId) {
+    const idol = examIdolById.get(originIdolId);
+    return idol?.name ? `固有: ${idol.name}` : "Pアイドル固有";
+  }
+  const originCharacterId = String(card?.originCharacterId ?? "").trim();
+  if (originCharacterId) {
+    const character = examCharacterById.get(originCharacterId);
+    return character?.name ? `固有: ${character.name}` : "キャラ固有";
+  }
+  return "";
+}
 
 function showExamError(message) {
   const box = document.getElementById("global-error");
@@ -134,6 +178,7 @@ function exportExamPreset() {
       characterId: examCharacter.value,
       planType: examPlan.value,
       idolCardId: examIdol.value,
+      cardPoolMode: examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL,
       cards: [...examCounts].map(([id, count]) => ({ id, count })),
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
@@ -161,7 +206,13 @@ async function importExamPreset(file) {
   if (!filterExamIdols(examIdols, preset.characterId, preset.planType).some((idol) => idol.id === preset.idolCardId)) {
     throw new Error(`Pアイドル ${preset.idolCardId} が現在のキャラクター・プランにありません。`);
   }
-  const availableCards = new Map(filterExamCards(examCards, preset.planType).map((card) => [String(card.id), card]));
+  const availableCards = new Map(filterExamCards(examCards, {
+    planType: preset.planType,
+    characterId: preset.characterId,
+    idolCardId: preset.idolCardId,
+    poolMode: preset.cardPoolMode,
+    idolById: examIdolById,
+  }).map((card) => [String(card.id), card]));
   const nextCounts = new Map();
   for (const entry of preset.cards) {
     const card = availableCards.get(entry.id);
@@ -173,6 +224,7 @@ async function importExamPreset(file) {
   examPlan.value = preset.planType;
   refreshExamIdols();
   examIdol.value = preset.idolCardId;
+  if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
   examCounts = nextCounts;
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
@@ -184,10 +236,12 @@ async function importExamPreset(file) {
 
 function renderExamCards() {
   const container = document.getElementById("exam-card-selection");
-  const cards = filterExamCards(examCards, examPlan.value, examCardSearch.value);
+  const cards = filterExamCards(examCards, currentExamCardFilter());
+  updateExamCardPoolHint();
   container.replaceChildren();
-  if (!examPlan.value || !cards.length) {
-    container.innerHTML = `<p class="hint">${examPlan.value ? "条件に一致するカードがありません。" : "プランを選択してください。"}</p>`;
+  if (!examPlan.value || !examCharacter.value || !cards.length) {
+    const missingBase = !examCharacter.value || !examPlan.value;
+    container.innerHTML = `<p class="hint">${missingBase ? "キャラクターとプランを選択してください。" : "条件に一致するカードがありません。"}</p>`;
     updateExamSummary();
     return;
   }
@@ -198,7 +252,14 @@ function renderExamCards() {
     const title = document.createElement("strong");
     const meta = document.createElement("small");
     title.textContent = card.baseName ?? card.name;
-    meta.textContent = `${planLabel(card.planType)} · ${card.category ?? "カード"}${card.noDeckDuplication ? " · デッキ内1枚まで" : ""}`;
+    const origin = examCardOriginLabel(card);
+    meta.textContent = [
+      planLabel(card.planType),
+      card.category ?? "カード",
+      card.rarity ?? "",
+      origin,
+      card.noDeckDuplication ? "デッキ内1枚まで" : "",
+    ].filter(Boolean).join(" · ");
     text.append(title, meta);
     const controls = document.createElement("span");
     controls.className = "quantity-controls";
@@ -516,7 +577,9 @@ async function initializeExamSetup() {
       fetchTextWithFallback(CATALOG_URLS.cardsPrimary, CATALOG_URLS.cardsFallback),
     ]);
     examCharacters = parseCharacterCatalog(characterText).filter((character) => character.isPlayable);
+    examCharacterById = new Map(examCharacters.map((character) => [String(character.id), character]));
     examIdols = parseIdolCardCatalog(idolText);
+    examIdolById = new Map(examIdols.map((idol) => [String(idol.id), idol]));
     const fullExamCards = parseProduceCardCatalogYaml(cardText);
     examCardById = new Map(fullExamCards.map((card) => [String(card.id), card]));
     examCardVariantByKey = new Map(fullExamCards.map((card) => [`${String(card.id)}@@${Number(card.upgradeCount ?? 0)}`, card]));
@@ -531,8 +594,28 @@ async function initializeExamSetup() {
   }
 }
 
-examCharacter.addEventListener("change", () => { refreshExamIdols(); resetExamObservation(); });
-examPlan.addEventListener("change", () => { examCounts = new Map(); refreshExamIdols(); renderExamCards(); resetExamObservation(); });
+examCharacter.addEventListener("change", () => {
+  examCounts = new Map();
+  refreshExamIdols();
+  renderExamCards();
+  resetExamObservation();
+});
+examPlan.addEventListener("change", () => {
+  examCounts = new Map();
+  refreshExamIdols();
+  renderExamCards();
+  resetExamObservation();
+});
+examIdol.addEventListener("change", () => {
+  examCounts = new Map();
+  renderExamCards();
+  resetExamObservation();
+});
+examCardPoolMode?.addEventListener("change", () => {
+  examCounts = new Map();
+  renderExamCards();
+  resetExamObservation();
+});
 examCardSearch.addEventListener("input", renderExamCards);
 document.getElementById("exam-export-preset").addEventListener("click", exportExamPreset);
 document.getElementById("exam-import-preset").addEventListener("change", async (event) => {
