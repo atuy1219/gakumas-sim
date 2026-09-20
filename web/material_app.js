@@ -125,7 +125,7 @@ function currentExamCardFilter(search = examCardSearch?.value ?? "") {
 function examCardPoolHint() {
   switch (String(examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL)) {
     case EXAM_CARD_POOL_MODE.RESEARCH:
-      return "あさりゼミ: 共通＋3プランを候補表示。固有カードは選択中のキャラクター/Pアイドルだけです。開催回ごとの特別出現枠はこの候補から選択してください。";
+      return "あさりゼミ: 共通＋3プランの通常カードを候補表示。他プランの基本カードは除外し、固有カードは選択中のキャラクター/Pアイドルだけです。開催回ごとの特別出現枠はこの候補から選択してください。";
     case EXAM_CARD_POOL_MODE.HIGH_SCORE:
       return "強化月間: 共通＋選択プランに加え、他キャラのSSR固有カードも候補表示します。開催回ごとの対象差は手動で選択してください。";
     default:
