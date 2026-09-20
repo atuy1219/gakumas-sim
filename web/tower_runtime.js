@@ -5,6 +5,7 @@ import {
   createExamState,
   getExamRuntimeSetting,
   parseExamEffectId,
+  parseExamEffectMaster,
   payCardCost,
   tickNativeScoreTimedStatuses,
 } from "./exam_effects.js";
@@ -16,6 +17,7 @@ import {
   dispatchNativeEffectPhase,
   dispatchNativeStatusDiff,
   registerNativeEnchantEffects,
+  registerNativePItemEffects,
   tickNativeEffectSchedulerTurn,
 } from "./native_effect_scheduler.js";
 
@@ -82,6 +84,9 @@ function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
       playMovePositionType,
       category: String(master.category ?? card.category ?? ""),
       rarity: String(master.rarity ?? card.rarity ?? ""),
+      planType: String(master.planType ?? card.planType ?? ""),
+      searchTag: String(master.searchTag ?? card.searchTag ?? ""),
+      effectGroupIds: Array.isArray(master.effectGroupIds) ? [...master.effectGroupIds] : [],
       onceOnly: isOnceOnlyMove(playMovePositionType),
       stamina: Number(master.stamina ?? 0) || 0,
       forceStamina: Number(master.forceStamina ?? 0) || 0,
@@ -155,6 +160,9 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
     playMovePositionType,
     category: String(master.category ?? ""),
     rarity: String(master.rarity ?? ""),
+    planType: String(master.planType ?? ""),
+    searchTag: String(master.searchTag ?? ""),
+    effectGroupIds: Array.isArray(master.effectGroupIds) ? [...master.effectGroupIds] : [],
     onceOnly: isOnceOnlyMove(playMovePositionType),
     stamina: Number(master.stamina ?? 0) || 0,
     forceStamina: Number(master.forceStamina ?? 0) || 0,
@@ -369,7 +377,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   const holdLimit = normalizeHandLimit(options.holdLimit ?? getExamRuntimeSetting(exam, "holdLimit"));
   const openingPreview = resolveNativeInitialHand(shuffled.deck, openingDrawCount, handLimit);
 
-  return {
+  const state = {
     seed,
     randomState: shuffled.randomState,
     shuffledInitialDeck: shuffled.deck.map((card) => ({ ...card })),
@@ -404,7 +412,10 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
+    pItemEffectRemainingCounts: new Map(),
   };
+  registerResolvedPItems(state);
+  return state;
 }
 
 function rememberUnsupported(state, value) {
@@ -424,6 +435,9 @@ function nativeRuntimeEvent() {
 
 function schedulerParsedEffect(effect) {
   if (effect && typeof effect === "object" && effect.kind) return effect;
+  if (effect && typeof effect === "object" && (effect.effectType || effect.id)) {
+    return parseExamEffectMaster(effect);
+  }
   if (effect && typeof effect === "object" && effect.produceExamEffectId) {
     return parseExamEffectId(effect.produceExamEffectId);
   }
@@ -432,8 +446,30 @@ function schedulerParsedEffect(effect) {
 
 function nativeSchedulerHooks(state, runtimeEvent) {
   return {
+    evaluateCondition(condition, context) {
+      if (condition?.kind === "masterExamTrigger") {
+        return matchesMasterExamTrigger(state, condition, context, runtimeEvent);
+      }
+      return undefined;
+    },
     executeEffect(effect) {
       executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent);
+    },
+    afterRegistration(registration) {
+      if (registration.sourceType !== "pItem") return;
+      if (!runtimeEvent.__pItemFired) runtimeEvent.__pItemFired = new Set();
+      runtimeEvent.__pItemFired.add(String(registration.sourceId ?? ""));
+
+      const sharedKey = String(registration.metadata?.sharedPItemCountKey ?? "");
+      if (!sharedKey || !state.pItemEffectRemainingCounts?.has(sharedKey)) return;
+      const remaining = state.pItemEffectRemainingCounts.get(sharedKey);
+      if (remaining === null) return;
+      const next = Math.max(0, Number(remaining) - 1);
+      state.pItemEffectRemainingCounts.set(sharedKey, next);
+      if (next > 0) return;
+      for (const entry of state.effectScheduler.registrations) {
+        if (String(entry.metadata?.sharedPItemCountKey ?? "") === sharedKey) entry.active = false;
+      }
     },
   };
 }
@@ -476,6 +512,226 @@ function schedulerPhaseForLegacyEnchant(trigger = {}) {
       return NATIVE_EFFECT_PHASE.END_TURN;
     default:
       return null;
+  }
+}
+
+
+const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
+  ProduceExamPhaseType_ExamStartExam: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
+  ProduceExamPhaseType_ExamStartTurn: NATIVE_EFFECT_PHASE.START_OF_TURN,
+  ProduceExamPhaseType_ExamCardDraw: NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN,
+  ProduceExamPhaseType_ExamCardPlay: NATIVE_EFFECT_PHASE.CARD_PLAY,
+  ProduceExamPhaseType_ExamCardPlayAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamEndTurn: NATIVE_EFFECT_PHASE.END_TURN,
+  ProduceExamPhaseType_ExamTurnCheck: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
+  ProduceExamPhaseType_ExamTurnTimer: NATIVE_EFFECT_PHASE.START_OF_TURN,
+  ProduceExamPhaseType_ExamTurnInterval: NATIVE_EFFECT_PHASE.START_OF_TURN,
+  ProduceExamPhaseType_ExamPlayCountInterval: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamPlayCountIntervalAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamTurnSkip: NATIVE_EFFECT_PHASE.END_TURN,
+  ProduceExamPhaseType_ExamStatusChange: "statusChange",
+});
+
+const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
+  ProduceExamFieldStatusType_ParameterBuff: "parameterBuff",
+  ProduceExamFieldStatusType_StaminaUpMultiple: "staminaRatioPermil",
+  ProduceExamFieldStatusType_StaminaLessMultiple: "staminaRatioPermil",
+  ProduceExamFieldStatusType_StaminaConsumptionDown: "staminaConsumptionDown",
+  ProduceExamFieldStatusType_ConcentrationUp: "idolStatusConcentration",
+  ProduceExamFieldStatusType_PreservationUp: "idolStatusPreservation",
+  ProduceExamFieldStatusType_FullPowerUp: "idolStatusFullPower",
+  ProduceExamFieldStatusType_NoBlock: "block",
+  ProduceExamFieldStatusType_LessonBuffUp: "lessonBuff",
+  ProduceExamFieldStatusType_BlockUp: "block",
+  ProduceExamFieldStatusType_ReviewUp: "review",
+  ProduceExamFieldStatusType_ParameterBuffUp: "parameterBuff",
+  ProduceExamFieldStatusType_RemainingTurn: "remainingTurn",
+  ProduceExamFieldStatusType_CardPlayAggressiveUp: "aggressive",
+  ProduceExamFieldStatusType_FullPowerPointUp: "fullPowerPoint",
+  ProduceExamFieldStatusType_NoStance: "noStance",
+  ProduceExamFieldStatusType_TurnPlayCardCountUp: "turnPlayCardCount",
+});
+
+function masterFieldStatusValue(state, fieldStatusType) {
+  switch (MASTER_FIELD_STATUS_TO_EXAM[String(fieldStatusType ?? "")]) {
+    case "staminaRatioPermil": {
+      const max = Number(state.exam.maxStamina ?? 0);
+      return max > 0 ? Math.trunc(Number(state.exam.stamina ?? 0) * 1000 / max) : 0;
+    }
+    case "idolStatusConcentration":
+      return Number(state.exam.idolStatusType ?? 0) === 1 ? Number(state.exam.idolStatusStep ?? 1) : 0;
+    case "idolStatusPreservation":
+      return Number(state.exam.idolStatusType ?? 0) === 2 ? Number(state.exam.idolStatusStep ?? 1) : 0;
+    case "idolStatusFullPower":
+      return Number(state.exam.idolStatusType ?? 0) === 3 ? Number(state.exam.idolStatusStep ?? 1) : 0;
+    case "remainingTurn":
+      return Math.max(0, Number(state.turnLimit ?? state.turn ?? 0) - Number(state.turn ?? 0));
+    case "noStance":
+      return Number(state.exam.idolStatusType ?? 0) === 0 ? 1 : 0;
+    case "turnPlayCardCount":
+      return Array.isArray(state.currentTurnPlays) ? state.currentTurnPlays.length : 0;
+    case undefined:
+      return null;
+    default:
+      return Number(state.exam[MASTER_FIELD_STATUS_TO_EXAM[String(fieldStatusType ?? "")]] ?? 0);
+  }
+}
+
+function cardMatchesMasterSearch(card, search) {
+  if (!search) return true;
+  if (!card) return false;
+  const ids = new Set((search.produceCardIds ?? []).map(String));
+  if (ids.size && !ids.has(String(card.id ?? ""))) return false;
+  const categories = new Set((search.cardCategories ?? []).map(String));
+  if (categories.size && !categories.has(String(card.category ?? ""))) return false;
+  const rarities = new Set((search.cardRarities ?? []).map(String));
+  if (rarities.size && !rarities.has(String(card.rarity ?? ""))) return false;
+  const upgrades = new Set((search.upgradeCounts ?? []).map(Number));
+  if (upgrades.size && !upgrades.has(Number(card.upgradeCount ?? 0))) return false;
+  const planType = String(search.planType ?? "");
+  if (planType && planType !== "ProducePlanType_Unknown" && planType !== String(card.planType ?? "")) return false;
+  const tag = String(search.cardSearchTag ?? "");
+  if (tag && tag !== String(card.searchTag ?? "")) return false;
+  const costType = String(search.costType ?? "");
+  if (costType && costType !== "ExamCostType_Unknown" && costType !== String(card.costType ?? "")) return false;
+  const groups = new Set((search.effectGroupIds ?? []).map(String));
+  if (groups.size) {
+    const cardGroups = new Set((card.effectGroupIds ?? []).map(String));
+    for (const group of groups) if (!cardGroups.has(group)) return false;
+  }
+  if (search.isCustomized === true && Number(card.upgradeCount ?? 0) <= 0) return false;
+  return true;
+}
+
+function masterPhaseValue(state, phaseType, context) {
+  switch (String(phaseType ?? "")) {
+    case "ProduceExamPhaseType_ExamStartExam":
+      return Number(state.turn ?? 0) === 0 ? 1 : 0;
+    case "ProduceExamPhaseType_ExamTurnCheck":
+      return Number(context.nextTurn ?? state.turn ?? 0) + (context.nextTurn === undefined ? 1 : 0);
+    case "ProduceExamPhaseType_ExamPlayCountInterval":
+    case "ProduceExamPhaseType_ExamPlayCountIntervalAfter":
+      return Number(state.exam.cardPlayCount ?? 0);
+    case "ProduceExamPhaseType_ExamCardDraw":
+      return Number(context.event?.drawn?.length ?? 0);
+    default:
+      return Number(state.turn ?? 0);
+  }
+}
+
+function triggerFieldStatusesMatch(state, trigger) {
+  const types = trigger.fieldStatusTypes ?? [];
+  const values = trigger.fieldStatusValues ?? [];
+  const checks = trigger.fieldStatusCheckTypes ?? [];
+  for (let index = 0; index < types.length; index += 1) {
+    const type = String(types[index] ?? "");
+    const current = masterFieldStatusValue(state, type);
+    if (current === null) return false;
+    const expected = Number(values[index] ?? 0);
+    const check = String(checks[index] ?? "ProduceExamTriggerCheckType_Unknown");
+    const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple";
+    const positiveMatch = reverse ? current <= expected : current >= expected;
+    if (check === "ProduceExamTriggerCheckType_Not" ? positiveMatch : !positiveMatch) return false;
+  }
+  return true;
+}
+
+function masterTriggerSupportIssue(trigger, phaseType) {
+  if (!MASTER_EXAM_PHASE_TO_NATIVE[String(phaseType ?? "")]) return `phase:${String(phaseType ?? "")}`;
+  if ((trigger.effectTypes ?? []).length) return "effectTypes";
+  if (String(trigger.lessonType ?? "") && String(trigger.lessonType) !== "ProduceStepLessonType_Unknown") return "lessonType";
+  if (Number(trigger.upperSearchCount ?? 0) > 0 || Number(trigger.lowerSearchCount ?? 0) > 0) return "searchCount";
+  for (const type of trigger.fieldStatusTypes ?? []) {
+    if (!MASTER_FIELD_STATUS_TO_EXAM[String(type ?? "")]) return `fieldStatus:${String(type ?? "")}`;
+  }
+  return "";
+}
+
+function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
+  const trigger = condition.trigger ?? {};
+  if (runtimeEvent.__pItemFired?.has?.(String(condition.pItemId ?? ""))) return false;
+  if (condition.phaseType === "ProduceExamPhaseType_ExamStartExam" && Number(state.turn ?? 0) !== 0) return false;
+  if (condition.phaseType === "ProduceExamPhaseType_ExamTurnSkip" && String(context.action ?? "") !== "skip") return false;
+
+  const phaseValues = (trigger.phaseValues ?? []).map(Number).filter(Number.isFinite);
+  if (phaseValues.length && !phaseValues.includes(masterPhaseValue(state, condition.phaseType, context))) return false;
+  if (!triggerFieldStatusesMatch(state, trigger)) return false;
+  if (trigger.cardSearch && !cardMatchesMasterSearch(context.card, trigger.cardSearch)) return false;
+  return true;
+}
+
+function registerResolvedPItems(state) {
+  state.pItemEffectRemainingCounts = new Map();
+  for (const item of state.pItems ?? []) {
+    const pItemId = String(item.id ?? "");
+    if (item.unresolved) {
+      rememberUnsupported(state, `pitem:${pItemId}`);
+      continue;
+    }
+    for (const effect of item.effects ?? []) {
+      if (effect.unresolved) {
+        rememberUnsupported(state, `pitem-effect:${String(effect.id ?? "")}`);
+        continue;
+      }
+      if (effect.effectType !== "ProduceItemEffectType_ExamStatusEnchant") {
+        if (effect.effectType) rememberUnsupported(state, `pitem-effect-type:${effect.effectType}`);
+        continue;
+      }
+      const enchant = effect.examStatusEnchant;
+      const trigger = enchant?.trigger;
+      if (!enchant || !trigger) {
+        rememberUnsupported(state, `pitem-enchant:${String(effect.produceExamStatusEnchantId ?? "")}`);
+        continue;
+      }
+
+      const effectRows = (enchant.examEffects ?? []).filter((row) => !row.unresolved);
+      if (!effectRows.length) {
+        rememberUnsupported(state, `pitem-enchant-effects:${String(enchant.id ?? "")}`);
+        continue;
+      }
+      for (const row of enchant.examEffects ?? []) {
+        if (row.unresolved) rememberUnsupported(state, `pitem-exam-effect:${String(row.id ?? "")}`);
+      }
+
+      const sharedKey = `${pItemId}::${String(effect.id ?? enchant.id ?? "")}`;
+      const rawCount = Number(effect.effectCount ?? 0);
+      state.pItemEffectRemainingCounts.set(sharedKey, rawCount > 0 ? Math.trunc(rawCount) : null);
+      const rawTurn = Number(effect.effectTurn ?? -1);
+      const turn = rawTurn > 0 ? Math.trunc(rawTurn) : null;
+      const specs = [];
+      for (const phaseType of trigger.phaseTypes ?? []) {
+        const supportIssue = masterTriggerSupportIssue(trigger, phaseType);
+        if (supportIssue) {
+          rememberUnsupported(state, `pitem-trigger:${String(trigger.id ?? "")}:${supportIssue}`);
+          continue;
+        }
+        const mapped = MASTER_EXAM_PHASE_TO_NATIVE[String(phaseType)];
+        const nativePhases = mapped === "statusChange"
+          ? [NATIVE_EFFECT_PHASE.STATUS_INCREASED, NATIVE_EFFECT_PHASE.STATUS_DECREASED]
+          : [mapped];
+        for (const phase of nativePhases) {
+          specs.push({
+            id: String(effect.id ?? enchant.id ?? pItemId),
+            phase,
+            turn,
+            condition: {
+              kind: "masterExamTrigger",
+              pItemId,
+              phaseType: String(phaseType),
+              trigger: { ...trigger },
+            },
+            effects: effectRows.map((row) => ({ ...row })),
+            metadata: {
+              sharedPItemCountKey: sharedKey,
+              enchantId: String(enchant.id ?? ""),
+              triggerId: String(trigger.id ?? ""),
+              masterPhaseType: String(phaseType),
+            },
+          });
+        }
+      }
+      if (specs.length) registerNativePItemEffects(state.effectScheduler, pItemId, specs);
+    }
   }
 }
 
