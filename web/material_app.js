@@ -252,6 +252,10 @@ function renderExamDeckOrder() {
     count.textContent = `${examDeckOrder.length} / ${entries.length}枚${remaining ? ` · あと${remaining}枚` : " · 入力完了"}`;
   }
   if (nextButton) nextButton.disabled = !isExamDeckOrderComplete();
+  const undoButton = document.getElementById("exam-order-undo");
+  const resetButton = document.getElementById("exam-order-reset");
+  if (undoButton) undoButton.disabled = !examDeckOrder.length;
+  if (resetButton) resetButton.disabled = !examDeckOrder.length;
 
   buttons.replaceChildren();
   if (!remaining) {
