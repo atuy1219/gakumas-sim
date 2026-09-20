@@ -1383,7 +1383,12 @@ $("tower-run").addEventListener("click", () => {
     const pItemIds = [...new Set(composition.memories.flatMap((memory) =>
       memory.examBattleProduceItemIds?.length ? memory.examBattleProduceItemIds : rawArray(memory, "examBattleProduceItemIds")
     ).map(String))];
-    const resolvedPItems = resolveProduceItems(pItemIds, examItemCatalogs.itemById, examItemCatalogs.itemEffectById);
+    const resolvedPItems = resolveProduceItems(
+      pItemIds,
+      examItemCatalogs.itemById,
+      examItemCatalogs.itemEffectById,
+      examItemCatalogs,
+    );
     const stageConfig = currentTowerStageConfig();
     if (!stageConfig) throw new Error("ドル道ステージを選択してください。");
     const effectiveParameters = calculateTowerMemoryParameters(composition.memories);

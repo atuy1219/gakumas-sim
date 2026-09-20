@@ -8,6 +8,14 @@ export const EXAM_ITEM_URLS = Object.freeze({
   itemsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceItem.yaml",
   itemEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceItemEffect.yaml",
   itemEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceItemEffect.yaml",
+  examStatusEnchantsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamStatusEnchant.yaml",
+  examStatusEnchantsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceExamStatusEnchant.yaml",
+  examTriggersPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamTrigger.yaml",
+  examTriggersFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceExamTrigger.yaml",
+  examEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamEffect.yaml",
+  examEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceExamEffect.yaml",
+  cardSearchesPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardSearch.yaml",
+  cardSearchesFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceCardSearch.yaml",
 });
 
 export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
@@ -102,6 +110,93 @@ export function parseProduceItemEffectCatalog(text) {
   ]);
 }
 
+export function parseProduceExamStatusEnchantCatalog(text) {
+  return parseYamlRecordsWithLists(
+    text,
+    ["assetId", "produceExamTriggerId"],
+    ["produceExamEffectIds"],
+  );
+}
+
+export function parseProduceExamTriggerCatalog(text) {
+  return parseYamlRecordsWithLists(
+    text,
+    [
+      "produceCardSearchId",
+      "upperSearchCount",
+      "lowerSearchCount",
+      "cardMovePositionType",
+      "lessonType",
+    ],
+    [
+      "phaseTypes",
+      "phaseValues",
+      "fieldStatusCheckTypes",
+      "fieldStatusTypes",
+      "fieldStatusValues",
+      "fieldStatusProduceCardSearchIds",
+      "effectTypes",
+    ],
+  );
+}
+
+export function parseProduceExamEffectCatalog(text) {
+  return parseYamlRecordsWithLists(
+    text,
+    [
+      "effectType",
+      "effectValue1",
+      "effectValue2",
+      "effectCount",
+      "effectTurn",
+      "targetProduceCardId",
+      "targetUpgradeCount",
+      "targetExamEffectType",
+      "produceCardSearchId",
+      "movePositionType",
+      "pickRangeType",
+      "pickCountReferenceProduceCardSearchId",
+      "pickCountType",
+      "pickCountMin",
+      "pickCountMax",
+      "produceCardSearchId2",
+      "pickRangeType2",
+      "pickCountReferenceProduceCardSearchId2",
+      "pickCountType2",
+      "pickCountMin2",
+      "pickCountMax2",
+      "chainProduceExamEffectId",
+      "produceExamStatusEnchantId",
+      "produceCardStatusEnchantId",
+    ],
+    ["chainProduceExamEffectIds", "produceCardGrowEffectIds", "effectGroupIds"],
+  );
+}
+
+export function parseProduceCardSearchCatalog(text) {
+  return parseYamlRecordsWithLists(
+    text,
+    [
+      "planType",
+      "cardStatusType",
+      "orderType",
+      "cardPositionType",
+      "cardSearchTag",
+      "produceCardRandomPoolId",
+      "limitCount",
+      "staminaMinMaxType",
+      "staminaMin",
+      "staminaMax",
+      "examEffectType",
+      "isSelf",
+      "produceCardPoolId",
+      "costType",
+      "isCustomized",
+    ],
+    ["cardRarities", "produceCardIds", "upgradeCounts", "cardCategories", "effectGroupIds"],
+  );
+}
+
 async function fetchText(primary, fallback, fetchImpl) {
   try {
     const response = await fetchImpl(primary);
@@ -119,21 +214,76 @@ async function fetchText(primary, fallback, fetchImpl) {
 
 export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = EXAM_ITEM_URLS) {
   if (typeof fetchImpl !== "function") throw new Error("Pアイテム効果マスタを取得する fetch がありません。");
-  const [itemText, effectText] = await Promise.all([
+  const [
+    itemText,
+    effectText,
+    enchantText,
+    triggerText,
+    examEffectText,
+    cardSearchText,
+  ] = await Promise.all([
     fetchText(urls.itemsPrimary, urls.itemsFallback, fetchImpl),
     fetchText(urls.itemEffectsPrimary, urls.itemEffectsFallback, fetchImpl),
+    fetchText(urls.examStatusEnchantsPrimary, urls.examStatusEnchantsFallback, fetchImpl),
+    fetchText(urls.examTriggersPrimary, urls.examTriggersFallback, fetchImpl),
+    fetchText(urls.examEffectsPrimary, urls.examEffectsFallback, fetchImpl),
+    fetchText(urls.cardSearchesPrimary, urls.cardSearchesFallback, fetchImpl),
   ]);
   const items = parseProduceItemCatalogForExam(itemText);
   const itemEffects = parseProduceItemEffectCatalog(effectText);
+  const examStatusEnchants = parseProduceExamStatusEnchantCatalog(enchantText);
+  const examTriggers = parseProduceExamTriggerCatalog(triggerText);
+  const examEffects = parseProduceExamEffectCatalog(examEffectText);
+  const cardSearches = parseProduceCardSearchCatalog(cardSearchText);
   return {
     items,
     itemById: new Map(items.map((item) => [String(item.id), item])),
     itemEffects,
     itemEffectById: new Map(itemEffects.map((effect) => [String(effect.id), effect])),
+    examStatusEnchants,
+    examStatusEnchantById: new Map(examStatusEnchants.map((enchant) => [String(enchant.id), enchant])),
+    examTriggers,
+    examTriggerById: new Map(examTriggers.map((trigger) => [String(trigger.id), trigger])),
+    examEffects,
+    examEffectById: new Map(examEffects.map((effect) => [String(effect.id), effect])),
+    cardSearches,
+    cardSearchById: new Map(cardSearches.map((search) => [String(search.id), search])),
   };
 }
 
-export function resolveProduceItems(itemIds, itemById = new Map(), itemEffectById = new Map()) {
+function resolveProduceExamStatusEnchant(enchantIdInput, catalogs = {}) {
+  const enchantId = String(enchantIdInput ?? "");
+  if (!enchantId) return null;
+  const enchant = catalogs.examStatusEnchantById?.get?.(enchantId);
+  if (!enchant) return null;
+  const triggerId = String(enchant.produceExamTriggerId ?? "");
+  const trigger = triggerId ? catalogs.examTriggerById?.get?.(triggerId) ?? null : null;
+  const cardSearchId = String(trigger?.produceCardSearchId ?? "");
+  const cardSearch = cardSearchId ? catalogs.cardSearchById?.get?.(cardSearchId) ?? null : null;
+  const fieldStatusCardSearches = (trigger?.fieldStatusProduceCardSearchIds ?? []).map((id) => (
+    catalogs.cardSearchById?.get?.(String(id)) ?? null
+  ));
+  const examEffects = (enchant.produceExamEffectIds ?? []).map((effectId) => (
+    catalogs.examEffectById?.get?.(String(effectId))
+      ?? { id: String(effectId), unresolved: true }
+  ));
+  return {
+    ...enchant,
+    trigger: trigger ? {
+      ...trigger,
+      cardSearch: cardSearch ? { ...cardSearch } : null,
+      fieldStatusCardSearches: fieldStatusCardSearches.map((row) => (row ? { ...row } : null)),
+    } : null,
+    examEffects: examEffects.map((effect) => ({ ...effect })),
+  };
+}
+
+export function resolveProduceItems(
+  itemIds,
+  itemById = new Map(),
+  itemEffectById = new Map(),
+  catalogs = {},
+) {
   const resolved = [];
   const unresolved = [];
   for (const rawId of itemIds ?? []) {
@@ -146,7 +296,15 @@ export function resolveProduceItems(itemIds, itemById = new Map(), itemEffectByI
     }
     const effects = (item.produceItemEffectIds ?? []).map((effectId) => {
       const effect = itemEffectById.get(String(effectId));
-      return effect ? { ...effect } : { id: String(effectId), unresolved: true };
+      if (!effect) return { id: String(effectId), unresolved: true };
+      const resolvedEffect = { ...effect };
+      if (resolvedEffect.effectType === "ProduceItemEffectType_ExamStatusEnchant") {
+        resolvedEffect.examStatusEnchant = resolveProduceExamStatusEnchant(
+          resolvedEffect.produceExamStatusEnchantId,
+          catalogs,
+        );
+      }
+      return resolvedEffect;
     });
     resolved.push({ ...item, id, effects });
   }
@@ -155,6 +313,48 @@ export function resolveProduceItems(itemIds, itemById = new Map(), itemEffectByI
 
 function integer(value) {
   return Number.parseInt(String(value), 10);
+}
+
+export function parseExamEffectMaster(effectInput) {
+  if (!effectInput || typeof effectInput !== "object") return parseExamEffectId(effectInput);
+  const id = String(effectInput.id ?? effectInput.produceExamEffectId ?? "");
+  const byId = parseExamEffectId(id);
+  if (byId.kind !== "unsupported" && byId.kind !== "none") return byId;
+
+  const value1 = Number(effectInput.effectValue1 ?? 0) || 0;
+  const count = Math.max(1, Number(effectInput.effectCount ?? 0) || 1);
+  switch (String(effectInput.effectType ?? "")) {
+    case "ProduceExamEffectType_ExamLesson":
+      return { kind: "lesson", id, value: value1, count };
+    case "ProduceExamEffectType_ExamBlock":
+      return { kind: "block", id, value: value1 };
+    case "ProduceExamEffectType_ExamReview":
+      return { kind: "review", id, value: value1 };
+    case "ProduceExamEffectType_ExamCardPlayAggressive":
+      return { kind: "aggressive", id, value: value1 };
+    case "ProduceExamEffectType_ExamLessonBuff":
+      return { kind: "lesson_buff", id, value: value1 };
+    case "ProduceExamEffectType_ExamParameterBuff":
+      return { kind: "parameter_buff", id, value: value1 };
+    case "ProduceExamEffectType_ExamStaminaRecoverFix":
+      return { kind: "stamina_recover", id, value: value1 };
+    case "ProduceExamEffectType_ExamCardDraw":
+      return { kind: "card_draw", id, value: value1 };
+    case "ProduceExamEffectType_ExamPlayableValueAdd":
+      return { kind: "playable_add", id, value: value1 };
+    case "ProduceExamEffectType_ExamExtraTurn":
+      return { kind: "extra_turn", id, value: Math.max(1, value1 || 1) };
+    case "ProduceExamEffectType_ExamStaminaConsumptionDown":
+      return { kind: "stamina_consumption_down", id, value: value1 };
+    case "ProduceExamEffectType_ExamStaminaConsumptionAdd":
+      return { kind: "stamina_consumption_add", id, value: value1 };
+    case "ProduceExamEffectType_ExamStaminaConsumptionDownFix":
+      return { kind: "stamina_consumption_down_fix", id, value: value1 };
+    case "ProduceExamEffectType_ExamStaminaConsumptionAddFix":
+      return { kind: "stamina_consumption_add_fix", id, value: value1 };
+    default:
+      return { kind: "unsupported", id, masterEffectType: String(effectInput.effectType ?? "") };
+  }
 }
 
 export function parseExamEffectId(effectId) {
