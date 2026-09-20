@@ -344,7 +344,9 @@ function renderExamDeckSummary() {
   for (const [index, card] of examDeck().entries()) {
     const chip = document.createElement("span");
     chip.className = "chip";
-    chip.textContent = `${index + 1}. ${card.name ?? card.id}`;
+    chip.textContent = examProgressDeck.length
+      ? `${index + 1}. No.${card.number} ${card.name ?? card.id}${Number(card.upgradeCount ?? 0) > 0 ? "+" : ""}`
+      : `${index + 1}. ${card.name ?? card.id}`;
     container.append(chip);
   }
 }
@@ -525,6 +527,9 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
 async function startExamSeedSearch() {
   cancelExamSeedSearch();
   examSearchCancelled = false;
+  if (!examProgressDeck.length) {
+    throw new Error("Seed特定にはNumber付きproduceCardsを含む進行中プロデュースJSONが必要です。編成画面で読み込んでください。");
+  }
   const deck = examDeck();
   const observation = examObservationState();
   if (!observation.complete) throw new Error(`元デッキの観測が不足しています（${observation.observedInitialCount}/${observation.initialCount}枚）。`);
@@ -641,6 +646,7 @@ async function initializeExamSetup() {
     for (const character of examCharacters) examCharacter.add(new Option(character.name, character.id));
     refreshExamIdols();
     renderExamCards();
+    renderExamProgressStatus();
   } catch (error) {
     document.getElementById("exam-card-selection").textContent = "カードカタログを読み込めませんでした。再読み込みしてください。";
     showExamError(error);
@@ -687,6 +693,29 @@ document.getElementById("exam-import-preset").addEventListener("change", async (
     showExamError(error);
   } finally {
     input.value = "";
+  }
+});
+document.getElementById("exam-progress-file")?.addEventListener("change", async (event) => {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    document.getElementById("global-error").hidden = true;
+    applyExamProgressJson(await file.text(), file.name);
+  } catch (error) {
+    showExamError(error);
+  } finally {
+    input.value = "";
+  }
+});
+document.getElementById("exam-load-progress-text")?.addEventListener("click", () => {
+  try {
+    document.getElementById("global-error").hidden = true;
+    const text = document.getElementById("exam-progress-text")?.value ?? "";
+    if (!String(text).trim()) throw new Error("進行中プロデュースJSONを貼り付けてください。");
+    applyExamProgressJson(text, "貼り付けJSON");
+  } catch (error) {
+    showExamError(error);
   }
 });
 document.getElementById("exam-next").addEventListener("click", () => {
