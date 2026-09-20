@@ -185,15 +185,13 @@ assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "
 
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/index.html", import.meta.url), "utf8"));
 assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
-assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="order">2[^<]*Shuffle前順[\s\S]*data-stage="seed">3[^<]*Seed[\s\S]*data-stage="simulation">4[^<]*シミュレーション/);
-assert.match(towerHtml, /id="exam-order-selected"/);
-assert.match(towerHtml, /id="exam-deck-order"/);
-assert.match(towerHtml, /id="exam-order-undo"/);
-assert.match(towerHtml, /id="exam-order-reset"/);
-assert.match(towerHtml, /id="exam-order-next"[^>]*disabled/);
-assert.match(towerHtml, /Seed特定時の手札入力と同じ要領/);
-assert.doesNotMatch(towerHtml, /ドラッグ＆ドロップ|1つ上へ|1つ下へ/);
-assert.match(towerHtml, /data-exam-back="order">Shuffle前順へ戻る/);
+assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
+assert.match(towerHtml, /id="exam-progress-file"/);
+assert.match(towerHtml, /id="exam-progress-text"/);
+assert.match(towerHtml, /id="exam-load-progress-text"/);
+assert.match(towerHtml, /id="exam-progress-status"/);
+assert.doesNotMatch(towerHtml, /data-stage="order"|exam-order-selected|exam-deck-order|exam-order-undo|exam-order-reset|exam-order-next/);
+assert.match(towerHtml, /data-exam-back="setup">編成へ戻る/);
 assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
 assert.match(towerHtml, /id="exam-seed"/);
 assert.match(towerHtml, /id="exam-export-preset"/);
@@ -204,10 +202,10 @@ assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
 const appSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/app.js", import.meta.url), "utf8"));
 assert.doesNotMatch(appSource, /tower-order-result/);
 const materialAppSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/material_app.js", import.meta.url), "utf8"));
-assert.doesNotMatch(materialAppSource, /row\.draggable|moveExamOrder\(/);
-assert.match(materialAppSource, /examDeckOrder\.push\(key\)/);
-assert.match(materialAppSource, /examDeckOrder\.pop\(\)/);
-assert.match(materialAppSource, /Shuffle前のカード順を最後まで入力してください/);
+assert.doesNotMatch(materialAppSource, /examDeckOrder|renderExamDeckOrder|exam-order-/);
+assert.match(materialAppSource, /parseProgressProduceCardsJson/);
+assert.match(materialAppSource, /Number付きproduceCardsを含む進行中プロデュースJSONが必要/);
+assert.match(materialAppSource, /examProgressDeck\.length/);
 
 const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/seed_history_ui.js", import.meta.url), "utf8"));
 assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);
