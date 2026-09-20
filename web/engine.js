@@ -65,6 +65,8 @@ export function parseProduceCardCatalogYaml(text) {
   let activePlayEffect = null;
   const scalarFields = new Set([
     "upgradeCount", "name", "planType", "category", "rarity", "assetId",
+    "originCharacterId", "originIdolCardId", "originPrimaStellaIdolCardId", "originSupportCardId",
+    "libraryHidden", "isReward", "unlockProducerLevel", "isCharacterAsset",
     "stamina", "forceStamina", "costType", "costValue",
     "playProduceExamTriggerId", "playMovePositionType", "moveEffectTriggerType",
     "isEndTurnLost", "isInitial", "isRestrict", "produceCardStatusEnchantId",
@@ -81,6 +83,10 @@ export function parseProduceCardCatalogYaml(text) {
     current.moveProduceExamEffectIds = Array.isArray(current.moveProduceExamEffectIds) ? current.moveProduceExamEffectIds : [];
     current.noDeckDuplication = current.noDeckDuplication === true;
     current.isLimited = current.isLimited === true;
+    current.libraryHidden = current.libraryHidden === true;
+    current.isReward = current.isReward === true;
+    current.isCharacterAsset = current.isCharacterAsset === true;
+    current.unlockProducerLevel = Number(current.unlockProducerLevel ?? 0);
     current.isEndTurnLost = current.isEndTurnLost === true;
     current.isInitial = current.isInitial === true;
     current.isRestrict = current.isRestrict === true;
