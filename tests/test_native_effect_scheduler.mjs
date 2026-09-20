@@ -241,4 +241,172 @@ import {
   );
 }
 
-console.log("native effect scheduler skeleton tests: ok");
+
+// Composite condition objects AND their structural predicates with field/card
+// predicates instead of returning after the first recognized key.
+{
+  const context = {
+    exam: { review: 2 },
+    card: { category: "ProduceCardCategory_ActiveSkill" },
+  };
+  assert.equal(evaluateNativeEffectCondition({
+    all: [{ cardCategory: "ProduceCardCategory_ActiveSkill" }],
+    field: "exam.review",
+    op: "gte",
+    value: 3,
+  }, context), false);
+}
+
+// Registrations installed during a root dispatch are not visible to nested
+// status dispatches from the same effect chain. They become eligible at the
+// next root dispatch epoch.
+{
+  const scheduler = createNativeEffectScheduler();
+  const hits = [];
+  const hooks = {
+    executeEffect(effect) {
+      hits.push(effect);
+      if (effect !== "install") return;
+      registerNativeEffect(scheduler, {
+        id: "late-status",
+        phase: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+        condition: { statusField: "review" },
+        effects: ["late"],
+      });
+      dispatchNativeStatusDiff(
+        scheduler,
+        { review: 0 },
+        { review: 1 },
+        {},
+        hooks,
+      );
+    },
+  };
+  registerNativeEffect(scheduler, {
+    id: "installer",
+    phase: NATIVE_EFFECT_PHASE.CARD_PLAY,
+    count: 1,
+    effects: ["install"],
+  });
+
+  dispatchNativeEffectPhase(scheduler, NATIVE_EFFECT_PHASE.CARD_PLAY, {}, hooks);
+  assert.deepEqual(hits, ["install"]);
+
+  dispatchNativeEffectPhase(
+    scheduler,
+    NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+    { statusChange: { field: "review", before: 1, after: 2, delta: 1 } },
+    hooks,
+  );
+  assert.deepEqual(hits, ["install", "late"]);
+}
+
+// A registration cannot recursively re-enter itself unless explicitly opted
+// in. This prevents self-amplifying status-change effects from exhausting the
+// global recursion guard.
+{
+  const scheduler = createNativeEffectScheduler();
+  let executions = 0;
+  const hooks = {
+    executeEffect() {
+      executions += 1;
+      dispatchNativeEffectPhase(
+        scheduler,
+        NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+        { statusChange: { field: "review", before: 1, after: 2, delta: 1 } },
+        hooks,
+      );
+    },
+  };
+  registerNativeEffect(scheduler, {
+    id: "self-status",
+    phase: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+    condition: { statusField: "review" },
+    effects: ["again"],
+  });
+  dispatchNativeEffectPhase(
+    scheduler,
+    NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+    { statusChange: { field: "review", before: 0, after: 1, delta: 1 } },
+    hooks,
+  );
+  assert.equal(executions, 1);
+}
+
+// Supplying the native turn number makes TTL spending idempotent for that turn.
+{
+  const scheduler = createNativeEffectScheduler();
+  const registration = registerNativeEffect(scheduler, {
+    id: "ttl-idempotent",
+    phase: NATIVE_EFFECT_PHASE.END_TURN,
+    ttl: 2,
+  });
+  tickNativeEffectSchedulerTurn(scheduler, { turn: 1 });
+  tickNativeEffectSchedulerTurn(scheduler, { turn: 1 });
+  assert.equal(registration.remainingTurns, 1);
+  tickNativeEffectSchedulerTurn(scheduler, { turn: 2 });
+  assert.equal(registration.active, false);
+}
+
+// Gimmick sources are wired into the real tower runtime, not only exposed as a
+// scheduler adapter.
+{
+  const masters = ["GA", "GB", "GC"].map((id, index) => ({
+    id,
+    isInitial: index === 0,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  }));
+  const cardById = new Map(masters.map((card) => [card.id, card]));
+  const trigger = {
+    id: "gimmick-trigger",
+    phaseTypes: ["ProduceExamPhaseType_ExamCardPlayAfter"],
+    phaseValues: [],
+    fieldStatusCheckTypes: [],
+    fieldStatusTypes: [],
+    fieldStatusValues: [],
+    fieldStatusProduceCardSearchIds: [],
+    effectTypes: [],
+    lessonType: "ProduceStepLessonType_Unknown",
+    upperSearchCount: 0,
+    lowerSearchCount: 0,
+    cardSearch: null,
+  };
+  const state = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    7,
+    cardById,
+    {
+      stamina: 10,
+      gimmicks: [{
+        id: "gimmick-test",
+        effects: [{
+          id: "gimmick-effect",
+          effectCount: 1,
+          effectTurn: -1,
+          trigger,
+          examEffects: [{
+            id: "gimmick-review",
+            effectType: "ProduceExamEffectType_ExamReview",
+            effectValue1: 4,
+            effectCount: 1,
+          }],
+        }],
+      }],
+    },
+  );
+
+  assert.equal(
+    state.effectScheduler.registrations.some((entry) => entry.sourceType === "gimmick"),
+    true,
+  );
+  drawTowerTurn(state, 3);
+  const index = state.hand.findIndex((card) => card.id === "GA");
+  assert.ok(index >= 0);
+  playTowerCard(state, index);
+  assert.equal(state.exam.review, 4);
+  assert.equal(state.gimmickEffectRemainingCounts.get("gimmick::gimmick-test::gimmick-effect"), 0);
+}
+
+console.log("native effect scheduler tests: ok");
