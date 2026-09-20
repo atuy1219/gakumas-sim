@@ -621,3 +621,60 @@ assert.deepEqual(buildExamDeck(cards, reorderedCounts), deck);
 console.log("exam setup v9 tests: ok");
 }
 
+
+
+// Native Web runtime: Genki and stamina-cost calculations must use ExamSetting
+// multipliers rather than the old +/-1 approximations.
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  applyParsedExamEffect,
+  calculateNativeBlockAdd,
+  calculateNativeStaminaDamage,
+  createExamState,
+  parseExamEffectId,
+  payCardCost,
+} = await import("../web/exam_effects.js");
+
+let exam = createExamState({ stamina: 20 });
+exam.aggressive = 3;
+assert.equal(calculateNativeBlockAdd(exam, 5), 8, "元気 receives やる気 before native reductions");
+const blockResult = applyParsedExamEffect(exam, parseExamEffectId("e_effect-exam_block-0005"));
+assert.equal(blockResult.label, "元気 +8");
+assert.equal(exam.block, 8);
+
+exam = createExamState({ stamina: 20 });
+exam.blockRestriction = true;
+assert.equal(calculateNativeBlockAdd(exam, 5), 0, "元気増加無効 suppresses Block");
+
+exam = createExamState({ stamina: 20 });
+exam.staminaConsumptionDown = 1;
+let damage = calculateNativeStaminaDamage(exam, 5);
+assert.deepEqual(damage, { damage: 3, staminaDamage: 3, blockDamage: 0 });
+payCardCost(exam, { stamina: 5, forceStamina: 0, costType: "", costValue: 0 });
+assert.equal(exam.stamina, 17, "消費体力減少 is native 500 permil, not -1");
+
+exam = createExamState({ stamina: 20 });
+exam.staminaConsumptionAdd = 1;
+payCardCost(exam, { stamina: 5, forceStamina: 0, costType: "", costValue: 0 });
+assert.equal(exam.stamina, 10, "消費体力増加 is native +1000 permil, i.e. x2");
+
+exam = createExamState({ stamina: 20 });
+exam.staminaConsumptionDown = 1;
+exam.block = 2;
+payCardCost(exam, { stamina: 5, forceStamina: 0, costType: "", costValue: 0 });
+assert.equal(exam.block, 0);
+assert.equal(exam.stamina, 19, "post-multiplier damage is absorbed by Genki first");
+
+exam = createExamState({ stamina: 20 });
+exam.staminaConsumptionDownFix = 2;
+payCardCost(exam, { stamina: 5, forceStamina: 0, costType: "", costValue: 0 });
+assert.equal(exam.stamina, 17, "fixed stamina reduction is applied after multiplicative modifiers");
+
+assert.equal(
+  parseExamEffectId("e_effect-exam_stamina_consumption_add_fix-0002-inf").kind,
+  "stamina_consumption_add_fix",
+);
+
+console.log("native stamina/genki runtime tests: ok");
+}
