@@ -336,9 +336,13 @@ summerRandomStep.nextU32();
 summerRandomStep.nextU32();
 assert.equal(state.randomState, summerRandomStep.state >>> 0);
 assert.equal(state.unsupported.length, 0);
-const summerEnchantState = state.enchants.find((entry) => entry.enchantId === "enchant-p_card-00-sup-3_152-enc01");
+const summerEnchantState = state.effectScheduler.registrations.find(
+  (entry) => entry.sourceId === "enchant-p_card-00-sup-3_152-enc01",
+);
 assert.ok(summerEnchantState);
-assert.equal(summerEnchantState.installedCardPlayCount, 1);
+assert.equal(summerEnchantState.sourceType, "enchant");
+assert.equal(summerEnchantState.phase, "afterCardPlay");
+assert.equal(summerEnchantState.metadata.installedCardPlayCount, 1);
 
 // The Summer Night enchant fires after every 5 skill-card plays *since installation*.
 state.exam.cardPlayCount = 5;
