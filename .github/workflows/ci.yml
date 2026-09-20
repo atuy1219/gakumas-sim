@@ -36,3 +36,4 @@ jobs:
           node tests/test_tower_runtime.mjs
           node tests/test_exam_web.mjs
           node tests/test_native_effect_scheduler.mjs
+          node tests/test_p_items.mjs
