@@ -69,7 +69,7 @@ export function parseProduceCardCatalogYaml(text) {
     "libraryHidden", "isReward", "unlockProducerLevel", "isCharacterAsset",
     "stamina", "forceStamina", "costType", "costValue",
     "playProduceExamTriggerId", "playMovePositionType", "moveEffectTriggerType",
-    "isEndTurnLost", "isInitial", "isRestrict", "produceCardStatusEnchantId",
+    "isEndTurnLost", "isInitial", "isInitialDeckProduceCard", "isRestrict", "produceCardStatusEnchantId",
     "noDeckDuplication", "isLimited", "evaluation",
   ]);
   const flush = () => {
@@ -89,6 +89,7 @@ export function parseProduceCardCatalogYaml(text) {
     current.unlockProducerLevel = Number(current.unlockProducerLevel ?? 0);
     current.isEndTurnLost = current.isEndTurnLost === true;
     current.isInitial = current.isInitial === true;
+    current.isInitialDeckProduceCard = current.isInitialDeckProduceCard === true;
     current.isRestrict = current.isRestrict === true;
     cards.push(current);
   };
