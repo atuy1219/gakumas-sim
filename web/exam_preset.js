@@ -1,7 +1,7 @@
 import { EXAM_CARD_POOL_MODE } from "./exam_setup.js";
 
 export const EXAM_PRESET_FORMAT = "gakumas-sim-exam-preset";
-export const EXAM_PRESET_VERSION = 2;
+export const EXAM_PRESET_VERSION = 3;
 
 function requiredText(value, label) {
   const text = String(value ?? "").trim();
@@ -28,12 +28,26 @@ function normalizeCards(cards) {
   return [...grouped].map(([id, count]) => ({ id, count }));
 }
 
+function normalizeProgressCards(cards) {
+  if (!Array.isArray(cards) || !cards.length) return [];
+  return cards.map((source, index) => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new Error(`progressCards[${index}] がカードオブジェクトではありません。`);
+    }
+    const id = requiredText(source.produceCardId ?? source.ProduceCardId ?? source.id ?? source.Id, "progressCardsのカードID");
+    const number = Number(source.number ?? source.Number);
+    if (!Number.isFinite(number)) throw new Error(`${id}: progressCardsのNumberが不正です。`);
+    return { ...source };
+  });
+}
+
 export function createExamPreset({
   characterId,
   planType,
   idolCardId,
   cardPoolMode = EXAM_CARD_POOL_MODE.NORMAL,
   cards,
+  progressCards = [],
   stamina = 0,
   targetScore = 0,
 }) {
@@ -46,6 +60,7 @@ export function createExamPreset({
     idolCardId: requiredText(idolCardId, "Pアイドル"),
     cardPoolMode: normalizePoolMode(cardPoolMode),
     cards: normalizeCards(cards),
+    progressCards: normalizeProgressCards(progressCards),
     stamina: Math.max(0, Math.trunc(Number(stamina) || 0)),
     targetScore: Math.max(0, Math.trunc(Number(targetScore) || 0)),
   };
@@ -60,9 +75,10 @@ export function parseExamPreset(input) {
   }
   if (!source || source.format !== EXAM_PRESET_FORMAT) throw new Error("試験・オーディション編成ファイルではありません。");
   const version = Number(source.version);
-  if (![1, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
+  if (![1, 2, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
   return createExamPreset({
     ...source,
     cardPoolMode: version === 1 ? EXAM_CARD_POOL_MODE.NORMAL : source.cardPoolMode,
+    progressCards: version >= 3 ? source.progressCards : [],
   });
 }
