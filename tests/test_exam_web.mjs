@@ -649,7 +649,8 @@ console.log("exam effect v7 tests: ok");
 // test_exam_setup.mjs
 {
 const { default: assert } = await import("node:assert/strict");
-const { applyExamDeckOrder, buildExamDeck, changeExamCardCount, examDeckOrderEntries, filterExamCards, filterExamIdols, moveExamDeckOrder } = await import("../web/exam_setup.js");
+const { buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } = await import("../web/exam_setup.js");
+const { extractProgressProduceCards, normalizeProgressProduceCards, parseProgressProduceCardsJson } = await import("../web/exam_progress.js");
 
 const idols = [
   { id: "idol-a", characterId: "char-a", planType: "ProducePlanType_Plan1", name: "A" },
@@ -728,32 +729,50 @@ assert.equal(deck[2].isInitial, false);
 const reorderedCounts = new Map([["unique", 1], ["sense", 2]]);
 assert.deepEqual(buildExamDeck(cards, reorderedCounts), deck);
 
-const orderEntries = examDeckOrderEntries(deck);
-assert.deepEqual(orderEntries.map((entry) => entry.key), [
-  "sense@@0@@1",
-  "sense@@0@@2",
-  "unique@@0@@1",
+const progressPayload = {
+  response: {
+    userData: {
+      userProduceProgress: {
+        produceCards: [
+          { number: 8, produceCardId: "unique", upgradeCount: 1, deleted: false, originType: "ProduceCardOriginType_Memory", customField: "keep-me" },
+          { number: 3, produceCardId: "sense", upgradeCount: 0, deleted: false, originType: "ProduceCardOriginType_Initial" },
+          { number: 1, produceCardId: "logic", upgradeCount: 0, deleted: true, originType: "ProduceCardOriginType_Initial" },
+          { number: 5, produceCardId: "sense", upgradeCount: 1, deleted: false, originType: "ProduceCardOriginType_Produce" },
+        ],
+      },
+    },
+  },
+};
+const extractedProgress = extractProgressProduceCards(progressPayload);
+assert.equal(extractedProgress.path, "$.response.userData.userProduceProgress.produceCards");
+const progressMasters = new Map([
+  ["sense", { id: "sense", name: "好調", isInitial: true }],
+  ["unique", { id: "unique", name: "一度だけ", isInitial: false }],
 ]);
-const manualOrder = [
-  orderEntries[2].key,
-  orderEntries[0].key,
-  orderEntries[1].key,
-];
-assert.deepEqual(
-  applyExamDeckOrder(deck, manualOrder).map((card) => card.id),
-  ["unique", "sense", "sense"],
-  "manual pre-shuffle order must override catalog order without losing duplicate instances",
-);
-assert.deepEqual(
-  moveExamDeckOrder(manualOrder, 2, 0),
-  [orderEntries[1].key, orderEntries[2].key, orderEntries[0].key],
-);
+const progressVariants = new Map([
+  ["sense@@0", { id: "sense", name: "好調", isInitial: true }],
+  ["sense@@1", { id: "sense", name: "好調+", isInitial: true }],
+  ["unique@@1", { id: "unique", name: "一度だけ+", isInitial: false }],
+]);
+const nativeDeck = normalizeProgressProduceCards(extractedProgress.cards, progressMasters, progressVariants);
+assert.deepEqual(nativeDeck.map((card) => [card.number, card.id, card.upgradeCount]), [
+  [3, "sense", 0],
+  [5, "sense", 1],
+  [8, "unique", 1],
+], "Deleted cards are removed and live cards are sorted by Number");
+assert.equal(nativeDeck[0].isInitial, true);
+assert.equal(nativeDeck[1].name, "好調+");
+assert.equal(nativeDeck[2].originType, "ProduceCardOriginType_Memory");
+assert.equal(nativeDeck[2].customField, "keep-me");
+assert.equal(nativeDeck[2].progressCard.customField, "keep-me", "raw instance fields must remain available");
+const parsedProgress = parseProgressProduceCardsJson(JSON.stringify(progressPayload), progressMasters, progressVariants);
+assert.deepEqual(parsedProgress.cards.map((card) => card.number), [3, 5, 8]);
 assert.throws(
-  () => applyExamDeckOrder(deck, manualOrder.slice(0, 2)),
-  /Shuffle前順序の枚数/,
+  () => parseProgressProduceCardsJson(JSON.stringify({ produceCards: [{ produceCardId: "sense" }] })),
+  /Number付き|Numberがありません/,
 );
 
-console.log("exam setup v10 tests: ok");
+console.log("exam setup/progress deck v11 tests: ok");
 }
 
 
