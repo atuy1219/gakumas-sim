@@ -154,16 +154,20 @@
 
       <section class="panel input-panel" data-sim-stage="order" hidden>
         <div class="section-head">
-          <div><p class="step">02</p><h2>Shuffle前のカード順</h2><p class="hint">実機でShuffleへ渡される順番に並べてください。この順序をSeed逆算と試験シミュレーションの両方に使用します。</p></div>
+          <div><p class="step">02</p><h2>Shuffle前のカード順</h2><p class="hint">実機でShuffleへ渡される1枚目から順番にカードを選んでください。この順序をSeed逆算と試験シミュレーションの両方に使用します。</p></div>
           <button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button>
         </div>
-        <p class="callout">上が先頭です。スマホでは ↑ / ↓、PCではドラッグ＆ドロップでも並び替えられます。実機順が不明な場合は、まず実機のデッキ構築順を確認してください。</p>
-        <div class="section-head compact-head">
-          <div><h3>Shuffle入力順</h3><p id="exam-order-count" class="hint"></p></div>
-          <button id="exam-order-reset" type="button" class="ghost-button">初期表示順に戻す</button>
+        <p class="callout">Seed特定時の手札入力と同じ要領です。1枚目、2枚目、3枚目…の順に下のカードをタップしてください。</p>
+        <div class="seed-work-card-v14">
+          <div class="seed-work-head-v14"><span>1</span><div><strong>Shuffle前順を入力</strong><small>実機の順番どおりにカードを1枚ずつ選択します。</small></div><span id="exam-order-count" class="badge">0 / 0枚</span></div>
+          <div id="exam-order-selected" class="observed-sequence seed-observed-v14"><span class="hint">まだカードがありません。</span></div>
+          <div id="exam-deck-order" class="observation-grid seed-card-grid-v14"></div>
+          <div class="seed-mobile-actions-v14">
+            <button id="exam-order-undo" type="button" class="ghost-button">1枚戻す</button>
+            <button id="exam-order-reset" type="button" class="ghost-button">最初から</button>
+          </div>
         </div>
-        <div id="exam-deck-order" class="m3e-card-selection"></div>
-        <button id="exam-order-next" type="button" class="primary">この順番でSeed設定へ</button>
+        <button id="exam-order-next" type="button" class="primary" disabled>この順番でSeed設定へ</button>
       </section>
 
       <section class="panel seed-stage-v14" data-sim-stage="seed" hidden>
