@@ -10,6 +10,25 @@ export const EXAM_ITEM_URLS = Object.freeze({
   itemEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceItemEffect.yaml",
 });
 
+export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
+  // ExamSetting p_exam_setting-1. Keep these separate from score-only settings:
+  // they govern stamina/block resolution and turn/card-pool limits.
+  examStaminaConsumptionDownPermil: 500,
+  examStaminaConsumptionAddPermil: 1000,
+  examBlockAddDownPermil: 667,
+  examStaminaConsumptionDownAddPermil: 600,
+  examStaminaConsumptionAddDownPermil: 1250,
+  examStaminaReduceChange: 1,
+  examConcentrationStaminaMultiplePermil1: 2000,
+  examConcentrationStaminaMultiplePermil2: 2000,
+  examPreservationStaminaMultiplePermil1: 500,
+  examPreservationStaminaMultiplePermil2: 250,
+  examOverPreservationStaminaMultiplePermil: 0,
+  examTurnEndRecoveryStamina: 2,
+  handLimit: 5,
+  holdLimit: 2,
+});
+
 function yamlScalar(raw) {
   const text = String(raw ?? "").trim();
   if (text === "true") return true;
@@ -324,6 +343,9 @@ export function parseExamEffectId(effectId) {
   if ((match = id.match(/^e_effect-exam_stamina_consumption_down_fix-(\d+)-inf$/))) {
     return { kind: "stamina_consumption_down_fix", id, value: integer(match[1]) };
   }
+  if ((match = id.match(/^e_effect-exam_stamina_consumption_add_fix-(\d+)-inf$/))) {
+    return { kind: "stamina_consumption_add_fix", id, value: integer(match[1]) };
+  }
   return { kind: "unsupported", id };
 }
 
@@ -409,8 +431,16 @@ export function createExamState({ stamina = 0 } = {}) {
     staminaConsumptionDown: 0,
     staminaConsumptionAdd: 0,
     staminaConsumptionDownFix: 0,
+    staminaConsumptionAddFix: 0,
+    staminaConsumptionDownAdd: false,
+    staminaConsumptionAddDown: false,
+    staminaReduceChange: 0,
+    blockRestriction: false,
+    blockAddDown: false,
+    blockAddDownFix: 0,
     cardPlayCount: 0,
     extraTurns: 0,
+    runtimeSettings: { ...EXAM_RUNTIME_DEFAULT_SETTING },
 
     // Native timed score-related status effects. Value statuses with the same
     // remaining turn are merged, matching TryAdd*Status predicates.
@@ -534,21 +564,134 @@ function consumeStatus(exam, field, value, label) {
   exam[field] -= amount;
 }
 
+function runtimeF32(value) {
+  return Math.fround(Number(value) || 0);
+}
+
+function runtimeFromPermil(value) {
+  return runtimeF32(runtimeF32(value) / runtimeF32(1000));
+}
+
+export function getExamRuntimeSetting(exam, key) {
+  const value = exam?.runtimeSettings?.[key];
+  if (value !== undefined && value !== null && Number.isFinite(Number(value))) return Number(value);
+  return Number(EXAM_RUNTIME_DEFAULT_SETTING[key] ?? 0);
+}
+
+export function calculateNativeBlockAdd(exam, valueInput, aggressiveMultiple = 1) {
+  // Port of ExamEffectUtility.CalculateAddBlock.
+  let value = Math.trunc(Number(valueInput) || 0);
+  if (value < 1 || exam?.blockRestriction) return 0;
+
+  const aggressive = Math.max(0, Math.trunc(Number(exam?.aggressive) || 0));
+  value += Math.ceil(runtimeF32(runtimeF32(aggressive) * runtimeF32(aggressiveMultiple)));
+  if (value < 1) return Math.max(0, value);
+
+  if (exam?.blockAddDown) {
+    const keepPermil = 1000 - getExamRuntimeSetting(exam, "examBlockAddDownPermil");
+    const ratio = runtimeF32(runtimeFromPermil(keepPermil) * runtimeF32(value));
+    // Native GetRatioEffectIntValue(..., ceilMode=false) floors with -0.0001.
+    const kept = Math.floor(runtimeF32(ratio + runtimeF32(-0.0001)));
+    value -= kept;
+  }
+
+  const fix = Math.max(0, Math.trunc(Number(exam?.blockAddDownFix) || 0));
+  if (fix >= 1) value -= fix;
+  return Math.max(0, Math.trunc(value));
+}
+
+export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
+  // Port of ExamEffectUtility.CalculateDamage. Return order mirrors the
+  // native stamina/block split while also exposing total post-modifier damage.
+  const penetrate = Boolean(options.penetrate);
+  const applyFixed = options.applyFixed !== false;
+  const block = penetrate ? 0 : Math.max(0, Math.trunc(Number(exam?.block) || 0));
+  let value = runtimeF32(Math.trunc(Number(valueInput) || 0));
+
+  const idolStatusType = Math.trunc(Number(exam?.idolStatusType) || 0);
+  const idolStatusStep = Math.trunc(Number(exam?.idolStatusStep) || 0);
+  if (idolStatusType === 1) {
+    value = runtimeF32(value * runtimeFromPermil(
+      getExamRuntimeSetting(exam, idolStatusStep === 1
+        ? "examConcentrationStaminaMultiplePermil1"
+        : "examConcentrationStaminaMultiplePermil2"),
+    ));
+  } else if (idolStatusType === 2) {
+    value = runtimeF32(value * runtimeFromPermil(
+      getExamRuntimeSetting(exam, idolStatusStep === 1
+        ? "examPreservationStaminaMultiplePermil1"
+        : "examPreservationStaminaMultiplePermil2"),
+    ));
+  } else if (idolStatusType === 4) {
+    value = runtimeF32(value * runtimeFromPermil(
+      getExamRuntimeSetting(exam, "examOverPreservationStaminaMultiplePermil"),
+    ));
+  }
+
+  if (Number(exam?.staminaConsumptionDown ?? 0) > 0) {
+    const setting = getExamRuntimeSetting(
+      exam,
+      exam?.staminaConsumptionDownAdd
+        ? "examStaminaConsumptionDownAddPermil"
+        : "examStaminaConsumptionDownPermil",
+    );
+    value = runtimeF32(value * runtimeFromPermil(1000 - setting));
+  }
+  if (Number(exam?.staminaConsumptionAdd ?? 0) > 0) {
+    const setting = getExamRuntimeSetting(
+      exam,
+      exam?.staminaConsumptionAddDown
+        ? "examStaminaConsumptionAddDownPermil"
+        : "examStaminaConsumptionAddPermil",
+    );
+    value = runtimeF32(value * runtimeFromPermil(1000 + setting));
+  }
+
+  let damage = Math.ceil(value);
+  if (applyFixed) {
+    damage += Math.max(0, Math.trunc(Number(exam?.staminaConsumptionAddFix) || 0));
+    const downFix = Math.max(0, Math.trunc(Number(exam?.staminaConsumptionDownFix) || 0));
+    if (downFix >= 1) damage = Math.max(0, damage - downFix);
+
+    const changeThreshold = Math.max(0, Math.trunc(Number(exam?.staminaReduceChange) || 0));
+    if (changeThreshold >= 1 && damage <= changeThreshold) {
+      damage = getExamRuntimeSetting(exam, "examStaminaReduceChange");
+    }
+  }
+
+  const staminaDamage = Math.max(0, damage - block);
+  const blockDamage = damage - staminaDamage;
+  return {
+    damage: Math.max(0, Math.trunc(damage)),
+    staminaDamage: Math.max(0, Math.trunc(staminaDamage)),
+    blockDamage: Math.max(0, Math.trunc(blockDamage)),
+  };
+}
+
 export function payCardCost(exam, card) {
   const events = [];
-  const direct = Math.max(0, Number(card.forceStamina ?? 0) || 0);
-  let normal = Math.max(0, Number(card.stamina ?? 0) || 0);
-  const downFix = Math.max(0, Number(exam.staminaConsumptionDownFix ?? 0) || 0);
-  normal = Math.max(0, normal - downFix);
-  if (Number(exam.staminaConsumptionDown ?? 0) > 0) normal = Math.max(0, normal - 1);
-  if (Number(exam.staminaConsumptionAdd ?? 0) > 0) normal += 1;
+  const direct = Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
+  const normalBase = Math.max(0, Math.trunc(Number(card.stamina ?? 0) || 0));
 
-  if (normal > 0) {
-    const blocked = Math.min(Number(exam.block ?? 0), normal);
-    exam.block -= blocked;
-    exam.stamina = Math.max(0, Number(exam.stamina ?? 0) - (normal - blocked));
-    events.push(`体力消費 ${normal}${blocked ? `（元気で${blocked}軽減）` : ""}`);
+  if (normalBase > 0) {
+    const resolved = calculateNativeStaminaDamage(exam, normalBase, {
+      penetrate: false,
+      applyFixed: true,
+    });
+    if (resolved.blockDamage > 0) {
+      exam.block = Math.max(0, Number(exam.block ?? 0) - resolved.blockDamage);
+    }
+    if (resolved.staminaDamage > 0) {
+      exam.stamina = Math.max(0, Number(exam.stamina ?? 0) - resolved.staminaDamage);
+    }
+    events.push(
+      `体力消費 ${resolved.damage}`
+      + (resolved.blockDamage ? `（元気で${resolved.blockDamage}軽減）` : ""),
+    );
   }
+
+  // forceStamina is a direct/fixed stamina cost: it bypasses Genki and the
+  // normal stamina-consumption multiplier path.
   if (direct > 0) {
     exam.stamina = Math.max(0, Number(exam.stamina ?? 0) - direct);
     events.push(`直接体力消費 ${direct}`);
@@ -676,7 +819,11 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       addNativeScoreTimedStatus(exam, "parameterBuffTurnEndReduceLock", 0, parsed.turn);
       return { applied: true, label: `好調ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
 
-    case "block": exam.block += parsed.value; return { applied: true, label: `元気 +${parsed.value}` };
+    case "block": {
+      const value = calculateNativeBlockAdd(exam, parsed.value);
+      exam.block += value;
+      return { applied: true, label: `元気 +${value}` };
+    }
     case "review": exam.review += parsed.value; return { applied: true, label: `好印象 +${parsed.value}` };
     case "aggressive": exam.aggressive += parsed.value; return { applied: true, label: `やる気 +${parsed.value}` };
     case "lesson_buff": exam.lessonBuff += parsed.value; return { applied: true, label: `集中 +${parsed.value}` };
@@ -689,7 +836,10 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
     case "stamina_consumption_down": exam.staminaConsumptionDown += parsed.value; return { applied: true, label: `体力消費減少 +${parsed.value}ターン` };
     case "stamina_consumption_add": exam.staminaConsumptionAdd += parsed.value; return { applied: true, label: `体力消費増加 +${parsed.value}ターン` };
     case "stamina_consumption_down_fix": exam.staminaConsumptionDownFix += parsed.value; return { applied: true, label: `体力消費固定軽減 +${parsed.value}` };
-    case "extra_turn": exam.extraTurns += 1; return { applied: true, label: "追加ターン +1" };
+    case "stamina_consumption_add_fix": exam.staminaConsumptionAddFix += parsed.value; return { applied: true, label: `体力消費固定追加 +${parsed.value}` };
+    case "extra_turn":
+      exam.extraTurns += Math.max(1, Number(parsed.value) || 1);
+      return { applied: true, command: "extra_turn", value: Math.max(1, Number(parsed.value) || 1), label: "追加ターン +1" };
     case "card_draw": return { applied: true, command: "draw", value: parsed.value, label: `${parsed.value}枚ドロー` };
     case "card_create_id":
       return {
