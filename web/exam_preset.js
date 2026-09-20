@@ -1,10 +1,19 @@
+import { EXAM_CARD_POOL_MODE } from "./exam_setup.js";
+
 export const EXAM_PRESET_FORMAT = "gakumas-sim-exam-preset";
-export const EXAM_PRESET_VERSION = 1;
+export const EXAM_PRESET_VERSION = 2;
 
 function requiredText(value, label) {
   const text = String(value ?? "").trim();
   if (!text) throw new Error(`${label}がありません。`);
   return text;
+}
+
+function normalizePoolMode(value) {
+  const mode = String(value ?? "");
+  return Object.values(EXAM_CARD_POOL_MODE).includes(mode)
+    ? mode
+    : EXAM_CARD_POOL_MODE.NORMAL;
 }
 
 function normalizeCards(cards) {
@@ -19,7 +28,15 @@ function normalizeCards(cards) {
   return [...grouped].map(([id, count]) => ({ id, count }));
 }
 
-export function createExamPreset({ characterId, planType, idolCardId, cards, stamina = 0, targetScore = 0 }) {
+export function createExamPreset({
+  characterId,
+  planType,
+  idolCardId,
+  cardPoolMode = EXAM_CARD_POOL_MODE.NORMAL,
+  cards,
+  stamina = 0,
+  targetScore = 0,
+}) {
   return {
     format: EXAM_PRESET_FORMAT,
     version: EXAM_PRESET_VERSION,
@@ -27,6 +44,7 @@ export function createExamPreset({ characterId, planType, idolCardId, cards, sta
     characterId: requiredText(characterId, "キャラクター"),
     planType: requiredText(planType, "プラン"),
     idolCardId: requiredText(idolCardId, "Pアイドル"),
+    cardPoolMode: normalizePoolMode(cardPoolMode),
     cards: normalizeCards(cards),
     stamina: Math.max(0, Math.trunc(Number(stamina) || 0)),
     targetScore: Math.max(0, Math.trunc(Number(targetScore) || 0)),
@@ -41,6 +59,10 @@ export function parseExamPreset(input) {
     throw new Error("試験・オーディション編成JSONを読み込めませんでした。");
   }
   if (!source || source.format !== EXAM_PRESET_FORMAT) throw new Error("試験・オーディション編成ファイルではありません。");
-  if (Number(source.version) !== EXAM_PRESET_VERSION) throw new Error(`未対応の編成バージョンです: ${source.version}`);
-  return createExamPreset(source);
+  const version = Number(source.version);
+  if (![1, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
+  return createExamPreset({
+    ...source,
+    cardPoolMode: version === 1 ? EXAM_CARD_POOL_MODE.NORMAL : source.cardPoolMode,
+  });
 }

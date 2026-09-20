@@ -14,6 +14,7 @@ const preset = createExamPreset({
   characterId: "hski",
   planType: "ProducePlanType_Plan1",
   idolCardId: "i_card-hski-3-001",
+  cardPoolMode: "highScore",
   cards: [{ id: "p_card-a", count: 2 }, { id: "p_card-b", count: 1 }],
   stamina: 30,
   targetScore: 12000,
@@ -21,13 +22,22 @@ const preset = createExamPreset({
 assert.equal(preset.format, EXAM_PRESET_FORMAT);
 assert.equal(preset.version, EXAM_PRESET_VERSION);
 assert.equal(preset.characterId, "hski");
+assert.equal(preset.cardPoolMode, "highScore");
 assert.deepEqual(preset.cards, [{ id: "p_card-a", count: 2 }, { id: "p_card-b", count: 1 }]);
 assert.equal(preset.stamina, 30);
 assert.equal(preset.targetScore, 12000);
 
 const parsed = parseExamPreset(JSON.stringify(preset));
 assert.equal(parsed.idolCardId, "i_card-hski-3-001");
+assert.equal(parsed.cardPoolMode, "highScore");
 assert.deepEqual(parsed.cards, preset.cards);
+
+const legacyPreset = parseExamPreset(JSON.stringify({
+  ...preset,
+  version: 1,
+  cardPoolMode: undefined,
+}));
+assert.equal(legacyPreset.cardPoolMode, "normal", "v1 preset must remain loadable as the normal card pool");
 
 const grouped = createExamPreset({ ...preset, cards: [{ id: "p_card-a", count: 1 }, { id: "p_card-a", count: 2 }] });
 assert.deepEqual(grouped.cards, [{ id: "p_card-a", count: 3 }]);

@@ -141,9 +141,11 @@
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
           <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
           <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
+          <label><span>カード出現ルール</span><select id="exam-card-pool-mode"><option value="normal">通常</option><option value="research">あさりゼミ</option><option value="highScore">強化月間</option></select></label>
           <label><span>開始時の体力</span><input id="exam-start-stamina" type="number" min="0" value="30"></label>
           <label><span>目標スコア（任意）</span><input id="exam-target-score" type="number" min="0" value="0" placeholder="0なら判定なし"></label>
         </div>
+        <p id="exam-card-pool-hint" class="hint">通常: 共通＋選択プラン。固有カードは選択中のキャラクター/Pアイドルだけ表示します。</p>
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
         <p id="exam-card-summary" class="hint">0枚選択</p>
