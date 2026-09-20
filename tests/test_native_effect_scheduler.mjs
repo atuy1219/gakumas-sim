@@ -409,4 +409,114 @@ import {
   assert.equal(state.gimmickEffectRemainingCounts.get("gimmick::gimmick-test::gimmick-effect"), 0);
 }
 
+
+// Native ProduceExamGimmickEffectGroup rows resolve exactly once at startTurn,
+// in ascending native priority. Later rows observe effects from earlier rows.
+{
+  const masters = ["RAW-A", "RAW-B", "RAW-C"].map((id, index) => ({
+    id,
+    isInitial: index === 0,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  }));
+  const cardById = new Map(masters.map((card) => [card.id, card]));
+  const examEffectById = new Map([
+    ["raw-block", {
+      id: "raw-block",
+      effectType: "ProduceExamEffectType_ExamBlock",
+      effectValue1: 1,
+    }],
+    ["raw-review", {
+      id: "raw-review",
+      effectType: "ProduceExamEffectType_ExamReview",
+      effectValue1: 4,
+    }],
+    ["raw-frozen", {
+      id: "raw-frozen",
+      effectType: "ProduceExamEffectType_ExamReview",
+      effectValue1: 99,
+    }],
+  ]);
+  const state = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    11,
+    cardById,
+    {
+      stamina: 10,
+      examEffectById,
+      gimmicks: [
+        {
+          id: "raw-gimmick",
+          priority: 2,
+          startTurn: 1,
+          fieldStatusType: "ProduceExamFieldStatusType_BlockUp",
+          fieldStatusValue: 1,
+          fieldStatusCheckType: "ProduceExamTriggerCheckType_Unknown",
+          produceExamEffectId: "raw-review",
+        },
+        {
+          id: "raw-gimmick",
+          priority: 1,
+          startTurn: 1,
+          fieldStatusType: "ProduceExamFieldStatusType_Unknown",
+          fieldStatusValue: 0,
+          fieldStatusCheckType: "ProduceExamTriggerCheckType_Unknown",
+          produceExamEffectId: "raw-block",
+        },
+        {
+          id: "raw-gimmick-frozen",
+          priority: 3,
+          startTurn: 1,
+          fieldStatusType: "ProduceExamFieldStatusType_ReviewUp",
+          fieldStatusValue: 999,
+          fieldStatusCheckType: "ProduceExamTriggerCheckType_Unknown",
+          produceExamEffectId: "raw-frozen",
+        },
+      ],
+    },
+  );
+
+  drawTowerTurn(state, 3);
+  assert.equal(state.exam.block, 1);
+  assert.equal(state.exam.review, 4, "priority 1 block must make priority 2 condition true");
+  const frozen = state.effectScheduler.registrations.find(
+    (entry) => entry.sourceId === "raw-gimmick-frozen",
+  );
+  assert.equal(frozen.active, false, "failed startTurn condition is resolved and cannot fire later");
+  state.exam.review = 999;
+  assert.equal(frozen.active, false);
+}
+
+// Explicit scheduler priority is deterministic and stable for ties.
+{
+  const scheduler = createNativeEffectScheduler();
+  const order = [];
+  registerNativeEffect(scheduler, {
+    id: "normal-a",
+    phase: NATIVE_EFFECT_PHASE.START_OF_TURN,
+    priority: 0,
+    effects: ["normal-a"],
+  });
+  registerNativeEffect(scheduler, {
+    id: "early",
+    phase: NATIVE_EFFECT_PHASE.START_OF_TURN,
+    priority: -10,
+    effects: ["early"],
+  });
+  registerNativeEffect(scheduler, {
+    id: "normal-b",
+    phase: NATIVE_EFFECT_PHASE.START_OF_TURN,
+    priority: 0,
+    effects: ["normal-b"],
+  });
+  dispatchNativeEffectPhase(
+    scheduler,
+    NATIVE_EFFECT_PHASE.START_OF_TURN,
+    {},
+    { executeEffect: (effect) => order.push(effect) },
+  );
+  assert.deepEqual(order, ["early", "normal-a", "normal-b"]);
+}
+
 console.log("native effect scheduler tests: ok");
