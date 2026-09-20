@@ -4,6 +4,7 @@ import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
   TOWER_EXAM_EFFECT_LABELS,
   createTowerTurnState,
+  currentTowerScoreContext,
   drawTowerTurn,
   finishTowerTurn,
   isOnceOnlyMove,
@@ -595,3 +596,144 @@ console.log("tower runtime tests: ok");
     "characterId must automatically filter out other idols' towers",
   );
 }
+
+
+// Native runtime regressions: turn skip recovery, extra turns, default hand
+// limit, and CardSearchEffectPlayCountBuff targeting/lifetime.
+{
+  const simpleMaster = (id, extra = {}) => ({
+    id,
+    category: "ProduceCardCategory_MentalSkill",
+    rarity: "ProduceCardRarity_R",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+    ...extra,
+  });
+
+  // ExamSetting.examTurnEndRecoveryStamina = 2 when the player ends a turn
+  // with a playable card use remaining.
+  let masters = ["SKIP-A", "SKIP-B", "SKIP-C"].map((id) => simpleMaster(id));
+  let byId = new Map(masters.map((card) => [card.id, card]));
+  let runtime = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    1,
+    byId,
+    { stamina: 10, turnLimit: 1 },
+  );
+  drawTowerTurn(runtime, 3);
+  runtime.exam.stamina = 5;
+  const skipped = finishTowerTurn(runtime, { type: "skip" });
+  assert.equal(runtime.exam.stamina, 7);
+  assert.match((skipped.turnEndEffects ?? []).join(" / "), /ターンスキップ: 体力 \+2/);
+  const endedDraw = drawTowerTurn(runtime, 3);
+  assert.equal(endedDraw.ended, true);
+  assert.equal(runtime.turn, 1);
+
+  // HandLimit defaults to ExamSetting.handLimit = 5.
+  masters = ["H1", "H2", "H3", "H4", "H5", "H6"].map((id) => simpleMaster(id));
+  byId = new Map(masters.map((card) => [card.id, card]));
+  runtime = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    2,
+    byId,
+  );
+  const handLimited = drawTowerTurn(runtime, 6);
+  assert.equal(handLimited.hand.length, 5);
+  assert.equal(runtime.deck.length, 1);
+
+  // ExtraTurn extends the stage turn limit. Extra turns reuse the final
+  // normal turn attribute (native GetCurrentParameterType clamp).
+  masters = [
+    simpleMaster("EXTRA", {
+      isInitial: true,
+      playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_extra_turn" }],
+    }),
+    simpleMaster("EXTRA-B"),
+    simpleMaster("EXTRA-C"),
+  ];
+  byId = new Map(masters.map((card) => [card.id, card]));
+  runtime = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    3,
+    byId,
+    { stamina: 10, turnLimit: 1 },
+  );
+  runtime.turnParameterTypes = ["Vocal"];
+  runtime.parameterBonus = {
+    vocal: { bonusPermil: 1500 },
+    dance: { bonusPermil: 1000 },
+    visual: { bonusPermil: 1000 },
+  };
+  drawTowerTurn(runtime, 3);
+  const extraIndex = runtime.hand.findIndex((card) => card.id === "EXTRA");
+  assert.ok(extraIndex >= 0);
+  playTowerCard(runtime, extraIndex);
+  assert.equal(runtime.exam.extraTurns, 1);
+  assert.equal(runtime.turnLimit, 2);
+  finishTowerTurn(runtime, { type: "end" });
+  const extraDraw = drawTowerTurn(runtime, 3);
+  assert.equal(extraDraw.ended, undefined);
+  assert.equal(runtime.turn, 2);
+  assert.equal(currentTowerScoreContext(runtime).parameterType, "Vocal");
+
+  // Search-targeted repeat status: a Mental card must neither consume nor
+  // receive an Active-only repeat. The next matching Active card does both.
+  masters = [
+    simpleMaster("MENTAL", {
+      category: "ProduceCardCategory_MentalSkill",
+      playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_lesson-0003-01" }],
+    }),
+    simpleMaster("ACTIVE", {
+      category: "ProduceCardCategory_ActiveSkill",
+      playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_lesson-0003-01" }],
+    }),
+    simpleMaster("REPEAT-FILL"),
+  ];
+  byId = new Map(masters.map((card) => [card.id, card]));
+  runtime = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    4,
+    byId,
+    { stamina: 10 },
+  );
+  drawTowerTurn(runtime, 3);
+  runtime.playsRemaining = 2;
+  runtime.cardEffectPlayCountBuff = {
+    value: 1,
+    count: 1,
+    turn: 1,
+    searchId: "p_card_search-active_skill-n-r-sr-ssr-playing",
+  };
+  const mentalIndex = runtime.hand.findIndex((card) => card.id === "MENTAL");
+  assert.ok(mentalIndex >= 0);
+  playTowerCard(runtime, mentalIndex);
+  assert.equal(runtime.exam.parameter, 3);
+  assert.equal(runtime.cardEffectPlayCountBuff.count, 1, "nonmatching card must not consume repeat status");
+
+  const activeIndex = runtime.hand.findIndex((card) => card.id === "ACTIVE");
+  assert.ok(activeIndex >= 0);
+  playTowerCard(runtime, activeIndex);
+  assert.equal(runtime.exam.parameter, 9, "matching card effect is executed once extra");
+  assert.equal(runtime.cardEffectPlayCountBuff, null);
+
+  // A finite unused repeat status expires at turn end.
+  masters = ["TTL-A", "TTL-B", "TTL-C"].map((id) => simpleMaster(id));
+  byId = new Map(masters.map((card) => [card.id, card]));
+  runtime = createTowerTurnState(
+    masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+    5,
+    byId,
+    { stamina: 10 },
+  );
+  drawTowerTurn(runtime, 3);
+  runtime.cardEffectPlayCountBuff = {
+    value: 1,
+    count: 1,
+    turn: 1,
+    searchId: "p_card_search-active_skill-playing",
+  };
+  finishTowerTurn(runtime, { type: "skip" });
+  assert.equal(runtime.cardEffectPlayCountBuff, null);
+}
+
+console.log("native tower flow regression tests: ok");
