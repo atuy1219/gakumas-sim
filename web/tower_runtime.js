@@ -17,6 +17,7 @@ import {
   dispatchNativeEffectPhase,
   dispatchNativeStatusDiff,
   registerNativeEnchantEffects,
+  registerNativeGimmickEffects,
   registerNativePItemEffects,
   tickNativeEffectSchedulerTurn,
 } from "./native_effect_scheduler.js";
@@ -413,8 +414,12 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
     pItemEffectRemainingCounts: new Map(),
+    gimmicks: Array.isArray(options.gimmicks) ? options.gimmicks.map((item) => ({ ...item })) : [],
+    gimmickEffectRemainingCounts: new Map(),
+    lessonType: String(options.lessonType ?? ""),
   };
   registerResolvedPItems(state);
+  registerResolvedGimmicks(state);
   return state;
 }
 
@@ -436,7 +441,11 @@ function nativeRuntimeEvent() {
 function schedulerParsedEffect(effect) {
   if (effect && typeof effect === "object" && effect.kind) return effect;
   if (effect && typeof effect === "object" && (effect.effectType || effect.id)) {
-    return parseExamEffectMaster(effect);
+    const parsed = parseExamEffectMaster(effect);
+    return {
+      ...parsed,
+      masterEffectType: String(effect.effectType ?? parsed.masterEffectType ?? ""),
+    };
   }
   if (effect && typeof effect === "object" && effect.produceExamEffectId) {
     return parseExamEffectId(effect.produceExamEffectId);
@@ -456,22 +465,44 @@ function nativeSchedulerHooks(state, runtimeEvent) {
       executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent);
     },
     afterRegistration(registration) {
-      if (registration.sourceType !== "pItem") return;
-      if (!runtimeEvent.__pItemFired) runtimeEvent.__pItemFired = new Set();
-      runtimeEvent.__pItemFired.add(String(registration.sourceId ?? ""));
+      const activationKey = String(registration.metadata?.activationKey ?? "");
+      if (activationKey) {
+        if (!runtimeEvent.__nativeEffectFired) runtimeEvent.__nativeEffectFired = new Set();
+        runtimeEvent.__nativeEffectFired.add(activationKey);
+      }
 
-      const sharedKey = String(registration.metadata?.sharedPItemCountKey ?? "");
-      if (!sharedKey || !state.pItemEffectRemainingCounts?.has(sharedKey)) return;
-      const remaining = state.pItemEffectRemainingCounts.get(sharedKey);
+      let remainingMap = null;
+      if (registration.sourceType === "pItem") remainingMap = state.pItemEffectRemainingCounts;
+      else if (registration.sourceType === "gimmick") remainingMap = state.gimmickEffectRemainingCounts;
+      if (!remainingMap) return;
+
+      const sharedKey = String(
+        registration.metadata?.sharedCountKey
+        ?? registration.metadata?.sharedPItemCountKey
+        ?? "",
+      );
+      if (!sharedKey || !remainingMap.has(sharedKey)) return;
+      const remaining = remainingMap.get(sharedKey);
       if (remaining === null) return;
       const next = Math.max(0, Number(remaining) - 1);
-      state.pItemEffectRemainingCounts.set(sharedKey, next);
+      remainingMap.set(sharedKey, next);
       if (next > 0) return;
       for (const entry of state.effectScheduler.registrations) {
-        if (String(entry.metadata?.sharedPItemCountKey ?? "") === sharedKey) entry.active = false;
+        const entrySharedKey = String(
+          entry.metadata?.sharedCountKey
+          ?? entry.metadata?.sharedPItemCountKey
+          ?? "",
+        );
+        if (entrySharedKey === sharedKey) entry.active = false;
       }
     },
   };
+}
+
+function currentNativeLessonType(state) {
+  if (String(state?.lessonType ?? "")) return String(state.lessonType);
+  const parameterType = String(currentTowerScoreContext(state).parameterType ?? "");
+  return parameterType ? `ProduceStepLessonType_${parameterType}Lesson` : "ProduceStepLessonType_Unknown";
 }
 
 function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
@@ -482,6 +513,7 @@ function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
       state,
       exam: state.exam,
       event: runtimeEvent,
+      lessonType: currentNativeLessonType(state),
       ...extra,
     },
     nativeSchedulerHooks(state, runtimeEvent),
@@ -497,6 +529,7 @@ function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
       state,
       exam: state.exam,
       event: runtimeEvent,
+      lessonType: currentNativeLessonType(state),
       ...extra,
     },
     nativeSchedulerHooks(state, runtimeEvent),
@@ -537,6 +570,9 @@ const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
   ProduceExamFieldStatusType_StaminaUpMultiple: "staminaRatioPermil",
   ProduceExamFieldStatusType_StaminaLessMultiple: "staminaRatioPermil",
   ProduceExamFieldStatusType_StaminaConsumptionDown: "staminaConsumptionDown",
+  ProduceExamFieldStatusType_StaminaConsumptionAdd: "staminaConsumptionAdd",
+  ProduceExamFieldStatusType_StaminaConsumptionDownFix: "staminaConsumptionDownFix",
+  ProduceExamFieldStatusType_StaminaConsumptionAddFix: "staminaConsumptionAddFix",
   ProduceExamFieldStatusType_ConcentrationUp: "idolStatusConcentration",
   ProduceExamFieldStatusType_PreservationUp: "idolStatusPreservation",
   ProduceExamFieldStatusType_FullPowerUp: "idolStatusFullPower",
@@ -545,6 +581,9 @@ const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
   ProduceExamFieldStatusType_BlockUp: "block",
   ProduceExamFieldStatusType_ReviewUp: "review",
   ProduceExamFieldStatusType_ParameterBuffUp: "parameterBuff",
+  ProduceExamFieldStatusType_ParameterDebuff: "parameterDebuff",
+  ProduceExamFieldStatusType_LessonDebuff: "lessonDebuff",
+  ProduceExamFieldStatusType_Enthusiastic: "enthusiastic",
   ProduceExamFieldStatusType_RemainingTurn: "remainingTurn",
   ProduceExamFieldStatusType_CardPlayAggressiveUp: "aggressive",
   ProduceExamFieldStatusType_FullPowerPointUp: "fullPowerPoint",
@@ -603,6 +642,93 @@ function cardMatchesMasterSearch(card, search) {
   return true;
 }
 
+function cardsForMasterSearch(state, search, context = {}) {
+  const position = String(search?.cardPositionType ?? "");
+  const all = [
+    ...(state.hand ?? []),
+    ...(state.deck ?? []),
+    ...(state.discard ?? []),
+    ...(state.lost ?? []),
+    ...(state.hold ?? []),
+  ];
+
+  if (!position || position.endsWith("_Unknown")) {
+    return context.card ? [context.card] : all;
+  }
+  if (position.includes("Playing")) return context.card ? [context.card] : [];
+  if (position.includes("Hand")) return state.hand ?? [];
+  if (position.includes("Deck") && position.includes("Grave")) {
+    return [...(state.deck ?? []), ...(state.discard ?? [])];
+  }
+  if (position.includes("Deck")) return state.deck ?? [];
+  if (position.includes("Grave")) return state.discard ?? [];
+  if (position.includes("Lost")) return state.lost ?? [];
+  if (position.includes("Hold")) return state.hold ?? [];
+  if (position.includes("All")) return all;
+  return context.card ? [context.card] : all;
+}
+
+function masterSearchMatchCount(state, search, context = {}) {
+  return cardsForMasterSearch(state, search, context)
+    .filter((card) => cardMatchesMasterSearch(card, search))
+    .length;
+}
+
+function triggerSearchMatches(state, trigger, context) {
+  const search = trigger.cardSearch;
+  if (!search) return true;
+  const position = String(search.cardPositionType ?? "");
+  const lower = Math.max(0, Number(trigger.lowerSearchCount ?? 0) || 0);
+  const upper = Math.max(0, Number(trigger.upperSearchCount ?? 0) || 0);
+  const count = masterSearchMatchCount(state, search, context);
+
+  if (lower > 0 && count < lower) return false;
+  if (upper > 0 && count > upper) return false;
+  if (lower > 0 || upper > 0) return true;
+
+  if (position.includes("Playing") || context.card) {
+    return cardMatchesMasterSearch(context.card, search);
+  }
+  return count > 0;
+}
+
+function parsedMasterEffectType(parsed) {
+  const explicit = String(parsed?.masterEffectType ?? "");
+  if (explicit) return explicit;
+  switch (String(parsed?.kind ?? "")) {
+    case "lesson":
+    case "lesson_add_multiple_parameter_buff":
+    case "lesson_depend_parameter_buff":
+    case "lesson_depend_exam_review":
+    case "lesson_depend_exam_aggressive":
+      return "ProduceExamEffectType_ExamLesson";
+    case "block": return "ProduceExamEffectType_ExamBlock";
+    case "review": return "ProduceExamEffectType_ExamReview";
+    case "aggressive": return "ProduceExamEffectType_ExamCardPlayAggressive";
+    case "lesson_buff": return "ProduceExamEffectType_ExamLessonBuff";
+    case "parameter_buff": return "ProduceExamEffectType_ExamParameterBuff";
+    case "stamina_recover": return "ProduceExamEffectType_ExamStaminaRecoverFix";
+    case "card_draw": return "ProduceExamEffectType_ExamCardDraw";
+    case "playable_add": return "ProduceExamEffectType_ExamPlayableValueAdd";
+    case "extra_turn": return "ProduceExamEffectType_ExamExtraTurn";
+    case "stamina_consumption_down": return "ProduceExamEffectType_ExamStaminaConsumptionDown";
+    case "stamina_consumption_add": return "ProduceExamEffectType_ExamStaminaConsumptionAdd";
+    case "stamina_consumption_down_fix": return "ProduceExamEffectType_ExamStaminaConsumptionDownFix";
+    case "stamina_consumption_add_fix": return "ProduceExamEffectType_ExamStaminaConsumptionAddFix";
+    default: return "";
+  }
+}
+
+function lessonTypeMatches(expectedInput, actualInput) {
+  const expected = String(expectedInput ?? "");
+  if (!expected || expected.endsWith("_Unknown")) return true;
+  const actual = String(actualInput ?? "");
+  if (expected === actual) return true;
+  const expectedCore = expected.replace(/^ProduceStepLessonType_/, "").replace(/Lesson$/, "");
+  const actualCore = actual.replace(/^ProduceStepLessonType_/, "").replace(/Lesson$/, "");
+  return expectedCore === actualCore;
+}
+
 function masterPhaseValue(state, phaseType, context) {
   switch (String(phaseType ?? "")) {
     case "ProduceExamPhaseType_ExamStartExam":
@@ -638,9 +764,6 @@ function triggerFieldStatusesMatch(state, trigger) {
 
 function masterTriggerSupportIssue(trigger, phaseType) {
   if (!MASTER_EXAM_PHASE_TO_NATIVE[String(phaseType ?? "")]) return `phase:${String(phaseType ?? "")}`;
-  if ((trigger.effectTypes ?? []).length) return "effectTypes";
-  if (String(trigger.lessonType ?? "") && String(trigger.lessonType) !== "ProduceStepLessonType_Unknown") return "lessonType";
-  if (Number(trigger.upperSearchCount ?? 0) > 0 || Number(trigger.lowerSearchCount ?? 0) > 0) return "searchCount";
   for (const type of trigger.fieldStatusTypes ?? []) {
     if (!MASTER_FIELD_STATUS_TO_EXAM[String(type ?? "")]) return `fieldStatus:${String(type ?? "")}`;
   }
@@ -649,14 +772,26 @@ function masterTriggerSupportIssue(trigger, phaseType) {
 
 function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   const trigger = condition.trigger ?? {};
-  if (runtimeEvent.__pItemFired?.has?.(String(condition.pItemId ?? ""))) return false;
+  const activationKey = String(condition.activationKey ?? "");
+  if (activationKey && runtimeEvent.__nativeEffectFired?.has?.(activationKey)) return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamStartExam" && Number(state.turn ?? 0) !== 0) return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamTurnSkip" && String(context.action ?? "") !== "skip") return false;
 
   const phaseValues = (trigger.phaseValues ?? []).map(Number).filter(Number.isFinite);
   if (phaseValues.length && !phaseValues.includes(masterPhaseValue(state, condition.phaseType, context))) return false;
   if (!triggerFieldStatusesMatch(state, trigger)) return false;
-  if (trigger.cardSearch && !cardMatchesMasterSearch(context.card, trigger.cardSearch)) return false;
+  if (!lessonTypeMatches(trigger.lessonType, context.lessonType)) return false;
+  if (!triggerSearchMatches(state, trigger, context)) return false;
+
+  const effectTypes = new Set((trigger.effectTypes ?? []).map(String).filter(Boolean));
+  if (effectTypes.size) {
+    const actualEffectType = String(
+      context.effectType
+      ?? parsedMasterEffectType(context.parsedEffect)
+      ?? "",
+    );
+    if (!effectTypes.has(actualEffectType)) return false;
+  }
   return true;
 }
 
@@ -693,7 +828,8 @@ function registerResolvedPItems(state) {
         if (row.unresolved) rememberUnsupported(state, `pitem-exam-effect:${String(row.id ?? "")}`);
       }
 
-      const sharedKey = `${pItemId}::${String(effect.id ?? enchant.id ?? "")}`;
+      const sharedKey = `pItem::${pItemId}::${String(effect.id ?? enchant.id ?? "")}`;
+      const activationKey = sharedKey;
       const rawCount = Number(effect.effectCount ?? 0);
       state.pItemEffectRemainingCounts.set(sharedKey, rawCount > 0 ? Math.trunc(rawCount) : null);
       const rawTurn = Number(effect.effectTurn ?? -1);
@@ -717,12 +853,15 @@ function registerResolvedPItems(state) {
             condition: {
               kind: "masterExamTrigger",
               pItemId,
+              activationKey,
               phaseType: String(phaseType),
               trigger: { ...trigger },
             },
             effects: effectRows.map((row) => ({ ...row })),
             metadata: {
+              sharedCountKey: sharedKey,
               sharedPItemCountKey: sharedKey,
+              activationKey,
               enchantId: String(enchant.id ?? ""),
               triggerId: String(trigger.id ?? ""),
               masterPhaseType: String(phaseType),
@@ -731,6 +870,70 @@ function registerResolvedPItems(state) {
         }
       }
       if (specs.length) registerNativePItemEffects(state.effectScheduler, pItemId, specs);
+    }
+  }
+}
+
+function registerResolvedGimmicks(state) {
+  state.gimmickEffectRemainingCounts = new Map();
+  for (const gimmick of state.gimmicks ?? []) {
+    const gimmickId = String(gimmick.id ?? "");
+    if (gimmick.unresolved) {
+      rememberUnsupported(state, `gimmick:${gimmickId}`);
+      continue;
+    }
+
+    for (const effect of gimmick.effects ?? []) {
+      const enchant = effect.examStatusEnchant ?? effect.enchant ?? null;
+      const trigger = enchant?.trigger ?? effect.trigger ?? null;
+      const effectRows = (enchant?.examEffects ?? effect.examEffects ?? effect.effects ?? [])
+        .filter((row) => !row?.unresolved);
+      if (!trigger || !effectRows.length) {
+        rememberUnsupported(state, `gimmick-effect:${String(effect.id ?? gimmickId)}`);
+        continue;
+      }
+
+      const sharedKey = `gimmick::${gimmickId}::${String(effect.id ?? enchant?.id ?? "")}`;
+      const activationKey = sharedKey;
+      const rawCount = Number(effect.effectCount ?? 0);
+      state.gimmickEffectRemainingCounts.set(sharedKey, rawCount > 0 ? Math.trunc(rawCount) : null);
+      const rawTurn = Number(effect.effectTurn ?? -1);
+      const turn = rawTurn > 0 ? Math.trunc(rawTurn) : null;
+      const specs = [];
+
+      for (const phaseType of trigger.phaseTypes ?? []) {
+        const supportIssue = masterTriggerSupportIssue(trigger, phaseType);
+        if (supportIssue) {
+          rememberUnsupported(state, `gimmick-trigger:${String(trigger.id ?? "")}:${supportIssue}`);
+          continue;
+        }
+        const mapped = MASTER_EXAM_PHASE_TO_NATIVE[String(phaseType)];
+        const nativePhases = mapped === "statusChange"
+          ? [NATIVE_EFFECT_PHASE.STATUS_INCREASED, NATIVE_EFFECT_PHASE.STATUS_DECREASED]
+          : [mapped];
+        for (const phase of nativePhases) {
+          specs.push({
+            id: String(effect.id ?? enchant?.id ?? gimmickId),
+            phase,
+            turn,
+            condition: {
+              kind: "masterExamTrigger",
+              activationKey,
+              phaseType: String(phaseType),
+              trigger: { ...trigger },
+            },
+            effects: effectRows.map((row) => ({ ...row })),
+            metadata: {
+              sharedCountKey: sharedKey,
+              activationKey,
+              enchantId: String(enchant?.id ?? ""),
+              triggerId: String(trigger.id ?? ""),
+              masterPhaseType: String(phaseType),
+            },
+          });
+        }
+      }
+      if (specs.length) registerNativeGimmickEffects(state.effectScheduler, gimmickId, specs);
     }
   }
 }
@@ -1010,7 +1213,11 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     state,
     beforeStatus,
     event,
-    { cause: "effect", parsedEffect: parsed },
+    {
+      cause: "effect",
+      parsedEffect: parsed,
+      effectType: parsedMasterEffectType(parsed),
+    },
   );
 }
 
@@ -1247,7 +1454,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     { cause: "turnEndSpend", action: type, used },
   );
   tickCardEffectPlayCountBuff(state);
-  tickNativeEffectSchedulerTurn(state.effectScheduler);
+  tickNativeEffectSchedulerTurn(state.effectScheduler, { turn: state.turn });
   entry.examAfterTurnEnd = { ...state.exam };
   return entry;
 }
