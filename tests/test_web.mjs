@@ -203,10 +203,11 @@ assert.match(towerHtml, /id="tower-selected-card"/);
 assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
 const appSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/app.js", import.meta.url), "utf8"));
 assert.doesNotMatch(appSource, /tower-order-result/);
-assert.doesNotMatch(appSource, /row\.draggable|moveExamOrder\(/);
-assert.match(appSource, /examDeckOrder\.push\(key\)/);
-assert.match(appSource, /examDeckOrder\.pop\(\)/);
-assert.match(appSource, /Shuffle前のカード順を最後まで入力してください/);
+const materialAppSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/material_app.js", import.meta.url), "utf8"));
+assert.doesNotMatch(materialAppSource, /row\.draggable|moveExamOrder\(/);
+assert.match(materialAppSource, /examDeckOrder\.push\(key\)/);
+assert.match(materialAppSource, /examDeckOrder\.pop\(\)/);
+assert.match(materialAppSource, /Shuffle前のカード順を最後まで入力してください/);
 
 const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/seed_history_ui.js", import.meta.url), "utf8"));
 assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);
