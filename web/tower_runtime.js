@@ -709,8 +709,11 @@ function triggerSearchMatches(state, trigger, context) {
   if (upper > 0 && count > upper) return false;
   if (lower > 0 || upper > 0) return true;
 
-  if (position.includes("Playing") || context.card) {
+  if (position.includes("Playing")) {
     return cardMatchesMasterSearch(context.card, search);
+  }
+  if (!position || position.endsWith("_Unknown")) {
+    return context.card ? cardMatchesMasterSearch(context.card, search) : count > 0;
   }
   return count > 0;
 }
