@@ -238,6 +238,13 @@ export function evaluateNativeEffectCondition(condition, context = {}) {
   ) {
     return false;
   }
+  if (condition.playCountSinceInstallInterval !== undefined) {
+    const interval = Math.max(1, Math.trunc(Number(condition.playCountSinceInstallInterval) || 1));
+    const current = Number(context.exam?.cardPlayCount ?? 0);
+    const installed = Number(context.registration?.metadata?.installedCardPlayCount ?? 0);
+    const elapsed = current - installed;
+    return elapsed > 0 && elapsed % interval === 0;
+  }
   if (condition.field !== undefined) {
     const actual = getPathValue(context, condition.field);
     return compareCondition(actual, condition.op, condition.value);
@@ -323,8 +330,9 @@ export function dispatchNativeEffectPhase(
       const supported = typeof hooks.evaluateCondition === "function"
         ? hooks.evaluateCondition(registration.condition, context, registration)
         : undefined;
+      const conditionContext = { ...context, registration };
       const conditionMatched = supported === undefined
-        ? evaluateNativeEffectCondition(registration.condition, context)
+        ? evaluateNativeEffectCondition(registration.condition, conditionContext)
         : Boolean(supported);
       if (!conditionMatched) continue;
 
