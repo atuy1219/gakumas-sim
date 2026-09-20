@@ -123,6 +123,8 @@ export function registerNativeEffect(scheduler, spec = {}) {
     sourceType: normalizeSourceType(spec.sourceType),
     sourceId: String(spec.sourceId ?? ""),
     phase: normalizePhase(spec.phase),
+    priority: Number.isFinite(Number(spec.priority)) ? Number(spec.priority) : 0,
+    registrationOrder: scheduler.registrations.length,
     condition: spec.condition ?? null,
     effects: Array.isArray(spec.effects) ? spec.effects.map(cloneEffect) : [],
     remainingCount: normalizeFinitePositive(spec.count),
@@ -376,8 +378,14 @@ export function dispatchNativeEffectPhase(
     // Snapshot registrations and gate them by dispatch epoch. A registration
     // installed anywhere inside this root dispatch (including nested status
     // change dispatches) becomes eligible only on the next root dispatch.
-    for (const registration of [...scheduler.registrations]) {
-      if (registration.phase !== phase || !registrationCanRun(scheduler, registration)) continue;
+    const phaseRegistrations = [...scheduler.registrations]
+      .filter((registration) => registration.phase === phase)
+      .sort((a, b) => (
+        Number(a.priority ?? 0) - Number(b.priority ?? 0)
+        || Number(a.registrationOrder ?? 0) - Number(b.registrationOrder ?? 0)
+      ));
+    for (const registration of phaseRegistrations) {
+      if (!registrationCanRun(scheduler, registration)) continue;
 
       const supported = typeof hooks.evaluateCondition === "function"
         ? hooks.evaluateCondition(registration.condition, context, registration)
