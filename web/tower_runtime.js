@@ -411,6 +411,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     cardEffectPlayCountBuff: null,
     cardById: cardById ?? new Map(),
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
+    examEffectById: options.examEffectById ?? new Map(),
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
     pItemEffectRemainingCounts: new Map(),
@@ -453,6 +454,23 @@ function schedulerParsedEffect(effect) {
   return parseExamEffectId(effect);
 }
 
+function gimmickRowConditionMatches(state, row = {}) {
+  const fieldStatusType = String(row.fieldStatusType ?? "");
+  if (!fieldStatusType || fieldStatusType.endsWith("_Unknown")) return true;
+  const current = masterFieldStatusValue(state, fieldStatusType);
+  if (current === null) {
+    rememberUnsupported(state, `gimmick-field-status:${fieldStatusType}`);
+    return false;
+  }
+
+  const expected = Number(row.fieldStatusValue ?? 1);
+  const check = String(row.fieldStatusCheckType ?? "ProduceExamTriggerCheckType_Unknown");
+  const reverseThreshold = fieldStatusType.endsWith("MultipleDown")
+    || fieldStatusType.includes("LessMultiple");
+  const positiveMatch = reverseThreshold ? current <= expected : current >= expected;
+  return check === "ProduceExamTriggerCheckType_Not" ? !positiveMatch : positiveMatch;
+}
+
 function nativeSchedulerHooks(state, runtimeEvent) {
   return {
     evaluateCondition(condition, context) {
@@ -462,6 +480,11 @@ function nativeSchedulerHooks(state, runtimeEvent) {
       return undefined;
     },
     executeEffect(effect) {
+      if (effect?.kind === "nativeGimmickRow") {
+        if (!gimmickRowConditionMatches(state, effect.row)) return;
+        executeParsedTowerEffect(state, schedulerParsedEffect(effect.effect), runtimeEvent);
+        return;
+      }
       executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent);
     },
     afterRegistration(registration) {
@@ -829,7 +852,9 @@ function registerResolvedPItems(state) {
       }
 
       const sharedKey = `${pItemId}::${String(effect.id ?? enchant.id ?? "")}`;
-      const activationKey = `pItem::${sharedKey}`;
+      // Native dispatch deduplicates the same ProduceItem identity at one
+      // timing even if the item owns multiple enchant rows.
+      const activationKey = `pItem::${pItemId}`;
       const rawCount = Number(effect.effectCount ?? 0);
       state.pItemEffectRemainingCounts.set(sharedKey, rawCount > 0 ? Math.trunc(rawCount) : null);
       const rawTurn = Number(effect.effectTurn ?? -1);
@@ -876,7 +901,58 @@ function registerResolvedPItems(state) {
 
 function registerResolvedGimmicks(state) {
   state.gimmickEffectRemainingCounts = new Map();
-  for (const gimmick of state.gimmicks ?? []) {
+  const gimmicks = [...(state.gimmicks ?? [])];
+
+  // Native master rows are scheduled once at startTurn. They are resolved in
+  // ascending priority order, and a failed field-status condition is final:
+  // later status changes in the same turn must not make that row fire.
+  const nativeRows = gimmicks
+    .filter((row) => row && row.produceExamEffectId !== undefined && row.startTurn !== undefined)
+    .sort((a, b) => (
+      Number(a.startTurn ?? 0) - Number(b.startTurn ?? 0)
+      || Number(a.priority ?? 0) - Number(b.priority ?? 0)
+    ));
+  for (const row of nativeRows) {
+    const gimmickId = String(row.id ?? "");
+    const effectId = String(row.produceExamEffectId ?? "");
+    const startTurn = Math.max(0, Math.trunc(Number(row.startTurn ?? 0)));
+    const priority = Math.trunc(Number(row.priority ?? 0));
+    const sharedKey = `gimmick::${gimmickId}::${priority}::${startTurn}`;
+    state.gimmickEffectRemainingCounts.set(sharedKey, 1);
+
+    const masterEffect = state.examEffectById?.get?.(effectId) ?? effectId;
+    registerNativeGimmickEffects(state.effectScheduler, gimmickId, [{
+      id: sharedKey,
+      phase: NATIVE_EFFECT_PHASE.START_OF_TURN,
+      // Gimmicks execute before ordinary StartTurn enchants/P-items. Preserve
+      // the master's own ascending priority inside that source tier.
+      priority: -1_000_000 + priority,
+      count: 1,
+      condition: {
+        field: "state.turn",
+        op: "eq",
+        value: startTurn,
+      },
+      effects: [{
+        kind: "nativeGimmickRow",
+        row: { ...row },
+        effect: masterEffect && typeof masterEffect === "object"
+          ? { ...masterEffect }
+          : masterEffect,
+      }],
+      metadata: {
+        sharedCountKey: sharedKey,
+        activationKey: sharedKey,
+        nativeGimmickRow: true,
+        startTurn,
+        priority,
+      },
+    }]);
+  }
+
+  // Normalized trigger/enchant-shaped gimmicks use the same scheduler path as
+  // P-items. This adapter remains useful for decoded runtime data and tests.
+  for (const gimmick of gimmicks.filter((row) => !nativeRows.includes(row))) {
     const gimmickId = String(gimmick.id ?? "");
     if (gimmick.unresolved) {
       rememberUnsupported(state, `gimmick:${gimmickId}`);
