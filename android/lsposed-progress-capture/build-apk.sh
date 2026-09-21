@@ -83,17 +83,18 @@ cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.0.5.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.0.6.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
 cp "$BASE_APK" "$UNALIGNED"
 (
   cd "$STAGE"
-  zip -q -r "$UNALIGNED" lib META-INF classes.dex
+  zip -q -r "$UNALIGNED" META-INF classes.dex
+  zip -q -0 "$UNALIGNED" "lib/arm64-v8a/$PACKAGE_SO"
 )
 
-"$ZIPALIGN" -f 4 "$UNALIGNED" "$ALIGNED"
+"$ZIPALIGN" -P 16 -f 4 "$UNALIGNED" "$ALIGNED"
 
 KEYSTORE="$OUT/debug.keystore"
 keytool -genkeypair -v   -keystore "$KEYSTORE"   -storepass android -keypass android   -alias androiddebugkey   -keyalg RSA -keysize 2048 -validity 10000   -dname "CN=Gakumas Progress Capture,O=atuy1219,C=JP" >/dev/null 2>&1
@@ -102,5 +103,6 @@ keytool -genkeypair -v   -keystore "$KEYSTORE"   -storepass android -keypass and
 
 "$APKSIGNER" verify --verbose "$FINAL"
 unzip -l "$FINAL" | grep -E 'META-INF/xposed/(java_init.list|native_init.list|scope.list|module.prop)|classes.dex|lib/arm64-v8a/libgakumas_progress_capture.so|AndroidManifest.xml'
+unzip -lv "$FINAL" | grep 'lib/arm64-v8a/libgakumas_progress_capture.so' | grep 'Stored'
 sha256sum "$FINAL" | tee "$FINAL.sha256"
 echo "$FINAL"
