@@ -386,5 +386,10 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     if (!entries || !entries->hookFunc || entries->version < 1) return nullptr;
     if (!target_process()) return nullptr;
     g_hook = entries->hookFunc;
+
+    // LSPosed may load this module after libil2cpp.so is already mapped.
+    // Install immediately when possible, and also keep the load callback for
+    // the normal early-module/late-il2cpp case.
+    install_il2cpp_hooks();
     return on_library_loaded;
 }
