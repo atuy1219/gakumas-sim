@@ -134,9 +134,10 @@ export function changeExamCardCount(counts, card, delta) {
   return next;
 }
 
-export function buildExamDeck(cards, counts) {
+export function buildExamDeck(cards, counts, instanceConfigs = new Map()) {
   const deck = [];
   const selected = new Map(counts ?? []);
+  const configs = instanceConfigs instanceof Map ? instanceConfigs : new Map();
   // The catalog order is stable. UI click order and imported JSON property
   // order must not silently alter the deck before its seeded shuffle.
   for (const card of cards ?? []) {
@@ -144,10 +145,19 @@ export function buildExamDeck(cards, counts) {
     if (rawCount === undefined) continue;
     const count = Math.max(0, Math.trunc(Number(rawCount ?? 0)));
     const safeCount = card.noDeckDuplication ? Math.min(1, count) : count;
+    const cardConfigs = Array.isArray(configs.get(String(card.id))) ? configs.get(String(card.id)) : [];
     for (let index = 0; index < safeCount; index += 1) {
+      const config = cardConfigs[index] ?? {};
+      const customizes = Array.isArray(config.customizes)
+        ? config.customizes.map((item) => ({
+            id: String(item?.id ?? item ?? ""),
+            customizeCount: Math.max(1, Math.trunc(Number(item?.customizeCount ?? 1) || 1)),
+          })).filter((item) => item.id)
+        : [];
       deck.push({
         id: String(card.id),
-        upgradeCount: 0,
+        upgradeCount: Number(config.upgradeCount ?? 0) > 0 ? 1 : 0,
+        customizes,
         fixedDeckOrder: 0,
         name: card.baseName ?? card.name ?? card.id,
         isInitial: Boolean(card.isInitial),
