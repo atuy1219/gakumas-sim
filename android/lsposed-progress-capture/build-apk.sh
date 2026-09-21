@@ -56,6 +56,13 @@ mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed" "$OUT/app-classes" "$OU
 
 "$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -static-libstdc++ -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
 
+READELF="$NDK/toolchains/llvm/prebuilt/$HOST_TAG/bin/llvm-readelf"
+"$READELF" -d "$STAGE/lib/arm64-v8a/$PACKAGE_SO" | tee "$OUT/native-dynamic.txt"
+if grep -q 'libc++_shared\.so' "$OUT/native-dynamic.txt"; then
+  echo "ERROR: native module still depends on libc++_shared.so" >&2
+  exit 1
+fi
+
 cp "$ROOT/src/main/resources/META-INF/xposed/"* "$STAGE/META-INF/xposed/"
 
 LIBXPOSED_AAR="$OUT/deps/api-102.0.0.aar"
