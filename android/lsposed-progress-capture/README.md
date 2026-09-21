@@ -27,10 +27,13 @@ For each card instance:
 - `deleted`
 - `originType`
 - `customizing`
-- whether a customize collection exists
+- `customizes[]` with each applied `ProduceCardCustomize.id` and `customizeCount`
+- whether a non-empty customize collection exists
 
 The primary `produceCards` array is the live deck captured during native deck
-construction. It is de-duplicated and sorted by `Number` ascending. The JSON also
+construction. It is de-duplicated and sorted by `Number` ascending. Customize
+entries are decoded read-only from the runtime protobuf
+`RepeatedField<ProduceCardCustomize>`. The JSON also
 contains `observedInstances`, populated from protobuf `InternalMergeFrom` calls,
 which can include deleted/stale instances observed during the current process.
 
