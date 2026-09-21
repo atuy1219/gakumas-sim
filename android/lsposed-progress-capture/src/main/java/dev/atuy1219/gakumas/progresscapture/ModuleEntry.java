@@ -1,22 +1,21 @@
 package dev.atuy1219.gakumas.progresscapture;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import io.github.libxposed.api.XposedModule;
 
-public final class ModuleEntry implements IXposedHookLoadPackage {
-    private static final String TARGET = "com.bandainamcoent.idolmaster_gakuen";
-    private static volatile boolean loaded;
+public final class ModuleEntry extends XposedModule {
+    private static volatile boolean nativeLoaded;
+
+    public ModuleEntry() {
+        super();
+    }
 
     @Override
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        if (lpparam == null || !TARGET.equals(lpparam.packageName) || !TARGET.equals(lpparam.processName)) {
-            return;
-        }
-        if (loaded) return;
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        if (nativeLoaded) return;
         synchronized (ModuleEntry.class) {
-            if (loaded) return;
+            if (nativeLoaded) return;
             System.loadLibrary("gakumas_progress_capture");
-            loaded = true;
+            nativeLoaded = true;
         }
     }
 }
