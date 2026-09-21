@@ -1077,3 +1077,35 @@ assert.equal(utility.playEffects[1].produceExamEffectId, "e_effect-exam_review-0
 
 console.log("card customization runtime tests: ok");
 }
+
+
+{
+const { default: assert } = await import("node:assert/strict");
+const { buildExamDeck } = await import("../web/exam_setup.js");
+const { parseProgressProduceCardsJson } = await import("../web/exam_progress.js");
+
+const cards = [{ id: "p_card-a", name: "A", baseName: "A", noDeckDuplication: false, isInitial: false }];
+const counts = new Map([["p_card-a", 2]]);
+const configs = new Map([["p_card-a", [
+  { upgradeCount: 1, customizes: [{ id: "custom-a", customizeCount: 2 }] },
+  { upgradeCount: 0, customizes: [] },
+]]]);
+const deck = buildExamDeck(cards, counts, configs);
+assert.equal(deck[0].upgradeCount, 1);
+assert.deepEqual(deck[0].customizes, [{ id: "custom-a", customizeCount: 2 }]);
+assert.equal(deck[1].upgradeCount, 0);
+
+const parsed = parseProgressProduceCardsJson({
+  produceCards: [{
+    number: 2,
+    produceCardId: "p_card-a",
+    upgradeCount: 1,
+    deleted: false,
+    customizes: [{ id: "custom-a", customizeCount: 1 }, { id: "custom-a", customizeCount: 1 }],
+  }],
+}, new Map([["p_card-a", { id: "p_card-a", name: "A" }]]));
+assert.deepEqual(parsed.cards[0].customizes, [{ id: "custom-a", customizeCount: 2 }]);
+assert.equal(parsed.cards[0].hasCustomizes, true);
+
+console.log("exam card instance customization input tests: ok");
+}
