@@ -55,6 +55,7 @@ struct CardRecord {
 
 HookFunType g_hook = nullptr;
 std::atomic<bool> g_hooks_installed{false};
+std::string g_runtime_build_id;
 std::mutex g_seen_mutex;
 std::map<int32_t, CardRecord> g_seen_by_number;
 thread_local int g_capture_depth = 0;
@@ -307,7 +308,7 @@ void write_snapshot(std::vector<CardRecord> deck) {
         << "  \"capturedAtUnixMs\": " << unix_time_ms() << ",\n"
         << "  \"source\": \"LSPosed native hook / CreateDeckProduceCardMasters\",\n"
         << "  \"packageName\": \"" << kTargetPackage << "\",\n"
-        << "  \"libil2cppBuildId\": \"" << kExpectedBuildId << "\",\n"
+        << "  \"libil2cppBuildId\": \"" << json_escape(g_runtime_build_id) << "\",\n"
         << "  \"ordering\": \"Deleted=false, Number ascending (native deck construction order)\",\n"
         << "  \"produceCards\": [\n";
     for (size_t i = 0; i < deck.size(); ++i) {
@@ -579,6 +580,7 @@ void install_il2cpp_hooks() {
     if (!target_process()) return;
 
     const ImageInfo image = find_il2cpp_image();
+    g_runtime_build_id = image.build_id;
     if (!image.base) {
         write_status("waiting-for-libil2cpp");
         g_hooks_installed.store(false);
@@ -645,8 +647,9 @@ void install_il2cpp_hooks() {
         }
         g_use_runtime_getters = true;
 
-        // InternalMergeFrom is diagnostic-only; deck capture does not require it.
-        merge_ok = true;
+        // InternalMergeFrom is diagnostic-only and intentionally not hooked on
+        // unknown builds; deck capture only requires GetProduceCardData + CreateDeck.
+        merge_ok = false;
     }
 
     const bool get_ok = install_hook(
