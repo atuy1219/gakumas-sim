@@ -54,7 +54,7 @@ done
 rm -rf "$OUT"
 mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed" "$OUT/app-classes" "$OUT/dex" "$OUT/deps"
 
-"$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
+"$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -static-libstdc++ -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
 
 cp "$ROOT/src/main/resources/META-INF/xposed/"* "$STAGE/META-INF/xposed/"
 
@@ -83,7 +83,7 @@ cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.0.6.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.0.7.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
