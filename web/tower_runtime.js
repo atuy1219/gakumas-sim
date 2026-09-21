@@ -11,6 +11,10 @@ import {
 } from "./exam_effects.js";
 import { applyNativeReviewTurnEnd } from "./exam_score.js";
 import {
+  applyCardCustomizations,
+  applyCardGrowEffectsToParsedEffect,
+} from "./card_customization.js";
+import {
   NATIVE_EFFECT_PHASE,
   captureNativeStatusSnapshot,
   createNativeEffectScheduler,
@@ -68,7 +72,13 @@ export function isSupportedSimpleMove(value) {
   return !move || move === "ProduceCardMovePositionType_Unknown" || move === "ProduceCardMovePositionType_Grave" || move === "ProduceCardMovePositionType_Lost";
 }
 
-function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
+function runtimeInstances(
+  cards,
+  cardById,
+  cardVariantByKey = new Map(),
+  customizeById = new Map(),
+  growEffectById = new Map(),
+) {
   const seen = new Map();
   return (cards ?? []).map((raw, index) => {
     const card = normalizeProduceCard(raw, { source: raw?.source });
@@ -78,7 +88,7 @@ function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
     const variantKey = `${id}@@${Number(card.upgradeCount ?? 0)}`;
     const master = cardVariantByKey?.get?.(variantKey) ?? cardById?.get?.(id) ?? {};
     const playMovePositionType = String(master.playMovePositionType ?? card.playMovePositionType ?? "");
-    return {
+    const runtime = applyCardCustomizations({
       ...card,
       token: `${id}@@${ordinal}`,
       originalIndex: index,
@@ -88,17 +98,19 @@ function runtimeInstances(cards, cardById, cardVariantByKey = new Map()) {
       planType: String(master.planType ?? card.planType ?? ""),
       searchTag: String(master.searchTag ?? card.searchTag ?? ""),
       effectGroupIds: Array.isArray(master.effectGroupIds) ? [...master.effectGroupIds] : [],
-      onceOnly: isOnceOnlyMove(playMovePositionType),
       stamina: Number(master.stamina ?? 0) || 0,
       forceStamina: Number(master.forceStamina ?? 0) || 0,
       costType: String(master.costType ?? "ExamCostType_Unknown"),
       costValue: Number(master.costValue ?? 0) || 0,
       playProduceExamTriggerId: String(master.playProduceExamTriggerId ?? ""),
       playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
+      produceCardStatusEnchantId: String(master.produceCardStatusEnchantId ?? ""),
       isInitial: Boolean(master.isInitial ?? card.isInitial),
       isRestrict: Boolean(master.isRestrict),
       isEndTurnLost: Boolean(master.isEndTurnLost),
-    };
+    }, customizeById, growEffectById);
+    runtime.onceOnly = isOnceOnlyMove(runtime.playMovePositionType);
+    return runtime;
   });
 }
 
@@ -363,7 +375,13 @@ export function resolveNativeInitialHand(shuffledCards, drawCount = 3, handLimit
 
 export function createTowerTurnState(cards, seedInput, cardById = new Map(), options = {}) {
   const seed = typeof seedInput === "number" ? seedInput >>> 0 : parseSeed(seedInput);
-  const instances = runtimeInstances(cards, cardById, options.cardVariantByKey);
+  const instances = runtimeInstances(
+    cards,
+    cardById,
+    options.cardVariantByKey,
+    options.customizeById,
+    options.growEffectById,
+  );
   if (!instances.length) throw new Error("デッキにカードがありません。");
 
   // Native ExamCardPoolModel.Shuffle does not filter IsInitial. The whole Deck
@@ -1345,7 +1363,10 @@ function applyCardEffectEntry(state, entry, event, card = null) {
     return;
   }
 
-  let parsed = parseExamEffectId(entry?.produceExamEffectId);
+  let parsed = applyCardGrowEffectsToParsedEffect(
+    parseExamEffectId(entry?.produceExamEffectId),
+    card,
+  );
   const growBlockAdd = Math.max(0, Number(card?.growBlockAdd ?? 0));
   if (parsed.kind === "block" && growBlockAdd > 0) {
     parsed = {

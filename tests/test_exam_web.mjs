@@ -920,3 +920,160 @@ assert.equal(stanceEnchant.effects[0].kind, "preservation");
 
 console.log("current card effect parser/runtime regressions: ok");
 }
+
+
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  parseCustomizeCatalog,
+  parseGrowEffectCatalog,
+} = await import("../web/memory_judgement.js");
+const {
+  applyCardCustomizations,
+  applyCardGrowEffectsToParsedEffect,
+} = await import("../web/card_customization.js");
+
+const customizes = parseCustomizeCatalog(`
+- id: custom-block
+  customizeCount: 1
+  overwriteProduceCardGrowEffectType: ProduceCardGrowEffectType_Unknown
+  description: ""
+  produceCardGrowEffectIds:
+  - g_effect-block_add-4
+  producePoint: 40
+- id: custom-block
+  customizeCount: 2
+  overwriteProduceCardGrowEffectType: ProduceCardGrowEffectType_BlockAdd
+  description: ""
+  produceCardGrowEffectIds:
+  - g_effect-block_add-8
+  producePoint: 40
+- id: custom-utility
+  customizeCount: 1
+  overwriteProduceCardGrowEffectType: ProduceCardGrowEffectType_Unknown
+  description: ""
+  produceCardGrowEffectIds:
+  - g-effect-cost-reduce
+  - g-effect-add
+  - g-effect-trigger
+  - g-effect-move
+  - g-effect-initial
+  producePoint: 40
+`);
+const growEffects = parseGrowEffectCatalog(`
+- id: g_effect-block_add-4
+  effectType: ProduceCardGrowEffectType_BlockAdd
+  costType: ExamCostType_Unknown
+  value: 4
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: ""
+  targetPlayEffectProduceExamTriggerIds: []
+  playProduceExamEffectId: ""
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Unknown
+  effectGroupIds: []
+- id: g_effect-block_add-8
+  effectType: ProduceCardGrowEffectType_BlockAdd
+  costType: ExamCostType_Unknown
+  value: 8
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: ""
+  targetPlayEffectProduceExamTriggerIds: []
+  playProduceExamEffectId: ""
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Unknown
+  effectGroupIds: []
+- id: g-effect-cost-reduce
+  effectType: ProduceCardGrowEffectType_CostReduce
+  costType: ExamCostType_Unknown
+  value: 2
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: ""
+  targetPlayEffectProduceExamTriggerIds: []
+  playProduceExamEffectId: ""
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Unknown
+  effectGroupIds: []
+- id: g-effect-add
+  effectType: ProduceCardGrowEffectType_EffectAdd
+  costType: ExamCostType_Unknown
+  value: 0
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: e_trigger-test
+  targetPlayEffectProduceExamTriggerIds: []
+  playProduceExamEffectId: e_effect-exam_review-0003
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Unknown
+  effectGroupIds: []
+- id: g-effect-trigger
+  effectType: ProduceCardGrowEffectType_PlayEffectTriggerChange
+  costType: ExamCostType_Unknown
+  value: 0
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: e_trigger-next
+  targetPlayEffectProduceExamTriggerIds:
+  - e_trigger-old
+  playProduceExamEffectId: ""
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Unknown
+  effectGroupIds: []
+- id: g-effect-move
+  effectType: ProduceCardGrowEffectType_PlayMovePositionTypeChange
+  costType: ExamCostType_Unknown
+  value: 0
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: ""
+  targetPlayEffectProduceExamTriggerIds: []
+  playProduceExamEffectId: ""
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Lost
+  effectGroupIds: []
+- id: g-effect-initial
+  effectType: ProduceCardGrowEffectType_InitialAdd
+  costType: ExamCostType_Unknown
+  value: 0
+  playProduceExamTriggerId: ""
+  playEffectProduceExamTriggerId: ""
+  targetPlayEffectProduceExamTriggerIds: []
+  playProduceExamEffectId: ""
+  targetPlayProduceExamEffectIds: []
+  produceCardStatusEnchantId: ""
+  playMovePositionType: ProduceCardMovePositionType_Unknown
+  effectGroupIds: []
+`);
+
+const level2 = applyCardCustomizations({
+  id: "card",
+  stamina: 5,
+  playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_block-0005" }],
+  customizes: [{ id: "custom-block", customizeCount: 2 }],
+}, customizes, growEffects);
+assert.deepEqual(level2.customGrowEffectIds, ["g_effect-block_add-8"]);
+const grownBlock = applyCardGrowEffectsToParsedEffect(
+  { kind: "block", id: "e_effect-exam_block-0005", value: 5 },
+  level2,
+);
+assert.equal(grownBlock.value, 13);
+
+const utility = applyCardCustomizations({
+  id: "card",
+  stamina: 5,
+  playMovePositionType: "ProduceCardMovePositionType_Grave",
+  playEffects: [{ produceExamTriggerId: "e_trigger-old", produceExamEffectId: "e_effect-exam_block-0005" }],
+  customizes: [{ id: "custom-utility", customizeCount: 1 }],
+}, customizes, growEffects);
+assert.equal(utility.stamina, 3);
+assert.equal(utility.playMovePositionType, "ProduceCardMovePositionType_Lost");
+assert.equal(utility.isInitial, true);
+assert.equal(utility.playEffects[0].produceExamTriggerId, "e_trigger-next");
+assert.equal(utility.playEffects[1].produceExamTriggerId, "e_trigger-test");
+assert.equal(utility.playEffects[1].produceExamEffectId, "e_effect-exam_review-0003");
+
+console.log("card customization runtime tests: ok");
+}
