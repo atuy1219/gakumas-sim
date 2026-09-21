@@ -1398,6 +1398,8 @@ $("tower-run").addEventListener("click", () => {
     const turnParameterTypes = calculateTowerTurnTypes(stageConfig, $("tower-seed").value);
     towerTurnState = createTowerTurnState(composition.cards, $("tower-seed").value, catalogs.cardById, {
       cardVariantByKey: catalogs.cardVariantByKey,
+      customizeById: catalogs.customizeById,
+      growEffectById: catalogs.growEffectById,
       stamina: Number(composition.memories[0]?.stamina ?? getField(composition.memories[0]?.raw, "stamina") ?? 0),
       pItems: resolvedPItems.items,
       turnLimit: Number(stageConfig.turn),
@@ -1426,6 +1428,8 @@ document.addEventListener("exam-simulation-start", (event) => {
     const cards = Array.isArray(event.detail?.cards) ? event.detail.cards : [];
     examTurnState = createTowerTurnState(cards, event.detail?.seed, catalogs.cardById, {
       cardVariantByKey: catalogs.cardVariantByKey,
+      customizeById: catalogs.customizeById,
+      growEffectById: catalogs.growEffectById,
       stamina: Number(event.detail?.stamina ?? 0),
       targetScore: Number(event.detail?.targetScore ?? 0),
     });

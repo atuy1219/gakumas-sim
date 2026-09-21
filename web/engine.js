@@ -1,3 +1,5 @@
+import { parseCustomizeCatalog, parseGrowEffectCatalog } from "./memory_judgement.js";
+
 export const UINT32_MASK = 0xffffffffn;
 
 export const DEFAULT_PRODUCE_CARD_CATALOG_URL =
@@ -6,6 +8,10 @@ export const DEFAULT_EXAM_INITIAL_DECK_URL =
   "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ExamInitialDeck.yaml";
 export const DEFAULT_IDOL_CARD_CATALOG_URL =
   "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/IdolCard.yaml";
+export const DEFAULT_PRODUCE_CARD_CUSTOMIZE_URL =
+  "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardCustomize.yaml";
+export const DEFAULT_PRODUCE_CARD_GROW_EFFECT_URL =
+  "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardGrowEffect.yaml";
 
 function normalizedKey(key) {
   return String(key).replace(/[_\-\s]/g, "").toLowerCase();
@@ -213,8 +219,20 @@ export async function loadCatalogs(fetchImpl = globalThis.fetch, urls = {}) {
   const cardUrl = urls.produceCards ?? DEFAULT_PRODUCE_CARD_CATALOG_URL;
   const deckUrl = urls.initialDecks ?? DEFAULT_EXAM_INITIAL_DECK_URL;
   const idolUrl = urls.idolCards ?? DEFAULT_IDOL_CARD_CATALOG_URL;
-  const [cardResponse, deckResponse, idolResponse] = await Promise.all([
+  const customizeUrl = urls.cardCustomizes ?? DEFAULT_PRODUCE_CARD_CUSTOMIZE_URL;
+  const growEffectUrl = urls.cardGrowEffects ?? DEFAULT_PRODUCE_CARD_GROW_EFFECT_URL;
+  const optionalText = async (url) => {
+    try {
+      const response = await fetchImpl(url);
+      if (!response.ok) return "";
+      return await response.text();
+    } catch {
+      return "";
+    }
+  };
+  const [cardResponse, deckResponse, idolResponse, customizeText, growEffectText] = await Promise.all([
     fetchImpl(cardUrl), fetchImpl(deckUrl), fetchImpl(idolUrl),
+    optionalText(customizeUrl), optionalText(growEffectUrl),
   ]);
   if (!cardResponse.ok) throw new Error(`カード名データの取得に失敗しました (${cardResponse.status})。`);
   if (!deckResponse.ok) throw new Error(`初期デッキデータの取得に失敗しました (${deckResponse.status})。`);
@@ -237,6 +255,8 @@ export async function loadCatalogs(fetchImpl = globalThis.fetch, urls = {}) {
     initialDeckById: new Map(initialDecks.map((deck) => [String(deck.id), deck])),
     idolCards,
     idolCardById: new Map(idolCards.map((idol) => [String(idol.id), idol])),
+    customizeById: parseCustomizeCatalog(customizeText),
+    growEffectById: parseGrowEffectCatalog(growEffectText),
   };
 }
 
