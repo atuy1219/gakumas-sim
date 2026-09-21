@@ -190,6 +190,8 @@ assert.match(towerHtml, /id="exam-progress-file"/);
 assert.match(towerHtml, /id="exam-progress-text"/);
 assert.match(towerHtml, /id="exam-load-progress-text"/);
 assert.match(towerHtml, /id="exam-progress-status"/);
+assert.match(towerHtml, /id="exam-progress-card-list"/);
+assert.match(towerHtml, /produce_cards\.jsonをインポート/);
 assert.doesNotMatch(towerHtml, /data-stage="order"|exam-order-selected|exam-deck-order|exam-order-undo|exam-order-reset|exam-order-next/);
 assert.match(towerHtml, /data-exam-back="setup">編成へ戻る/);
 assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed">2[^<]*Seed[\s\S]*data-stage="simulation">3[^<]*シミュレーション/);
@@ -206,6 +208,8 @@ assert.doesNotMatch(materialAppSource, /examDeckOrder|renderExamDeckOrder|exam-o
 assert.match(materialAppSource, /parseProgressProduceCardsJson/);
 assert.match(materialAppSource, /Number付きproduceCardsを含む進行中プロデュースJSONが必要/);
 assert.match(materialAppSource, /examProgressDeck\.length/);
+assert.match(materialAppSource, /examProgressInstances/);
+assert.match(materialAppSource, /削除済み/);
 
 const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/seed_history_ui.js", import.meta.url), "utf8"));
 assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);
