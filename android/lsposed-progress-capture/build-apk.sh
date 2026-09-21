@@ -67,7 +67,7 @@ unzip -p "$LIBXPOSED_AAR" classes.jar > "$LIBXPOSED_API"
 test -s "$LIBXPOSED_API"
 
 javac -source 8 -target 8 \
-  -cp "$LIBXPOSED_API" \
+  -cp "$LIBXPOSED_API:$ANDROID_JAR" \
   -d "$OUT/app-classes" \
   "$ROOT/src/main/java/dev/atuy1219/gakumas/progresscapture/ModuleEntry.java"
 
