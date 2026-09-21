@@ -435,6 +435,7 @@ function nativeRuntimeEvent() {
     drawn: [],
     created: [],
     moved: [],
+    grown: [],
     recycleEvents: [],
   };
 }
@@ -728,11 +729,16 @@ function parsedMasterEffectType(parsed) {
     case "lesson_depend_exam_review":
     case "lesson_depend_exam_aggressive":
       return "ProduceExamEffectType_ExamLesson";
+    case "lesson_multiple_lesson_buff": return "ProduceExamEffectType_ExamMultipleLessonBuffLesson";
     case "block": return "ProduceExamEffectType_ExamBlock";
     case "review": return "ProduceExamEffectType_ExamReview";
     case "aggressive": return "ProduceExamEffectType_ExamCardPlayAggressive";
     case "lesson_buff": return "ProduceExamEffectType_ExamLessonBuff";
     case "parameter_buff": return "ProduceExamEffectType_ExamParameterBuff";
+    case "parameter_buff_reduce": return "ProduceExamEffectType_ExamParameterBuffReduce";
+    case "concentration": return "ProduceExamEffectType_ExamConcentration";
+    case "preservation": return "ProduceExamEffectType_ExamPreservation";
+    case "add_grow_effect": return "ProduceExamEffectType_ExamAddGrowEffect";
     case "stamina_recover": return "ProduceExamEffectType_ExamStaminaRecoverFix";
     case "card_draw": return "ProduceExamEffectType_ExamCardDraw";
     case "playable_add": return "ProduceExamEffectType_ExamPlayableValueAdd";
@@ -1028,11 +1034,32 @@ function registerParsedStatusEnchant(state, parsed) {
   const installedCardPlayCount = Number(state.exam.cardPlayCount ?? 0);
   const conditions = [];
 
-  if (trigger.field) {
+  if (trigger.field && trigger.min !== undefined && trigger.min !== null) {
     conditions.push({
       field: `exam.${trigger.field}`,
       op: "gte",
-      value: Number(trigger.min ?? 0),
+      value: Number(trigger.min),
+    });
+  }
+  if (trigger.field && trigger.max !== undefined && trigger.max !== null) {
+    conditions.push({
+      field: `exam.${trigger.field}`,
+      op: "lte",
+      value: Number(trigger.max),
+    });
+  }
+  if (trigger.idolStatusType !== undefined && trigger.idolStatusType !== null) {
+    conditions.push({
+      field: "exam.idolStatusType",
+      op: "eq",
+      value: Number(trigger.idolStatusType),
+    });
+  }
+  if (trigger.idolStatusStepMin !== undefined && trigger.idolStatusStepMin !== null) {
+    conditions.push({
+      field: "exam.idolStatusStep",
+      op: "gte",
+      value: Number(trigger.idolStatusStepMin),
     });
   }
   if (trigger.category) {
@@ -1070,6 +1097,7 @@ function registerParsedStatusEnchant(state, parsed) {
       id: parsed.id,
       phase,
       turn: parsed.turn,
+      count: parsed.count,
       condition: conditions.length ? { all: conditions } : null,
       effects: (parsed.effects ?? []).map((effect) => ({ ...effect })),
       metadata: {
@@ -1252,6 +1280,11 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     case "card_move_search":
       moveSearchedCards(state, applied, event);
       break;
+    case "add_grow_effect": {
+      const matched = addGrowEffectsToDeckAll(state, applied.effect ?? parsed, event);
+      event.effects.push(`対象メンタルスキルカード ${matched}枚を成長`);
+      break;
+    }
     case "playable_add":
       state.playsRemaining += Number(applied.value) || 0;
       break;
@@ -1300,7 +1333,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
   );
 }
 
-function applyCardEffectEntry(state, entry, event) {
+function applyCardEffectEntry(state, entry, event, card = null) {
   const trigger = checkCardEffectTrigger(entry?.produceExamTriggerId, state.exam);
   if (!trigger.supported) {
     rememberUnsupported(state, `trigger:${trigger.triggerId}`);
@@ -1312,7 +1345,15 @@ function applyCardEffectEntry(state, entry, event) {
     return;
   }
 
-  const parsed = parseExamEffectId(entry?.produceExamEffectId);
+  let parsed = parseExamEffectId(entry?.produceExamEffectId);
+  const growBlockAdd = Math.max(0, Number(card?.growBlockAdd ?? 0));
+  if (parsed.kind === "block" && growBlockAdd > 0) {
+    parsed = {
+      ...parsed,
+      value: Number(parsed.value ?? 0) + growBlockAdd,
+      growBlockAdd,
+    };
+  }
   executeParsedTowerEffect(state, parsed, event);
 }
 
@@ -1339,6 +1380,42 @@ function cardMatchesSearchId(card, searchIdInput) {
   // precisely the playing card; category/rarity are the predicates that
   // determine whether this play consumes the repeat status.
   return true;
+}
+
+function addGrowEffectsToDeckAll(state, parsed, event) {
+  const pools = [state.deck, state.hand, state.discard, state.hold];
+  const seen = new Set();
+  let matched = 0;
+  const blockAdd = Math.max(0, Math.trunc(Number(parsed.blockAdd) || 0));
+  const costAdd = Math.max(0, Math.trunc(Number(parsed.costAdd) || 0));
+
+  for (const pool of pools) {
+    for (const card of pool ?? []) {
+      const identity = String(card?.token ?? `${card?.id ?? ""}@@${card?.originalIndex ?? ""}`);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      if (!cardMatchesSearchId(card, parsed.searchId)) continue;
+
+      if (blockAdd) card.growBlockAdd = Math.max(0, Number(card.growBlockAdd ?? 0)) + blockAdd;
+      if (costAdd) {
+        card.growCostAdd = Math.max(0, Number(card.growCostAdd ?? 0)) + costAdd;
+        // ProduceCardGrowEffectType_CostAdd is the generic stamina-cost grow
+        // effect. Specialized status costs have their own Cost*Add types.
+        card.stamina = Math.max(0, Number(card.stamina ?? 0)) + costAdd;
+      }
+      matched += 1;
+    }
+  }
+
+  if (!Array.isArray(event.grown)) event.grown = [];
+  event.grown.push({
+    searchId: parsed.searchId,
+    growEffectIds: [...(parsed.growEffectIds ?? [])],
+    blockAdd,
+    costAdd,
+    matched,
+  });
+  return matched;
 }
 
 export function playTowerCard(state, indexInput) {
@@ -1398,7 +1475,7 @@ export function playTowerCard(state, indexInput) {
     if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
   }
   for (let n = 0; n <= repeat; n += 1) {
-    for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event);
+    for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event, card);
   }
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card });
 
