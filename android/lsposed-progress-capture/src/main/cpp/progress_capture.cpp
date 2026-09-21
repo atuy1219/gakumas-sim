@@ -284,6 +284,9 @@ void write_snapshot(std::vector<CardRecord> deck) {
 struct ImageInfo {
     uintptr_t base = 0;
     std::string build_id;
+    std::string path;
+    const ElfW(Phdr)* phdr = nullptr;
+    ElfW(Half) phnum = 0;
 };
 
 std::string bytes_to_hex(const uint8_t* data, size_t size) {
@@ -305,6 +308,9 @@ int image_callback(dl_phdr_info* info, size_t, void* opaque) {
     if (!info || !info->dlpi_name || !std::strstr(info->dlpi_name, "libil2cpp.so")) return 0;
     auto* result = static_cast<ImageInfo*>(opaque);
     result->base = static_cast<uintptr_t>(info->dlpi_addr);
+    result->path = info->dlpi_name;
+    result->phdr = info->dlpi_phdr;
+    result->phnum = info->dlpi_phnum;
     for (ElfW(Half) i = 0; i < info->dlpi_phnum; ++i) {
         const auto& ph = info->dlpi_phdr[i];
         if (ph.p_type != PT_NOTE) continue;
@@ -331,6 +337,152 @@ ImageInfo find_il2cpp_image() {
     ImageInfo info;
     dl_iterate_phdr(image_callback, &info);
     return info;
+}
+
+
+uintptr_t dynamic_ptr(uintptr_t base, ElfW(Addr) value) {
+    // Some Android linkers expose already-relocated DT_* pointers, others retain
+    // image-relative virtual addresses. Accept both forms.
+    if (value >= base && value < base + (uintptr_t(1) << 40)) {
+        return static_cast<uintptr_t>(value);
+    }
+    return base + static_cast<uintptr_t>(value);
+}
+
+size_t gnu_hash_symbol_count(const uint32_t* header) {
+    if (!header) return 0;
+    const uint32_t nbuckets = header[0];
+    const uint32_t symoffset = header[1];
+    const uint32_t bloom_size = header[2];
+    const auto* bloom = reinterpret_cast<const ElfW(Addr)*>(header + 4);
+    const auto* buckets = reinterpret_cast<const uint32_t*>(bloom + bloom_size);
+    const auto* chains = buckets + nbuckets;
+    uint32_t max_bucket = 0;
+    for (uint32_t i = 0; i < nbuckets; ++i) max_bucket = std::max(max_bucket, buckets[i]);
+    if (max_bucket < symoffset) return symoffset;
+    uint32_t index = max_bucket;
+    for (size_t guard = 0; guard < 10000000; ++guard, ++index) {
+        if (chains[index - symoffset] & 1u) return static_cast<size_t>(index) + 1u;
+    }
+    return 0;
+}
+
+void* resolve_export(const ImageInfo& image, const char* wanted) {
+    if (!image.base || !image.phdr || !wanted) return nullptr;
+    const ElfW(Dyn)* dynamic = nullptr;
+    for (ElfW(Half) i = 0; i < image.phnum; ++i) {
+        const auto& ph = image.phdr[i];
+        if (ph.p_type == PT_DYNAMIC) {
+            dynamic = reinterpret_cast<const ElfW(Dyn)*>(image.base + ph.p_vaddr);
+            break;
+        }
+    }
+    if (!dynamic) return nullptr;
+
+    const ElfW(Sym)* symtab = nullptr;
+    const char* strtab = nullptr;
+    const uint32_t* sysv_hash = nullptr;
+    const uint32_t* gnu_hash = nullptr;
+    size_t syment = sizeof(ElfW(Sym));
+    for (const ElfW(Dyn)* d = dynamic; d->d_tag != DT_NULL; ++d) {
+        switch (d->d_tag) {
+            case DT_SYMTAB:
+                symtab = reinterpret_cast<const ElfW(Sym)*>(dynamic_ptr(image.base, d->d_un.d_ptr));
+                break;
+            case DT_STRTAB:
+                strtab = reinterpret_cast<const char*>(dynamic_ptr(image.base, d->d_un.d_ptr));
+                break;
+            case DT_HASH:
+                sysv_hash = reinterpret_cast<const uint32_t*>(dynamic_ptr(image.base, d->d_un.d_ptr));
+                break;
+            case DT_GNU_HASH:
+                gnu_hash = reinterpret_cast<const uint32_t*>(dynamic_ptr(image.base, d->d_un.d_ptr));
+                break;
+            case DT_SYMENT:
+                syment = static_cast<size_t>(d->d_un.d_val);
+                break;
+            default:
+                break;
+        }
+    }
+    if (!symtab || !strtab || syment != sizeof(ElfW(Sym))) return nullptr;
+
+    size_t symbol_count = 0;
+    if (sysv_hash) symbol_count = sysv_hash[1];
+    if (!symbol_count && gnu_hash) symbol_count = gnu_hash_symbol_count(gnu_hash);
+    if (!symbol_count || symbol_count > 10000000) return nullptr;
+
+    for (size_t i = 0; i < symbol_count; ++i) {
+        const auto& sym = symtab[i];
+        if (!sym.st_name || !sym.st_value) continue;
+        const char* name = strtab + sym.st_name;
+        if (std::strcmp(name, wanted) == 0) {
+            return reinterpret_cast<void*>(image.base + static_cast<uintptr_t>(sym.st_value));
+        }
+    }
+    return nullptr;
+}
+
+struct RuntimeIl2CppApi {
+    using DomainGet = void* (*)();
+    using DomainGetAssemblies = const void** (*)(const void*, size_t*);
+    using AssemblyGetImage = const void* (*)(const void*);
+    using ImageGetName = const char* (*)(const void*);
+    using ClassFromName = void* (*)(const void*, const char*, const char*);
+    using ClassGetMethodFromName = const void* (*)(void*, const char*, int);
+
+    DomainGet domain_get = nullptr;
+    DomainGetAssemblies domain_get_assemblies = nullptr;
+    AssemblyGetImage assembly_get_image = nullptr;
+    ImageGetName image_get_name = nullptr;
+    ClassFromName class_from_name = nullptr;
+    ClassGetMethodFromName class_get_method_from_name = nullptr;
+};
+
+bool load_runtime_il2cpp_api(const ImageInfo& image, RuntimeIl2CppApi& api) {
+    api.domain_get = reinterpret_cast<RuntimeIl2CppApi::DomainGet>(
+        resolve_export(image, "il2cpp_domain_get"));
+    api.domain_get_assemblies = reinterpret_cast<RuntimeIl2CppApi::DomainGetAssemblies>(
+        resolve_export(image, "il2cpp_domain_get_assemblies"));
+    api.assembly_get_image = reinterpret_cast<RuntimeIl2CppApi::AssemblyGetImage>(
+        resolve_export(image, "il2cpp_assembly_get_image"));
+    api.image_get_name = reinterpret_cast<RuntimeIl2CppApi::ImageGetName>(
+        resolve_export(image, "il2cpp_image_get_name"));
+    api.class_from_name = reinterpret_cast<RuntimeIl2CppApi::ClassFromName>(
+        resolve_export(image, "il2cpp_class_from_name"));
+    api.class_get_method_from_name = reinterpret_cast<RuntimeIl2CppApi::ClassGetMethodFromName>(
+        resolve_export(image, "il2cpp_class_get_method_from_name"));
+    return api.domain_get && api.domain_get_assemblies && api.assembly_get_image &&
+           api.image_get_name && api.class_from_name && api.class_get_method_from_name;
+}
+
+const void* find_assembly_csharp(const RuntimeIl2CppApi& api) {
+    void* domain = api.domain_get();
+    if (!domain) return nullptr;
+    size_t count = 0;
+    const void** assemblies = api.domain_get_assemblies(domain, &count);
+    if (!assemblies || count == 0 || count > 4096) return nullptr;
+    for (size_t i = 0; i < count; ++i) {
+        const void* image = api.assembly_get_image(assemblies[i]);
+        if (!image) continue;
+        const char* name = api.image_get_name(image);
+        if (name && std::strcmp(name, "Assembly-CSharp.dll") == 0) return image;
+    }
+    return nullptr;
+}
+
+uintptr_t resolve_managed_method(
+    const RuntimeIl2CppApi& api,
+    const void* assembly_image,
+    const char* namespaze,
+    const char* class_name,
+    const char* method_name) {
+    if (!assembly_image) return 0;
+    void* klass = api.class_from_name(assembly_image, namespaze, class_name);
+    if (!klass) return 0;
+    const void* method = api.class_get_method_from_name(klass, method_name, -1);
+    if (!method) return 0;
+    return reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
 }
 
 void* hooked_get_card_data(void* self, void* method) {
@@ -370,31 +522,72 @@ void install_il2cpp_hooks() {
         g_hooks_installed.store(false);
         return;
     }
-    if (image.build_id != kExpectedBuildId) {
-        write_status("build-id-mismatch", image.build_id);
-        g_hooks_installed.store(false);
-        return;
+
+    uintptr_t get_card_address = 0;
+    uintptr_t create_deck_address = 0;
+    bool merge_ok = false;
+
+    if (image.build_id == kExpectedBuildId) {
+        // Exact ELF used during the original analysis: retain the verified RVAs.
+        get_card_address = image.base + kRvaGetProduceCardData;
+        create_deck_address = image.base + kRvaCreateDeckProduceCardMasters;
+        merge_ok = install_hook(
+            image.base + kRvaInternalMergeFrom,
+            reinterpret_cast<void*>(hooked_internal_merge_from),
+            reinterpret_cast<void**>(&g_orig_internal_merge_from));
+    } else {
+        // App update: resolve the managed methods from IL2CPP metadata instead of
+        // guessing new RVAs from the old binary.
+        RuntimeIl2CppApi api;
+        if (!load_runtime_il2cpp_api(image, api)) {
+            write_status("il2cpp-api-unavailable", image.build_id);
+            g_hooks_installed.store(false);
+            return;
+        }
+        const void* assembly_image = find_assembly_csharp(api);
+        if (!assembly_image) {
+            write_status("waiting-for-il2cpp-domain", image.build_id);
+            g_hooks_installed.store(false);
+            return;
+        }
+        get_card_address = resolve_managed_method(
+            api,
+            assembly_image,
+            "Campus.Common.Proto.Client.Transaction",
+            "UserProduceProgressProduceCard",
+            "GetProduceCardData");
+        create_deck_address = resolve_managed_method(
+            api,
+            assembly_image,
+            "Campus.InGame",
+            "ProduceUtility",
+            "CreateDeckProduceCardMasters");
+        if (!get_card_address || !create_deck_address) {
+            write_status("method-resolution-failed", image.build_id);
+            g_hooks_installed.store(false);
+            return;
+        }
+        // InternalMergeFrom is diagnostic-only; deck capture does not require it.
+        merge_ok = true;
     }
 
     const bool get_ok = install_hook(
-        image.base + kRvaGetProduceCardData,
+        get_card_address,
         reinterpret_cast<void*>(hooked_get_card_data),
         reinterpret_cast<void**>(&g_orig_get_card_data));
-    const bool merge_ok = install_hook(
-        image.base + kRvaInternalMergeFrom,
-        reinterpret_cast<void*>(hooked_internal_merge_from),
-        reinterpret_cast<void**>(&g_orig_internal_merge_from));
     const bool deck_ok = install_hook(
-        image.base + kRvaCreateDeckProduceCardMasters,
+        create_deck_address,
         reinterpret_cast<void*>(hooked_create_deck),
         reinterpret_cast<void**>(&g_orig_create_deck));
 
     write_status(
-        (get_ok && merge_ok && deck_ok) ? "hooks-installed" : "hook-install-failed",
+        (get_ok && deck_ok) ? "hooks-installed" : "hook-install-failed",
         image.build_id,
         get_ok,
         merge_ok,
         deck_ok);
+
+    if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
 }
 
 void on_library_loaded(const char* name, void*) {
