@@ -1,5 +1,8 @@
 import {
+  EXAM_IDOL_STATUS_TYPE,
+  NATIVE_LESSON_MODIFIER_KIND,
   applyNativeLessonHits,
+  applyNativeModifiedLessonRepeat,
   calculateNativeDependentLessonBase,
 } from "./exam_score.js";
 
@@ -336,6 +339,39 @@ export function parseExamEffectMaster(effectInput) {
       return { kind: "lesson_buff", id, value: value1 };
     case "ProduceExamEffectType_ExamParameterBuff":
       return { kind: "parameter_buff", id, value: value1 };
+    case "ProduceExamEffectType_ExamParameterBuffReduce":
+      return { kind: "parameter_buff_reduce", id, value: value1 };
+    case "ProduceExamEffectType_ExamConcentration":
+      return { kind: "concentration", id, step: Math.max(1, value1 || 1) };
+    case "ProduceExamEffectType_ExamPreservation":
+      return { kind: "preservation", id, step: Math.max(1, value1 || 1) };
+    case "ProduceExamEffectType_ExamMultipleLessonBuffLesson":
+      return {
+        kind: "lesson_multiple_lesson_buff",
+        id,
+        value: value1,
+        permil: Number(effectInput.effectValue2 ?? 0) || 0,
+        count,
+      };
+    case "ProduceExamEffectType_ExamAddGrowEffect": {
+      const growEffectIds = Array.isArray(effectInput.produceCardGrowEffectIds)
+        ? effectInput.produceCardGrowEffectIds.map(String)
+        : [];
+      const blockAdd = growEffectIds
+        .map((growId) => growId.match(/^g_effect-block_add-(\d+)$/))
+        .find(Boolean);
+      const costAdd = growEffectIds
+        .map((growId) => growId.match(/^g_effect-cost_add-(\d+)$/))
+        .find(Boolean);
+      return {
+        kind: "add_grow_effect",
+        id,
+        searchId: String(effectInput.produceCardSearchId ?? ""),
+        growEffectIds,
+        blockAdd: blockAdd ? integer(blockAdd[1]) : 0,
+        costAdd: costAdd ? integer(costAdd[1]) : 0,
+      };
+    }
     case "ProduceExamEffectType_ExamStaminaRecoverFix":
       return { kind: "stamina_recover", id, value: value1 };
     case "ProduceExamEffectType_ExamCardDraw":
@@ -425,6 +461,16 @@ export function parseExamEffectId(effectId) {
       searchId: match[4],
     };
   }
+  if ((match = id.match(/^e_effect-exam_add_grow_effect-(p_card_search-.+)-all-0_0-g_effect-block_add-(\d+)-g_effect-cost_add-(\d+)$/))) {
+    return {
+      kind: "add_grow_effect",
+      id,
+      searchId: match[1],
+      growEffectIds: [`g_effect-block_add-${match[2]}`, `g_effect-cost_add-${match[3]}`],
+      blockAdd: integer(match[2]),
+      costAdd: integer(match[3]),
+    };
+  }
   if (id === "e_effect-exam_hand_grave_count_card_draw") {
     return { kind: "hand_grave_count_card_draw", id };
   }
@@ -433,6 +479,42 @@ export function parseExamEffectId(effectId) {
   }
   if ((match = id.match(/^e_effect-exam_parameter_buff_multiple_per_turn-(\d+)$/))) {
     return { kind: "parameter_buff_multiple_per_turn", id, turn: integer(match[1]) };
+  }
+  if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-01-act-3_185-enc02") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      count: null,
+      enchantId: "enchant-p_card-01-act-3_185-enc02",
+      trigger: {
+        phase: "card_play",
+        skillCard: true,
+        field: "parameterBuff",
+        max: 20,
+        playCountInterval: 2,
+      },
+      effects: [
+        parseExamEffectId("e_effect-exam_multiple_lesson_buff_lesson-0006-3000-01"),
+        parseExamEffectId("e_effect-exam_parameter_buff_reduce-0003"),
+      ],
+    };
+  }
+  if (id === "e_effect-exam_status_enchant-03-inf-enchant-p_card-03-ido-3_234-enc01") {
+    return {
+      kind: "status_enchant",
+      id,
+      turn: -1,
+      count: 3,
+      enchantId: "enchant-p_card-03-ido-3_234-enc01",
+      trigger: {
+        phase: "card_play",
+        category: "ProduceCardCategory_ActiveSkill",
+        idolStatusType: EXAM_IDOL_STATUS_TYPE.Concentration,
+        idolStatusStepMin: 2,
+      },
+      effects: [parseExamEffectId("e_effect-exam_preservation-0002")],
+    };
   }
   if (id === "e_effect-exam_status_enchant-inf-enchant-p_card-01-men-3_035-enc01") {
     return {
@@ -942,6 +1024,22 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       // independently. Do not aggregate value * count before rounding.
       return lessonResult(Number(parsed.value), Math.max(1, Number(parsed.count) || 1));
 
+    case "lesson_multiple_lesson_buff": {
+      const result = applyNativeModifiedLessonRepeat(
+        exam,
+        Number(parsed.value),
+        Number(parsed.permil),
+        Math.max(1, Number(parsed.count) || 1),
+        NATIVE_LESSON_MODIFIER_KIND.LessonBuff,
+        scoreContext,
+      );
+      return {
+        applied: true,
+        label: `集中効果×${1 + Number(parsed.permil) / 1000}でパラメータ +${result.added}`,
+        score: result,
+      };
+    }
+
     case "lesson_add_multiple_parameter_buff": {
       // ExamAddingParameterAdditionalData.ParameterBuffMultiple receives
       // 1 + effectPermil/1000 and modifies only the ParameterBuff component.
@@ -1028,6 +1126,19 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
     case "aggressive": exam.aggressive += parsed.value; return { applied: true, label: `やる気 +${parsed.value}` };
     case "lesson_buff": exam.lessonBuff += parsed.value; return { applied: true, label: `集中 +${parsed.value}` };
     case "parameter_buff": exam.parameterBuff += parsed.value; return { applied: true, label: `好調 +${parsed.value}ターン` };
+    case "parameter_buff_reduce": {
+      const before = Math.max(0, Number(exam.parameterBuff ?? 0));
+      exam.parameterBuff = Math.max(0, before - Math.max(0, Number(parsed.value) || 0));
+      return { applied: true, label: `好調 -${before - exam.parameterBuff}ターン` };
+    }
+    case "concentration":
+      exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Concentration;
+      exam.idolStatusStep = Math.max(1, Number(parsed.step) || 1);
+      return { applied: true, label: `強気${exam.idolStatusStep}段階目に変更` };
+    case "preservation":
+      exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Preservation;
+      exam.idolStatusStep = Math.max(1, Number(parsed.step) || 1);
+      return { applied: true, label: `温存${exam.idolStatusStep}段階目に変更` };
     case "stamina_recover": {
       const before = exam.stamina;
       exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value) : exam.stamina + parsed.value;
@@ -1065,6 +1176,13 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
         pickCountMin: parsed.pickCountMin,
         pickCountMax: parsed.pickCountMax,
         label: `${parsed.searchPosition} の ${parsed.cardId} を ${parsed.movePosition} へ移動`,
+      };
+    case "add_grow_effect":
+      return {
+        applied: true,
+        command: "add_grow_effect",
+        effect: parsed,
+        label: `対象カードに元気値 +${parsed.blockAdd} / コスト +${parsed.costAdd}`,
       };
     case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
     case "effect_timer": return { applied: true, command: "timer", timer: parsed, label: `${parsed.turn}ターン後に効果発動` };
