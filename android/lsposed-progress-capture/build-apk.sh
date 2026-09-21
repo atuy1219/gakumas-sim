@@ -52,27 +52,25 @@ for tool in "$AAPT2" "$D8" "$ZIPALIGN" "$APKSIGNER" "$ANDROID_JAR"; do
 done
 
 rm -rf "$OUT"
-mkdir -p "$STAGE/assets" "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed" "$OUT/stub-classes" "$OUT/app-classes" "$OUT/dex"
+mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed" "$OUT/app-classes" "$OUT/dex" "$OUT/deps"
 
 "$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
 
-cp "$ROOT/src/main/assets/native_init" "$STAGE/assets/native_init"
-cp "$ROOT/src/main/assets/xposed_init" "$STAGE/assets/xposed_init"
 cp "$ROOT/src/main/resources/META-INF/xposed/"* "$STAGE/META-INF/xposed/"
 
-javac -source 8 -target 8 \
-  -d "$OUT/stub-classes" \
-  "$ROOT/stubs/de/robv/android/xposed/IXposedHookLoadPackage.java" \
-  "$ROOT/stubs/de/robv/android/xposed/callbacks/XC_LoadPackage.java"
+LIBXPOSED_API="$OUT/deps/api-102.0.0.jar"
+curl -fL --retry 3 \
+  "https://repo1.maven.org/maven2/io/github/libxposed/api/102.0.0/api-102.0.0.jar" \
+  -o "$LIBXPOSED_API"
 
 javac -source 8 -target 8 \
-  -cp "$OUT/stub-classes" \
+  -cp "$LIBXPOSED_API" \
   -d "$OUT/app-classes" \
   "$ROOT/src/main/java/dev/atuy1219/gakumas/progresscapture/ModuleEntry.java"
 
 "$D8" \
   --lib "$ANDROID_JAR" \
-  --classpath "$OUT/stub-classes" \
+  --classpath "$LIBXPOSED_API" \
   --min-api "$MIN_API" \
   --output "$OUT/dex" \
   "$OUT/app-classes/dev/atuy1219/gakumas/progresscapture/ModuleEntry.class"
@@ -82,14 +80,14 @@ cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.0.4.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.0.5.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
 cp "$BASE_APK" "$UNALIGNED"
 (
   cd "$STAGE"
-  zip -q -r "$UNALIGNED" assets lib META-INF classes.dex
+  zip -q -r "$UNALIGNED" lib META-INF classes.dex
 )
 
 "$ZIPALIGN" -f 4 "$UNALIGNED" "$ALIGNED"
@@ -100,6 +98,6 @@ keytool -genkeypair -v   -keystore "$KEYSTORE"   -storepass android -keypass and
 "$APKSIGNER" sign   --ks "$KEYSTORE" --ks-pass pass:android   --key-pass pass:android --ks-key-alias androiddebugkey   --out "$FINAL" "$ALIGNED"
 
 "$APKSIGNER" verify --verbose "$FINAL"
-unzip -l "$FINAL" | grep -E 'META-INF/xposed/(native_init.list|scope.list|module.prop)|assets/(xposed_init|native_init)|classes.dex|lib/arm64-v8a/libgakumas_progress_capture.so|AndroidManifest.xml'
+unzip -l "$FINAL" | grep -E 'META-INF/xposed/(java_init.list|native_init.list|scope.list|module.prop)|classes.dex|lib/arm64-v8a/libgakumas_progress_capture.so|AndroidManifest.xml'
 sha256sum "$FINAL" | tee "$FINAL.sha256"
 echo "$FINAL"
