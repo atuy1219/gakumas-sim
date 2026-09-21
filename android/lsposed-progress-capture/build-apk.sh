@@ -58,10 +58,13 @@ mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed" "$OUT/app-classes" "$OU
 
 cp "$ROOT/src/main/resources/META-INF/xposed/"* "$STAGE/META-INF/xposed/"
 
-LIBXPOSED_API="$OUT/deps/api-102.0.0.jar"
+LIBXPOSED_AAR="$OUT/deps/api-102.0.0.aar"
+LIBXPOSED_API="$OUT/deps/libxposed-api-102-classes.jar"
 curl -fL --retry 3 \
-  "https://repo1.maven.org/maven2/io/github/libxposed/api/102.0.0/api-102.0.0.jar" \
-  -o "$LIBXPOSED_API"
+  "https://repo1.maven.org/maven2/io/github/libxposed/api/102.0.0/api-102.0.0.aar" \
+  -o "$LIBXPOSED_AAR"
+unzip -p "$LIBXPOSED_AAR" classes.jar > "$LIBXPOSED_API"
+test -s "$LIBXPOSED_API"
 
 javac -source 8 -target 8 \
   -cp "$LIBXPOSED_API" \
