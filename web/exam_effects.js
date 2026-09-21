@@ -400,6 +400,15 @@ export function parseExamEffectId(effectId) {
   if ((match = id.match(/^e_effect-exam_lesson-(\d+)-(\d+)$/))) {
     return { kind: "lesson", id, value: integer(match[1]), count: integer(match[2]) };
   }
+  if ((match = id.match(/^e_effect-exam_multiple_lesson_buff_lesson-(\d+)-(\d+)-(\d+)$/))) {
+    return {
+      kind: "lesson_multiple_lesson_buff",
+      id,
+      value: integer(match[1]),
+      permil: integer(match[2]),
+      count: integer(match[3]),
+    };
+  }
   if ((match = id.match(/^e_effect-exam_lesson_add_multiple_parameter_buff-(\d+)-(\d+)-(\d+)$/))) {
     return {
       kind: "lesson_add_multiple_parameter_buff",
@@ -580,6 +589,15 @@ export function parseExamEffectId(effectId) {
   }
   if ((match = id.match(/^e_effect-exam_parameter_buff-(\d+)$/))) {
     return { kind: "parameter_buff", id, value: integer(match[1]) };
+  }
+  if ((match = id.match(/^e_effect-exam_parameter_buff_reduce-(\d+)$/))) {
+    return { kind: "parameter_buff_reduce", id, value: integer(match[1]) };
+  }
+  if ((match = id.match(/^e_effect-exam_concentration-(\d+)$/))) {
+    return { kind: "concentration", id, step: Math.max(1, integer(match[1])) };
+  }
+  if ((match = id.match(/^e_effect-exam_preservation-(\d+)$/))) {
+    return { kind: "preservation", id, step: Math.max(1, integer(match[1])) };
   }
   if ((match = id.match(/^e_effect-exam_stamina_recover_fix-(\d+)$/))) {
     return { kind: "stamina_recover", id, value: integer(match[1]) };
