@@ -767,6 +767,32 @@ assert.equal(nativeDeck[2].customField, "keep-me");
 assert.equal(nativeDeck[2].progressCard.customField, "keep-me", "raw instance fields must remain available");
 const parsedProgress = parseProgressProduceCardsJson(JSON.stringify(progressPayload), progressMasters, progressVariants);
 assert.deepEqual(parsedProgress.cards.map((card) => card.number), [3, 5, 8]);
+assert.deepEqual(parsedProgress.allCards.map((card) => [card.number, card.deleted]), [
+  [1, true],
+  [3, false],
+  [5, false],
+  [8, false],
+], "allCards preserves deleted instances for UI display");
+assert.deepEqual(parsedProgress.deletedCards.map((card) => card.number), [1]);
+
+const captureProgress = parseProgressProduceCardsJson(JSON.stringify({
+  format: "gakumas-sim-progress-capture",
+  produceCards: [
+    { number: 3, produceCardId: "sense", upgradeCount: 0, deleted: false },
+    { number: 8, produceCardId: "unique", upgradeCount: 1, deleted: false },
+  ],
+  observedInstances: [
+    { number: 1, produceCardId: "logic", upgradeCount: 0, deleted: true },
+    { number: 3, produceCardId: "sense", upgradeCount: 0, deleted: false },
+  ],
+}), progressMasters, progressVariants);
+assert.deepEqual(captureProgress.cards.map((card) => card.number), [3, 8]);
+assert.deepEqual(captureProgress.allCards.map((card) => [card.number, card.deleted]), [
+  [1, true],
+  [3, false],
+  [8, false],
+]);
+assert.deepEqual(captureProgress.deletedCards.map((card) => card.number), [1]);
 assert.throws(
   () => parseProgressProduceCardsJson(JSON.stringify({ produceCards: [{ produceCardId: "sense" }] })),
   /Number付き|Numberがありません/,
