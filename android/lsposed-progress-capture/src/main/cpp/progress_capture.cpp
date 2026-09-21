@@ -213,6 +213,24 @@ void atomic_write(const std::string& path, const std::string& data) {
     }
     ::rename(temp.c_str(), path.c_str());
 }
+void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    const std::string path =
+        "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/capture_status.json";
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"phase\": \"" << json_escape(phase) << "\",\n"
+        << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
+        << "  \"libil2cppBuildId\": \"" << json_escape(build_id) << "\",\n"
+        << "  \"expectedBuildId\": \"" << kExpectedBuildId << "\",\n"
+        << "  \"hooks\": {"
+        << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
+        << "\"internalMergeFrom\":" << (merge_ok ? "true" : "false") << ","
+        << "\"createDeck\":" << (deck_ok ? "true" : "false") << "}\n"
+        << "}\n";
+    atomic_write(path, out.str());
+}
 
 int64_t unix_time_ms() {
     timespec ts{};
@@ -347,7 +365,13 @@ void install_il2cpp_hooks() {
     if (!target_process()) return;
 
     const ImageInfo image = find_il2cpp_image();
-    if (!image.base || image.build_id != kExpectedBuildId) {
+    if (!image.base) {
+        write_status("waiting-for-libil2cpp");
+        g_hooks_installed.store(false);
+        return;
+    }
+    if (image.build_id != kExpectedBuildId) {
+        write_status("build-id-mismatch", image.build_id);
         g_hooks_installed.store(false);
         return;
     }
@@ -365,11 +389,12 @@ void install_il2cpp_hooks() {
         reinterpret_cast<void*>(hooked_create_deck),
         reinterpret_cast<void**>(&g_orig_create_deck));
 
-    if (!(get_ok && merge_ok && deck_ok)) {
-        // Partial hooks are intentionally left untouched: the expected build ID matched,
-        // but no state-changing behavior is introduced. A restart after updating the module
-        // is the recovery path.
-    }
+    write_status(
+        (get_ok && merge_ok && deck_ok) ? "hooks-installed" : "hook-install-failed",
+        image.build_id,
+        get_ok,
+        merge_ok,
+        deck_ok);
 }
 
 void on_library_loaded(const char* name, void*) {
@@ -386,6 +411,7 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     if (!entries || !entries->hookFunc || entries->version < 1) return nullptr;
     if (!target_process()) return nullptr;
     g_hook = entries->hookFunc;
+    write_status("native-init");
 
     // LSPosed may load this module after libil2cpp.so is already mapped.
     // Install immediately when possible, and also keep the load callback for
