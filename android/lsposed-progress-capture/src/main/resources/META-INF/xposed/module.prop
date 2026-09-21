@@ -1,0 +1,10 @@
+id=dev.atuy1219.gakumas.progresscapture
+name=Gakumas Progress Capture
+version=1.0.2
+versionCode=3
+author=atuy1219
+description=Read-only local capture of current produce card instances for gakumas-sim.
+minApiVersion=102
+targetApiVersion=102
+staticScope=true
+autoHotReload=false
