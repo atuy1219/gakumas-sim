@@ -2,7 +2,7 @@ import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCh
 import { parseProduceCardCatalogYaml } from "./engine.js";
 import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
-import { normalizeProgressProduceCards, parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
+import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
@@ -101,6 +101,7 @@ let examCardById = new Map();
 let examCardVariantByKey = new Map();
 let examCounts = new Map();
 let examProgressDeck = [];
+let examProgressInstances = [];
 let examProgressPath = "";
 let examObservedBatches = [[]];
 let examSeedWorkers = [];
@@ -178,6 +179,25 @@ function updateExamSummary() {
   document.getElementById("exam-card-summary").textContent = `${deck.length}枚${suffix}`;
 }
 
+function renderExamProgressCards() {
+  const container = document.getElementById("exam-progress-card-list");
+  if (!container) return;
+  container.replaceChildren();
+  if (!examProgressInstances.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  for (const card of examProgressInstances) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    if (card.deleted) chip.dataset.deleted = "true";
+    const upgrade = Number(card.upgradeCount ?? 0) > 0 ? "+" : "";
+    chip.textContent = `No.${card.number} ${card.name ?? card.id}${upgrade}${card.deleted ? " · 削除済み" : ""}`;
+    container.append(chip);
+  }
+}
+
 function renderExamProgressStatus(message = "") {
   const status = document.getElementById("exam-progress-status");
   if (!status) return;
@@ -186,29 +206,35 @@ function renderExamProgressStatus(message = "") {
     return;
   }
   if (!examProgressDeck.length) {
-    status.textContent = "Seed特定には、Number付きproduceCardsを含む進行中プロデュースJSONを読み込んでください。既知Seedでのシミュレーションは手動編成でも利用できます。";
+    status.textContent = "Seed特定には、Number付きproduceCardsを含むproduce_cards.jsonまたは進行中プロデュースJSONを読み込んでください。既知Seedでのシミュレーションは手動編成でも利用できます。";
     return;
   }
   const first = examProgressDeck[0]?.number;
   const last = examProgressDeck.at(-1)?.number;
-  status.textContent = `${examProgressDeck.length}枚を読み込み済み · Deleted除外 · Number ${first}→${last} 昇順 · ${examProgressPath || "produceCards"}`;
+  const deletedCount = examProgressInstances.filter((card) => card.deleted).length;
+  status.textContent = `有効${examProgressDeck.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""} · Seed用はDeleted除外 · Number ${first}→${last} 昇順 · ${examProgressPath || "produceCards"}`;
 }
 
 function clearExamProgressDeck(message = "") {
   examProgressDeck = [];
+  examProgressInstances = [];
   examProgressPath = "";
+  renderExamProgressCards();
   renderExamProgressStatus(message);
 }
 
-function applyExamProgressJson(input, sourceLabel = "進行中プロデュースJSON") {
+function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
   const parsed = parseProgressProduceCardsJson(input, examCardById, examCardVariantByKey);
   examProgressDeck = parsed.cards;
+  examProgressInstances = parsed.allCards ?? parsed.cards;
   examProgressPath = parsed.path;
   examCounts = progressDeckCounts(parsed.cards);
   examCardSearch.value = "";
   resetExamObservation();
   renderExamCards();
-  renderExamProgressStatus(`${sourceLabel}: ${parsed.cards.length}枚を読み込みました · Deleted除外後、Number昇順でSeed逆算します · ${parsed.path}`);
+  renderExamProgressCards();
+  const deletedCount = parsed.deletedCards?.length ?? 0;
+  renderExamProgressStatus(`${sourceLabel}: 有効${parsed.cards.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""}を読み込みました · Seed逆算では削除済みを除外しNumber昇順を使用します · ${parsed.path}`);
   renderExamDeckSummary();
 }
 
@@ -272,9 +298,16 @@ async function importExamPreset(file) {
   if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
   examCounts = nextCounts;
   if (preset.progressCards?.length) {
-    examProgressDeck = normalizeProgressProduceCards(preset.progressCards, examCardById, examCardVariantByKey);
+    const parsedProgress = parseProgressProduceCardsJson(
+      { produceCards: preset.progressCards },
+      examCardById,
+      examCardVariantByKey,
+    );
+    examProgressDeck = parsedProgress.cards;
+    examProgressInstances = parsedProgress.allCards;
     examProgressPath = "preset.progressCards";
     examCounts = progressDeckCounts(examProgressDeck);
+    renderExamProgressCards();
   } else {
     clearExamProgressDeck();
   }
@@ -720,7 +753,7 @@ document.getElementById("exam-load-progress-text")?.addEventListener("click", ()
   try {
     document.getElementById("global-error").hidden = true;
     const text = document.getElementById("exam-progress-text")?.value ?? "";
-    if (!String(text).trim()) throw new Error("進行中プロデュースJSONを貼り付けてください。");
+    if (!String(text).trim()) throw new Error("produce_cards.jsonまたは進行中プロデュースJSONを貼り付けてください。");
     applyExamProgressJson(text, "貼り付けJSON");
   } catch (error) {
     showExamError(error);

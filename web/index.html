@@ -141,17 +141,18 @@
           <div class="seed-route-number-v14" aria-hidden="true">実</div>
           <div class="seed-route-body-v14">
             <div class="seed-route-title-v14">
-              <div><strong id="exam-progress-title">進行中produceCardsを読み込む</strong><small>Seed特定では実機のUserProduceProgressを使い、Deletedを除外してNumber昇順でShuffle前Deckを自動構築します。</small></div>
+              <div><strong id="exam-progress-title">produce_cards.jsonを読み込む</strong><small>LSPosedモジュールが出力したproduce_cards.jsonをそのままインポートできます。削除済みカードも一覧表示し、Seed特定ではDeletedを除外してNumber昇順でShuffle前Deckを構築します。</small></div>
             </div>
             <div class="button-row">
-              <label class="file-button">進行中プロデュースJSON<input id="exam-progress-file" type="file" accept="application/json,.json"></label>
+              <label class="file-button">produce_cards.jsonをインポート<input id="exam-progress-file" type="file" accept="application/json,.json"></label>
             </div>
             <details class="advanced">
               <summary>JSONを貼り付けて読み込む</summary>
-              <textarea id="exam-progress-text" rows="5" spellcheck="false" placeholder="UserProduceProgress / produceCards を含むJSON"></textarea>
+              <textarea id="exam-progress-text" rows="5" spellcheck="false" placeholder="produce_cards.json / UserProduceProgress / produceCards を含むJSON"></textarea>
               <button id="exam-load-progress-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
             </details>
-            <p id="exam-progress-status" class="hint" aria-live="polite">Seed特定には、Number付きproduceCardsを含む進行中プロデュースJSONを読み込んでください。</p>
+            <p id="exam-progress-status" class="hint" aria-live="polite">Seed特定には、Number付きproduceCardsを含むproduce_cards.jsonまたは進行中プロデュースJSONを読み込んでください。</p>
+            <div id="exam-progress-card-list" class="chip-list exam-progress-card-list-v16" hidden></div>
           </div>
         </section>
         <div class="sim-config-grid">

@@ -1032,3 +1032,12 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
 .tower-turn-chip {
   font-variant-numeric: tabular-nums;
 }
+
+
+.exam-progress-card-list-v16 {
+  margin-top: 0.75rem;
+}
+.exam-progress-card-list-v16 .chip[data-deleted="true"] {
+  opacity: 0.62;
+  text-decoration: line-through;
+}

@@ -1,0 +1,40 @@
+name: Build LSPosed progress capture APK
+
+on:
+  push:
+    branches:
+      - feat/lsposed-progress-capture
+    paths:
+      - 'android/lsposed-progress-capture/**'
+      - '.github/workflows/build-lsposed-progress-capture.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-35' \
+            'build-tools;35.0.1' \
+            'ndk;27.2.12479018'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Build signed APK
+        run: bash android/lsposed-progress-capture/build-apk.sh
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: gakumas-progress-capture-apk
+          path: |
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.11.apk
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.11.apk.sha256
+          if-no-files-found: error
