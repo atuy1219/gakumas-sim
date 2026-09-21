@@ -67,6 +67,22 @@ CreateDeckFn g_orig_create_deck = nullptr;
 GetProduceCardDataFn g_orig_get_card_data = nullptr;
 InternalMergeFromFn g_orig_internal_merge_from = nullptr;
 
+using GetterInt32Fn = int32_t (*)(void*, const void*);
+using GetterBoolFn = bool (*)(void*, const void*);
+using GetterObjectFn = void* (*)(void*, const void*);
+struct RuntimeGetter {
+    uintptr_t address = 0;
+    const void* method = nullptr;
+};
+bool g_use_runtime_getters = false;
+RuntimeGetter g_get_number;
+RuntimeGetter g_get_produce_card_id;
+RuntimeGetter g_get_upgrade_count;
+RuntimeGetter g_get_deleted;
+RuntimeGetter g_get_origin_type;
+RuntimeGetter g_get_customizing;
+RuntimeGetter g_get_customizes;
+
 std::string process_name() {
     std::ifstream in("/proc/self/cmdline", std::ios::binary);
     std::string value;
@@ -144,6 +160,34 @@ std::string il2cpp_string_to_utf8(void* string_object) {
 CardRecord read_card(void* self) {
     CardRecord card;
     if (!self) return card;
+
+    if (g_use_runtime_getters) {
+        if (!g_get_number.address || !g_get_produce_card_id.address ||
+            !g_get_upgrade_count.address || !g_get_deleted.address || !g_get_origin_type.address) {
+            return card;
+        }
+        card.number = reinterpret_cast<GetterInt32Fn>(g_get_number.address)(self, g_get_number.method);
+        void* id_string = reinterpret_cast<GetterObjectFn>(g_get_produce_card_id.address)(
+            self, g_get_produce_card_id.method);
+        card.produce_card_id = il2cpp_string_to_utf8(id_string);
+        card.upgrade_count = reinterpret_cast<GetterInt32Fn>(g_get_upgrade_count.address)(
+            self, g_get_upgrade_count.method);
+        card.deleted = reinterpret_cast<GetterBoolFn>(g_get_deleted.address)(
+            self, g_get_deleted.method);
+        card.origin_type = reinterpret_cast<GetterInt32Fn>(g_get_origin_type.address)(
+            self, g_get_origin_type.method);
+        if (g_get_customizing.address) {
+            card.customizing = reinterpret_cast<GetterBoolFn>(g_get_customizing.address)(
+                self, g_get_customizing.method);
+        }
+        if (g_get_customizes.address) {
+            card.has_customizes = reinterpret_cast<GetterObjectFn>(g_get_customizes.address)(
+                self, g_get_customizes.method) != nullptr;
+        }
+        return card;
+    }
+
+    // Verified offsets for the reference ELF; only used on that exact Build ID.
     const auto* base = static_cast<const uint8_t*>(self);
     card.number = *reinterpret_cast<const int32_t*>(base + kOffsetNumber);
     void* id_string = *reinterpret_cast<void* const*>(base + kOffsetProduceCardId);
@@ -485,6 +529,24 @@ uintptr_t resolve_managed_method(
     return reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
 }
 
+
+RuntimeGetter resolve_runtime_getter(
+    const RuntimeIl2CppApi& api,
+    const void* assembly_image,
+    const char* namespaze,
+    const char* class_name,
+    const char* method_name) {
+    RuntimeGetter result;
+    if (!assembly_image) return result;
+    void* klass = api.class_from_name(assembly_image, namespaze, class_name);
+    if (!klass) return result;
+    const void* method = api.class_get_method_from_name(klass, method_name, -1);
+    if (!method) return result;
+    result.method = method;
+    result.address = reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
+    return result;
+}
+
 void* hooked_get_card_data(void* self, void* method) {
     const CardRecord card = read_card(self);
     remember_card(card);
@@ -528,6 +590,7 @@ void install_il2cpp_hooks() {
     bool merge_ok = false;
 
     if (image.build_id == kExpectedBuildId) {
+        g_use_runtime_getters = false;
         // Exact ELF used during the original analysis: retain the verified RVAs.
         get_card_address = image.base + kRvaGetProduceCardData;
         create_deck_address = image.base + kRvaCreateDeckProduceCardMasters;
@@ -562,11 +625,26 @@ void install_il2cpp_hooks() {
             "Campus.InGame",
             "ProduceUtility",
             "CreateDeckProduceCardMasters");
-        if (!get_card_address || !create_deck_address) {
+
+        const char* card_ns = "Campus.Common.Proto.Client.Transaction";
+        const char* card_class = "UserProduceProgressProduceCard";
+        g_get_number = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Number");
+        g_get_produce_card_id = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_ProduceCardId");
+        g_get_upgrade_count = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_UpgradeCount");
+        g_get_deleted = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Deleted");
+        g_get_origin_type = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_OriginType");
+        g_get_customizing = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Customizing");
+        g_get_customizes = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Customizes");
+
+        if (!get_card_address || !create_deck_address ||
+            !g_get_number.address || !g_get_produce_card_id.address ||
+            !g_get_upgrade_count.address || !g_get_deleted.address || !g_get_origin_type.address) {
             write_status("method-resolution-failed", image.build_id);
             g_hooks_installed.store(false);
             return;
         }
+        g_use_runtime_getters = true;
+
         // InternalMergeFrom is diagnostic-only; deck capture does not require it.
         merge_ok = true;
     }
