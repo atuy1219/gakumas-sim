@@ -34,6 +34,19 @@ function progressDeleted(record) {
   return boolValue(field(record, "deleted", "Deleted", "isDeleted", "IsDeleted"));
 }
 
+function progressCustomizes(record) {
+  const source = field(record, "customizes", "Customizes");
+  if (!Array.isArray(source)) return [];
+  const counts = new Map();
+  for (const item of source) {
+    const id = String(field(item, "id", "Id", "produceCardCustomizeId", "ProduceCardCustomizeId") ?? "").trim();
+    if (!id) continue;
+    const count = Math.max(1, Math.trunc(Number(field(item, "customizeCount", "CustomizeCount") ?? 1) || 1));
+    counts.set(id, (counts.get(id) ?? 0) + count);
+  }
+  return [...counts].map(([id, customizeCount]) => ({ id, customizeCount }));
+}
+
 function cardLikeScore(list) {
   if (!Array.isArray(list) || !list.length) return -1;
   let score = 0;
@@ -105,13 +118,17 @@ export function normalizeProgressProduceCardInstances(
       ?? cardById.get(id)
       ?? {};
     const deleted = progressDeleted(source);
+    const customizes = progressCustomizes(source);
     return {
       ...source,
       id,
       produceCardId: id,
       number,
       upgradeCount,
+      customizes,
       deleted,
+      customizing: boolValue(field(source, "customizing", "Customizing")),
+      hasCustomizes: customizes.length > 0 || boolValue(field(source, "hasCustomizes", "HasCustomizes")),
       originType: field(source, "originType", "OriginType") ?? null,
       fixedDeckOrder: Number(field(source, "fixedDeckOrder", "FixedDeckOrder") ?? 0) || 0,
       name: variant.baseName ?? variant.name ?? id,
