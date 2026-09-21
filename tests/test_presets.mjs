@@ -16,6 +16,11 @@ const preset = createExamPreset({
   idolCardId: "i_card-hski-3-001",
   cardPoolMode: "highScore",
   cards: [{ id: "p_card-a", count: 2 }, { id: "p_card-b", count: 1 }],
+  manualCards: [
+    { id: "p_card-a", upgradeCount: 1, customizes: [{ id: "custom-a", customizeCount: 2 }] },
+    { id: "p_card-a", upgradeCount: 0, customizes: [] },
+    { id: "p_card-b", upgradeCount: 0, customizes: [] },
+  ],
   progressCards: [
     { number: 7, produceCardId: "p_card-a", upgradeCount: 1, deleted: false, originType: "ProduceCardOriginType_Memory", customField: "preserve" },
     { number: 3, produceCardId: "p_card-b", upgradeCount: 0, deleted: false, originType: "ProduceCardOriginType_Initial" },
@@ -28,6 +33,8 @@ assert.equal(preset.version, EXAM_PRESET_VERSION);
 assert.equal(preset.characterId, "hski");
 assert.equal(preset.cardPoolMode, "highScore");
 assert.deepEqual(preset.cards, [{ id: "p_card-a", count: 2 }, { id: "p_card-b", count: 1 }]);
+assert.equal(preset.manualCards.length, 3);
+assert.deepEqual(preset.manualCards[0].customizes, [{ id: "custom-a", customizeCount: 2 }]);
 assert.equal(preset.progressCards.length, 2);
 assert.equal(preset.progressCards[0].customField, "preserve");
 assert.equal(preset.stamina, 30);
@@ -37,6 +44,7 @@ const parsed = parseExamPreset(JSON.stringify(preset));
 assert.equal(parsed.idolCardId, "i_card-hski-3-001");
 assert.equal(parsed.cardPoolMode, "highScore");
 assert.deepEqual(parsed.cards, preset.cards);
+assert.deepEqual(parsed.manualCards, preset.manualCards);
 assert.deepEqual(parsed.progressCards, preset.progressCards);
 
 const legacyPreset = parseExamPreset(JSON.stringify({
@@ -45,6 +53,7 @@ const legacyPreset = parseExamPreset(JSON.stringify({
   cardPoolMode: undefined,
 }));
 assert.equal(legacyPreset.cardPoolMode, "normal", "v1 preset must remain loadable as the normal card pool");
+assert.deepEqual(legacyPreset.manualCards, []);
 assert.deepEqual(legacyPreset.progressCards, []);
 
 const v2Preset = parseExamPreset(JSON.stringify({

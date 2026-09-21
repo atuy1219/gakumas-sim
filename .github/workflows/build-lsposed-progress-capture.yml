@@ -7,6 +7,10 @@ on:
     paths:
       - 'android/lsposed-progress-capture/**'
       - '.github/workflows/build-lsposed-progress-capture.yml'
+  pull_request:
+    paths:
+      - 'android/lsposed-progress-capture/**'
+      - '.github/workflows/build-lsposed-progress-capture.yml'
   workflow_dispatch:
 
 jobs:

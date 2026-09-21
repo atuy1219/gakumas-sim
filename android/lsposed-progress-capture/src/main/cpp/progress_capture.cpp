@@ -43,6 +43,11 @@ struct NativeAPIEntries {
     UnhookFunType unhookFunc;
 };
 
+struct CustomizeRecord {
+    std::string id;
+    int32_t customize_count = 0;
+};
+
 struct CardRecord {
     int32_t number = 0;
     std::string produce_card_id;
@@ -51,6 +56,7 @@ struct CardRecord {
     int32_t origin_type = 0;
     bool customizing = false;
     bool has_customizes = false;
+    std::vector<CustomizeRecord> customizes;
 };
 
 HookFunType g_hook = nullptr;
@@ -83,6 +89,13 @@ RuntimeGetter g_get_deleted;
 RuntimeGetter g_get_origin_type;
 RuntimeGetter g_get_customizing;
 RuntimeGetter g_get_customizes;
+
+using RuntimeObjectGetClassFn = void* (*)(void*);
+using RuntimeClassGetMethodFromNameFn = const void* (*)(void*, const char*, int);
+RuntimeObjectGetClassFn g_runtime_object_get_class = nullptr;
+RuntimeClassGetMethodFromNameFn g_runtime_class_get_method_from_name = nullptr;
+
+std::vector<CustomizeRecord> read_customizes(void* collection);
 
 std::string process_name() {
     std::ifstream in("/proc/self/cmdline", std::ios::binary);
@@ -182,8 +195,10 @@ CardRecord read_card(void* self) {
                 self, g_get_customizing.method);
         }
         if (g_get_customizes.address) {
-            card.has_customizes = reinterpret_cast<GetterObjectFn>(g_get_customizes.address)(
-                self, g_get_customizes.method) != nullptr;
+            void* collection = reinterpret_cast<GetterObjectFn>(g_get_customizes.address)(
+                self, g_get_customizes.method);
+            card.customizes = read_customizes(collection);
+            card.has_customizes = !card.customizes.empty();
         }
         return card;
     }
@@ -196,7 +211,9 @@ CardRecord read_card(void* self) {
     card.upgrade_count = *reinterpret_cast<const int32_t*>(base + kOffsetUpgradeCount);
     card.deleted = *(base + kOffsetDeleted) != 0;
     card.origin_type = *reinterpret_cast<const int32_t*>(base + kOffsetOriginType);
-    card.has_customizes = *reinterpret_cast<void* const*>(base + kOffsetCustomizes) != nullptr;
+    void* customizes = *reinterpret_cast<void* const*>(base + kOffsetCustomizes);
+    card.customizes = read_customizes(customizes);
+    card.has_customizes = !card.customizes.empty();
     card.customizing = *(base + kOffsetCustomizing) != 0;
     return card;
 }
@@ -216,8 +233,15 @@ std::string card_json(const CardRecord& card) {
         << "\"deleted\":" << (card.deleted ? "true" : "false") << ","
         << "\"originType\":" << card.origin_type << ","
         << "\"customizing\":" << (card.customizing ? "true" : "false") << ","
-        << "\"hasCustomizes\":" << (card.has_customizes ? "true" : "false")
-        << "}";
+        << "\"hasCustomizes\":" << (card.has_customizes ? "true" : "false") << ","
+        << "\"customizes\":[";
+    for (size_t i = 0; i < card.customizes.size(); ++i) {
+        const auto& customize = card.customizes[i];
+        out << "{\"id\":\"" << json_escape(customize.id) << "\",\"customizeCount\":"
+            << customize.customize_count << "}";
+        if (i + 1 != card.customizes.size()) out << ",";
+    }
+    out << "]}";
     return out.str();
 }
 
@@ -304,7 +328,7 @@ void write_snapshot(std::vector<CardRecord> deck) {
     std::ostringstream out;
     out << "{\n"
         << "  \"format\": \"gakumas-sim-progress-capture\",\n"
-        << "  \"version\": 1,\n"
+        << "  \"version\": 2,\n"
         << "  \"capturedAtUnixMs\": " << unix_time_ms() << ",\n"
         << "  \"source\": \"LSPosed native hook / CreateDeckProduceCardMasters\",\n"
         << "  \"packageName\": \"" << kTargetPackage << "\",\n"
@@ -548,6 +572,54 @@ RuntimeGetter resolve_runtime_getter(
     return result;
 }
 
+
+struct RuntimeMethod {
+    uintptr_t address = 0;
+    const void* method = nullptr;
+};
+
+RuntimeMethod resolve_object_method(void* object, const char* method_name, int argument_count) {
+    RuntimeMethod result;
+    if (!object || !g_runtime_object_get_class || !g_runtime_class_get_method_from_name) return result;
+    void* klass = g_runtime_object_get_class(object);
+    if (!klass) return result;
+    const void* method = g_runtime_class_get_method_from_name(klass, method_name, argument_count);
+    if (!method) return result;
+    result.method = method;
+    result.address = reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
+    return result;
+}
+
+std::vector<CustomizeRecord> read_customizes(void* collection) {
+    std::vector<CustomizeRecord> result;
+    if (!collection) return result;
+
+    const RuntimeMethod get_count = resolve_object_method(collection, "get_Count", 0);
+    const RuntimeMethod get_item = resolve_object_method(collection, "get_Item", 1);
+    if (!get_count.address || !get_item.address) return result;
+
+    using CountFn = int32_t (*)(void*, const void*);
+    using ItemFn = void* (*)(void*, int32_t, const void*);
+    const int32_t count = reinterpret_cast<CountFn>(get_count.address)(collection, get_count.method);
+    if (count <= 0 || count > 32) return result;
+
+    for (int32_t index = 0; index < count; ++index) {
+        void* item = reinterpret_cast<ItemFn>(get_item.address)(collection, index, get_item.method);
+        if (!item) continue;
+        const RuntimeMethod get_id = resolve_object_method(item, "get_Id", 0);
+        const RuntimeMethod get_customize_count = resolve_object_method(item, "get_CustomizeCount", 0);
+        if (!get_id.address || !get_customize_count.address) continue;
+
+        void* id_object = reinterpret_cast<GetterObjectFn>(get_id.address)(item, get_id.method);
+        const std::string id = il2cpp_string_to_utf8(id_object);
+        const int32_t customize_count = reinterpret_cast<GetterInt32Fn>(get_customize_count.address)(
+            item, get_customize_count.method);
+        if (id.empty() || customize_count <= 0 || customize_count > 16) continue;
+        result.push_back({id, customize_count});
+    }
+    return result;
+}
+
 void* hooked_get_card_data(void* self, void* method) {
     const CardRecord card = read_card(self);
     remember_card(card);
@@ -586,6 +658,14 @@ void install_il2cpp_hooks() {
         g_hooks_installed.store(false);
         return;
     }
+
+    // Decode UserProduceProgressProduceCard.Customizes through the live IL2CPP
+    // object model. This is read-only and works independently of the known
+    // protobuf field offsets used for the reference build.
+    g_runtime_object_get_class = reinterpret_cast<RuntimeObjectGetClassFn>(
+        resolve_export(image, "il2cpp_object_get_class"));
+    g_runtime_class_get_method_from_name = reinterpret_cast<RuntimeClassGetMethodFromNameFn>(
+        resolve_export(image, "il2cpp_class_get_method_from_name"));
 
     uintptr_t get_card_address = 0;
     uintptr_t create_deck_address = 0;
