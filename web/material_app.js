@@ -2,7 +2,7 @@ import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCh
 import { parseProduceCardCatalogYaml } from "./engine.js";
 import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
-import { normalizeProgressProduceCards, parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
+import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
