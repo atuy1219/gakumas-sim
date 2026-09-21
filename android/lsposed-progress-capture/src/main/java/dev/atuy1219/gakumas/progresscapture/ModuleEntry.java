@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 public final class ModuleEntry extends XposedModule {
     private static final String TARGET = "com.bandainamcoent.idolmaster_gakuen";
     private static volatile boolean nativeLoaded;
+    private static volatile boolean nativeLoadScheduled;
 
     public ModuleEntry() {
         super();
@@ -45,26 +46,33 @@ public final class ModuleEntry extends XposedModule {
         }
     }
 
-    @Override
-    public void onModuleLoaded(ModuleLoadedParam param) {
-        writeBootstrapStatus("module-loaded", null);
-        if (nativeLoaded) {
-            writeBootstrapStatus("native-already-loaded", null);
-            return;
-        }
+    private static void loadNativeDelayed() {
+        if (nativeLoaded || nativeLoadScheduled) return;
         synchronized (ModuleEntry.class) {
-            if (nativeLoaded) {
-                writeBootstrapStatus("native-already-loaded", null);
-                return;
-            }
+            if (nativeLoaded || nativeLoadScheduled) return;
+            nativeLoadScheduled = true;
+        }
+
+        writeBootstrapStatus("native-load-scheduled", null);
+        Thread loader = new Thread(() -> {
             try {
+                // Compatibility with Vector builds that register native_init.list
+                // only after XposedModule.onModuleLoaded() returns.
+                Thread.sleep(1000L);
                 System.loadLibrary("gakumas_progress_capture");
                 nativeLoaded = true;
                 writeBootstrapStatus("native-library-loaded", null);
             } catch (Throwable error) {
                 writeBootstrapStatus("native-load-failed", error);
-                throw error;
             }
-        }
+        }, "GakumasProgressCaptureLoader");
+        loader.setDaemon(true);
+        loader.start();
+    }
+
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        writeBootstrapStatus("module-loaded", null);
+        loadNativeDelayed();
     }
 }
