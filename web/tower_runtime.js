@@ -680,7 +680,11 @@ function cardMatchesMasterSearch(card, search) {
     const cardGroups = new Set((card.effectGroupIds ?? []).map(String));
     for (const group of groups) if (!cardGroups.has(group)) return false;
   }
-  if (search.isCustomized === true && Number(card.upgradeCount ?? 0) <= 0) return false;
+  if (search.isCustomized === true) {
+    const customized = (Array.isArray(card.customizes) && card.customizes.length > 0)
+      || (Array.isArray(card.customGrowEffects) && card.customGrowEffects.length > 0);
+    if (!customized) return false;
+  }
   return true;
 }
 
