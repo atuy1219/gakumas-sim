@@ -741,3 +741,149 @@ console.log("tower runtime tests: ok");
 }
 
 console.log("native tower flow regression tests: ok");
+
+
+// Current-card effects: grow effect, interval enchant, concentration, and 3-use stance enchant.
+{
+const GROW_ID = "e_effect-exam_add_grow_effect-p_card_search-mental_skill-deck_all-all-0_0-g_effect-block_add-6-g_effect-cost_add-1";
+const INTERVAL_ENCHANT_ID = "e_effect-exam_status_enchant-inf-enchant-p_card-01-act-3_185-enc02";
+const CONCENTRATION_ID = "e_effect-exam_concentration-0001";
+const STANCE_ENCHANT_ID = "e_effect-exam_status_enchant-03-inf-enchant-p_card-03-ido-3_234-enc01";
+
+const masters = [
+  {
+    id: "GROW",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: GROW_ID }],
+  },
+  {
+    id: "MENTAL-A",
+    isInitial: true,
+    category: "ProduceCardCategory_MentalSkill",
+    stamina: 1,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_block-0002" }],
+  },
+  {
+    id: "MENTAL-B",
+    isInitial: true,
+    category: "ProduceCardCategory_MentalSkill",
+    stamina: 2,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const growById = new Map(masters.map((card) => [card.id, card]));
+let growState = createTowerTurnState(
+  masters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  growById,
+  { stamina: 20 },
+);
+drawTowerTurn(growState, 3);
+playTowerCard(growState, growState.hand.findIndex((card) => card.id === "GROW"));
+const grownA = growState.hand.find((card) => card.id === "MENTAL-A");
+const grownB = growState.hand.find((card) => card.id === "MENTAL-B");
+assert.equal(grownA.growBlockAdd, 6);
+assert.equal(grownA.stamina, 2);
+assert.equal(grownB.growBlockAdd, 6);
+assert.equal(grownB.stamina, 3);
+growState.playsRemaining = 1;
+playTowerCard(growState, growState.hand.findIndex((card) => card.id === "MENTAL-A"));
+assert.equal(growState.exam.block, 8, "元気2のカードへGrow BlockAdd +6を適用する");
+
+const intervalMasters = [
+  {
+    id: "INSTALL-185",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: INTERVAL_ENCHANT_ID }],
+  },
+  {
+    id: "SKILL-1",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+  {
+    id: "SKILL-2",
+    isInitial: true,
+    category: "ProduceCardCategory_MentalSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const intervalById = new Map(intervalMasters.map((card) => [card.id, card]));
+let intervalState = createTowerTurnState(
+  intervalMasters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  intervalById,
+);
+drawTowerTurn(intervalState, 3);
+intervalState.exam.parameterBuff = 20;
+intervalState.exam.lessonBuff = 2;
+playTowerCard(intervalState, intervalState.hand.findIndex((card) => card.id === "INSTALL-185"));
+intervalState.playsRemaining = 1;
+playTowerCard(intervalState, intervalState.hand.findIndex((card) => card.id === "SKILL-1"));
+assert.equal(intervalState.exam.parameterBuff, 20, "インストール後1回目では発火しない");
+intervalState.playsRemaining = 1;
+playTowerCard(intervalState, intervalState.hand.findIndex((card) => card.id === "SKILL-2"));
+assert.equal(intervalState.exam.parameterBuff, 17, "2回目で好調-3");
+assert.ok(intervalState.exam.parameter > 0, "2回目で集中4倍適用のパラメータ効果が発火する");
+
+const stanceMasters = [
+  {
+    id: "SET-CONCENTRATION",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: CONCENTRATION_ID }],
+  },
+  {
+    id: "INSTALL-234",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: STANCE_ENCHANT_ID }],
+  },
+  {
+    id: "ACTIVE-1",
+    isInitial: true,
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const stanceById = new Map(stanceMasters.map((card) => [card.id, card]));
+let stanceState = createTowerTurnState(
+  stanceMasters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  stanceById,
+);
+drawTowerTurn(stanceState, 3);
+playTowerCard(stanceState, stanceState.hand.findIndex((card) => card.id === "SET-CONCENTRATION"));
+assert.equal(stanceState.exam.idolStatusType, 1);
+assert.equal(stanceState.exam.idolStatusStep, 1);
+
+stanceState.playsRemaining = 1;
+playTowerCard(stanceState, stanceState.hand.findIndex((card) => card.id === "INSTALL-234"));
+const stanceRegistration = stanceState.effectScheduler.registrations.find(
+  (entry) => entry.sourceId === "enchant-p_card-03-ido-3_234-enc01",
+);
+assert.ok(stanceRegistration);
+assert.equal(stanceRegistration.remainingCount, 3);
+
+stanceState.exam.idolStatusType = 1;
+stanceState.exam.idolStatusStep = 2;
+stanceState.playsRemaining = 1;
+playTowerCard(stanceState, stanceState.hand.findIndex((card) => card.id === "ACTIVE-1"));
+assert.equal(stanceState.exam.idolStatusType, 2);
+assert.equal(stanceState.exam.idolStatusStep, 2);
+assert.equal(stanceRegistration.remainingCount, 2, "03 status enchant consumes one of three activations");
+
+console.log("current card grow/enchant runtime regressions: ok");
+}

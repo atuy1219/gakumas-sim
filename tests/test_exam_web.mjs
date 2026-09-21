@@ -858,3 +858,65 @@ assert.equal(
 
 console.log("native stamina/genki runtime tests: ok");
 }
+
+
+// Regression: effects observed from current produce_cards / card definitions.
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  applyParsedExamEffect,
+  createExamState,
+  parseExamEffectId,
+} = await import("../web/exam_effects.js");
+const { EXAM_IDOL_STATUS_TYPE } = await import("../web/exam_score.js");
+
+const grow = parseExamEffectId("e_effect-exam_add_grow_effect-p_card_search-mental_skill-deck_all-all-0_0-g_effect-block_add-6-g_effect-cost_add-1");
+assert.equal(grow.kind, "add_grow_effect");
+assert.equal(grow.searchId, "p_card_search-mental_skill-deck_all");
+assert.equal(grow.blockAdd, 6);
+assert.equal(grow.costAdd, 1);
+
+const lessonBuffLesson = parseExamEffectId("e_effect-exam_multiple_lesson_buff_lesson-0006-3000-01");
+assert.equal(lessonBuffLesson.kind, "lesson_multiple_lesson_buff");
+let exam = createExamState();
+exam.lessonBuff = 2;
+const multiplied = applyParsedExamEffect(exam, lessonBuffLesson);
+assert.equal(exam.parameter, 14, "集中2を4倍適用して基礎6へ加算する");
+assert.equal(multiplied.applied, true);
+
+const reduce = parseExamEffectId("e_effect-exam_parameter_buff_reduce-0003");
+exam.parameterBuff = 2;
+applyParsedExamEffect(exam, reduce);
+assert.equal(exam.parameterBuff, 0, "好調減少は0でclampする");
+
+exam = createExamState();
+const concentration = parseExamEffectId("e_effect-exam_concentration-0001");
+applyParsedExamEffect(exam, concentration);
+assert.equal(exam.idolStatusType, EXAM_IDOL_STATUS_TYPE.Concentration);
+assert.equal(exam.idolStatusStep, 1);
+
+const preservation = parseExamEffectId("e_effect-exam_preservation-0002");
+applyParsedExamEffect(exam, preservation);
+assert.equal(exam.idolStatusType, EXAM_IDOL_STATUS_TYPE.Preservation);
+assert.equal(exam.idolStatusStep, 2);
+
+const repeatedLessonEnchant = parseExamEffectId("e_effect-exam_status_enchant-inf-enchant-p_card-01-act-3_185-enc02");
+assert.equal(repeatedLessonEnchant.kind, "status_enchant");
+assert.equal(repeatedLessonEnchant.turn, -1);
+assert.equal(repeatedLessonEnchant.trigger.max, 20);
+assert.equal(repeatedLessonEnchant.trigger.playCountInterval, 2);
+assert.deepEqual(repeatedLessonEnchant.effects.map((effect) => effect.kind), [
+  "lesson_multiple_lesson_buff",
+  "parameter_buff_reduce",
+]);
+
+const stanceEnchant = parseExamEffectId("e_effect-exam_status_enchant-03-inf-enchant-p_card-03-ido-3_234-enc01");
+assert.equal(stanceEnchant.kind, "status_enchant");
+assert.equal(stanceEnchant.count, 3);
+assert.equal(stanceEnchant.trigger.category, "ProduceCardCategory_ActiveSkill");
+assert.equal(stanceEnchant.trigger.idolStatusType, EXAM_IDOL_STATUS_TYPE.Concentration);
+assert.equal(stanceEnchant.trigger.idolStatusStepMin, 2);
+assert.equal(stanceEnchant.effects[0].kind, "preservation");
+
+console.log("current card effect parser/runtime regressions: ok");
+}

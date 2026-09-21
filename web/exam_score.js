@@ -133,7 +133,10 @@ export function calculateNativeAddingParameter(exam, valueInput, options = {}) {
     ));
   }
 
-  const lessonBuffMultiple = ratioOr(exam?.lessonBuffMultiple, 1);
+  let lessonBuffMultiple = ratioOr(exam?.lessonBuffMultiple, 1);
+  if (modifier && Number.isFinite(Number(modifier.lessonBuffMultiple))) {
+    lessonBuffMultiple = f32(lessonBuffMultiple * f32(modifier.lessonBuffMultiple));
+  }
   let stanceMultiple = f32(1);
   const idolStatusType = Math.trunc(Number(exam?.idolStatusType) || 0);
   const idolStatusStep = Math.trunc(Number(exam?.idolStatusStep) || 0);
@@ -230,6 +233,7 @@ export const NATIVE_LESSON_MODIFIER_KIND = Object.freeze({
   Enthusiastic: "enthusiastic",
   Concentration: "concentration",
   FullPower: "fullPower",
+  LessonBuff: "lessonBuff",
 });
 
 function nativeLessonModifier(kindInput, permilInput) {
@@ -243,6 +247,8 @@ function nativeLessonModifier(kindInput, permilInput) {
       return { concentrationMultiple: rate };
     case NATIVE_LESSON_MODIFIER_KIND.FullPower:
       return { fullPowerMultiple: rate };
+    case NATIVE_LESSON_MODIFIER_KIND.LessonBuff:
+      return { lessonBuffMultiple: rate };
     default:
       throw new Error(`未知のパラメータ追加倍率です: ${kindInput}`);
   }
