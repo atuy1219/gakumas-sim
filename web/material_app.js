@@ -3,6 +3,13 @@ import { parseProduceCardCatalogYaml } from "./engine.js";
 import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
+import {
+  describeCustomize,
+  normalizeCustomizes,
+  parseCardMemoryRules,
+  parseCustomizeCatalog,
+  parseGrowEffectCatalog,
+} from "./memory_judgement.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
@@ -99,7 +106,11 @@ let examIdolById = new Map();
 let examCards = [];
 let examCardById = new Map();
 let examCardVariantByKey = new Map();
+let examCardRules = new Map();
+let examCustomizeById = new Map();
+let examGrowEffectById = new Map();
 let examCounts = new Map();
+let examManualInstances = new Map();
 let examProgressDeck = [];
 let examProgressInstances = [];
 let examProgressPath = "";
@@ -111,10 +122,136 @@ const examPlan = document.getElementById("exam-plan");
 const examIdol = document.getElementById("exam-idol");
 const examCardPoolMode = document.getElementById("exam-card-pool-mode");
 const examCardSearch = document.getElementById("exam-card-search");
-const manualExamDeck = () => buildExamDeck(examCards, examCounts);
+const manualExamDeck = () => buildExamDeck(examCards, examCounts, examManualInstances);
 const examDeck = () => examProgressDeck.length
   ? examProgressDeck.map((card) => ({ ...card }))
   : manualExamDeck();
+
+
+function cloneExamInstanceConfig(source = {}) {
+  return {
+    upgradeCount: Number(source?.upgradeCount ?? 0) > 0 ? 1 : 0,
+    customizes: normalizeCustomizes(source?.customizes),
+  };
+}
+
+function seedExamManualInstances(cards = []) {
+  const grouped = new Map();
+  for (const card of cards ?? []) {
+    const id = String(card?.id ?? card?.produceCardId ?? "").trim();
+    if (!id) continue;
+    if (!grouped.has(id)) grouped.set(id, []);
+    grouped.get(id).push(cloneExamInstanceConfig(card));
+  }
+  examManualInstances = grouped;
+}
+
+function syncExamManualInstances(cardIdInput, countInput) {
+  const id = String(cardIdInput ?? "");
+  const count = Math.max(0, Math.trunc(Number(countInput ?? 0) || 0));
+  const values = [...(examManualInstances.get(id) ?? [])];
+  while (values.length < count) values.push({ upgradeCount: 0, customizes: [] });
+  values.length = Math.min(values.length, count);
+  if (values.length) examManualInstances.set(id, values);
+  else examManualInstances.delete(id);
+}
+
+function customizationActionIds(customizes) {
+  return normalizeCustomizes(customizes).flatMap((item) => (
+    Array.from({ length: item.customizeCount }, () => item.id)
+  ));
+}
+
+function examCustomizeSummary(config) {
+  const items = normalizeCustomizes(config?.customizes);
+  if (!items.length) return "カスタムなし";
+  return items.map((item) => {
+    const detail = describeCustomize(item.id, item.customizeCount, examCustomizeById, examGrowEffectById);
+    return detail.valid
+      ? `${detail.label}${item.customizeCount > 1 ? `（${item.customizeCount}段階）` : ""}`
+      : `${item.id}（${item.customizeCount}段階）`;
+  }).join(" / ");
+}
+
+function examCardStateSuffix(card) {
+  const upgrade = Number(card?.upgradeCount ?? 0) > 0 ? "+" : "";
+  const customCount = normalizeCustomizes(card?.customizes)
+    .reduce((sum, item) => sum + Number(item.customizeCount ?? 0), 0);
+  return `${upgrade}${customCount ? ` · カスタム${customCount}` : ""}`;
+}
+
+function renderExamInstanceConfig(host, card, config, index) {
+  host.replaceChildren();
+  host.className = "exam-instance-row-v17";
+
+  const heading = document.createElement("strong");
+  heading.textContent = `${index + 1}枚目`;
+
+  const upgradeLabel = document.createElement("label");
+  const upgradeCaption = document.createElement("span");
+  upgradeCaption.textContent = "強化";
+  const upgrade = document.createElement("select");
+  upgrade.add(new Option("未強化", "0"));
+  upgrade.add(new Option("強化済み (+)", "1"));
+  upgrade.value = Number(config.upgradeCount ?? 0) > 0 ? "1" : "0";
+  upgradeLabel.append(upgradeCaption, upgrade);
+
+  const customHost = document.createElement("div");
+  customHost.className = "exam-instance-custom-v17";
+  const rule = examCardRules.get(String(card.id));
+  const max = Math.max(0, Number(rule?.maxCustomizeCount ?? 0));
+  const actions = customizationActionIds(config.customizes);
+
+  if (upgrade.value !== "1") {
+    const note = document.createElement("small");
+    note.textContent = max > 0 ? "カスタムする場合は先に強化済みにしてください。" : "このカードにカスタム候補はありません。";
+    customHost.append(note);
+  } else if (!max || !(rule?.customizeIds?.length)) {
+    const note = document.createElement("small");
+    note.textContent = "このカードにカスタム候補はありません。";
+    customHost.append(note);
+  } else {
+    const selects = [];
+    for (let slot = 0; slot < max; slot += 1) {
+      const label = document.createElement("label");
+      const caption = document.createElement("span");
+      caption.textContent = `カスタム${slot + 1}`;
+      const select = document.createElement("select");
+      select.add(new Option("なし", ""));
+      for (const id of rule.customizeIds) {
+        const detail = describeCustomize(id, 1, examCustomizeById, examGrowEffectById);
+        select.add(new Option(detail.valid ? detail.label : id, id));
+      }
+      select.value = actions[slot] ?? "";
+      label.append(caption, select);
+      customHost.append(label);
+      selects.push(select);
+    }
+    const summary = document.createElement("small");
+    summary.className = "exam-custom-summary-v17";
+    const update = () => {
+      config.customizes = normalizeCustomizes(
+        selects.map((select) => select.value).filter(Boolean).map((id) => ({ id, customizeCount: 1 })),
+      );
+      summary.textContent = examCustomizeSummary(config);
+      renderExamDeckSummary();
+      updateExamSummary();
+    };
+    for (const select of selects) select.addEventListener("change", update);
+    summary.textContent = examCustomizeSummary(config);
+    customHost.append(summary);
+  }
+
+  upgrade.addEventListener("change", () => {
+    config.upgradeCount = upgrade.value === "1" ? 1 : 0;
+    if (!config.upgradeCount) config.customizes = [];
+    renderExamInstanceConfig(host, card, config, index);
+    renderExamDeckSummary();
+    updateExamSummary();
+  });
+
+  host.append(heading, upgradeLabel, customHost);
+}
 
 function currentExamCardFilter(search = examCardSearch?.value ?? "") {
   return {
@@ -192,8 +329,7 @@ function renderExamProgressCards() {
     const chip = document.createElement("span");
     chip.className = "chip";
     if (card.deleted) chip.dataset.deleted = "true";
-    const upgrade = Number(card.upgradeCount ?? 0) > 0 ? "+" : "";
-    chip.textContent = `No.${card.number} ${card.name ?? card.id}${upgrade}${card.deleted ? " · 削除済み" : ""}`;
+    chip.textContent = `No.${card.number} ${card.name ?? card.id}${examCardStateSuffix(card)}${card.deleted ? " · 削除済み" : ""}`;
     container.append(chip);
   }
 }
@@ -229,6 +365,7 @@ function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
   examProgressInstances = parsed.allCards ?? parsed.cards;
   examProgressPath = parsed.path;
   examCounts = progressDeckCounts(parsed.cards);
+  seedExamManualInstances(parsed.cards);
   examCardSearch.value = "";
   resetExamObservation();
   renderExamCards();
@@ -250,7 +387,17 @@ function exportExamPreset() {
       idolCardId: examIdol.value,
       cardPoolMode: examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL,
       cards: [...examCounts].map(([id, count]) => ({ id, count })),
-      progressCards: examProgressDeck.map((card) => ({ ...(card.progressCard ?? card) })),
+      manualCards: examProgressDeck.length
+        ? []
+        : manualExamDeck().map((card) => ({
+            id: card.id,
+            upgradeCount: card.upgradeCount,
+            customizes: normalizeCustomizes(card.customizes),
+          })),
+      progressCards: examProgressDeck.map((card) => ({
+        ...(card.progressCard ?? card),
+        customizes: normalizeCustomizes(card.customizes),
+      })),
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
     });
@@ -297,6 +444,11 @@ async function importExamPreset(file) {
   examIdol.value = preset.idolCardId;
   if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
   examCounts = nextCounts;
+  if (preset.manualCards?.length) seedExamManualInstances(preset.manualCards);
+  else {
+    examManualInstances = new Map();
+    for (const [id, count] of examCounts) syncExamManualInstances(id, count);
+  }
   if (preset.progressCards?.length) {
     const parsedProgress = parseProgressProduceCardsJson(
       { produceCards: preset.progressCards },
@@ -307,6 +459,7 @@ async function importExamPreset(file) {
     examProgressInstances = parsedProgress.allCards;
     examProgressPath = "preset.progressCards";
     examCounts = progressDeckCounts(examProgressDeck);
+    seedExamManualInstances(examProgressDeck);
     renderExamProgressCards();
   } else {
     clearExamProgressDeck();
@@ -363,17 +516,37 @@ function renderExamCards() {
     minus.addEventListener("click", () => {
       clearExamProgressDeck("カードを手動編集したため、進行中produceCardsのinstance情報を解除しました。");
       examCounts = changeExamCardCount(examCounts, card, -1);
+      syncExamManualInstances(card.id, examCounts.get(card.id) ?? 0);
       resetExamObservation();
       renderExamCards();
     });
     plus.addEventListener("click", () => {
       clearExamProgressDeck("カードを手動編集したため、進行中produceCardsのinstance情報を解除しました。");
       examCounts = changeExamCardCount(examCounts, card, 1);
+      syncExamManualInstances(card.id, examCounts.get(card.id) ?? 0);
       resetExamObservation();
       renderExamCards();
     });
     controls.append(minus, count, plus);
     row.append(text, controls);
+    const selectedCount = Number(examCounts.get(card.id) ?? 0);
+    if (selectedCount > 0) {
+      syncExamManualInstances(card.id, selectedCount);
+      const details = document.createElement("details");
+      details.className = "exam-card-config-v17";
+      const summary = document.createElement("summary");
+      summary.textContent = "強化・カスタムを設定";
+      const instanceList = document.createElement("div");
+      instanceList.className = "exam-instance-list-v17";
+      const configs = examManualInstances.get(String(card.id)) ?? [];
+      configs.forEach((config, index) => {
+        const host = document.createElement("div");
+        renderExamInstanceConfig(host, card, config, index);
+        instanceList.append(host);
+      });
+      details.append(summary, instanceList);
+      row.append(details);
+    }
     container.append(row);
   }
   updateExamSummary();
@@ -386,8 +559,8 @@ function renderExamDeckSummary() {
     const chip = document.createElement("span");
     chip.className = "chip";
     chip.textContent = examProgressDeck.length
-      ? `${index + 1}. No.${card.number} ${card.name ?? card.id}${Number(card.upgradeCount ?? 0) > 0 ? "+" : ""}`
-      : `${index + 1}. ${card.name ?? card.id}`;
+      ? `${index + 1}. No.${card.number} ${card.name ?? card.id}${examCardStateSuffix(card)}`
+      : `${index + 1}. ${card.name ?? card.id}${examCardStateSuffix(card)}`;
     container.append(chip);
   }
 }
@@ -670,10 +843,12 @@ async function startExamSeedSearch() {
 
 async function initializeExamSetup() {
   try {
-    const [characterText, idolText, cardText] = await Promise.all([
+    const [characterText, idolText, cardText, customizeText, growEffectText] = await Promise.all([
       fetchTextWithFallback(CATALOG_URLS.characters),
       fetchTextWithFallback(CATALOG_URLS.idolCards),
       fetchTextWithFallback(CATALOG_URLS.cardsPrimary, CATALOG_URLS.cardsFallback),
+      fetchTextWithFallback(CATALOG_URLS.cardCustomizes),
+      fetchTextWithFallback(CATALOG_URLS.cardGrowEffects),
     ]);
     examCharacters = parseCharacterCatalog(characterText).filter((character) => character.isPlayable);
     examCharacterById = new Map(examCharacters.map((character) => [String(character.id), character]));
@@ -682,6 +857,9 @@ async function initializeExamSetup() {
     const fullExamCards = parseProduceCardCatalogYaml(cardText);
     examCardById = new Map(fullExamCards.map((card) => [String(card.id), card]));
     examCardVariantByKey = new Map(fullExamCards.map((card) => [`${String(card.id)}@@${Number(card.upgradeCount ?? 0)}`, card]));
+    examCardRules = parseCardMemoryRules(cardText);
+    examCustomizeById = parseCustomizeCatalog(customizeText);
+    examGrowEffectById = parseGrowEffectCatalog(growEffectText);
     examCards = buildCanonicalCardCatalog(fullExamCards);
     examCharacter.replaceChildren(new Option("選択してください", ""));
     for (const character of examCharacters) examCharacter.add(new Option(character.name, character.id));
@@ -696,6 +874,7 @@ async function initializeExamSetup() {
 
 examCharacter.addEventListener("change", () => {
   examCounts = new Map();
+  examManualInstances = new Map();
   clearExamProgressDeck();
   refreshExamIdols();
   renderExamCards();
@@ -703,6 +882,7 @@ examCharacter.addEventListener("change", () => {
 });
 examPlan.addEventListener("change", () => {
   examCounts = new Map();
+  examManualInstances = new Map();
   clearExamProgressDeck();
   refreshExamIdols();
   renderExamCards();
@@ -710,12 +890,14 @@ examPlan.addEventListener("change", () => {
 });
 examIdol.addEventListener("change", () => {
   examCounts = new Map();
+  examManualInstances = new Map();
   clearExamProgressDeck();
   renderExamCards();
   resetExamObservation();
 });
 examCardPoolMode?.addEventListener("change", () => {
   examCounts = new Map();
+  examManualInstances = new Map();
   clearExamProgressDeck();
   renderExamCards();
   resetExamObservation();
