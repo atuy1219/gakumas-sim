@@ -1041,3 +1041,57 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
   opacity: 0.62;
   text-decoration: line-through;
 }
+
+
+/* exam card per-instance upgrade/customization */
+.exam-card-config-v17 {
+  grid-column: 1 / -1;
+  margin-top: .35rem;
+  padding-top: .55rem;
+  border-top: 1px solid color-mix(in srgb, var(--m3e-outline, currentColor) 18%, transparent);
+}
+.exam-card-config-v17 > summary {
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 800;
+  color: var(--m3e-primary, currentColor);
+}
+.exam-instance-list-v17 {
+  display: grid;
+  gap: .55rem;
+  margin-top: .6rem;
+}
+.exam-instance-row-v17 {
+  display: grid;
+  grid-template-columns: auto minmax(8rem, .7fr) minmax(12rem, 1.8fr);
+  align-items: end;
+  gap: .55rem;
+  padding: .7rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--m3e-surface, white) 70%, transparent);
+}
+.exam-instance-row-v17 > label,
+.exam-instance-custom-v17 label {
+  display: grid;
+  gap: .25rem;
+}
+.exam-instance-row-v17 label > span,
+.exam-instance-custom-v17 small,
+.exam-custom-summary-v17 {
+  font-size: .74rem;
+  color: var(--m3e-outline, #777);
+}
+.exam-instance-custom-v17 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: .45rem;
+}
+.exam-custom-summary-v17 {
+  grid-column: 1 / -1;
+}
+@media (max-width: 760px) {
+  .exam-instance-row-v17 {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
