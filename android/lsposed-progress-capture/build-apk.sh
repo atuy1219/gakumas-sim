@@ -51,23 +51,24 @@ for tool in "$AAPT2" "$ZIPALIGN" "$APKSIGNER" "$ANDROID_JAR"; do
 done
 
 rm -rf "$OUT"
-mkdir -p "$STAGE/assets" "$STAGE/lib/arm64-v8a"
+mkdir -p "$STAGE/assets" "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed"
 
 "$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
 
 cp "$ROOT/src/main/assets/native_init" "$STAGE/assets/native_init"
+cp "$ROOT/src/main/resources/META-INF/xposed/"* "$STAGE/META-INF/xposed/"
 
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.0.1.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.0.2.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
 cp "$BASE_APK" "$UNALIGNED"
 (
   cd "$STAGE"
-  zip -q -r "$UNALIGNED" assets lib
+  zip -q -r "$UNALIGNED" assets lib META-INF
 )
 
 "$ZIPALIGN" -f 4 "$UNALIGNED" "$ALIGNED"
@@ -78,6 +79,6 @@ keytool -genkeypair -v   -keystore "$KEYSTORE"   -storepass android -keypass and
 "$APKSIGNER" sign   --ks "$KEYSTORE" --ks-pass pass:android   --key-pass pass:android --ks-key-alias androiddebugkey   --out "$FINAL" "$ALIGNED"
 
 "$APKSIGNER" verify --verbose "$FINAL"
-unzip -l "$FINAL" | grep -E 'assets/native_init|lib/arm64-v8a/libgakumas_progress_capture.so|AndroidManifest.xml'
+unzip -l "$FINAL" | grep -E 'META-INF/xposed/(native_init.list|scope.list|module.prop)|assets/native_init|lib/arm64-v8a/libgakumas_progress_capture.so|AndroidManifest.xml'
 sha256sum "$FINAL" | tee "$FINAL.sha256"
 echo "$FINAL"
