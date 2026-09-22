@@ -347,8 +347,12 @@ const timerState = createState(["timer"], [timerCard]);
 drawTowerTurn(timerState, 1);
 playTowerCard(timerState, 0);
 finishTowerTurn(timerState);
+assert.equal(timerState.exam.parameter, 0);
+assert.equal(timerState.timers.length, 1);
+const timerNextTurn = drawTowerTurn(timerState, 1);
 assert.equal(timerState.exam.parameter, 40);
 assert.equal(timerState.timers.length, 0);
+assert.match(timerNextTurn.nativePhaseEffects.join(" / "), /パラメータ \+40/);
 
 const drawTimerCard = masterCard("draw-timer", ["e_effect-exam_effect_timer-0001-01-e_effect-exam_card_draw-0002"]);
 const fillerCards = ["a", "b", "c", "d"].map((id) => masterCard(id));
@@ -361,8 +365,9 @@ if (timerIndex < 0) {
 }
 playTowerCard(drawTimerState, 0);
 finishTowerTurn(drawTimerState);
-assert.equal(drawTimerState.pendingDraw, 2);
+assert.equal(drawTimerState.pendingDraw, 0);
 assert.equal(drawTowerTurn(drawTimerState, 1).hand.length, 3);
+assert.equal(drawTimerState.pendingDraw, 0);
 
 const swapCard = masterCard("swap", ["e_effect-exam_hand_grave_count_card_draw"]);
 const swapState = createState(["swap", "a", "b", "c", "d"], [swapCard, ...fillerCards]);
