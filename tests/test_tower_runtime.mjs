@@ -190,6 +190,8 @@ assert.equal(generatedPlay.created.length, 1);
 assert.equal(generatedPlay.created[0].card.id, sleepyId);
 assert.equal(generatedPlay.created[0].movePosition, "deck_random");
 assert.equal(generatedPlay.created[0].insertIndex, 0, "empty Deck resolves DeckRandom to index 0");
+assert.match(generatedPlay.effects.join(" / "), /カード生成: 眠気 ×1/);
+assert.doesNotMatch(generatedPlay.effects.join(" / "), /p_card-00-acc-0_002/);
 assert.deepEqual(state.deck.map((card) => card.id), [sleepyId]);
 assert.equal(state.hand.some((card) => card.id === sleepyId), false, "generated after draw, so it is not drawn by the same effect");
 
@@ -329,6 +331,8 @@ assert.equal(summerPlay.moved[0].to, "lost");
 assert.equal(state.deck.some((card) => card.id === sleepyId), false);
 assert.equal(state.discard.some((card) => card.id === sleepyId), false);
 assert.equal(state.lost.some((card) => card.id === sleepyId), true);
+assert.match(summerPlay.effects.join(" / "), /山札・捨て札の眠気を除外へ移動/);
+assert.doesNotMatch(summerPlay.effects.join(" / "), /p_card-00-acc-0_002/);
 const summerRandomStep = new XorShift32(summerRandomBefore);
 // Native PickCardPositionListImpl consumes one RNG word for the fixed 1_1
 // pick count, then one random sort key for the single matching 眠気.

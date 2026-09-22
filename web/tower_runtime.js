@@ -210,6 +210,43 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
   };
 }
 
+function runtimeCardName(state, cardIdInput, upgradeCountInput = null) {
+  const id = String(cardIdInput ?? "");
+  const upgrade = upgradeCountInput === null || upgradeCountInput === undefined
+    ? null
+    : Number(upgradeCountInput);
+  const master = (upgrade === null
+    ? null
+    : state.cardVariantByKey?.get?.(`${id}@@${upgrade}`))
+    ?? state.cardById?.get?.(id)
+    ?? null;
+  return String(master?.name ?? id);
+}
+
+function runtimeCardPositionName(positionInput) {
+  switch (String(positionInput ?? "")) {
+    case "deck": return "山札";
+    case "grave": return "捨て札";
+    case "deck_grave": return "山札・捨て札";
+    case "deck_first": return "山札の先頭";
+    case "deck_last": return "山札の末尾";
+    case "deck_random": return "山札のランダム位置";
+    case "hand": return "手札";
+    case "lost": return "除外";
+    case "hold": return "保留";
+    default: return String(positionInput ?? "");
+  }
+}
+
+function runtimeEnchantName(state, enchantIdInput) {
+  const enchantId = String(enchantIdInput ?? "");
+  const cardId = [...(state.cardById?.keys?.() ?? [])]
+    .sort((a, b) => String(b).length - String(a).length)
+    .find((id) => enchantId.includes(String(id)));
+  if (!cardId) return "継続効果";
+  return `${runtimeCardName(state, cardId)}の継続効果`;
+}
+
 function addGeneratedCard(state, parsed, event) {
   if (!Array.isArray(event.created)) event.created = [];
   const min = Math.max(0, Number(parsed.pickCountMin ?? 0) || 0);
@@ -1896,9 +1933,11 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     }
     case "card_create_id":
       addGeneratedCard(state, applied, event);
+      applied.label = `カード生成: ${runtimeCardName(state, applied.cardId, applied.upgradeCount)} ×${applied.pickCountMin}`;
       break;
     case "card_move_search":
       moveSearchedCards(state, applied, event);
+      applied.label = `${runtimeCardPositionName(applied.searchPosition)}の${runtimeCardName(state, applied.cardId)}を${runtimeCardPositionName(applied.movePosition)}へ移動`;
       break;
     case "add_grow_effect": {
       const matched = addGrowEffectsToDeckAll(state, applied.effect ?? parsed, event);
@@ -1941,6 +1980,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       break;
     case "status_enchant":
       registerParsedStatusEnchant(state, parsed);
+      applied.label = `${runtimeEnchantName(state, parsed.enchantId)}を追加`;
       break;
     case "master_effect":
       executeMasterEffect(state, applied.effect ?? parsed, event, { timed });
