@@ -75,6 +75,19 @@ export function isSupportedSimpleMove(value) {
   return !move || move === "ProduceCardMovePositionType_Unknown" || move === "ProduceCardMovePositionType_Grave" || move === "ProduceCardMovePositionType_Lost";
 }
 
+export class TowerCardSelectionRequired extends Error {
+  constructor({ selectionIndex, effectId, candidates, min, max }) {
+    super(`${effectId}: カード選択が必要です。`);
+    this.name = "TowerCardSelectionRequired";
+    this.code = "TOWER_CARD_SELECTION_REQUIRED";
+    this.selectionIndex = selectionIndex;
+    this.effectId = effectId;
+    this.candidates = candidates;
+    this.min = min;
+    this.max = max;
+  }
+}
+
 function runtimeInstances(
   cards,
   cardById,
@@ -445,6 +458,9 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     gimmickEffectRemainingCounts: new Map(),
     lessonType: String(options.lessonType ?? ""),
     playTurnCountSum: 0,
+    aiCardSelectionPlan: null,
+    aiCardSelectionCursor: 0,
+    requireCardSelections: false,
   };
   registerResolvedPItems(state);
   registerResolvedGimmicks(state);
@@ -1385,10 +1401,59 @@ function masterPickCount(state, parsed, available) {
   return consumeNativeRandomInt(state, min, max + 1);
 }
 
+function masterSelectionIdentity(card, index = 0) {
+  return String(card?.token ?? `${card?.id ?? ""}@@${card?.upgradeCount ?? 0}@@${index}`);
+}
+
+function selectedMasterCandidates(state, parsed, candidates) {
+  const range = String(parsed.pickRangeType ?? "");
+  if (!range.endsWith("_Select")) return null;
+  let min = Math.max(0, Math.trunc(Number(parsed.pickCountMin ?? 0)));
+  let max = Math.max(min, Math.trunc(Number(parsed.pickCountMax ?? min)));
+  if (range.endsWith("_All") && min === 0 && max === 0) min = max = candidates.length;
+  max = Math.min(max, candidates.length);
+  min = Math.min(min, max);
+  const selectionIndex = Math.max(0, Math.trunc(Number(state.aiCardSelectionCursor ?? 0)));
+  const planned = state.aiCardSelectionPlan?.[selectionIndex];
+  if (!Array.isArray(planned)) {
+    if (state.requireCardSelections) {
+      throw new TowerCardSelectionRequired({
+        selectionIndex,
+        effectId: String(parsed.id ?? parsed.masterEffectType ?? "card-selection"),
+        candidates: candidates.map((card, index) => ({
+          identity: masterSelectionIdentity(card, index),
+          id: String(card?.id ?? ""),
+          upgradeCount: Number(card?.upgradeCount ?? 0),
+        })),
+        min,
+        max,
+      });
+    }
+    return candidates.slice(0, max);
+  }
+  if (planned.length < min || planned.length > max) {
+    throw new Error(`${parsed.id}: カード選択枚数が不正です。`);
+  }
+  const remaining = candidates.map((card, index) => ({
+    card,
+    identity: masterSelectionIdentity(card, index),
+  }));
+  const selected = [];
+  for (const identity of planned) {
+    const index = remaining.findIndex((entry) => entry.identity === String(identity));
+    if (index < 0) throw new Error(`${parsed.id}: 選択対象カードが見つかりません: ${identity}`);
+    selected.push(remaining.splice(index, 1)[0].card);
+  }
+  state.aiCardSelectionCursor = selectionIndex + 1;
+  return selected;
+}
+
 function pickedMasterCards(state, parsed, context = {}) {
   const search = resolvedMasterSearch(state, parsed.searchId);
   const candidates = cardsForMasterSearch(state, search, context)
     .filter((card) => cardMatchesMasterSearch(card, search));
+  const selected = selectedMasterCandidates(state, parsed, candidates);
+  if (selected) return selected;
   const count = masterPickCount(state, parsed, candidates.length);
   const range = String(parsed.pickRangeType ?? "");
   if (range.endsWith("_Random")) {
@@ -1698,6 +1763,14 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamCardCreateSearch": {
       const search = resolvedMasterSearch(state, parsed.searchId);
       const candidates = [...(state.cardById?.values?.() ?? [])].filter((card) => cardMatchesMasterSearch(card, search));
+      const selected = selectedMasterCandidates(state, parsed, candidates);
+      if (selected) {
+        for (const master of selected) {
+          const card = generatedRuntimeCard(state, master.id, Number(master.upgradeCount ?? 0));
+          if (card) { addRuntimeCardAt(state, card, parsed.movePositionType); event.created.push({ card: { ...card } }); }
+        }
+        event.effects.push("検索条件からカード生成"); return;
+      }
       const amount = masterPickCount(state, parsed, candidates.length);
       for (let i = 0; i < amount && candidates.length; i += 1) {
         const index = consumeNativeRandomInt(state, 0, candidates.length);

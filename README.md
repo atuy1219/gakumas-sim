@@ -64,6 +64,50 @@ Pアイテムの試験中効果は `ProduceItemEffect` → `ProduceExamStatusEnc
 `ProduceExamTrigger` → `ProduceExamEffect` を解決し、カードと同じNative Effect
 Schedulerで処理します。試験外の `ProduceEffect` は試験ランタイムでは発動しません。
 
+#### 十王星南・ドル道26階のAI開発
+
+`web/juou_sena_tower26.js` に26階専用プロファイルと初期状態生成、
+`web/tower_ai.js` にAI用の環境APIがあります。
+
+- ライブ階層設定に合わせた16ターン、サブメモリー最大3、対応育成タイプの検証
+- seed固定のターン属性、山札、再シャッフル、予約効果、Pアイテム残回数を保持
+- `enumerateTowerAiActions` でカード使用・追加行動・ターン終了・カード選択を列挙
+- `applyTowerAiAction` は元状態を変更せず次状態を返す
+- `towerAiStateKey` は乱数、タイマー、Scheduler、Pアイテム・ギミック回数を含む
+- `rankTowerAiActions` / `runTowerAiEpisode` で決定論的なBeam探索と16ターン完走
+- `stateEvaluator` を渡して任意のルールベース、MLP、強化学習価値関数へ差し替え可能
+
+```js
+import { createJuouSenaTower26State } from "./web/juou_sena_tower26.js";
+import { runTowerAiEpisode } from "./web/tower_ai.js";
+
+const state = createJuouSenaTower26State({
+  cards,
+  seed: 0x12345678,
+  examEffectType: "ProduceExamEffectType_ExamParameterBuff",
+  cardById,
+  options: {
+    cardVariantByKey,
+    stamina: 100,
+    pItems,
+    examEffectById,
+    examStatusEnchantById,
+    examTriggerById,
+    cardSearchById,
+  },
+});
+
+const result = runTowerAiEpisode(state, {
+  depth: 4,
+  beamWidth: 32,
+  stateEvaluator: (next) => next.exam.parameter,
+});
+```
+
+実データで属性補正を再現する場合は、Web側と同じ
+`calculateTowerMemoryParameters` / `calculateTowerParameterBonus` の結果を
+`createJuouSenaTower26State` の `parameterBonus` に渡します。
+
 ## 所有メモリーの入力方法
 
 Web上でメモリーを手動登録できます。
