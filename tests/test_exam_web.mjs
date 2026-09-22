@@ -491,6 +491,68 @@ assert.equal(timerTwoState.pendingDraw, 0);
 console.log("effect runtime v8 tests: ok");
 }
 
+// Native anomaly stance transition rules and release rewards.
+{
+const { default: assert } = await import("node:assert/strict");
+const { EXAM_IDOL_STATUS_TYPE } = await import("../web/exam_score.js");
+const { createExamState, trySetExamStance } = await import("../web/exam_effects.js");
+
+let exam = createExamState();
+let result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Concentration, 1);
+assert.equal(result.changed, true);
+assert.equal(exam.idolStatusStep, 1);
+assert.equal(exam.stanceChangeCount, 1);
+assert.equal(exam.concentrationChangeCount, 1);
+
+result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Concentration, 1);
+assert.equal(result.changed, true);
+assert.equal(exam.idolStatusStep, 2, "same stance raises the native step");
+assert.equal(exam.stanceChangeCount, 1, "step-only changes do not increment stance count");
+assert.equal(trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Concentration, 1).changed, false);
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Preservation;
+exam.idolStatusStep = 2;
+exam.blockRestriction = true;
+result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Concentration, 1);
+assert.equal(exam.block, 5, "Preservation release uses fixed block and bypasses restriction");
+assert.equal(exam.enthusiastic, 8);
+assert.equal(result.playableValueAdd, 1);
+assert.equal(result.releasedPreservation, true);
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.OverPreservation;
+exam.idolStatusStep = 1;
+exam.fullPowerPoint = 20;
+result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.FullPower, 1);
+assert.equal(exam.fullPowerPoint, 20, "direct Full Power effects do not consume the gauge");
+assert.equal(exam.block, 5);
+assert.equal(exam.enthusiastic, 10);
+assert.equal(result.playableValueAdd, 2, "release and Full Power each add one play");
+assert.equal(result.growLessonAdd, 10);
+
+exam = createExamState();
+exam.fullPowerPoint = 20;
+result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.FullPower, 1, {
+  consumeFullPowerPoint: true,
+});
+assert.equal(exam.fullPowerPoint, 10, "automatic Full Power consumes 10 points");
+
+exam = createExamState();
+exam.stanceLock = 1;
+result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Preservation, 1);
+assert.equal(result.blocked, true);
+assert.equal(exam.idolStatusType, EXAM_IDOL_STATUS_TYPE.Unknown);
+
+exam = createExamState();
+exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.FullPower;
+exam.idolStatusStep = 1;
+result = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Unknown, 0);
+assert.equal(result.blocked, true, "effect executors cannot replace active Full Power");
+
+console.log("native anomaly stance transition tests: ok");
+}
+
 // test_exam_effects.mjs
 {
 const { default: assert } = await import("node:assert/strict");

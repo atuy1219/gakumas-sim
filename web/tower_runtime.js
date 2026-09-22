@@ -11,8 +11,13 @@ import {
   parseExamEffectMaster,
   payCardCost,
   tickNativeScoreTimedStatuses,
+  trySetExamStance,
 } from "./exam_effects.js";
-import { applyNativeReviewTurnEnd, calculateNativeDependentLessonBase } from "./exam_score.js";
+import {
+  EXAM_IDOL_STATUS_TYPE,
+  applyNativeReviewTurnEnd,
+  calculateNativeDependentLessonBase,
+} from "./exam_score.js";
 import {
   applyCardCustomizations,
   applyCardGrowEffectsToParsedEffect,
@@ -1598,6 +1603,57 @@ function applyMasterLesson(state, parsed, source, event, label) {
   event.effects.push(`${label}: ${result.label}`);
 }
 
+function applyStanceRuntimeRewards(state, stance, event) {
+  const playable = Math.max(0, Math.trunc(Number(stance?.playableValueAdd) || 0));
+  if (playable > 0) {
+    state.playsRemaining += playable;
+    event.effects.push(`カード使用回数 +${playable}`);
+  }
+  const lessonAdd = Math.max(0, Math.trunc(Number(stance?.growLessonAdd) || 0));
+  if (lessonAdd <= 0) return;
+
+  const seen = new Set();
+  let matched = 0;
+  for (const pool of [state.deck, state.hand, state.discard, state.hold, state.lost]) {
+    for (const card of pool ?? []) {
+      const identity = String(card?.token ?? `${card?.id ?? ""}@@${card?.originalIndex ?? ""}`);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      if (!Array.isArray(card.customGrowEffects)) card.customGrowEffects = [];
+      card.customGrowEffects.push({
+        id: `stance-over-preservation-lesson-add-${lessonAdd}`,
+        effectType: "ProduceCardGrowEffectType_LessonAdd",
+        value: lessonAdd,
+      });
+      matched += 1;
+    }
+  }
+  event.effects.push(`全カード ${matched}枚のパラメータ上昇量 +${lessonAdd}`);
+}
+
+function resolveFullPowerAfterCard(state, event) {
+  const exam = state.exam;
+  // Native ExamLoopTaskAsync first removes the one-card Full Power stance,
+  // then converts each complete 10-point gauge into the next Full Power.
+  if (Number(exam.idolStatusType ?? 0) === EXAM_IDOL_STATUS_TYPE.FullPower) {
+    const beforeUnset = captureNativeStatusSnapshot(exam);
+    exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Unknown;
+    exam.idolStatusStep = 0;
+    event.effects.push("全力を解除");
+    emitNativeStatusDiff(state, beforeUnset, event, { cause: "fullPowerUnset" });
+  }
+  if (Number(exam.fullPowerPoint ?? 0) < 10) return;
+  const beforeConsume = captureNativeStatusSnapshot(exam);
+  const stance = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.FullPower, 1, {
+    consumeFullPowerPoint: true,
+  });
+  applyStanceRuntimeRewards(state, stance, event);
+  if (stance.changed) {
+    event.effects.push("全力値10を消費して全力に変更");
+    emitNativeStatusDiff(state, beforeConsume, event, { cause: "fullPowerPointConsume" });
+  }
+}
+
 function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
   const type = String(parsed.masterEffectType ?? "").replace("ProduceExamEffectType_", "");
   const exam = state.exam;
@@ -1733,9 +1789,24 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       const added = addScaledStatus(exam, "fullPowerPoint", v1, "fullPowerPointAdditivePermil");
       exam.fullPowerPointGetSum += added; event.effects.push(`全力値 +${added}`); return;
     }
-    case "ExamFullPower": if (!exam.stanceLock) { exam.idolStatusType = 3; exam.idolStatusStep = 1; } event.effects.push(exam.stanceLock ? "指針固定中" : "全力に変更"); return;
-    case "ExamOverPreservation": if (!exam.stanceLock) { exam.idolStatusType = 4; exam.idolStatusStep = 1; } event.effects.push(exam.stanceLock ? "指針固定中" : "超温存に変更"); return;
-    case "ExamStanceReset": if (!exam.stanceLock) { exam.idolStatusType = 0; exam.idolStatusStep = 0; } event.effects.push("指針解除"); return;
+    case "ExamFullPower": {
+      const stance = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.FullPower, 1);
+      applyStanceRuntimeRewards(state, stance, event);
+      event.effects.push(stance.changed ? "全力に変更" : "指針変更なし");
+      return;
+    }
+    case "ExamOverPreservation": {
+      const stance = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.OverPreservation, 1);
+      applyStanceRuntimeRewards(state, stance, event);
+      event.effects.push(stance.changed ? "超温存に変更" : "指針変更なし");
+      return;
+    }
+    case "ExamStanceReset": {
+      const stance = trySetExamStance(exam, EXAM_IDOL_STATUS_TYPE.Unknown, 0);
+      applyStanceRuntimeRewards(state, stance, event);
+      event.effects.push(stance.changed ? "指針解除" : "指針変更なし");
+      return;
+    }
     case "StanceLock": exam.stanceLock = turn || 1; event.effects.push(`指針固定 ${exam.stanceLock}ターン`); return;
     case "ExamCardMove": {
       for (const card of pickedMasterCards(state, parsed)) {
@@ -1798,10 +1869,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "ExamEffectPerSearchCount": executeMasterChain(state, parsed, event, searchCount()); return;
     default:
-      // Effects already covered by the direct parser can still arrive here
-      // when a newer master row uses a non-canonical ID. Preserve chains.
-      executeMasterChain(state, parsed, event);
-      event.effects.push(`マスタ効果: ${parsed.id}`);
+      rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
+      event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
   }
 }
 
@@ -1839,6 +1908,9 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     case "playable_add":
       state.playsRemaining += Number(applied.value) || 0;
       break;
+    case "stance_change":
+      applyStanceRuntimeRewards(state, applied.stance, event);
+      break;
     case "extra_turn": {
       const value = Math.max(1, Math.trunc(Number(applied.value) || 1));
       if (
@@ -1875,14 +1947,6 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       // executeMasterEffect writes the concrete user-facing event itself.
       applied.label = "";
       break;
-  }
-  const beforeStance = Number(beforeStatus.idolStatusType ?? 0);
-  const afterStance = Number(state.exam.idolStatusType ?? 0);
-  if (beforeStance !== afterStance) {
-    state.exam.stanceChangeCount = Number(state.exam.stanceChangeCount ?? 0) + 1;
-    if (afterStance === 1) state.exam.concentrationChangeCount = Number(state.exam.concentrationChangeCount ?? 0) + 1;
-    if (afterStance === 2 || afterStance === 4) state.exam.preservationChangeCount = Number(state.exam.preservationChangeCount ?? 0) + 1;
-    if (afterStance === 3) state.exam.fullPowerChangeCount = Number(state.exam.fullPowerChangeCount ?? 0) + 1;
   }
   if (applied.label) event.effects.push(applied.label);
   emitNativeStatusDiff(
@@ -2057,6 +2121,7 @@ export function playTowerCard(state, indexInput) {
     for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event, card);
   }
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card });
+  resolveFullPowerAfterCard(state, event);
 
   if (card.onceOnly) {
     state.lost.push(card);
@@ -2078,7 +2143,14 @@ function tickTurnDurations(exam) {
   for (const field of ["parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
     if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
-  if (Number(exam.stanceLock ?? 0) > 0) exam.stanceLock -= 1;
+  for (const field of [
+    "stanceLock",
+    "stanceLockConcentration",
+    "stanceLockFullPower",
+    "stanceLockPreservation",
+  ]) {
+    if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
+  }
 
   // LessonParameterMultiple/Down, ReviewMultiple/CountAdd, Pride, and the
   // turn-end locks all inherit the common finite-turn status lifetime.

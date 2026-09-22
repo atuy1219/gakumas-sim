@@ -943,3 +943,75 @@ assert.match(
 
 console.log("effect timer next-turn semantics tests: ok");
 }
+
+{
+const pointEffect = {
+  id: "POINT-10",
+  effectType: "ProduceExamEffectType_ExamFullPowerPoint",
+  effectValue1: 10,
+};
+const fullPowerEffect = {
+  id: "DIRECT-FULL-POWER",
+  effectType: "ProduceExamEffectType_ExamFullPower",
+};
+const anomalyCards = [
+  {
+    id: "GAIN-POINT",
+    category: "ProduceCardCategory_MentalSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: pointEffect.id }],
+  },
+  {
+    id: "DIRECT-FULL",
+    category: "ProduceCardCategory_MentalSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: fullPowerEffect.id }],
+  },
+  {
+    id: "NEXT",
+    category: "ProduceCardCategory_ActiveSkill",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [],
+  },
+];
+const anomalyCardById = new Map(anomalyCards.map((card) => [card.id, card]));
+const anomalyEffectById = new Map([
+  [pointEffect.id, pointEffect],
+  [fullPowerEffect.id, fullPowerEffect],
+]);
+
+let anomalyState = createTowerTurnState(
+  anomalyCards.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  anomalyCardById,
+  { examEffectById: anomalyEffectById },
+);
+drawTowerTurn(anomalyState, 3);
+playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "GAIN-POINT"));
+assert.equal(anomalyState.exam.fullPowerPoint, 0, "10 points are consumed by automatic Full Power");
+assert.equal(anomalyState.exam.idolStatusType, 3);
+assert.equal(anomalyState.playsRemaining, 1, "automatic Full Power adds one card play");
+playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "NEXT"));
+assert.equal(anomalyState.exam.idolStatusType, 0, "Full Power ends after one card");
+
+anomalyState = createTowerTurnState(
+  anomalyCards.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  anomalyCardById,
+  { examEffectById: anomalyEffectById },
+);
+drawTowerTurn(anomalyState, 3);
+anomalyState.exam.idolStatusType = 4;
+anomalyState.exam.idolStatusStep = 1;
+playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "DIRECT-FULL"));
+assert.equal(anomalyState.exam.block, 5);
+assert.equal(anomalyState.exam.enthusiastic, 10);
+assert.equal(anomalyState.playsRemaining, 2, "release and direct Full Power both add a play");
+assert.ok(
+  anomalyState.hand.find((card) => card.id === "NEXT").customGrowEffects
+    .some((effect) => effect.effectType === "ProduceCardGrowEffectType_LessonAdd" && effect.value === 10),
+  "Over Preservation release into Full Power grows every card by LessonAdd 10",
+);
+
+console.log("native Full Power lifecycle tests: ok");
+}

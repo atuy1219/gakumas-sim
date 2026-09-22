@@ -35,6 +35,17 @@ export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
   examPreservationStaminaMultiplePermil1: 500,
   examPreservationStaminaMultiplePermil2: 250,
   examOverPreservationStaminaMultiplePermil: 0,
+  fullPowerPlayableValueAdd: 1,
+  preservationReleasePlayableValueAdd1: 1,
+  preservationReleasePlayableValueAdd2: 1,
+  preservationReleaseBlockAdd1: 0,
+  preservationReleaseBlockAdd2: 5,
+  preservationReleaseEnthusiastic1: 5,
+  preservationReleaseEnthusiastic2: 8,
+  overPreservationReleasePlayableValueAdd: 1,
+  overPreservationReleaseBlockAdd: 5,
+  overPreservationReleaseEnthusiastic: 10,
+  overPreservationReleaseToFullPowerGrowEffectLessonAdd: 10,
   examTurnEndRecoveryStamina: 2,
   handLimit: 5,
   holdLimit: 2,
@@ -377,6 +388,38 @@ export function parseExamEffectMaster(effectInput) {
       return { kind: "parameter_buff", id, value: value1 };
     case "ProduceExamEffectType_ExamParameterBuffReduce":
       return { kind: "parameter_buff_reduce", id, value: value1 };
+    case "ProduceExamEffectType_ExamLessonAddMultipleParameterBuff":
+      return { kind: "lesson_add_multiple_parameter_buff", id, value: value1, permil: value2, count };
+    case "ProduceExamEffectType_ExamLessonDependExamReview":
+      return { kind: "lesson_depend_exam_review", id, permil: value1, count };
+    case "ProduceExamEffectType_ExamLessonDependExamCardPlayAggressive":
+      return { kind: "lesson_depend_exam_aggressive", id, permil: value1, count };
+    case "ProduceExamEffectType_ExamLessonValueMultiple":
+      return { kind: "lesson_value_multiple", id, permil: value1, turn };
+    case "ProduceExamEffectType_ExamLessonBuffMultiple":
+      return { kind: "lesson_buff_multiple", id, permil: value1, turn };
+    case "ProduceExamEffectType_ExamReviewMultiple":
+      return { kind: "review_multiple", id, permil: value1, turn };
+    case "ProduceExamEffectType_ExamReviewCountAdd":
+      return { kind: "review_count_add", id, value: value1, turn };
+    case "ProduceExamEffectType_ExamLessonValueMultipleDependReviewOrAggressive":
+      return { kind: "lesson_value_multiple_depend_review_or_aggressive", id, turn };
+    case "ProduceExamEffectType_ExamCardSearchEffectPlayCountBuff":
+      return master("card_search_effect_play_count_buff");
+    case "ProduceExamEffectType_ExamHandGraveCountCardDraw":
+      return { kind: "hand_grave_count_card_draw", id };
+    case "ProduceExamEffectType_ExamParameterBuffMultiplePerTurn":
+      return { kind: "parameter_buff_multiple_per_turn", id, turn: value1 };
+    case "ProduceExamEffectType_ExamCardCreateId":
+      return {
+        kind: "card_create_id",
+        id,
+        cardId: String(effectInput.targetProduceCardId ?? ""),
+        upgradeCount: Number(effectInput.targetUpgradeCount ?? 0) || 0,
+        movePosition: String(effectInput.movePositionType ?? ""),
+        pickCountMin: Math.max(1, Number(effectInput.pickCountMin ?? 0) || 1),
+        pickCountMax: Math.max(1, Number(effectInput.pickCountMax ?? 0) || 1),
+      };
     case "ProduceExamEffectType_ExamConcentration":
       return { kind: "concentration", id, step: Math.max(1, value1 || 1) };
     case "ProduceExamEffectType_ExamPreservation":
@@ -781,6 +824,9 @@ export function createExamState({ stamina = 0 } = {}) {
     fullPowerPointAdditivePermil: 0,
     fullPowerPointGetSum: 0,
     stanceLock: 0,
+    stanceLockConcentration: 0,
+    stanceLockFullPower: 0,
+    stanceLockPreservation: 0,
     lessonChangeSpecifyMoreThan: null,
     lessonChangeSpecifyLessThan: null,
 
@@ -819,6 +865,137 @@ export function createExamState({ stamina = 0 } = {}) {
     scoreTimedStatuses: [],
     genericTimedStatuses: [],
   };
+}
+
+function isPreservationStance(type) {
+  return type === EXAM_IDOL_STATUS_TYPE.Preservation || type === EXAM_IDOL_STATUS_TYPE.OverPreservation;
+}
+
+/**
+ * Applies the native TryInternalSetStance transition rules used by the
+ * Concentration/Preservation/FullPower/OverPreservation/Reset executors.
+ * Runtime-only rewards (play count and deck-wide growth) are returned to the
+ * caller because ExamState intentionally does not own the card zones.
+ */
+export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
+  const type = Math.trunc(Number(typeInput) || 0);
+  const oldType = Math.trunc(Number(exam?.idolStatusType) || 0);
+  const oldStep = Math.trunc(Number(exam?.idolStatusStep) || 0);
+  const requestedStep = Math.max(0, Math.trunc(Number(stepInput) || 0));
+  const result = {
+    changed: false,
+    blocked: false,
+    oldType,
+    oldStep,
+    type: oldType,
+    step: oldStep,
+    playableValueAdd: 0,
+    growLessonAdd: 0,
+    releasedPreservation: false,
+  };
+
+  // Effect executors deliberately do not replace Full Power. It is removed by
+  // the native post-card Full Power cleanup path instead.
+  if (oldType === EXAM_IDOL_STATUS_TYPE.FullPower && type !== oldType) {
+    result.blocked = true;
+    result.reason = "full_power";
+    return result;
+  }
+
+  const maxStep = type === EXAM_IDOL_STATUS_TYPE.Concentration
+    || type === EXAM_IDOL_STATUS_TYPE.Preservation ? 2 : 1;
+  if (oldType === type && oldStep >= maxStep) {
+    result.blocked = true;
+    result.reason = "step_max";
+    return result;
+  }
+  if (type === EXAM_IDOL_STATUS_TYPE.Preservation
+    && oldType === EXAM_IDOL_STATUS_TYPE.OverPreservation) {
+    result.blocked = true;
+    result.reason = "over_preservation";
+    return result;
+  }
+  if (Number(exam?.stanceLock ?? 0) > 0) {
+    result.blocked = true;
+    result.reason = "stance_lock";
+    return result;
+  }
+  const specificLock = type === EXAM_IDOL_STATUS_TYPE.Concentration
+    ? "stanceLockConcentration"
+    : type === EXAM_IDOL_STATUS_TYPE.FullPower
+      ? "stanceLockFullPower"
+      : isPreservationStance(type) ? "stanceLockPreservation" : "";
+  if (specificLock && Number(exam?.[specificLock] ?? 0) > 0) {
+    result.blocked = true;
+    result.reason = specificLock;
+    return result;
+  }
+
+  if (type === EXAM_IDOL_STATUS_TYPE.FullPower && options.consumeFullPowerPoint === true) {
+    exam.fullPowerPoint = Math.max(0, Number(exam.fullPowerPoint ?? 0) - 10);
+  }
+
+  if (isPreservationStance(oldType) && !isPreservationStance(type)) {
+    const over = oldType === EXAM_IDOL_STATUS_TYPE.OverPreservation;
+    const suffix = over ? "" : String(oldStep === 1 ? 1 : 2);
+    const playableKey = over
+      ? "overPreservationReleasePlayableValueAdd"
+      : `preservationReleasePlayableValueAdd${suffix}`;
+    const blockKey = over
+      ? "overPreservationReleaseBlockAdd"
+      : `preservationReleaseBlockAdd${suffix}`;
+    const enthusiasticKey = over
+      ? "overPreservationReleaseEnthusiastic"
+      : `preservationReleaseEnthusiastic${suffix}`;
+    result.playableValueAdd += getExamRuntimeSetting(exam, playableKey);
+    const blockBase = getExamRuntimeSetting(exam, blockKey);
+    // The release path calls AddBlockFix, which writes the raw positive delta
+    // and therefore bypasses ordinary block multipliers/restrictions.
+    if (blockBase > 0) exam.block += blockBase;
+    const enthusiasticBase = getExamRuntimeSetting(exam, enthusiasticKey);
+    if (enthusiasticBase > 0) {
+      const additive = Number(exam.enthusiasticAdditivePermil ?? 0);
+      const multiple = Number(exam.enthusiasticMultiple ?? 1);
+      exam.enthusiastic += Math.max(0, Math.ceil((enthusiasticBase + additive) * multiple));
+    }
+    if (over && type === EXAM_IDOL_STATUS_TYPE.FullPower) {
+      result.growLessonAdd = getExamRuntimeSetting(
+        exam,
+        "overPreservationReleaseToFullPowerGrowEffectLessonAdd",
+      );
+    }
+    result.releasedPreservation = true;
+  }
+
+  let nextStep = 0;
+  if (type === EXAM_IDOL_STATUS_TYPE.Concentration || type === EXAM_IDOL_STATUS_TYPE.Preservation) {
+    nextStep = Math.min(2, (oldType === type ? 1 : 0) + Math.max(1, requestedStep));
+  } else if (type !== EXAM_IDOL_STATUS_TYPE.Unknown) {
+    nextStep = 1;
+  }
+
+  if (oldType !== type) {
+    if (!(isPreservationStance(oldType) && isPreservationStance(type))) {
+      exam.stanceChangeCount = Number(exam.stanceChangeCount ?? 0) + 1;
+    }
+    if (type === EXAM_IDOL_STATUS_TYPE.Concentration) {
+      exam.concentrationChangeCount = Number(exam.concentrationChangeCount ?? 0) + 1;
+    } else if (isPreservationStance(type) && !isPreservationStance(oldType)) {
+      exam.preservationChangeCount = Number(exam.preservationChangeCount ?? 0) + 1;
+    } else if (type === EXAM_IDOL_STATUS_TYPE.FullPower) {
+      exam.fullPowerChangeCount = Number(exam.fullPowerChangeCount ?? 0) + 1;
+    }
+  }
+
+  exam.idolStatusType = type;
+  exam.idolStatusStep = nextStep;
+  if (type === EXAM_IDOL_STATUS_TYPE.FullPower) {
+    result.playableValueAdd += getExamRuntimeSetting(exam, "fullPowerPlayableValueAdd");
+  }
+  result.changed = oldType !== type || oldStep !== nextStep;
+  result.type = type;
+  result.step = nextStep;
+  return result;
 }
 
 export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnInput, mode = "add") {
@@ -1291,15 +1468,33 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       return { applied: true, label: `好調 -${before - exam.parameterBuff}ターン` };
     }
     case "concentration":
-      if (Number(exam.stanceLock ?? 0) > 0) return { applied: true, label: "指針固定中" };
-      exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Concentration;
-      exam.idolStatusStep = Math.max(1, Number(parsed.step) || 1);
-      return { applied: true, label: `強気${exam.idolStatusStep}段階目に変更` };
+    {
+      const stance = trySetExamStance(
+        exam,
+        EXAM_IDOL_STATUS_TYPE.Concentration,
+        Math.max(1, Number(parsed.step) || 1),
+      );
+      return {
+        applied: true,
+        command: stance.changed ? "stance_change" : undefined,
+        stance,
+        label: stance.changed ? `強気${stance.step}段階目に変更` : "指針変更なし",
+      };
+    }
     case "preservation":
-      if (Number(exam.stanceLock ?? 0) > 0) return { applied: true, label: "指針固定中" };
-      exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Preservation;
-      exam.idolStatusStep = Math.max(1, Number(parsed.step) || 1);
-      return { applied: true, label: `温存${exam.idolStatusStep}段階目に変更` };
+    {
+      const stance = trySetExamStance(
+        exam,
+        EXAM_IDOL_STATUS_TYPE.Preservation,
+        Math.max(1, Number(parsed.step) || 1),
+      );
+      return {
+        applied: true,
+        command: stance.changed ? "stance_change" : undefined,
+        stance,
+        label: stance.changed ? `温存${stance.step}段階目に変更` : "指針変更なし",
+      };
+    }
     case "stamina_recover": {
       if (exam.staminaRecoverRestriction) return { applied: true, label: "体力回復不可" };
       const before = exam.stamina;
