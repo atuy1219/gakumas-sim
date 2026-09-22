@@ -1174,47 +1174,110 @@ uintptr_t hooked_move_play_card(
 }
 
 bool install_seed_trace_hooks(const ImageInfo& image) {
-    if (!image.base || image.build_id != kExpectedBuildId) return false;
+    if (!image.base) return false;
     g_il2cpp_base.store(image.base);
     reset_trace_files();
 
-    bool ok = true;
-    ok &= install_hook(
-        image.base + kRvaExamParameterGetRandomInt,
-        reinterpret_cast<void*>(hooked_random_no_arg),
-        reinterpret_cast<void**>(&g_orig_random_no_arg));
-    ok &= install_hook(
-        image.base + kRvaExamParameterGetRandomIntRange,
-        reinterpret_cast<void*>(hooked_random_range),
-        reinterpret_cast<void**>(&g_orig_random_range));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveReplaceGraveToDeck,
-        reinterpret_cast<void*>(hooked_replace_grave_to_deck),
-        reinterpret_cast<void**>(&g_orig_replace_grave_to_deck));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveDrawCard,
-        reinterpret_cast<void*>(hooked_draw_card),
-        reinterpret_cast<void**>(&g_orig_draw_card));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveResetHand,
-        reinterpret_cast<void*>(hooked_reset_hand),
-        reinterpret_cast<void**>(&g_orig_reset_hand));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveShuffleDeck,
-        reinterpret_cast<void*>(hooked_shuffle_deck),
-        reinterpret_cast<void**>(&g_orig_shuffle_deck));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveShuffleDeckGrave,
-        reinterpret_cast<void*>(hooked_shuffle_deck_grave),
-        reinterpret_cast<void**>(&g_orig_shuffle_deck_grave));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveSetInitialCard,
-        reinterpret_cast<void*>(hooked_set_initial_card),
-        reinterpret_cast<void**>(&g_orig_set_initial_card));
-    ok &= install_hook(
-        image.base + kRvaExamCardMoveMovePlayCard,
-        reinterpret_cast<void*>(hooked_move_play_card),
-        reinterpret_cast<void**>(&g_orig_move_play_card));
+    RuntimeIl2CppApi api;
+    const bool api_ok = load_runtime_il2cpp_api(image, api);
+    const void* assembly_image = api_ok ? find_assembly_csharp(api) : nullptr;
+
+    uintptr_t random_no_arg = 0;
+    uintptr_t random_range = 0;
+    uintptr_t replace_grave_to_deck = 0;
+    uintptr_t draw_card = 0;
+    uintptr_t reset_hand = 0;
+    uintptr_t shuffle_deck = 0;
+    uintptr_t shuffle_deck_grave = 0;
+    uintptr_t set_initial_card = 0;
+    uintptr_t move_play_card = 0;
+    std::string resolution = "runtime-metadata";
+
+    if (assembly_image) {
+        random_no_arg = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamParameterModel", "GetRandomInt", 0);
+        random_range = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamParameterModel", "GetRandomInt", 2);
+        replace_grave_to_deck = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "ReplaceGraveToDeck", 2);
+        draw_card = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "DrawCard", 3);
+        reset_hand = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "ResetHand", 1);
+        shuffle_deck = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "ShuffleDeck", 1);
+        shuffle_deck_grave = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "ShuffleDeckGrave", 1);
+        set_initial_card = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "SetInitialCard", 2);
+        move_play_card = resolve_managed_method_by_class_name(
+            api, assembly_image, "ExamCardMove", "MovePlayCard", 2);
+    }
+
+    bool resolved =
+        random_no_arg && random_range && replace_grave_to_deck && draw_card &&
+        reset_hand && shuffle_deck && shuffle_deck_grave && set_initial_card && move_play_card;
+
+    if (!resolved && image.build_id == kExpectedBuildId) {
+        resolution = "reference-rva-fallback";
+        random_no_arg = image.base + kRvaExamParameterGetRandomInt;
+        random_range = image.base + kRvaExamParameterGetRandomIntRange;
+        replace_grave_to_deck = image.base + kRvaExamCardMoveReplaceGraveToDeck;
+        draw_card = image.base + kRvaExamCardMoveDrawCard;
+        reset_hand = image.base + kRvaExamCardMoveResetHand;
+        shuffle_deck = image.base + kRvaExamCardMoveShuffleDeck;
+        shuffle_deck_grave = image.base + kRvaExamCardMoveShuffleDeckGrave;
+        set_initial_card = image.base + kRvaExamCardMoveSetInitialCard;
+        move_play_card = image.base + kRvaExamCardMoveMovePlayCard;
+        resolved = true;
+    }
+
+    bool ok = resolved;
+    if (resolved) {
+        ok &= install_hook(
+            random_no_arg,
+            reinterpret_cast<void*>(hooked_random_no_arg),
+            reinterpret_cast<void**>(&g_orig_random_no_arg));
+        ok &= install_hook(
+            random_range,
+            reinterpret_cast<void*>(hooked_random_range),
+            reinterpret_cast<void**>(&g_orig_random_range));
+        ok &= install_hook(
+            replace_grave_to_deck,
+            reinterpret_cast<void*>(hooked_replace_grave_to_deck),
+            reinterpret_cast<void**>(&g_orig_replace_grave_to_deck));
+        ok &= install_hook(
+            draw_card,
+            reinterpret_cast<void*>(hooked_draw_card),
+            reinterpret_cast<void**>(&g_orig_draw_card));
+        ok &= install_hook(
+            reset_hand,
+            reinterpret_cast<void*>(hooked_reset_hand),
+            reinterpret_cast<void**>(&g_orig_reset_hand));
+        ok &= install_hook(
+            shuffle_deck,
+            reinterpret_cast<void*>(hooked_shuffle_deck),
+            reinterpret_cast<void**>(&g_orig_shuffle_deck));
+        ok &= install_hook(
+            shuffle_deck_grave,
+            reinterpret_cast<void*>(hooked_shuffle_deck_grave),
+            reinterpret_cast<void**>(&g_orig_shuffle_deck_grave));
+        ok &= install_hook(
+            set_initial_card,
+            reinterpret_cast<void*>(hooked_set_initial_card),
+            reinterpret_cast<void**>(&g_orig_set_initial_card));
+        ok &= install_hook(
+            move_play_card,
+            reinterpret_cast<void*>(hooked_move_play_card),
+            reinterpret_cast<void**>(&g_orig_move_play_card));
+    } else {
+        resolution = api_ok ? "runtime-method-resolution-failed" : "il2cpp-api-unavailable";
+    }
+
+    const uintptr_t base = image.base;
+    auto rva_json = [base](uintptr_t address) {
+        return address >= base ? hex_value(address - base) : std::string("0x0");
+    };
 
     std::ostringstream out;
     out << "{"
@@ -1223,8 +1286,20 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
         << "\"event\":\"trace-start\","
         << "\"targetSeed\":2696513658,"
         << "\"libil2cppBuildId\":\"" << json_escape(image.build_id) << "\","
-        << "\"hooksInstalled\":" << (ok ? "true" : "false")
-        << "}";
+        << "\"resolution\":\"" << json_escape(resolution) << "\","
+        << "\"resolved\":" << (resolved ? "true" : "false") << ","
+        << "\"hooksInstalled\":" << (ok ? "true" : "false") << ","
+        << "\"methodRvas\":{"
+        << "\"GetRandomInt0\":\"" << rva_json(random_no_arg) << "\","
+        << "\"GetRandomInt2\":\"" << rva_json(random_range) << "\","
+        << "\"ReplaceGraveToDeck\":\"" << rva_json(replace_grave_to_deck) << "\","
+        << "\"DrawCard\":\"" << rva_json(draw_card) << "\","
+        << "\"ResetHand\":\"" << rva_json(reset_hand) << "\","
+        << "\"ShuffleDeck\":\"" << rva_json(shuffle_deck) << "\","
+        << "\"ShuffleDeckGrave\":\"" << rva_json(shuffle_deck_grave) << "\","
+        << "\"SetInitialCard\":\"" << rva_json(set_initial_card) << "\","
+        << "\"MovePlayCard\":\"" << rva_json(move_play_card) << "\""
+        << "}}";
     append_trace_line(out.str());
     return ok;
 }
@@ -1298,7 +1373,6 @@ void install_il2cpp_hooks() {
             image.base + kRvaInternalMergeFrom,
             reinterpret_cast<void*>(hooked_internal_merge_from),
             reinterpret_cast<void**>(&g_orig_internal_merge_from));
-        seed_trace_ok = install_seed_trace_hooks(image);
     } else {
         // App update: resolve the managed methods from IL2CPP metadata instead of
         // guessing new RVAs from the old binary.
@@ -1351,6 +1425,8 @@ void install_il2cpp_hooks() {
         merge_ok = false;
     }
 
+    seed_trace_ok = install_seed_trace_hooks(image);
+
     const bool get_ok = install_hook(
         get_card_address,
         reinterpret_cast<void*>(hooked_get_card_data),
@@ -1362,13 +1438,13 @@ void install_il2cpp_hooks() {
 
     write_status(
         (get_ok && deck_ok)
-            ? (seed_trace_ok ? "hooks-installed-seed-trace" :
-               (image.build_id == kExpectedBuildId ? "hooks-installed-trace-partial" : "hooks-installed"))
+            ? (seed_trace_ok ? "hooks-installed-seed-trace" : "hooks-installed-trace-unavailable")
             : "hook-install-failed",
         image.build_id,
         get_ok,
         merge_ok,
-        deck_ok);
+        deck_ok,
+        seed_trace_ok);
 
     if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
 }
