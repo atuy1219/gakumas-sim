@@ -1406,6 +1406,10 @@ $("tower-run").addEventListener("click", () => {
       growEffectById: catalogs.growEffectById,
       stamina: Number(composition.memories[0]?.stamina ?? getField(composition.memories[0]?.raw, "stamina") ?? 0),
       pItems: resolvedPItems.items,
+      examEffectById: examItemCatalogs.examEffectById,
+      examStatusEnchantById: examItemCatalogs.examStatusEnchantById,
+      examTriggerById: examItemCatalogs.examTriggerById,
+      cardSearchById: examItemCatalogs.cardSearchById,
       turnLimit: Number(stageConfig.turn),
     });
     towerTurnState.stageConfig = { ...stageConfig };
@@ -1436,6 +1440,10 @@ document.addEventListener("exam-simulation-start", (event) => {
       growEffectById: catalogs.growEffectById,
       stamina: Number(event.detail?.stamina ?? 0),
       targetScore: Number(event.detail?.targetScore ?? 0),
+      examEffectById: examItemCatalogs.examEffectById,
+      examStatusEnchantById: examItemCatalogs.examStatusEnchantById,
+      examTriggerById: examItemCatalogs.examTriggerById,
+      cardSearchById: examItemCatalogs.cardSearchById,
     });
     examSelectedCardIndex = 0;
     drawTowerTurn(examTurnState, 3);

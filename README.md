@@ -60,7 +60,53 @@ PアイテムIDは選択メモリーから取得・表示しますが、効果�
 
 最初のデッキ1巡分からFisher–Yatesの交換列を復元して32-bit空間を絞ります。観測したカードの順番はそのまま使用し、同じ手札に表示されたカードも順不同には扱いません。同一カードが複数ある場合の初期シャッフル割当も列挙します。
 
-Pアイテムとアイドルへの道固有の応援・トラブルは現在表示・保持段階で、効果適用は後続対応です。
+Pアイテムの試験中効果は `ProduceItemEffect` → `ProduceExamStatusEnchant` →
+`ProduceExamTrigger` → `ProduceExamEffect` を解決し、カードと同じNative Effect
+Schedulerで処理します。試験外の `ProduceEffect` は試験ランタイムでは発動しません。
+
+#### 十王星南・ドル道26階のAI開発
+
+`web/juou_sena_tower26.js` に26階専用プロファイルと初期状態生成、
+`web/tower_ai.js` にAI用の環境APIがあります。
+
+- ライブ階層設定に合わせた16ターン、サブメモリー最大3、対応育成タイプの検証
+- seed固定のターン属性、山札、再シャッフル、予約効果、Pアイテム残回数を保持
+- `enumerateTowerAiActions` でカード使用・追加行動・ターン終了・カード選択を列挙
+- `applyTowerAiAction` は元状態を変更せず次状態を返す
+- `towerAiStateKey` は乱数、タイマー、Scheduler、Pアイテム・ギミック回数を含む
+- `rankTowerAiActions` / `runTowerAiEpisode` で決定論的なBeam探索と16ターン完走
+- `stateEvaluator` を渡して任意のルールベース、MLP、強化学習価値関数へ差し替え可能
+
+```js
+import { createJuouSenaTower26State } from "./web/juou_sena_tower26.js";
+import { runTowerAiEpisode } from "./web/tower_ai.js";
+
+const state = createJuouSenaTower26State({
+  cards,
+  seed: 0x12345678,
+  examEffectType: "ProduceExamEffectType_ExamParameterBuff",
+  cardById,
+  options: {
+    cardVariantByKey,
+    stamina: 100,
+    pItems,
+    examEffectById,
+    examStatusEnchantById,
+    examTriggerById,
+    cardSearchById,
+  },
+});
+
+const result = runTowerAiEpisode(state, {
+  depth: 4,
+  beamWidth: 32,
+  stateEvaluator: (next) => next.exam.parameter,
+});
+```
+
+実データで属性補正を再現する場合は、Web側と同じ
+`calculateTowerMemoryParameters` / `calculateTowerParameterBonus` の結果を
+`createJuouSenaTower26State` の `parameterBonus` に渡します。
 
 ## 所有メモリーの入力方法
 
@@ -124,9 +170,15 @@ seed逆算では、画面上の開幕順からは `IsInitial` が元のシャッ
 ## テスト
 
 ```bash
-python -m unittest -v
-node test_web.mjs
-node test_v3.mjs
+python3 -m unittest discover -s tests -p 'test_*.py'
+node --test tests/*.mjs
+```
+
+現行マスタ一式に対する試験効果・Pアイテムの網羅確認は、YAMLを置いた
+ディレクトリを指定して実行できます。
+
+```bash
+node tools/audit_exam_effect_coverage.mjs /path/to/master-data
 ```
 
 seed `0x12345678` の山札 `A..H` が `GFECBHDA` になる固定ベクトルをPython / JavaScriptで確認しています。`test_v3.mjs` では観測順からのseed条件復元、重複カード、Monte Carlo集計も検査します。

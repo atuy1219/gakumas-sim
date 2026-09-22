@@ -267,4 +267,73 @@ assert.equal(
   assert.equal(localState.exam.review, 11, "the skipped same-item enchant remains eligible at the next timing");
 }
 
+// Non-canonical IDs must execute from the master effect type instead of
+// falling back to the old ID-pattern whitelist.
+{
+  const genericEffect = {
+    id: "effect-generic-block-fix",
+    effectType: "ProduceExamEffectType_ExamBlockFix",
+    effectValue1: 7,
+    effectValue2: 0,
+    effectCount: 0,
+    effectTurn: 0,
+    chainProduceExamEffectIds: [],
+    produceCardGrowEffectIds: [],
+  };
+  const genericCard = {
+    id: "GENERIC",
+    category: "ProduceCardCategory_MentalSkill",
+    rarity: "ProduceCardRarity_R",
+    planType: "ProducePlanType_Plan1",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamEffectId: genericEffect.id, produceExamTriggerId: "generic-trigger" }],
+  };
+  const localState = createTowerTurnState(
+    [{ id: genericCard.id }],
+    1,
+    new Map([[genericCard.id, genericCard]]),
+    {
+      examEffectById: new Map([[genericEffect.id, genericEffect]]),
+      examTriggerById: new Map([["generic-trigger", {
+        id: "generic-trigger",
+        phaseTypes: ["ProduceExamPhaseType_None"],
+        fieldStatusCheckTypes: [],
+        fieldStatusTypes: ["ProduceExamFieldStatusType_NoBlock"],
+        fieldStatusValues: [],
+        fieldStatusProduceCardSearchIds: [],
+        produceCardSearchId: "",
+        effectTypes: [],
+        lessonType: "ProduceStepLessonType_Unknown",
+      }]]),
+      stamina: 20,
+    },
+  );
+  drawTowerTurn(localState, 1);
+  playTowerCard(localState, 0);
+  assert.equal(localState.exam.block, 7);
+  assert.deepEqual(localState.unsupported, []);
+}
+
+// ProduceEffect P-item rows are out-of-exam effects, not battle-runtime
+// failures. Keeping them silent prevents every mixed P-item from being marked
+// uncertain during seed replay.
+{
+  const localState = createTowerTurnState(
+    [{ id: "MENTAL" }],
+    1,
+    cardById,
+    {
+      pItems: [{
+        id: "out-game-item",
+        effects: [{
+          id: "out-game-effect",
+          effectType: "ProduceItemEffectType_ProduceEffect",
+          produceEffectId: "p_effect-test",
+        }],
+      }],
+    },
+  );
+  assert.deepEqual(localState.unsupported, []);
+}
+
 console.log("P-item runtime tests: ok");
