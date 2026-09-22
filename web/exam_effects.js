@@ -1203,7 +1203,17 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
         label: `対象カードに元気値 +${parsed.blockAdd} / コスト +${parsed.costAdd}`,
       };
     case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
-    case "effect_timer": return { applied: true, command: "timer", timer: parsed, label: `${parsed.turn}ターン後に効果発動` };
+    case "effect_timer": {
+      const childLabel = parsed.child ? describeParsedEffect(parsed.child) : "";
+      return {
+        applied: true,
+        command: "timer",
+        timer: parsed,
+        label: childLabel
+          ? `${parsed.turn}ターン後: ${childLabel}`
+          : `${parsed.turn}ターン後に効果発動`,
+      };
+    }
     case "card_search_effect_play_count_buff": return { applied: true, command: "effect_repeat", effect: parsed, label: `次のスキルカードの効果を追加で${parsed.value}回発動` };
     case "hand_grave_count_card_draw": return { applied: true, command: "hand_swap", label: "手札をすべて入れ替え" };
     case "card_upgrade_hand_all": return { applied: true, command: "upgrade_hand", label: "手札をすべて強化" };

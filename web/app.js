@@ -1343,8 +1343,12 @@ function renderTurnState(mode, state) {
           return `使用: ${runtimeCardLabel(play.card)}${details ? `（${details}）` : ""}`;
         }).join(" → ")
       : "スキップ";
+    const startEffects = (entry.turnStartEffects ?? []).filter(Boolean);
+    const start = startEffects.length ? `ターン開始: ${startEffects.join(" / ")} → ` : "";
     const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
-    li.textContent = `Turn ${entry.turn}: ${action}${remains}`;
+    const endEffects = (entry.turnEndEffects ?? []).filter(Boolean);
+    const end = endEffects.length ? ` · ターン終了: ${endEffects.join(" / ")}` : "";
+    li.textContent = `Turn ${entry.turn}: ${start}${action}${remains}${end}`;
     history.append(li);
   }
 }
