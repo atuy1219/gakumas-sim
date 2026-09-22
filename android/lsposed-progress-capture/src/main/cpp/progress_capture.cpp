@@ -683,6 +683,80 @@ RuntimeMethod resolve_object_method(void* object, const char* method_name, int a
     return result;
 }
 
+std::string normalize_member_name(const char* value) {
+    std::string result;
+    if (!value) return result;
+    for (const unsigned char ch : std::string(value)) {
+        if (std::isalnum(ch)) result.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return result;
+}
+
+bool find_object_field_offset(
+    void* object,
+    std::initializer_list<const char*> candidates,
+    size_t& offset_out) {
+    if (!object || !g_runtime_object_get_class || !g_runtime_class_get_fields ||
+        !g_runtime_field_get_name || !g_runtime_field_get_offset) {
+        return false;
+    }
+    std::vector<std::string> wanted;
+    wanted.reserve(candidates.size());
+    for (const char* candidate : candidates) wanted.push_back(normalize_member_name(candidate));
+
+    void* klass = g_runtime_object_get_class(object);
+    if (!klass) return false;
+    void* iter = nullptr;
+    while (void* field = g_runtime_class_get_fields(klass, &iter)) {
+        const std::string normalized = normalize_member_name(g_runtime_field_get_name(field));
+        if (normalized.empty()) continue;
+        if (std::find(wanted.begin(), wanted.end(), normalized) == wanted.end()) continue;
+        const size_t offset = g_runtime_field_get_offset(field);
+        if (offset == 0 || offset > 0x100000) return false;
+        offset_out = offset;
+        return true;
+    }
+    return false;
+}
+
+void* read_object_member(
+    void* object,
+    std::initializer_list<const char*> getter_names,
+    std::initializer_list<const char*> field_names) {
+    if (!object) return nullptr;
+    for (const char* getter_name : getter_names) {
+        const RuntimeMethod method = resolve_object_method(object, getter_name, 0);
+        if (method.address) {
+            return reinterpret_cast<GetterObjectFn>(method.address)(object, method.method);
+        }
+    }
+    size_t offset = 0;
+    if (find_object_field_offset(object, field_names, offset)) {
+        return *reinterpret_cast<void**>(static_cast<uint8_t*>(object) + offset);
+    }
+    return nullptr;
+}
+
+uint32_t read_u32_member(
+    void* object,
+    std::initializer_list<const char*> getter_names,
+    std::initializer_list<const char*> field_names,
+    uint32_t fallback = 0) {
+    if (!object) return fallback;
+    for (const char* getter_name : getter_names) {
+        const RuntimeMethod method = resolve_object_method(object, getter_name, 0);
+        if (method.address) {
+            return static_cast<uint32_t>(
+                reinterpret_cast<GetterInt32Fn>(method.address)(object, method.method));
+        }
+    }
+    size_t offset = 0;
+    if (find_object_field_offset(object, field_names, offset)) {
+        return *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(object) + offset);
+    }
+    return fallback;
+}
+
 std::vector<CustomizeRecord> read_customizes(void* collection) {
     std::vector<CustomizeRecord> result;
     if (!collection) return result;
@@ -761,21 +835,74 @@ std::string read_string_property(void* object, const char* name) {
 
 void* parameter_from_context(void* context) {
     if (!context) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + 0x10);
+    void* parameter = read_object_member(
+        context,
+        {"get_Parameter", "get_ParameterModel", "get_ExamParameter", "get_ExamParameterModel"},
+        {"parameter", "parameterModel", "examParameter", "examParameterModel"});
+    if (parameter) return parameter;
+    if (g_runtime_build_id == kExpectedBuildId) {
+        return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + 0x10);
+    }
+    return nullptr;
 }
 
 void remember_parameter(void* parameter) {
     if (parameter) g_last_parameter_model.store(parameter);
 }
 
-void* controller_pool(void* controller, size_t offset) {
-    if (!controller) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + offset);
+void* controller_pool(void* controller, const char* key) {
+    if (!controller || !key) return nullptr;
+    if (std::strcmp(key, "hand") == 0) {
+        void* value = read_object_member(controller, {"get_Hand", "get_HandPool"}, {"hand", "handPool"});
+        if (value) return value;
+        if (g_runtime_build_id == kExpectedBuildId)
+            return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + kOffsetControllerHand);
+    } else if (std::strcmp(key, "deck") == 0) {
+        void* value = read_object_member(controller, {"get_Deck", "get_DeckPool"}, {"deck", "deckPool"});
+        if (value) return value;
+        if (g_runtime_build_id == kExpectedBuildId)
+            return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + kOffsetControllerDeck);
+    } else if (std::strcmp(key, "grave") == 0) {
+        void* value = read_object_member(controller, {"get_Grave", "get_GravePool"}, {"grave", "gravePool"});
+        if (value) return value;
+        if (g_runtime_build_id == kExpectedBuildId)
+            return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + kOffsetControllerGrave);
+    } else if (std::strcmp(key, "lost") == 0) {
+        void* value = read_object_member(controller, {"get_Lost", "get_LostPool"}, {"lost", "lostPool"});
+        if (value) return value;
+        if (g_runtime_build_id == kExpectedBuildId)
+            return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + kOffsetControllerLost);
+    } else if (std::strcmp(key, "hold") == 0) {
+        void* value = read_object_member(controller, {"get_Hold", "get_HoldPool"}, {"hold", "holdPool"});
+        if (value) return value;
+        if (g_runtime_build_id == kExpectedBuildId)
+            return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + kOffsetControllerHold);
+    }
+    return nullptr;
 }
 
 void* pool_card_list(void* pool) {
     if (!pool) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + kOffsetPoolCardList);
+    void* value = read_object_member(
+        pool,
+        {"get_CardList", "get_Cards", "get_List"},
+        {"cardList", "cards", "list"});
+    if (value) return value;
+    if (g_runtime_build_id == kExpectedBuildId) {
+        return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + kOffsetPoolCardList);
+    }
+    return nullptr;
+}
+
+uint32_t read_random_state(void* parameter) {
+    if (!parameter) return 0;
+    const uint32_t value = read_u32_member(
+        parameter,
+        {"get_RandomState", "get_RngState"},
+        {"randomState", "rngState"},
+        0);
+    if (value != 0 || g_runtime_build_id != kExpectedBuildId) return value;
+    return *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + kOffsetRandomState);
 }
 
 std::string live_card_json(void* card) {
@@ -817,10 +944,9 @@ void append_live_card_list_json(std::ostringstream& out, void* list) {
 void append_controller_pool_json(
     std::ostringstream& out,
     const char* key,
-    void* controller,
-    size_t offset) {
+    void* controller) {
     out << "\"" << key << "\":";
-    append_live_card_list_json(out, pool_card_list(controller_pool(controller, offset)));
+    append_live_card_list_json(out, pool_card_list(controller_pool(controller, key)));
 }
 
 void trace_snapshot(
@@ -834,9 +960,7 @@ void trace_snapshot(
     remember_parameter(parameter);
 
     const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
-    const uint32_t random_state = parameter
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + kOffsetRandomState)
-        : 0;
+    const uint32_t random_state = read_random_state(parameter);
     const uint32_t seed = parameter
         ? static_cast<uint32_t>(read_int_property(parameter, "get_Seed", 0))
         : 0;
@@ -855,15 +979,15 @@ void trace_snapshot(
         << "\"randomStateHex\":\"" << hex_value(random_state) << "\","
         << "\"controller\":\"" << hex_value(reinterpret_cast<uintptr_t>(controller)) << "\","
         << "\"parameter\":\"" << hex_value(reinterpret_cast<uintptr_t>(parameter)) << "\",";
-    append_controller_pool_json(out, "hand", controller, kOffsetControllerHand);
+    append_controller_pool_json(out, "hand", controller);
     out << ",";
-    append_controller_pool_json(out, "deck", controller, kOffsetControllerDeck);
+    append_controller_pool_json(out, "deck", controller);
     out << ",";
-    append_controller_pool_json(out, "grave", controller, kOffsetControllerGrave);
+    append_controller_pool_json(out, "grave", controller);
     out << ",";
-    append_controller_pool_json(out, "lost", controller, kOffsetControllerLost);
+    append_controller_pool_json(out, "lost", controller);
     out << ",";
-    append_controller_pool_json(out, "hold", controller, kOffsetControllerHold);
+    append_controller_pool_json(out, "hold", controller);
     if (!extra_json.empty()) out << "," << extra_json;
     out << "}";
     append_trace_line(out.str());
@@ -918,14 +1042,10 @@ void trace_random_event(
 int32_t hooked_random_no_arg(void* self, const void* method) {
     remember_parameter(self);
     if (g_trace_depth != 0) return g_orig_random_no_arg(self, method);
-    const uint32_t before = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
-        : 0;
+    const uint32_t before = read_random_state(self);
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_no_arg(self, method);
-    const uint32_t after = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
-        : 0;
+    const uint32_t after = read_random_state(self);
     trace_random_event("state", self, before, after, result, false, 0, 0, caller);
     return result;
 }
@@ -933,14 +1053,10 @@ int32_t hooked_random_no_arg(void* self, const void* method) {
 int32_t hooked_random_range(void* self, int32_t minimum, int32_t maximum, const void* method) {
     remember_parameter(self);
     if (g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
-    const uint32_t before = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
-        : 0;
+    const uint32_t before = read_random_state(self);
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_range(self, minimum, maximum, method);
-    const uint32_t after = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
-        : 0;
+    const uint32_t after = read_random_state(self);
     trace_random_event("range", self, before, after, result, true, minimum, maximum, caller);
     return result;
 }
