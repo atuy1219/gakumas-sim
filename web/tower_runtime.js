@@ -422,6 +422,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     }),
     playsRemaining: 0,
     currentTurnPlays: [],
+    turnStartEffects: [],
     unsupported: [],
     timers: [],
     pendingDraw: 0,
@@ -1222,6 +1223,11 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.turn += 1;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
+
+  // EffectTimer counts completed turn boundaries and fires when the delayed
+  // turn actually starts. A 1-turn timer created on Turn 1 therefore resolves
+  // here on Turn 2, before that turn's ordinary StartOfTurn effects and draw.
+  tickTimers(state, phaseEvent);
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.START_OF_TURN, phaseEvent);
 
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
@@ -1235,6 +1241,7 @@ export function drawTowerTurn(state, drawCount = 3) {
     state.pendingHandUpgradeAll = 0;
   }
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
+  state.turnStartEffects = [...phaseEvent.effects];
   return {
     turn: state.turn,
     hand: state.hand.map((card) => ({ ...card })),
@@ -1542,7 +1549,12 @@ function tickTimers(state, event) {
     if (timer.turn <= 0) expired.push(timer);
   }
   state.timers = state.timers.filter((timer) => !expired.includes(timer));
-  for (const timer of expired) executeParsedTowerEffect(state, timer.child, event, { timed: true });
+  for (const timer of expired) {
+    const count = Math.max(1, Math.trunc(Number(timer.count ?? 1) || 1));
+    for (let index = 0; index < count; index += 1) {
+      executeParsedTowerEffect(state, timer.child, event, { timed: true });
+    }
+  }
 }
 
 export function finishTowerTurn(state, action = { type: "skip" }) {
@@ -1585,6 +1597,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     used,
     onceOnly,
     plays,
+    turnStartEffects: [...(state.turnStartEffects ?? [])],
     deckCount: state.deck.length,
     discardCount: state.discard.length,
     lostCount: state.lost.length,
@@ -1617,7 +1630,6 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     );
   }
 
-  tickTimers(state, turnEndEvent);
   runNativeEffectPhase(
     state,
     NATIVE_EFFECT_PHASE.END_TURN,
