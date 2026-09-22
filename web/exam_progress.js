@@ -47,6 +47,37 @@ function progressCustomizes(record) {
   return [...counts].map(([id, customizeCount]) => ({ id, customizeCount }));
 }
 
+function normalizeProgressExamSupportCards(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const source = field(payload, "examSupportCards", "ExamSupportCards", "supportCards", "SupportCards");
+  if (!Array.isArray(source)) return [];
+  return source.flatMap((record, index) => {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return [];
+    const supportCardId = String(field(record, "supportCardId", "SupportCardId", "id", "Id") ?? "").trim();
+    if (!supportCardId) return [];
+    const permil = Number(field(
+      record,
+      "produceCardUpgradePermil",
+      "ProduceCardUpgradePermil",
+      "upgradePermil",
+      "UpgradePermil",
+    ) ?? 0);
+    return [{
+      supportCardId,
+      filterParameterType: String(field(record, "filterParameterType", "FilterParameterType") ?? ""),
+      cardSearchId: String(field(
+        record,
+        "cardSearchId",
+        "CardSearchId",
+        "produceCardSearchId",
+        "ProduceCardSearchId",
+      ) ?? ""),
+      produceCardUpgradePermil: Number.isFinite(permil) ? Math.max(0, Math.trunc(permil)) : 0,
+      sourceIndex: index,
+    }];
+  });
+}
+
 function cardLikeScore(list) {
   if (!Array.isArray(list) || !list.length) return -1;
   let score = 0;
@@ -180,7 +211,13 @@ export function parseProgressProduceCardsJson(
   }
 
   if (!cards.length) throw new Error("Deleted除外後のproduceCardsが0枚です。");
-  return { cards, allCards, deletedCards, path: extracted.path };
+  return {
+    cards,
+    allCards,
+    deletedCards,
+    supportCards: normalizeProgressExamSupportCards(payload),
+    path: extracted.path,
+  };
 }
 
 export function progressDeckCounts(cards) {

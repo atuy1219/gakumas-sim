@@ -377,9 +377,15 @@ swapState.hand = [
 ];
 swapState.playsRemaining = 1;
 const beforeSwap = swapState.hand.length;
+const beforeSwapRandomState = swapState.randomState;
 const swapEvent = playTowerCard(swapState, 0);
 assert.equal(swapState.hand.length, beforeSwap - 1);
 assert.equal(swapEvent.drawn.length, beforeSwap - 1);
+assert.equal(
+  swapState.randomState,
+  beforeSwapRandomState,
+  "手札入れ替えは山札上から引き直すだけで、再シャッフルの乱数を消費しない",
+);
 
 const buff = masterCard("buff", ["e_effect-exam_card_search_effect_play_count_buff-0001-01-inf-p_card_search-n-r-sr-ssr-playing-all-0_0"]);
 const score = masterCard("score", ["e_effect-exam_lesson-0010-01"]);
@@ -850,6 +856,12 @@ assert.deepEqual(parsedProgress.deletedCards.map((card) => card.number), [1]);
 
 const captureProgress = parseProgressProduceCardsJson(JSON.stringify({
   format: "gakumas-sim-progress-capture",
+  examSupportCards: [{
+    supportCardId: "s_card-test",
+    filterParameterType: "ProduceParameterType_Vocal",
+    cardSearchId: "p_card_search-test",
+    produceCardUpgradePermil: 250,
+  }],
   produceCards: [
     { number: 3, produceCardId: "sense", upgradeCount: 0, deleted: false },
     { number: 8, produceCardId: "unique", upgradeCount: 1, deleted: false },
@@ -866,6 +878,13 @@ assert.deepEqual(captureProgress.allCards.map((card) => [card.number, card.delet
   [8, false],
 ]);
 assert.deepEqual(captureProgress.deletedCards.map((card) => card.number), [1]);
+assert.deepEqual(captureProgress.supportCards, [{
+  supportCardId: "s_card-test",
+  filterParameterType: "ProduceParameterType_Vocal",
+  cardSearchId: "p_card_search-test",
+  produceCardUpgradePermil: 250,
+  sourceIndex: 0,
+}]);
 assert.throws(
   () => parseProgressProduceCardsJson(JSON.stringify({ produceCards: [{ produceCardId: "sense" }] })),
   /Number付き|Numberがありません/,

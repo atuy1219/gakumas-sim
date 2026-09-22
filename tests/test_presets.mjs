@@ -25,6 +25,9 @@ const preset = createExamPreset({
     { number: 7, produceCardId: "p_card-a", upgradeCount: 1, deleted: false, originType: "ProduceCardOriginType_Memory", customField: "preserve" },
     { number: 3, produceCardId: "p_card-b", upgradeCount: 0, deleted: false, originType: "ProduceCardOriginType_Initial" },
   ],
+  supportCards: [
+    { supportCardId: "support-a", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300 },
+  ],
   stamina: 30,
   targetScore: 12000,
 });
@@ -37,6 +40,12 @@ assert.equal(preset.manualCards.length, 3);
 assert.deepEqual(preset.manualCards[0].customizes, [{ id: "custom-a", customizeCount: 2 }]);
 assert.equal(preset.progressCards.length, 2);
 assert.equal(preset.progressCards[0].customField, "preserve");
+assert.deepEqual(preset.supportCards, [{
+  supportCardId: "support-a",
+  filterParameterType: "ProduceExamParameterType_Vocal",
+  cardSearchId: "search-a",
+  produceCardUpgradePermil: 300,
+}]);
 assert.equal(preset.stamina, 30);
 assert.equal(preset.targetScore, 12000);
 
@@ -46,6 +55,7 @@ assert.equal(parsed.cardPoolMode, "highScore");
 assert.deepEqual(parsed.cards, preset.cards);
 assert.deepEqual(parsed.manualCards, preset.manualCards);
 assert.deepEqual(parsed.progressCards, preset.progressCards);
+assert.deepEqual(parsed.supportCards, preset.supportCards);
 
 const legacyPreset = parseExamPreset(JSON.stringify({
   ...preset,
@@ -124,4 +134,3 @@ assert.throws(() => createTowerPreset({ ...preset, slots: [slots[0], { ...slots[
 
 console.log("tower preset tests: ok");
 }
-

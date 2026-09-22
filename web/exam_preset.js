@@ -1,7 +1,7 @@
 import { EXAM_CARD_POOL_MODE } from "./exam_setup.js";
 
 export const EXAM_PRESET_FORMAT = "gakumas-sim-exam-preset";
-export const EXAM_PRESET_VERSION = 4;
+export const EXAM_PRESET_VERSION = 5;
 
 function requiredText(value, label) {
   const text = String(value ?? "").trim();
@@ -66,6 +66,20 @@ function normalizeProgressCards(cards) {
   });
 }
 
+function normalizeSupportCards(cards) {
+  if (!Array.isArray(cards)) return [];
+  return cards.map((source, index) => {
+    const supportCardId = requiredText(source?.supportCardId ?? source?.id, `supportCards[${index}]のID`);
+    const produceCardUpgradePermil = Math.max(0, Math.trunc(Number(source?.produceCardUpgradePermil ?? 0) || 0));
+    return {
+      supportCardId,
+      filterParameterType: String(source?.filterParameterType ?? ""),
+      cardSearchId: String(source?.cardSearchId ?? source?.produceCardSearchId ?? ""),
+      produceCardUpgradePermil,
+    };
+  });
+}
+
 export function createExamPreset({
   characterId,
   planType,
@@ -74,6 +88,7 @@ export function createExamPreset({
   cards,
   manualCards = [],
   progressCards = [],
+  supportCards = [],
   stamina = 0,
   targetScore = 0,
 }) {
@@ -88,6 +103,7 @@ export function createExamPreset({
     cards: normalizeCards(cards),
     manualCards: normalizeManualCards(manualCards),
     progressCards: normalizeProgressCards(progressCards),
+    supportCards: normalizeSupportCards(supportCards),
     stamina: Math.max(0, Math.trunc(Number(stamina) || 0)),
     targetScore: Math.max(0, Math.trunc(Number(targetScore) || 0)),
   };
@@ -102,11 +118,12 @@ export function parseExamPreset(input) {
   }
   if (!source || source.format !== EXAM_PRESET_FORMAT) throw new Error("試験・オーディション編成ファイルではありません。");
   const version = Number(source.version);
-  if (![1, 2, 3, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
+  if (![1, 2, 3, 4, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
   return createExamPreset({
     ...source,
     cardPoolMode: version === 1 ? EXAM_CARD_POOL_MODE.NORMAL : source.cardPoolMode,
     manualCards: version >= 4 ? source.manualCards : [],
     progressCards: version >= 3 ? source.progressCards : [],
+    supportCards: version >= 5 ? source.supportCards : [],
   });
 }

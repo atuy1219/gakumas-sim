@@ -67,6 +67,48 @@ drawTowerTurn(initialState, 3);
 assert.deepEqual(initialState.hand.map((card) => card.id), ["C", "A", "B"]);
 assert.equal(initialState.randomState, 2647435461, "SetInitialCard must not consume RNG");
 
+// Native ExamSequence.GetInsertEffectResultTriggerCommand evaluates support
+// card upgrades for newly drawn cards. Every eligible check consumes
+// GetRandomInt(0, 1000), including 0% and 100% probabilities, and a support
+// card stops checking after its first success in the current turn.
+{
+const supportMasters = new Map([
+  ["S-A", { id: "S-A", name: "A", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+  ["S-B", { id: "S-B", name: "B", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+  ["S-C", { id: "S-C", name: "C", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+]);
+const supportVariants = new Map([
+  ["S-A@@1", { id: "S-A", name: "A+", playMovePositionType: "ProduceCardMovePositionType_Grave" }],
+]);
+const supportState = createTowerTurnState(
+  ["S-A", "S-B", "S-C"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  supportMasters,
+  {
+    cardVariantByKey: supportVariants,
+    supportCards: [
+      { supportCardId: "always", cardSearchId: "all", produceCardUpgradePermil: 1000 },
+      { supportCardId: "never", cardSearchId: "all", produceCardUpgradePermil: 0 },
+    ],
+    cardSearchById: new Map([["all", { id: "all" }]]),
+  },
+);
+supportState.deck = ["S-A", "S-B", "S-C"].map((id, index) => ({
+  ...supportState.shuffledInitialDeck.find((card) => card.id === id),
+  originalIndex: index,
+}));
+supportState.randomState = 0x12345678;
+const expectedSupportRandom = new XorShift32(0x12345678);
+for (let index = 0; index < 4; index += 1) expectedSupportRandom.nextU32();
+drawTowerTurn(supportState, 3);
+assert.equal(supportState.supportCardRollHistory.length, 4);
+assert.equal(supportState.randomState >>> 0, expectedSupportRandom.state >>> 0);
+assert.equal(supportState.hand[0].upgradeCount, 1, "the guaranteed support upgrades the first eligible drawn card");
+assert.equal(supportState.hand[0].name, "A+");
+assert.deepEqual([...supportState.turnUseSupportCardIds], ["always"]);
+assert.equal(supportState.supportCardRollHistory.filter((roll) => roll.supportCardId === "never").length, 3);
+}
+
 // ResetHand preserves the relative Hand order for Grave and sends
 // IsEndTurnLost cards to Lost instead of the recycle source.
 const endTurnCardById = new Map([

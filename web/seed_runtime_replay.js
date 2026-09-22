@@ -145,6 +145,7 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
     stamina: Number(options.stamina ?? 9999),
     targetScore: Number(options.targetScore ?? 0),
     pItems: options.pItems ?? [],
+    supportCards: options.supportCards ?? [],
     examEffectById: options.examEffectById ?? new Map(),
     examStatusEnchantById: options.examStatusEnchantById ?? new Map(),
     examTriggerById: options.examTriggerById ?? new Map(),

@@ -114,6 +114,7 @@ let examManualInstances = new Map();
 let examProgressDeck = [];
 let examProgressInstances = [];
 let examProgressPath = "";
+let examProgressSupportCards = [];
 let examObservedBatches = [[]];
 let examSeedWorkers = [];
 let examSearchCancelled = false;
@@ -348,13 +349,14 @@ function renderExamProgressStatus(message = "") {
   const first = examProgressDeck[0]?.number;
   const last = examProgressDeck.at(-1)?.number;
   const deletedCount = examProgressInstances.filter((card) => card.deleted).length;
-  status.textContent = `有効${examProgressDeck.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""} · Seed用はDeleted除外 · Number ${first}→${last} 昇順 · ${examProgressPath || "produceCards"}`;
+  status.textContent = `有効${examProgressDeck.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""}${examProgressSupportCards.length ? ` · サポート強化${examProgressSupportCards.length}件` : ""} · Seed用はDeleted除外 · Number ${first}→${last} 昇順 · ${examProgressPath || "produceCards"}`;
 }
 
 function clearExamProgressDeck(message = "") {
   examProgressDeck = [];
   examProgressInstances = [];
   examProgressPath = "";
+  examProgressSupportCards = [];
   renderExamProgressCards();
   renderExamProgressStatus(message);
 }
@@ -364,6 +366,7 @@ function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
   examProgressDeck = parsed.cards;
   examProgressInstances = parsed.allCards ?? parsed.cards;
   examProgressPath = parsed.path;
+  examProgressSupportCards = parsed.supportCards ?? [];
   examCounts = progressDeckCounts(parsed.cards);
   seedExamManualInstances(parsed.cards);
   examCardSearch.value = "";
@@ -371,7 +374,7 @@ function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
   renderExamCards();
   renderExamProgressCards();
   const deletedCount = parsed.deletedCards?.length ?? 0;
-  renderExamProgressStatus(`${sourceLabel}: 有効${parsed.cards.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""}を読み込みました · Seed逆算では削除済みを除外しNumber昇順を使用します · ${parsed.path}`);
+  renderExamProgressStatus(`${sourceLabel}: 有効${parsed.cards.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""}${examProgressSupportCards.length ? ` · サポート強化${examProgressSupportCards.length}件` : ""}を読み込みました · Seed逆算では削除済みを除外しNumber昇順を使用します · ${parsed.path}`);
   renderExamDeckSummary();
 }
 
@@ -398,6 +401,7 @@ function exportExamPreset() {
         ...(card.progressCard ?? card),
         customizes: normalizeCustomizes(card.customizes),
       })),
+      supportCards: examProgressSupportCards,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
     });
@@ -458,12 +462,14 @@ async function importExamPreset(file) {
     examProgressDeck = parsedProgress.cards;
     examProgressInstances = parsedProgress.allCards;
     examProgressPath = "preset.progressCards";
+    examProgressSupportCards = parsedProgress.supportCards ?? [];
     examCounts = progressDeckCounts(examProgressDeck);
     seedExamManualInstances(examProgressDeck);
     renderExamProgressCards();
   } else {
     clearExamProgressDeck();
   }
+  examProgressSupportCards = preset.supportCards ?? examProgressSupportCards;
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
@@ -971,6 +977,7 @@ document.getElementById("exam-run").addEventListener("click", () => {
       seed: document.getElementById("exam-seed").value,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
+      supportCards: examProgressSupportCards.map((item) => ({ ...item })),
     },
   }));
 });

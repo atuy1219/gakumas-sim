@@ -496,6 +496,11 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
     pItemEffectRemainingCounts: new Map(),
+    supportCards: Array.isArray(options.supportCards)
+      ? options.supportCards.map((item) => ({ ...item }))
+      : [],
+    turnUseSupportCardIds: new Set(),
+    supportCardRollHistory: [],
     gimmicks: Array.isArray(options.gimmicks) ? options.gimmicks.map((item) => ({ ...item })) : [],
     gimmickEffectRemainingCounts: new Map(),
     lessonType: String(options.lessonType ?? ""),
@@ -521,6 +526,7 @@ function nativeRuntimeEvent() {
     created: [],
     moved: [],
     grown: [],
+    supportCardRolls: [],
     recycleEvents: [],
   };
 }
@@ -1260,6 +1266,109 @@ function recycleIfNeeded(state) {
   return event;
 }
 
+function supportCardParameterMatches(state, supportCard) {
+  const filter = String(
+    supportCard?.filterParameterType
+    ?? supportCard?.FilterParameterType
+    ?? "",
+  );
+  if (!filter || filter.endsWith("_Unknown") || filter === "Unknown") return true;
+  const current = String(currentTowerScoreContext(state).parameterType ?? "");
+  if (!current) return false;
+  const normalizedFilter = filter
+    .replace(/^ProduceExamParameterType_/, "")
+    .replace(/^ProduceParameterType_/, "")
+    .toLowerCase();
+  return normalizedFilter === current.toLowerCase();
+}
+
+function upgradeRuntimeCardInPlace(state, card) {
+  const nextUpgrade = Number(card?.upgradeCount ?? 0) + 1;
+  const nextMaster = state.cardVariantByKey?.get?.(`${card.id}@@${nextUpgrade}`) ?? {};
+  const identity = {
+    token: card.token,
+    originalIndex: card.originalIndex,
+    generated: card.generated,
+  };
+  Object.assign(card, nextMaster, identity, { upgradeCount: nextUpgrade });
+  return nextUpgrade;
+}
+
+function applyExamSupportCardUpgrades(state, drawnCards, runtimeEvent = null) {
+  const cards = Array.isArray(drawnCards) ? drawnCards : [];
+  const supportCards = Array.isArray(state.supportCards) ? state.supportCards : [];
+  if (!cards.length || !supportCards.length) return [];
+
+  const rolls = [];
+  for (const card of cards) {
+    for (const supportCard of supportCards) {
+      const supportCardId = String(
+        supportCard?.supportCardId
+        ?? supportCard?.SupportCardId
+        ?? supportCard?.id
+        ?? "",
+      );
+      if (!supportCardId || state.turnUseSupportCardIds.has(supportCardId)) continue;
+      if (!supportCardParameterMatches(state, supportCard)) continue;
+
+      const searchId = String(
+        supportCard?.cardSearchId
+        ?? supportCard?.CardSearchId
+        ?? supportCard?.produceCardSearchId
+        ?? "",
+      );
+      const search = resolvedMasterSearch(state, searchId);
+      if (searchId && !search) {
+        rememberUnsupported(state, `support-card-search:${searchId}`);
+        continue;
+      }
+      if (search && !cardMatchesMasterSearch(card, search)) continue;
+
+      // ExamSequence.GetInsertEffectResultTriggerCommand always rolls
+      // GetRandomInt(0, 1000) after the support-card/card-search checks.  This
+      // also advances XorShift for 0% and 100% upgrade probabilities.
+      const randomStateBefore = state.randomState >>> 0;
+      const result = consumeNativeRandomInt(state, 0, 1000);
+      const permil = Math.max(0, Math.trunc(Number(
+        supportCard?.produceCardUpgradePermil
+        ?? supportCard?.ProduceCardUpgradePermil
+        ?? supportCard?.upgradePermil
+        ?? 0,
+      ) || 0));
+      const succeeded = result < permil;
+      const roll = {
+        supportCardId,
+        cardId: String(card?.id ?? ""),
+        cardToken: String(card?.token ?? ""),
+        permil,
+        result,
+        succeeded,
+        randomStateBefore,
+        randomStateAfter: state.randomState >>> 0,
+        upgradeCountBefore: Number(card?.upgradeCount ?? 0),
+        upgradeCountAfter: Number(card?.upgradeCount ?? 0),
+      };
+      if (succeeded) {
+        state.turnUseSupportCardIds.add(supportCardId);
+        roll.upgradeCountAfter = upgradeRuntimeCardInPlace(state, card);
+      }
+      rolls.push(roll);
+    }
+  }
+  state.supportCardRollHistory.push(...rolls);
+  if (runtimeEvent) {
+    if (!Array.isArray(runtimeEvent.supportCardRolls)) runtimeEvent.supportCardRolls = [];
+    runtimeEvent.supportCardRolls.push(...rolls);
+    for (const roll of rolls) {
+      if (!roll.succeeded) continue;
+      runtimeEvent.effects.push(
+        `サポートカード ${roll.supportCardId}: ${runtimeCardName(state, roll.cardId, roll.upgradeCountAfter)}を強化`,
+      );
+    }
+  }
+  return rolls;
+}
+
 function drawCardsIntoHand(state, count) {
   const recycleEvents = [];
   const drawn = [];
@@ -1333,6 +1442,7 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.turn += 1;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
+  state.turnUseSupportCardIds = new Set();
 
   // EffectTimer counts completed turn boundaries and fires when the delayed
   // turn actually starts. A 1-turn timer created on Turn 1 therefore resolves
@@ -1346,6 +1456,7 @@ export function drawTowerTurn(state, drawCount = 3) {
   const result = isOpeningTurn
     ? setNativeInitialCard(state, requested)
     : drawCardsIntoHand(state, requested);
+  applyExamSupportCardUpgrades(state, result.drawn, phaseEvent);
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
@@ -1926,6 +2037,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
         state.pendingDraw += Number(applied.value) || 0;
       } else {
         const draw = drawCardsIntoHand(state, Number(applied.value) || 0);
+        applyExamSupportCardUpgrades(state, draw.drawn, event);
         event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
         event.recycleEvents.push(...draw.recycleEvents);
       }
@@ -1970,6 +2082,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       state.discard.push(...state.hand);
       state.hand = [];
       const draw = drawCardsIntoHand(state, count);
+      applyExamSupportCardUpgrades(state, draw.drawn, event);
       event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
       event.recycleEvents.push(...draw.recycleEvents);
       break;
