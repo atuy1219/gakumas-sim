@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdint>
+#include <initializer_list>
 #include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
@@ -136,8 +138,14 @@ RuntimeGetter g_get_customizes;
 
 using RuntimeObjectGetClassFn = void* (*)(void*);
 using RuntimeClassGetMethodFromNameFn = const void* (*)(void*, const char*, int);
+using RuntimeClassGetFieldsFn = void* (*)(void*, void**);
+using RuntimeFieldGetNameFn = const char* (*)(void*);
+using RuntimeFieldGetOffsetFn = size_t (*)(void*);
 RuntimeObjectGetClassFn g_runtime_object_get_class = nullptr;
 RuntimeClassGetMethodFromNameFn g_runtime_class_get_method_from_name = nullptr;
+RuntimeClassGetFieldsFn g_runtime_class_get_fields = nullptr;
+RuntimeFieldGetNameFn g_runtime_field_get_name = nullptr;
+RuntimeFieldGetOffsetFn g_runtime_field_get_offset = nullptr;
 
 std::vector<CustomizeRecord> read_customizes(void* collection);
 
@@ -326,7 +334,13 @@ void atomic_write(const std::string& path, const std::string& data) {
     }
     ::rename(temp.c_str(), path.c_str());
 }
-void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
+void write_status(
+    const std::string& phase,
+    const std::string& build_id = "",
+    bool get_ok = false,
+    bool merge_ok = false,
+    bool deck_ok = false,
+    bool seed_trace_ok = false) {
     const int user_id = static_cast<int>(getuid() / 100000);
     const std::string path =
         "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
@@ -340,7 +354,8 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"hooks\": {"
         << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
         << "\"internalMergeFrom\":" << (merge_ok ? "true" : "false") << ","
-        << "\"createDeck\":" << (deck_ok ? "true" : "false") << "}\n"
+        << "\"createDeck\":" << (deck_ok ? "true" : "false") << ","
+        << "\"seedTrace\":" << (seed_trace_ok ? "true" : "false") << "}\n"
         << "}\n";
     atomic_write(path, out.str());
 }
@@ -543,6 +558,9 @@ struct RuntimeIl2CppApi {
     using ImageGetName = const char* (*)(const void*);
     using ClassFromName = void* (*)(const void*, const char*, const char*);
     using ClassGetMethodFromName = const void* (*)(void*, const char*, int);
+    using ImageGetClassCount = size_t (*)(const void*);
+    using ImageGetClass = void* (*)(const void*, size_t);
+    using ClassGetName = const char* (*)(void*);
 
     DomainGet domain_get = nullptr;
     DomainGetAssemblies domain_get_assemblies = nullptr;
@@ -550,6 +568,9 @@ struct RuntimeIl2CppApi {
     ImageGetName image_get_name = nullptr;
     ClassFromName class_from_name = nullptr;
     ClassGetMethodFromName class_get_method_from_name = nullptr;
+    ImageGetClassCount image_get_class_count = nullptr;
+    ImageGetClass image_get_class = nullptr;
+    ClassGetName class_get_name = nullptr;
 };
 
 bool load_runtime_il2cpp_api(const ImageInfo& image, RuntimeIl2CppApi& api) {
@@ -565,8 +586,15 @@ bool load_runtime_il2cpp_api(const ImageInfo& image, RuntimeIl2CppApi& api) {
         resolve_export(image, "il2cpp_class_from_name"));
     api.class_get_method_from_name = reinterpret_cast<RuntimeIl2CppApi::ClassGetMethodFromName>(
         resolve_export(image, "il2cpp_class_get_method_from_name"));
+    api.image_get_class_count = reinterpret_cast<RuntimeIl2CppApi::ImageGetClassCount>(
+        resolve_export(image, "il2cpp_image_get_class_count"));
+    api.image_get_class = reinterpret_cast<RuntimeIl2CppApi::ImageGetClass>(
+        resolve_export(image, "il2cpp_image_get_class"));
+    api.class_get_name = reinterpret_cast<RuntimeIl2CppApi::ClassGetName>(
+        resolve_export(image, "il2cpp_class_get_name"));
     return api.domain_get && api.domain_get_assemblies && api.assembly_get_image &&
-           api.image_get_name && api.class_from_name && api.class_get_method_from_name;
+           api.image_get_name && api.class_from_name && api.class_get_method_from_name &&
+           api.image_get_class_count && api.image_get_class && api.class_get_name;
 }
 
 const void* find_assembly_csharp(const RuntimeIl2CppApi& api) {
@@ -596,6 +624,27 @@ uintptr_t resolve_managed_method(
     const void* method = api.class_get_method_from_name(klass, method_name, -1);
     if (!method) return 0;
     return reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
+}
+
+uintptr_t resolve_managed_method_by_class_name(
+    const RuntimeIl2CppApi& api,
+    const void* assembly_image,
+    const char* class_name,
+    const char* method_name,
+    int argument_count) {
+    if (!assembly_image || !class_name || !method_name) return 0;
+    const size_t class_count = api.image_get_class_count(assembly_image);
+    if (class_count == 0 || class_count > 1000000) return 0;
+    for (size_t i = 0; i < class_count; ++i) {
+        void* klass = api.image_get_class(assembly_image, i);
+        if (!klass) continue;
+        const char* current_name = api.class_get_name(klass);
+        if (!current_name || std::strcmp(current_name, class_name) != 0) continue;
+        const void* method = api.class_get_method_from_name(klass, method_name, argument_count);
+        if (!method) return 0;
+        return reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
+    }
+    return 0;
 }
 
 
@@ -1112,6 +1161,12 @@ void install_il2cpp_hooks() {
         resolve_export(image, "il2cpp_object_get_class"));
     g_runtime_class_get_method_from_name = reinterpret_cast<RuntimeClassGetMethodFromNameFn>(
         resolve_export(image, "il2cpp_class_get_method_from_name"));
+    g_runtime_class_get_fields = reinterpret_cast<RuntimeClassGetFieldsFn>(
+        resolve_export(image, "il2cpp_class_get_fields"));
+    g_runtime_field_get_name = reinterpret_cast<RuntimeFieldGetNameFn>(
+        resolve_export(image, "il2cpp_field_get_name"));
+    g_runtime_field_get_offset = reinterpret_cast<RuntimeFieldGetOffsetFn>(
+        resolve_export(image, "il2cpp_field_get_offset"));
 
     uintptr_t get_card_address = 0;
     uintptr_t create_deck_address = 0;
