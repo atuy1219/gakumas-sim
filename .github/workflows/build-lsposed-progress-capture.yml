@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/lsposed-progress-capture
+      - feat/lsposed-seed-trace-v1-0-13
     paths:
       - 'android/lsposed-progress-capture/**'
       - '.github/workflows/build-lsposed-progress-capture.yml'
@@ -39,6 +40,6 @@ jobs:
         with:
           name: gakumas-progress-capture-apk
           path: |
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.12.apk
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.12.apk.sha256
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.13.apk
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.13.apk.sha256
           if-no-files-found: error
