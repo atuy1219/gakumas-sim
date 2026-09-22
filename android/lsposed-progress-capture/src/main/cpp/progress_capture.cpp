@@ -1199,19 +1199,19 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
         random_range = resolve_managed_method_by_class_name(
             api, assembly_image, "ExamParameterModel", "GetRandomInt", 2);
         replace_grave_to_deck = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "ReplaceGraveToDeck", 2);
+            api, assembly_image, "ExamCardMoveController", "ReplaceGraveToDeck", 2);
         draw_card = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "DrawCard", 3);
+            api, assembly_image, "ExamCardMoveController", "DrawCard", 3);
         reset_hand = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "ResetHand", 1);
+            api, assembly_image, "ExamCardMoveController", "ResetHand", 1);
         shuffle_deck = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "ShuffleDeck", 1);
+            api, assembly_image, "ExamCardMoveController", "ShuffleDeck", 1);
         shuffle_deck_grave = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "ShuffleDeckGrave", 1);
+            api, assembly_image, "ExamCardMoveController", "ShuffleDeckGrave", 1);
         set_initial_card = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "SetInitialCard", 2);
+            api, assembly_image, "ExamCardMoveController", "SetInitialCard", 2);
         move_play_card = resolve_managed_method_by_class_name(
-            api, assembly_image, "ExamCardMove", "MovePlayCard", 2);
+            api, assembly_image, "ExamCardMoveController", "MovePlayCard", 2);
     }
 
     bool resolved =
