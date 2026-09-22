@@ -14,6 +14,7 @@ export const NATIVE_EFFECT_PHASE = Object.freeze({
   END_TURN: "endTurn",
   STATUS_INCREASED: "statusIncreased",
   STATUS_DECREASED: "statusDecreased",
+  CARD_MOVE_LOST: "cardMoveLost",
 });
 
 export const NATIVE_EFFECT_PHASES = Object.freeze(Object.values(NATIVE_EFFECT_PHASE));

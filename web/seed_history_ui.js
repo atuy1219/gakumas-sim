@@ -1,4 +1,5 @@
 import { loadCatalogs } from "./engine.js";
+import { loadExamItemCatalogs } from "./exam_effects.js";
 import { observationCardLabel } from "./simulation.js";
 import {
   evaluateTowerSeedCandidates,
@@ -17,6 +18,7 @@ const DRAW_PER_TURN = 3;
 
 const state = {
   catalogs: null,
+  examCatalogs: null,
   deckRefs: [],
   expectedInitialOrder: [],
   observedDrawOrder: [],
@@ -328,6 +330,10 @@ function replayOptions() {
     drawPerTurn: DRAW_PER_TURN,
     stamina: 9999,
     targetScore: 0,
+    examEffectById: state.examCatalogs?.examEffectById ?? new Map(),
+    examStatusEnchantById: state.examCatalogs?.examStatusEnchantById ?? new Map(),
+    examTriggerById: state.examCatalogs?.examTriggerById ?? new Map(),
+    cardSearchById: state.examCatalogs?.cardSearchById ?? new Map(),
   };
 }
 
@@ -786,7 +792,10 @@ async function initialize() {
   ensureStylesheets();
   ensurePanel();
   try {
-    state.catalogs = await loadCatalogs();
+    [state.catalogs, state.examCatalogs] = await Promise.all([
+      loadCatalogs(),
+      loadExamItemCatalogs(),
+    ]);
   } catch (error) {
     state.lastError = `カード情報を読み込めませんでした: ${error?.message ?? error}`;
   }

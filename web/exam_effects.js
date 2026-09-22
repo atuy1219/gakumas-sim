@@ -325,7 +325,43 @@ export function parseExamEffectMaster(effectInput) {
   if (byId.kind !== "unsupported" && byId.kind !== "none") return byId;
 
   const value1 = Number(effectInput.effectValue1 ?? 0) || 0;
+  const value2 = Number(effectInput.effectValue2 ?? 0) || 0;
   const count = Math.max(1, Number(effectInput.effectCount ?? 0) || 1);
+  const turn = Number(effectInput.effectTurn ?? 0) || 0;
+  const master = (kind, extra = {}) => ({
+    kind,
+    id,
+    value: value1,
+    value1,
+    value2,
+    count,
+    turn,
+    masterEffectType: String(effectInput.effectType ?? ""),
+    targetProduceCardId: String(effectInput.targetProduceCardId ?? ""),
+    targetUpgradeCount: Number(effectInput.targetUpgradeCount ?? 0) || 0,
+    targetExamEffectType: String(effectInput.targetExamEffectType ?? ""),
+    searchId: String(effectInput.produceCardSearchId ?? ""),
+    searchId2: String(effectInput.produceCardSearchId2 ?? ""),
+    movePositionType: String(effectInput.movePositionType ?? ""),
+    pickRangeType: String(effectInput.pickRangeType ?? ""),
+    pickCountType: String(effectInput.pickCountType ?? ""),
+    pickCountMin: Number(effectInput.pickCountMin ?? 0) || 0,
+    pickCountMax: Number(effectInput.pickCountMax ?? 0) || 0,
+    pickRangeType2: String(effectInput.pickRangeType2 ?? ""),
+    pickCountType2: String(effectInput.pickCountType2 ?? ""),
+    pickCountMin2: Number(effectInput.pickCountMin2 ?? 0) || 0,
+    pickCountMax2: Number(effectInput.pickCountMax2 ?? 0) || 0,
+    chainEffectId: String(effectInput.chainProduceExamEffectId ?? ""),
+    chainEffectIds: Array.isArray(effectInput.chainProduceExamEffectIds)
+      ? effectInput.chainProduceExamEffectIds.map(String)
+      : [],
+    enchantId: String(effectInput.produceExamStatusEnchantId ?? ""),
+    cardEnchantId: String(effectInput.produceCardStatusEnchantId ?? ""),
+    growEffectIds: Array.isArray(effectInput.produceCardGrowEffectIds)
+      ? effectInput.produceCardGrowEffectIds.map(String)
+      : [],
+    ...extra,
+  });
   switch (String(effectInput.effectType ?? "")) {
     case "ProduceExamEffectType_ExamLesson":
       return { kind: "lesson", id, value: value1, count };
@@ -389,6 +425,12 @@ export function parseExamEffectMaster(effectInput) {
     case "ProduceExamEffectType_ExamStaminaConsumptionAddFix":
       return { kind: "stamina_consumption_add_fix", id, value: value1 };
     default:
+      // The master-data path intentionally preserves every current native
+      // ProduceExamEffectType.  Effects which need deck/search/counter state
+      // are executed by tower_runtime rather than being guessed from an ID.
+      if (String(effectInput.effectType ?? "").startsWith("ProduceExamEffectType_")) {
+        return master("master_effect");
+      }
       return { kind: "unsupported", id, masterEffectType: String(effectInput.effectType ?? "") };
   }
 }
@@ -705,26 +747,40 @@ export function createExamState({ stamina = 0 } = {}) {
     review: 0,
     reviewMultiple: 1,
     reviewCountAdd: 0,
+    reviewAdditivePermil: 0,
     reviewTurnEndReduceLock: 0,
     parameterBuffTurnEndReduceLock: 0,
     aggressive: 0,
+    aggressiveAdditivePermil: 0,
+    aggressiveAdditiveFix: 0,
     lessonBuff: 0,
+    lessonBuffAdditivePermil: 0,
+    lessonBuffAdditiveFix: 0,
     lessonDebuff: 0,
     lessonBuffMultiple: 1,
     parameterBuff: 0,
+    parameterBuffAdditivePermil: 0,
     parameterBuffMultiplePerTurn: 0,
     parameterDebuff: 0,
     enthusiastic: 0,
+    enthusiasticAdditivePermil: 0,
+    enthusiasticMultiple: 1,
     lessonParameterMultiple: 1,
     lessonParameterDown: 0,
     lessonValueDependReviewAggressive: false,
     slump: false,
+    panic: false,
+    antiDebuffCount: 0,
 
     // Anomaly stance state used by CalculateAddingParameter.
     idolStatusType: 0,
     idolStatusStep: 0,
     concentrationLessonMultipleAdditive: 1,
     fullPowerLessonMultipleAdditive: 1,
+    fullPowerPoint: 0,
+    fullPowerPointAdditivePermil: 0,
+    fullPowerPointGetSum: 0,
+    stanceLock: 0,
     lessonChangeSpecifyMoreThan: null,
     lessonChangeSpecifyLessThan: null,
 
@@ -738,14 +794,61 @@ export function createExamState({ stamina = 0 } = {}) {
     blockRestriction: false,
     blockAddDown: false,
     blockAddDownFix: 0,
+    blockValueMultiple: 1,
+    aggressiveValueMultiple: 1,
+    reviewValueMultiple: 1,
+    staminaRecoverRestriction: false,
+    buffConsumptionAdd: 0,
+    itemFireLimitAdd: 0,
+    gimmickPlayCardLimit: null,
+    startTurnCardDrawDown: 0,
     cardPlayCount: 0,
+    playCardCountSum: 0,
+    blockConsumptionSum: 0,
+    staminaConsumptionSum: 0,
+    reviewConsumptionSum: 0,
+    concentrationChangeCount: 0,
+    preservationChangeCount: 0,
+    fullPowerChangeCount: 0,
+    stanceChangeCount: 0,
     extraTurns: 0,
     runtimeSettings: { ...EXAM_RUNTIME_DEFAULT_SETTING },
 
     // Native timed score-related status effects. Value statuses with the same
     // remaining turn are merged, matching TryAdd*Status predicates.
     scoreTimedStatuses: [],
+    genericTimedStatuses: [],
   };
+}
+
+export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnInput, mode = "add") {
+  const field = String(fieldInput ?? "");
+  const turn = Math.trunc(Number(turnInput));
+  if (!field || !Number.isFinite(turn) || turn === 0) return false;
+  if (!Array.isArray(exam.genericTimedStatuses)) exam.genericTimedStatuses = [];
+  exam.genericTimedStatuses.push({ field, value: Number(valueInput) || 0, turn, mode });
+  syncNativeGenericTimedStatuses(exam);
+  return true;
+}
+
+export function syncNativeGenericTimedStatuses(exam) {
+  const additive = new Map();
+  const flags = new Set();
+  for (const status of exam?.genericTimedStatuses ?? []) {
+    if (status.mode === "flag") flags.add(status.field);
+    else additive.set(status.field, Number(additive.get(status.field) ?? 0) + Number(status.value ?? 0));
+  }
+  const additiveFields = [
+    "reviewAdditivePermil", "aggressiveAdditivePermil", "aggressiveAdditiveFix",
+    "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
+    "enthusiasticAdditivePermil", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
+    "blockAddDownFix", "startTurnCardDrawDown",
+  ];
+  for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
+  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic"]) {
+    exam[field] = flags.has(field);
+  }
+  return exam;
 }
 
 const VALUE_SCORE_STATUS_KINDS = new Set([
@@ -855,6 +958,15 @@ export function tickNativeScoreTimedStatuses(exam) {
     }))
     .filter((status) => Number(status.turn) !== 0);
   syncNativeScoreTimedStatuses(exam);
+  if (Array.isArray(exam?.genericTimedStatuses)) {
+    exam.genericTimedStatuses = exam.genericTimedStatuses
+      .map((status) => ({
+        ...status,
+        turn: Number(status.turn) < 0 ? -1 : Number(status.turn) - 1,
+      }))
+      .filter((status) => Number(status.turn) !== 0);
+    syncNativeGenericTimedStatuses(exam);
+  }
   return exam;
 }
 
@@ -884,7 +996,12 @@ export function calculateNativeBlockAdd(exam, valueInput, aggressiveMultiple = 1
   if (value < 1 || exam?.blockRestriction) return 0;
 
   const aggressive = Math.max(0, Math.trunc(Number(exam?.aggressive) || 0));
-  value += Math.ceil(runtimeF32(runtimeF32(aggressive) * runtimeF32(aggressiveMultiple)));
+  const aggressiveScale = runtimeF32(
+    runtimeF32(aggressiveMultiple)
+    * runtimeF32(Number(exam?.aggressiveValueMultiple ?? 1) || 1),
+  );
+  value += Math.ceil(runtimeF32(runtimeF32(aggressive) * aggressiveScale));
+  value = Math.ceil(runtimeF32(value * runtimeF32(Number(exam?.blockValueMultiple ?? 1) || 1)));
   if (value < 1) return Math.max(0, value);
 
   if (exam?.blockAddDown) {
@@ -1015,6 +1132,14 @@ export function payCardCost(exam, card) {
       consumeStatus(exam, "parameterBuff", costValue, "好調");
       if (costValue) events.push(`好調 -${costValue}`);
       break;
+    case "ExamCostType_ExamFullPowerPoint":
+      consumeStatus(exam, "fullPowerPoint", costValue, "全力値");
+      if (costValue) events.push(`全力値 -${costValue}`);
+      break;
+    case "ExamCostType_ExamParameterBuffMultiplePerTurn":
+      consumeStatus(exam, "parameterBuffMultiplePerTurn", costValue, "絶好調");
+      if (costValue) events.push(`絶好調 -${costValue}`);
+      break;
     case "ExamCostType_Unknown":
     case "":
       break;
@@ -1140,24 +1265,43 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       exam.block += value;
       return { applied: true, label: `元気 +${value}` };
     }
-    case "review": exam.review += parsed.value; return { applied: true, label: `好印象 +${parsed.value}` };
-    case "aggressive": exam.aggressive += parsed.value; return { applied: true, label: `やる気 +${parsed.value}` };
-    case "lesson_buff": exam.lessonBuff += parsed.value; return { applied: true, label: `集中 +${parsed.value}` };
-    case "parameter_buff": exam.parameterBuff += parsed.value; return { applied: true, label: `好調 +${parsed.value}ターン` };
+    case "review": {
+      const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000));
+      exam.review += value;
+      return { applied: true, label: `好印象 +${value}` };
+    }
+    case "aggressive": {
+      const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.aggressiveValueMultiple ?? 1) * (1000 + Number(exam.aggressiveAdditivePermil ?? 0)) / 1000) + Number(exam.aggressiveAdditiveFix ?? 0));
+      exam.aggressive += value;
+      return { applied: true, label: `やる気 +${value}` };
+    }
+    case "lesson_buff": {
+      const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.lessonBuffAdditivePermil ?? 0)) / 1000) + Number(exam.lessonBuffAdditiveFix ?? 0));
+      exam.lessonBuff += value;
+      return { applied: true, label: `集中 +${value}` };
+    }
+    case "parameter_buff": {
+      const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000));
+      exam.parameterBuff += value;
+      return { applied: true, label: `好調 +${value}ターン` };
+    }
     case "parameter_buff_reduce": {
       const before = Math.max(0, Number(exam.parameterBuff ?? 0));
       exam.parameterBuff = Math.max(0, before - Math.max(0, Number(parsed.value) || 0));
       return { applied: true, label: `好調 -${before - exam.parameterBuff}ターン` };
     }
     case "concentration":
+      if (Number(exam.stanceLock ?? 0) > 0) return { applied: true, label: "指針固定中" };
       exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Concentration;
       exam.idolStatusStep = Math.max(1, Number(parsed.step) || 1);
       return { applied: true, label: `強気${exam.idolStatusStep}段階目に変更` };
     case "preservation":
+      if (Number(exam.stanceLock ?? 0) > 0) return { applied: true, label: "指針固定中" };
       exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Preservation;
       exam.idolStatusStep = Math.max(1, Number(parsed.step) || 1);
       return { applied: true, label: `温存${exam.idolStatusStep}段階目に変更` };
     case "stamina_recover": {
+      if (exam.staminaRecoverRestriction) return { applied: true, label: "体力回復不可" };
       const before = exam.stamina;
       exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value) : exam.stamina + parsed.value;
       return { applied: true, label: `体力 +${exam.stamina - before}` };
@@ -1221,6 +1365,12 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       exam.parameterBuffMultiplePerTurn = Math.max(Number(exam.parameterBuffMultiplePerTurn ?? 0), Number(parsed.turn ?? 0));
       return { applied: true, label: `絶好調 ${parsed.turn}ターン` };
     case "status_enchant": return { applied: true, command: "status_enchant", enchant: parsed, label: `継続効果を追加: ${parsed.enchantId}` };
+    case "master_effect": return {
+      applied: true,
+      command: "master_effect",
+      effect: parsed,
+      label: parsed.id,
+    };
     default: return { applied: false, unsupported: true, label: `未対応: ${parsed.id}` };
   }
 }

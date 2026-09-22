@@ -1,6 +1,9 @@
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
 import {
+  addNativeGenericTimedStatus,
   applyParsedExamEffect,
+  calculateNativeBlockAdd,
+  calculateNativeStaminaDamage,
   checkCardEffectTrigger,
   createExamState,
   getExamRuntimeSetting,
@@ -9,7 +12,7 @@ import {
   payCardCost,
   tickNativeScoreTimedStatuses,
 } from "./exam_effects.js";
-import { applyNativeReviewTurnEnd } from "./exam_score.js";
+import { applyNativeReviewTurnEnd, calculateNativeDependentLessonBase } from "./exam_score.js";
 import {
   applyCardCustomizations,
   applyCardGrowEffectsToParsedEffect,
@@ -342,6 +345,7 @@ function moveSearchedCards(state, parsed, event) {
       randomStateBefore,
       randomStateAfter: randomStateAfterSelection,
     });
+    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_MOVE_LOST, event, { card });
   }
 }
 
@@ -431,12 +435,16 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     cardById: cardById ?? new Map(),
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
     examEffectById: options.examEffectById ?? new Map(),
+    examStatusEnchantById: options.examStatusEnchantById ?? new Map(),
+    examTriggerById: options.examTriggerById ?? new Map(),
+    cardSearchById: options.cardSearchById ?? new Map(),
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
     pItemEffectRemainingCounts: new Map(),
     gimmicks: Array.isArray(options.gimmicks) ? options.gimmicks.map((item) => ({ ...item })) : [],
     gimmickEffectRemainingCounts: new Map(),
     lessonType: String(options.lessonType ?? ""),
+    playTurnCountSum: 0,
   };
   registerResolvedPItems(state);
   registerResolvedGimmicks(state);
@@ -593,6 +601,8 @@ function schedulerPhaseForLegacyEnchant(trigger = {}) {
 
 
 const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
+  ProduceExamPhaseType_StartPlay: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
+  ProduceExamPhaseType_StartExamPlay: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamStartExam: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamStartTurn: NATIVE_EFFECT_PHASE.START_OF_TURN,
   ProduceExamPhaseType_ExamCardDraw: NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN,
@@ -605,6 +615,16 @@ const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
   ProduceExamPhaseType_ExamPlayCountInterval: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamPlayCountIntervalAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamTurnSkip: NATIVE_EFFECT_PHASE.END_TURN,
+  ProduceExamPhaseType_ExamEndTurnInterval: NATIVE_EFFECT_PHASE.END_TURN,
+  ProduceExamPhaseType_ExamPlayTurnCountInterval: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamBuffConsume: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
+  ProduceExamPhaseType_ExamStaminaReduce: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
+  ProduceExamPhaseType_ExamStaminaReduceCard: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamAggressiveUpInterval: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+  ProduceExamPhaseType_ExamStanceChangeConcentration: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+  ProduceExamPhaseType_ExamStanceChangeFullPower: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
+  ProduceExamPhaseType_ExamStanceChangeFromFullPower: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
+  ProduceExamPhaseType_ExamCardMoveLost: NATIVE_EFFECT_PHASE.CARD_MOVE_LOST,
   ProduceExamPhaseType_ExamStatusChange: "statusChange",
 });
 
@@ -619,7 +639,7 @@ const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
   ProduceExamFieldStatusType_ConcentrationUp: "idolStatusConcentration",
   ProduceExamFieldStatusType_PreservationUp: "idolStatusPreservation",
   ProduceExamFieldStatusType_FullPowerUp: "idolStatusFullPower",
-  ProduceExamFieldStatusType_NoBlock: "block",
+  ProduceExamFieldStatusType_NoBlock: "noBlock",
   ProduceExamFieldStatusType_LessonBuffUp: "lessonBuff",
   ProduceExamFieldStatusType_BlockUp: "block",
   ProduceExamFieldStatusType_ReviewUp: "review",
@@ -632,6 +652,16 @@ const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
   ProduceExamFieldStatusType_FullPowerPointUp: "fullPowerPoint",
   ProduceExamFieldStatusType_NoStance: "noStance",
   ProduceExamFieldStatusType_TurnPlayCardCountUp: "turnPlayCardCount",
+  ProduceExamFieldStatusType_ParameterBuffMultiplePerTurnUp: "parameterBuffMultiplePerTurn",
+  ProduceExamFieldStatusType_FullPowerPointGetSumUp: "fullPowerPointGetSum",
+  ProduceExamFieldStatusType_ConcentrationChangeCountUp: "concentrationChangeCount",
+  ProduceExamFieldStatusType_PreservationChangeCountUp: "preservationChangeCount",
+  ProduceExamFieldStatusType_FullPowerChangeCountUp: "fullPowerChangeCount",
+  ProduceExamFieldStatusType_StanceChangeCountUp: "stanceChangeCount",
+  ProduceExamFieldStatusType_TurnProgressUp: "turnProgress",
+  ProduceExamFieldStatusType_ConditionThresholdMultipleDown: "conditionThresholdMultipleDown",
+  ProduceExamFieldStatusType_CardSearchCountUp: "cardSearchCount",
+  ProduceExamFieldStatusType_PlayCardLesson: "playCardLesson",
 });
 
 function masterFieldStatusValue(state, fieldStatusType) {
@@ -648,8 +678,16 @@ function masterFieldStatusValue(state, fieldStatusType) {
       return Number(state.exam.idolStatusType ?? 0) === 3 ? Number(state.exam.idolStatusStep ?? 1) : 0;
     case "remainingTurn":
       return Math.max(0, Number(state.turnLimit ?? state.turn ?? 0) - Number(state.turn ?? 0));
+    case "turnProgress":
+      return Number(state.turn ?? 0);
+    case "conditionThresholdMultipleDown": {
+      const target = Math.max(0, Number(state.exam.targetScore ?? 0));
+      return target > 0 ? Math.trunc(Number(state.exam.parameter ?? 0) * 1000 / target) : 0;
+    }
     case "noStance":
       return Number(state.exam.idolStatusType ?? 0) === 0 ? 1 : 0;
+    case "noBlock":
+      return Number(state.exam.block ?? 0) === 0 ? 1 : 0;
     case "turnPlayCardCount":
       return Array.isArray(state.currentTurnPlays) ? state.currentTurnPlays.length : 0;
     case undefined:
@@ -800,17 +838,25 @@ function masterPhaseValue(state, phaseType, context) {
   }
 }
 
-function triggerFieldStatusesMatch(state, trigger) {
+function triggerFieldStatusesMatch(state, trigger, context = {}) {
   const types = trigger.fieldStatusTypes ?? [];
   const values = trigger.fieldStatusValues ?? [];
   const checks = trigger.fieldStatusCheckTypes ?? [];
   for (let index = 0; index < types.length; index += 1) {
     const type = String(types[index] ?? "");
-    const current = masterFieldStatusValue(state, type);
+    let current;
+    if (type === "ProduceExamFieldStatusType_CardSearchCountUp") {
+      current = masterSearchMatchCount(state, trigger.fieldStatusCardSearches?.[index], context);
+    } else if (type === "ProduceExamFieldStatusType_PlayCardLesson") {
+      current = String(context.effectType ?? "").includes("Lesson") ? 1 : 0;
+    } else {
+      current = masterFieldStatusValue(state, type);
+    }
     if (current === null) return false;
-    const expected = Number(values[index] ?? 0);
+    const expected = Number(values[index] ?? 1);
     const check = String(checks[index] ?? "ProduceExamTriggerCheckType_Unknown");
-    const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple";
+    const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple"
+      || type.endsWith("MultipleDown");
     const positiveMatch = reverse ? current <= expected : current >= expected;
     if (check === "ProduceExamTriggerCheckType_Not" ? positiveMatch : !positiveMatch) return false;
   }
@@ -830,11 +876,12 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   const activationKey = String(condition.activationKey ?? "");
   if (activationKey && runtimeEvent.__nativeEffectFired?.has?.(activationKey)) return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamStartExam" && Number(state.turn ?? 0) !== 0) return false;
+  if (condition.phaseType === "ProduceExamPhaseType_StartExamPlay" && Number(state.turn ?? 0) !== 0) return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamTurnSkip" && String(context.action ?? "") !== "skip") return false;
 
   const phaseValues = (trigger.phaseValues ?? []).map(Number).filter(Number.isFinite);
   if (phaseValues.length && !phaseValues.includes(masterPhaseValue(state, condition.phaseType, context))) return false;
-  if (!triggerFieldStatusesMatch(state, trigger)) return false;
+  if (!triggerFieldStatusesMatch(state, trigger, context)) return false;
   if (!lessonTypeMatches(trigger.lessonType, context.lessonType)) return false;
   if (!triggerSearchMatches(state, trigger, context)) return false;
 
@@ -864,7 +911,12 @@ function registerResolvedPItems(state) {
         continue;
       }
       if (effect.effectType !== "ProduceItemEffectType_ExamStatusEnchant") {
-        if (effect.effectType) rememberUnsupported(state, `pitem-effect-type:${effect.effectType}`);
+        // ProduceEffect rows are resolved by the out-of-exam produce flow.
+        // They intentionally have no action inside an exam and are not an
+        // unsupported battle effect.
+        if (effect.effectType !== "ProduceItemEffectType_ProduceEffect" && effect.effectType) {
+          rememberUnsupported(state, `pitem-effect-type:${effect.effectType}`);
+        }
         continue;
       }
       const enchant = effect.examStatusEnchant;
@@ -1232,7 +1284,7 @@ export function drawTowerTurn(state, drawCount = 3) {
 
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
-  const requested = count + extraDraw;
+  const requested = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
   const result = isOpeningTurn
     ? setNativeInitialCard(state, requested)
     : drawCardsIntoHand(state, requested);
@@ -1281,6 +1333,403 @@ export function currentTowerScoreContext(state) {
     parameterType,
     settings: state?.examScoreSettings ?? null,
   };
+}
+
+function resolvedMasterSearch(state, searchId) {
+  return state.cardSearchById?.get?.(String(searchId ?? "")) ?? null;
+}
+
+function resolvedRuntimeMasterTrigger(state, triggerId) {
+  const trigger = state.examTriggerById?.get?.(String(triggerId ?? ""));
+  if (!trigger) return null;
+  return {
+    ...trigger,
+    cardSearch: resolvedMasterSearch(state, trigger.produceCardSearchId),
+    fieldStatusCardSearches: (trigger.fieldStatusProduceCardSearchIds ?? []).map(
+      (id) => resolvedMasterSearch(state, id),
+    ),
+  };
+}
+
+function checkRuntimeCardTrigger(state, triggerId, card = null, event = null) {
+  const id = String(triggerId ?? "");
+  if (!id) return { supported: true, triggered: true, triggerId: id };
+  const trigger = resolvedRuntimeMasterTrigger(state, id);
+  if (!trigger) return checkCardEffectTrigger(id, state.exam);
+  const context = {
+    state,
+    exam: state.exam,
+    card,
+    event,
+    lessonType: currentNativeLessonType(state),
+  };
+  return {
+    supported: true,
+    triggered: triggerFieldStatusesMatch(state, trigger, context)
+      && lessonTypeMatches(trigger.lessonType, context.lessonType)
+      && triggerSearchMatches(state, trigger, context),
+    triggerId: id,
+  };
+}
+
+function masterPickCount(state, parsed, available) {
+  let min = Math.max(0, Math.trunc(Number(parsed.pickCountMin ?? 0)));
+  let max = Math.max(min, Math.trunc(Number(parsed.pickCountMax ?? min)));
+  if (String(parsed.pickRangeType ?? "").endsWith("_All") && min === 0 && max === 0) {
+    return available;
+  }
+  max = Math.min(max, available);
+  min = Math.min(min, max);
+  if (max === min) return min;
+  if (String(parsed.pickRangeType ?? "").endsWith("_Select")) return max;
+  return consumeNativeRandomInt(state, min, max + 1);
+}
+
+function pickedMasterCards(state, parsed, context = {}) {
+  const search = resolvedMasterSearch(state, parsed.searchId);
+  const candidates = cardsForMasterSearch(state, search, context)
+    .filter((card) => cardMatchesMasterSearch(card, search));
+  const count = masterPickCount(state, parsed, candidates.length);
+  const range = String(parsed.pickRangeType ?? "");
+  if (range.endsWith("_Random")) {
+    return candidates
+      .map((card, order) => ({ card, order, key: consumeNativeRandomSortKey(state) }))
+      .sort((a, b) => a.key - b.key || a.order - b.order)
+      .slice(0, count)
+      .map((row) => row.card);
+  }
+  return candidates.slice(0, count);
+}
+
+function removeRuntimeCard(state, card) {
+  for (const [name, pool] of [
+    ["hand", state.hand], ["deck", state.deck], ["grave", state.discard],
+    ["lost", state.lost], ["hold", state.hold],
+  ]) {
+    const index = pool.indexOf(card);
+    if (index >= 0) {
+      pool.splice(index, 1);
+      return name;
+    }
+  }
+  return "";
+}
+
+function addRuntimeCardAt(state, card, movePositionType) {
+  const move = String(movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "");
+  switch (move) {
+    case "Hand":
+      if (state.hand.length < normalizeHandLimit(state.handLimit)) state.hand.push(card);
+      else state.deck.unshift(card);
+      return "hand";
+    case "DeckFirst": state.deck.unshift(card); return "deck_first";
+    case "DeckLast": state.deck.push(card); return "deck_last";
+    case "DeckRandom": {
+      const index = consumeNativeRandomInt(state, 0, state.deck.length + 1);
+      state.deck.splice(index, 0, card);
+      return "deck_random";
+    }
+    case "Grave": state.discard.push(card); return "grave";
+    case "Lost": state.lost.push(card); return "lost";
+    case "Hold": state.hold.push(card); return "hold";
+    default: state.discard.push(card); return "grave";
+  }
+}
+
+function resolveRuntimeMasterEnchant(state, enchantIdInput) {
+  const enchantId = String(enchantIdInput ?? "");
+  const enchant = state.examStatusEnchantById?.get?.(enchantId);
+  if (!enchant) return null;
+  const trigger = state.examTriggerById?.get?.(String(enchant.produceExamTriggerId ?? ""));
+  if (!trigger) return null;
+  const cardSearch = resolvedMasterSearch(state, trigger.produceCardSearchId);
+  const fieldStatusCardSearches = (trigger.fieldStatusProduceCardSearchIds ?? []).map(
+    (id) => resolvedMasterSearch(state, id),
+  );
+  const effects = (enchant.produceExamEffectIds ?? []).map(
+    (id) => state.examEffectById?.get?.(String(id)),
+  ).filter(Boolean);
+  return {
+    ...enchant,
+    trigger: { ...trigger, cardSearch, fieldStatusCardSearches },
+    examEffects: effects,
+  };
+}
+
+function registerMasterStatusEnchant(state, parsed) {
+  const enchant = resolveRuntimeMasterEnchant(state, parsed.enchantId);
+  if (!enchant) {
+    rememberUnsupported(state, `enchant:${parsed.enchantId}`);
+    return null;
+  }
+  const specs = [];
+  for (const phaseType of enchant.trigger.phaseTypes ?? []) {
+    const issue = masterTriggerSupportIssue(enchant.trigger, phaseType);
+    if (issue) {
+      rememberUnsupported(state, `enchant-trigger:${enchant.trigger.id}:${issue}`);
+      continue;
+    }
+    const mapped = MASTER_EXAM_PHASE_TO_NATIVE[String(phaseType)];
+    const phases = mapped === "statusChange"
+      ? [NATIVE_EFFECT_PHASE.STATUS_INCREASED, NATIVE_EFFECT_PHASE.STATUS_DECREASED]
+      : [mapped];
+    for (const phase of phases) {
+      specs.push({
+        id: parsed.id,
+        phase,
+        turn: Number(parsed.turn) > 0 ? Number(parsed.turn) : null,
+        count: Number(parsed.count) > 0 ? Number(parsed.count) : null,
+        condition: {
+          kind: "masterExamTrigger",
+          phaseType: String(phaseType),
+          trigger: enchant.trigger,
+        },
+        effects: enchant.examEffects,
+        metadata: { enchantId: enchant.id, triggerId: enchant.trigger.id },
+      });
+    }
+  }
+  return specs.length
+    ? registerNativeEnchantEffects(state.effectScheduler, enchant.id, specs)
+    : null;
+}
+
+function executeMasterChain(state, parsed, event, repeat = 1) {
+  const ids = [parsed.chainEffectId, ...(parsed.chainEffectIds ?? [])].filter(Boolean);
+  for (let n = 0; n < Math.max(1, Math.trunc(Number(repeat) || 1)); n += 1) {
+    for (const id of ids) {
+      const master = state.examEffectById?.get?.(String(id));
+      executeParsedTowerEffect(
+        state,
+        master ? parseExamEffectMaster(master) : parseExamEffectId(id),
+        event,
+      );
+    }
+  }
+}
+
+function scaledMasterValue(source, parsed, preferValue2 = false) {
+  const permil = Number(preferValue2 && parsed.value2 ? parsed.value2 : parsed.value1) || 0;
+  const result = calculateNativeDependentLessonBase(Math.max(0, Number(source) || 0), permil);
+  const cap = preferValue2 ? Math.max(0, Number(parsed.value1) || 0) : 0;
+  return cap > 0 ? Math.min(cap, result) : result;
+}
+
+function addScaledStatus(exam, field, value, additivePermilField = "", fixedField = "") {
+  const additive = Math.max(0, Number(exam[additivePermilField] ?? 0));
+  const fixed = Math.max(0, Number(exam[fixedField] ?? 0));
+  const added = Math.max(0, Math.ceil((Number(value) || 0) * (1000 + additive) / 1000) + fixed);
+  exam[field] = Math.max(0, Number(exam[field] ?? 0) + added);
+  return added;
+}
+
+function applyMasterLesson(state, parsed, source, event, label) {
+  const base = Math.max(0, Math.trunc(Number(source) || 0));
+  const result = applyParsedExamEffect(
+    state.exam,
+    { kind: "lesson", id: parsed.id, value: base, count: Math.max(1, Number(parsed.count) || 1) },
+    currentTowerScoreContext(state),
+  );
+  event.effects.push(`${label}: ${result.label}`);
+}
+
+function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
+  const type = String(parsed.masterEffectType ?? "").replace("ProduceExamEffectType_", "");
+  const exam = state.exam;
+  const v1 = Number(parsed.value1 ?? parsed.value ?? 0) || 0;
+  const v2 = Number(parsed.value2 ?? 0) || 0;
+  const turn = Number(parsed.turn ?? 0) || 0;
+  const searchCount = () => masterSearchMatchCount(state, resolvedMasterSearch(state, parsed.searchId));
+  const status = (field, value, label, additive = "", fixed = "") => {
+    const added = addScaledStatus(exam, field, value, additive, fixed);
+    event.effects.push(`${label} +${added}`);
+  };
+  const reduce = (field, value, label) => {
+    const before = Math.max(0, Number(exam[field] ?? 0));
+    exam[field] = Math.max(0, before - Math.max(0, Number(value) || 0));
+    event.effects.push(`${label} -${before - exam[field]}`);
+  };
+  const timedAdd = (field, value, label, mode = "add") => {
+    addNativeGenericTimedStatus(exam, field, value, turn || -1, mode);
+    event.effects.push(`${label}（${turn < 0 ? "∞" : turn}T）`);
+  };
+
+  switch (type) {
+    case "ExamStatusEnchant":
+    case "ExamStatusEnchantEncore":
+      registerMasterStatusEnchant(state, parsed);
+      event.effects.push(`継続効果を追加: ${parsed.enchantId}`);
+      return;
+    case "ExamEffectTimer": {
+      const childId = parsed.chainEffectId || parsed.chainEffectIds?.[0];
+      const master = state.examEffectById?.get?.(String(childId ?? ""));
+      state.timers.push({
+        turn: Math.max(1, turn), count: Math.max(1, Number(parsed.count) || 1),
+        child: master ? parseExamEffectMaster(master) : parseExamEffectId(childId), id: parsed.id,
+      });
+      event.effects.push(`${Math.max(1, turn)}ターン後に効果発動`);
+      return;
+    }
+    case "ExamLessonFix": {
+      const added = Math.max(0, Math.trunc(v1)) * Math.max(1, Number(parsed.count) || 1);
+      exam.parameter += added;
+      event.effects.push(`固定パラメータ +${added}`);
+      return;
+    }
+    case "ExamLessonValueMultipleDown": {
+      const result = applyParsedExamEffect(exam, {
+        kind: "lesson_value_multiple_down", id: parsed.id, permil: v1, turn: turn || -1,
+      });
+      event.effects.push(result.label); return;
+    }
+    case "ExamLessonDependBlock": applyMasterLesson(state, parsed, scaledMasterValue(exam.block, parsed, v2 > 0), event, "元気参照"); return;
+    case "ExamLessonDependParameterBuff": applyMasterLesson(state, parsed, scaledMasterValue(exam.parameterBuff, parsed, v2 > 0), event, "好調参照"); return;
+    case "ExamLessonDependStamina": applyMasterLesson(state, parsed, scaledMasterValue(exam.stamina, parsed), event, "体力参照"); return;
+    case "ExamLessonDependBlockConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.blockConsumptionSum, parsed), event, "元気消費量参照"); return;
+    case "ExamLessonDependStaminaConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.staminaConsumptionSum, parsed), event, "体力消費量参照"); return;
+    case "ExamLessonDependPlayCardCountSum": applyMasterLesson(state, parsed, Math.min(v2 || Infinity, v1 * Number(exam.playCardCountSum ?? exam.cardPlayCount ?? 0)), event, "カード使用数参照"); return;
+    case "ExamLessonFullPowerPoint": applyMasterLesson(state, parsed, scaledMasterValue(exam.fullPowerPoint, parsed), event, "全力値参照"); return;
+    case "ExamLessonPerSearchCount": applyMasterLesson(state, parsed, v1 * searchCount(), event, "カード枚数参照"); return;
+    case "ExamLessonDependBlockAndSearchCount": applyMasterLesson(state, parsed, scaledMasterValue(exam.block, parsed) * Math.max(1, searchCount()), event, "元気・カード枚数参照"); return;
+    case "ExamLessonAddMultipleLessonBuff": applyMasterLesson(state, parsed, scaledMasterValue(exam.lessonBuff, parsed), event, "集中参照"); return;
+    case "ExamMultipleEnthusiasticLesson": {
+      const base = Math.max(0, v1 + scaledMasterValue(exam.enthusiastic, { ...parsed, value1: v2 || 1000 }));
+      applyMasterLesson(state, parsed, base, event, "熱意参照"); return;
+    }
+    case "ExamBlockFix": status("block", v1, "元気"); return;
+    case "ExamBlockAddMultipleAggressive": {
+      const added = calculateNativeBlockAdd(exam, v1, v2 / 1000);
+      exam.block += added; event.effects.push(`元気 +${added}`); return;
+    }
+    case "ExamBlockPerUseCardCount": status("block", v1 * Math.min(Number(exam.cardPlayCount ?? 0), v2 || Infinity), "元気"); return;
+    case "ExamBlockDependExamReview": status("block", scaledMasterValue(exam.review, parsed), "元気"); return;
+    case "ExamBlockDependBlockConsumptionSum": status("block", scaledMasterValue(exam.blockConsumptionSum, parsed), "元気"); return;
+    case "ExamReviewDependExamBlock": status("review", scaledMasterValue(exam.block, parsed), "好印象", "reviewAdditivePermil"); return;
+    case "ExamReviewDependExamCardPlayAggressive": status("review", scaledMasterValue(exam.aggressive, parsed), "好印象", "reviewAdditivePermil"); return;
+    case "ExamReviewDependReviewConsumptionSum": status("review", scaledMasterValue(exam.reviewConsumptionSum, parsed), "好印象", "reviewAdditivePermil"); return;
+    case "ExamReviewPerSearchCount": status("review", scaledMasterValue(searchCount(), { ...parsed, value1: v2 || v1 }), "好印象", "reviewAdditivePermil"); return;
+    case "ExamLessonBuffDependParameterBuff": status("lessonBuff", scaledMasterValue(exam.parameterBuff, parsed), "集中", "lessonBuffAdditivePermil", "lessonBuffAdditiveFix"); return;
+    case "ExamLessonBuffPerSearchCount": status("lessonBuff", scaledMasterValue(searchCount(), { ...parsed, value1: v2 || v1 }), "集中", "lessonBuffAdditivePermil", "lessonBuffAdditiveFix"); return;
+    case "ExamParameterBuffDependLessonBuff": status("parameterBuff", scaledMasterValue(exam.lessonBuff, parsed), "好調", "parameterBuffAdditivePermil"); return;
+    case "ExamStaminaRecoverMultiple": {
+      if (exam.staminaRecoverRestriction) return;
+      const amount = Math.ceil(Number(exam.maxStamina ?? 0) * v1 / 1000);
+      const before = exam.stamina; exam.stamina = Math.min(exam.maxStamina || Infinity, exam.stamina + amount);
+      event.effects.push(`体力 +${exam.stamina - before}`); return;
+    }
+    case "ExamStaminaDamage":
+    case "ExamStaminaReduceFix":
+    case "ExamStaminaReduce": {
+      const amount = type === "ExamStaminaReduce" && v1 < 0
+        ? Math.ceil(Number(exam.maxStamina ?? 0) * Math.abs(v1) / 1000)
+        : Math.abs(v1);
+      const resolved = calculateNativeStaminaDamage(exam, amount, { penetrate: type !== "ExamStaminaDamage" });
+      exam.block = Math.max(0, exam.block - resolved.blockDamage);
+      exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
+      exam.blockConsumptionSum += resolved.blockDamage;
+      exam.staminaConsumptionSum += resolved.staminaDamage;
+      event.effects.push(`体力減少 ${resolved.damage}`); return;
+    }
+    case "ExamAggressiveReduce": reduce("aggressive", v1, "やる気"); return;
+    case "ExamReviewReduce": exam.reviewConsumptionSum += Math.min(exam.review, v1); reduce("review", v1, "好印象"); return;
+    case "ExamLessonBuffReduce": reduce("lessonBuff", v1, "集中"); return;
+    case "ExamFullPowerPointReduce": reduce("fullPowerPoint", v1, "全力値"); return;
+    case "ExamParameterBuffMultiplePerTurnReduce": reduce("parameterBuffMultiplePerTurn", v1, "絶好調"); return;
+    case "ExamBlockDown": exam.block = Math.max(0, Math.floor(exam.block * Math.max(0, 1000 - v1) / 1000)); event.effects.push("元気減少"); return;
+    case "ExamAggressiveValueMultiple": exam.aggressiveValueMultiple = 1 + v1 / 1000; event.effects.push("やる気倍率変更"); return;
+    case "ExamReviewValueMultiple": exam.reviewValueMultiple = 1 + v1 / 1000; event.effects.push("好印象倍率変更"); return;
+    case "ExamBlockValueMultiple": exam.blockValueMultiple = 1 + v1 / 1000; event.effects.push("元気倍率変更"); return;
+    case "ExamAggressiveAdditive": timedAdd("aggressiveAdditivePermil", v1, "やる気効果増加"); return;
+    case "ExamAggressiveAdditiveFix": timedAdd("aggressiveAdditiveFix", v1, "やる気固定増加"); return;
+    case "ExamReviewAdditive": timedAdd("reviewAdditivePermil", v1, "好印象効果増加"); return;
+    case "ExamLessonBuffAdditive": timedAdd("lessonBuffAdditivePermil", v1, "集中効果増加"); return;
+    case "ExamLessonBuffAdditiveFix": timedAdd("lessonBuffAdditiveFix", v1, "集中固定増加"); return;
+    case "ExamParameterBuffAdditive": timedAdd("parameterBuffAdditivePermil", v1, "好調効果増加"); return;
+    case "ExamEnthusiasticAdditive": timedAdd("enthusiasticAdditivePermil", v1, "熱意効果増加"); return;
+    case "ExamEnthusiasticMultiple": exam.enthusiasticMultiple = 1 + v1 / 1000; event.effects.push("熱意倍率変更"); return;
+    case "ExamFullPowerPointAdditive": timedAdd("fullPowerPointAdditivePermil", v1, "全力値効果増加"); return;
+    case "ExamConcentrationLessonMultipleAdditive": exam.concentrationLessonMultipleAdditive += v1 / 1000; event.effects.push("強気時スコア倍率増加"); return;
+    case "ExamFullPowerLessonMultipleAdditive": exam.fullPowerLessonMultipleAdditive += v1 / 1000; event.effects.push("全力時スコア倍率増加"); return;
+    case "ExamBlockRestriction": timedAdd("blockRestriction", 1, "元気増加不可", "flag"); return;
+    case "ExamBlockAddDown": timedAdd("blockAddDown", 1, "元気増加量減少", "flag"); return;
+    case "ExamStaminaRecoverRestriction": timedAdd("staminaRecoverRestriction", 1, "体力回復不可", "flag"); return;
+    case "ExamPanic": timedAdd("panic", 1, "パニック", "flag"); return;
+    case "ExamAntiDebuff": exam.antiDebuffCount += Math.max(1, Number(parsed.count) || 1); event.effects.push("低下状態無効"); return;
+    case "ExamDebuffRecover": exam.parameterDebuff = 0; exam.lessonDebuff = 0; exam.slump = false; exam.panic = false; event.effects.push("低下状態を解除"); return;
+    case "ExamGimmickLessonDebuff": if (exam.antiDebuffCount > 0) exam.antiDebuffCount -= 1; else exam.lessonDebuff += Math.max(1, v1); event.effects.push("集中低下"); return;
+    case "ExamGimmickParameterDebuff": if (exam.antiDebuffCount > 0) exam.antiDebuffCount -= 1; else exam.parameterDebuff += Math.max(1, v1); event.effects.push("好調低下"); return;
+    case "ExamGimmickSlump": if (exam.antiDebuffCount > 0) exam.antiDebuffCount -= 1; else exam.slump = true; event.effects.push("スランプ"); return;
+    case "ExamGimmickSleepy": executeMasterChain(state, parsed, event); event.effects.push("眠気を生成"); return;
+    case "ExamGimmickPlayCardLimit": exam.gimmickPlayCardLimit = v1; state.playsRemaining = Math.min(state.playsRemaining, v1); event.effects.push(`カード使用上限 ${v1}`); return;
+    case "ExamGimmickStartTurnCardDrawDown": timedAdd("startTurnCardDrawDown", Math.max(1, v1), `ターン開始ドロー -${Math.max(1, v1)}`); return;
+    case "ExamBuffConsumptionAdd": timedAdd("buffConsumptionAdd", Math.max(1, v1 || 1), "強化状態消費増加"); return;
+    case "ExamItemFireLimitAdd": exam.itemFireLimitAdd += Math.max(1, v1 || 1); event.effects.push("Pアイテム発動回数増加"); return;
+    case "ExamFullPowerPoint": {
+      const added = addScaledStatus(exam, "fullPowerPoint", v1, "fullPowerPointAdditivePermil");
+      exam.fullPowerPointGetSum += added; event.effects.push(`全力値 +${added}`); return;
+    }
+    case "ExamFullPower": if (!exam.stanceLock) { exam.idolStatusType = 3; exam.idolStatusStep = 1; } event.effects.push(exam.stanceLock ? "指針固定中" : "全力に変更"); return;
+    case "ExamOverPreservation": if (!exam.stanceLock) { exam.idolStatusType = 4; exam.idolStatusStep = 1; } event.effects.push(exam.stanceLock ? "指針固定中" : "超温存に変更"); return;
+    case "ExamStanceReset": if (!exam.stanceLock) { exam.idolStatusType = 0; exam.idolStatusStep = 0; } event.effects.push("指針解除"); return;
+    case "StanceLock": exam.stanceLock = turn || 1; event.effects.push(`指針固定 ${exam.stanceLock}ターン`); return;
+    case "ExamCardMove": {
+      for (const card of pickedMasterCards(state, parsed)) {
+        const from = removeRuntimeCard(state, card); const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+        event.moved.push({ card: { ...card }, from, to });
+        if (to === "lost") runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_MOVE_LOST, event, { card });
+      }
+      event.effects.push("対象カードを移動"); return;
+    }
+    case "ExamCardUpgrade": {
+      for (const card of pickedMasterCards(state, parsed)) {
+        const next = Number(card.upgradeCount ?? 0) + 1;
+        const master = state.cardVariantByKey?.get?.(`${card.id}@@${next}`) ?? {};
+        Object.assign(card, master, { upgradeCount: next });
+      }
+      event.effects.push("対象カードを強化"); return;
+    }
+    case "ExamCardDuplicate": {
+      for (const source of pickedMasterCards(state, parsed)) {
+        const clone = { ...source, token: `generated:${++state.generatedCardSerial}:${source.id}`, generated: true };
+        addRuntimeCardAt(state, clone, parsed.movePositionType); event.created.push({ card: { ...clone } });
+      }
+      event.effects.push("対象カードを複製"); return;
+    }
+    case "ExamCardCreateSearch": {
+      const search = resolvedMasterSearch(state, parsed.searchId);
+      const candidates = [...(state.cardById?.values?.() ?? [])].filter((card) => cardMatchesMasterSearch(card, search));
+      const amount = masterPickCount(state, parsed, candidates.length);
+      for (let i = 0; i < amount && candidates.length; i += 1) {
+        const index = consumeNativeRandomInt(state, 0, candidates.length);
+        const master = candidates.splice(index, 1)[0];
+        const card = generatedRuntimeCard(state, master.id, Number(master.upgradeCount ?? 0));
+        if (card) { addRuntimeCardAt(state, card, parsed.movePositionType); event.created.push({ card: { ...card } }); }
+      }
+      event.effects.push("検索条件からカード生成"); return;
+    }
+    case "ExamSearchPlayCardStaminaConsumptionChange": {
+      for (const card of cardsForMasterSearch(state, resolvedMasterSearch(state, parsed.searchId))) {
+        card.stamina = Math.max(0, Number(card.stamina ?? 0) + v1);
+      }
+      event.effects.push("対象カードの体力消費を変更"); return;
+    }
+    case "ExamForcePlayCardSearch":
+    case "ExamForcePlayCardSearchWithCost": {
+      const card = pickedMasterCards(state, parsed)[0];
+      if (card) {
+        if (!state.hand.includes(card)) { removeRuntimeCard(state, card); state.hand.push(card); }
+        if (state.playsRemaining <= 0) state.playsRemaining = 1;
+        playTowerCard(state, state.hand.indexOf(card));
+      }
+      event.effects.push("対象カードを強制使用"); return;
+    }
+    case "ExamEffectPerSearchCount": executeMasterChain(state, parsed, event, searchCount()); return;
+    default:
+      // Effects already covered by the direct parser can still arrive here
+      // when a newer master row uses a non-canonical ID. Preserve chains.
+      executeMasterChain(state, parsed, event);
+      event.effects.push(`マスタ効果: ${parsed.id}`);
+  }
 }
 
 function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) {
@@ -1348,6 +1797,19 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
     case "status_enchant":
       registerParsedStatusEnchant(state, parsed);
       break;
+    case "master_effect":
+      executeMasterEffect(state, applied.effect ?? parsed, event, { timed });
+      // executeMasterEffect writes the concrete user-facing event itself.
+      applied.label = "";
+      break;
+  }
+  const beforeStance = Number(beforeStatus.idolStatusType ?? 0);
+  const afterStance = Number(state.exam.idolStatusType ?? 0);
+  if (beforeStance !== afterStance) {
+    state.exam.stanceChangeCount = Number(state.exam.stanceChangeCount ?? 0) + 1;
+    if (afterStance === 1) state.exam.concentrationChangeCount = Number(state.exam.concentrationChangeCount ?? 0) + 1;
+    if (afterStance === 2 || afterStance === 4) state.exam.preservationChangeCount = Number(state.exam.preservationChangeCount ?? 0) + 1;
+    if (afterStance === 3) state.exam.fullPowerChangeCount = Number(state.exam.fullPowerChangeCount ?? 0) + 1;
   }
   if (applied.label) event.effects.push(applied.label);
   emitNativeStatusDiff(
@@ -1363,7 +1825,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
 }
 
 function applyCardEffectEntry(state, entry, event, card = null) {
-  const trigger = checkCardEffectTrigger(entry?.produceExamTriggerId, state.exam);
+  const trigger = checkRuntimeCardTrigger(state, entry?.produceExamTriggerId, card, event);
   if (!trigger.supported) {
     rememberUnsupported(state, `trigger:${trigger.triggerId}`);
     event.effects.push(`未対応条件: ${trigger.triggerId}`);
@@ -1374,8 +1836,10 @@ function applyCardEffectEntry(state, entry, event, card = null) {
     return;
   }
 
+  const effectId = String(entry?.produceExamEffectId ?? "");
+  const masterEffect = state.examEffectById?.get?.(effectId);
   let parsed = applyCardGrowEffectsToParsedEffect(
-    parseExamEffectId(entry?.produceExamEffectId),
+    masterEffect ? parseExamEffectMaster(masterEffect) : parseExamEffectId(effectId),
     card,
   );
   const growBlockAdd = Math.max(0, Number(card?.growBlockAdd ?? 0));
@@ -1472,7 +1936,7 @@ export function playTowerCard(state, indexInput) {
     recycleEvents: [],
     onceOnly: Boolean(card.onceOnly),
   };
-  const cardTrigger = checkCardEffectTrigger(card.playProduceExamTriggerId, state.exam);
+  const cardTrigger = checkRuntimeCardTrigger(state, card.playProduceExamTriggerId, card, event);
   if (!cardTrigger.supported) {
     rememberUnsupported(state, `play-trigger:${card.playProduceExamTriggerId}`);
     event.effects.push(`カード使用条件は未対応: ${card.playProduceExamTriggerId}`);
@@ -1481,7 +1945,15 @@ export function playTowerCard(state, indexInput) {
   }
 
   const beforeCostStatus = captureNativeStatusSnapshot(state.exam);
+  const beforeCost = {
+    block: Number(state.exam.block ?? 0),
+    stamina: Number(state.exam.stamina ?? 0),
+    review: Number(state.exam.review ?? 0),
+  };
   event.cost.push(...payCardCost(state.exam, card));
+  state.exam.blockConsumptionSum += Math.max(0, beforeCost.block - Number(state.exam.block ?? 0));
+  state.exam.staminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(state.exam.stamina ?? 0));
+  state.exam.reviewConsumptionSum += Math.max(0, beforeCost.review - Number(state.exam.review ?? 0));
   emitNativeStatusDiff(
     state,
     beforeCostStatus,
@@ -1492,6 +1964,8 @@ export function playTowerCard(state, indexInput) {
   state.hand.splice(index, 1);
   state.playsRemaining -= 1;
   state.exam.cardPlayCount += 1;
+  state.exam.playCardCountSum += 1;
+  state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card });
   const repeatBuff = state.cardEffectPlayCountBuff;
   const repeatMatches = Boolean(
@@ -1511,8 +1985,10 @@ export function playTowerCard(state, indexInput) {
   }
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card });
 
-  if (card.onceOnly) state.lost.push(card);
-  else state.discard.push(card);
+  if (card.onceOnly) {
+    state.lost.push(card);
+    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_MOVE_LOST, event, { card });
+  } else state.discard.push(card);
   state.currentTurnPlays.push(event);
   return event;
 }
@@ -1529,6 +2005,7 @@ function tickTurnDurations(exam) {
   for (const field of ["parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
     if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
+  if (Number(exam.stanceLock ?? 0) > 0) exam.stanceLock -= 1;
 
   // LessonParameterMultiple/Down, ReviewMultiple/CountAdd, Pride, and the
   // turn-end locks all inherit the common finite-turn status lifetime.

@@ -60,7 +60,9 @@ PアイテムIDは選択メモリーから取得・表示しますが、効果�
 
 最初のデッキ1巡分からFisher–Yatesの交換列を復元して32-bit空間を絞ります。観測したカードの順番はそのまま使用し、同じ手札に表示されたカードも順不同には扱いません。同一カードが複数ある場合の初期シャッフル割当も列挙します。
 
-Pアイテムとアイドルへの道固有の応援・トラブルは現在表示・保持段階で、効果適用は後続対応です。
+Pアイテムの試験中効果は `ProduceItemEffect` → `ProduceExamStatusEnchant` →
+`ProduceExamTrigger` → `ProduceExamEffect` を解決し、カードと同じNative Effect
+Schedulerで処理します。試験外の `ProduceEffect` は試験ランタイムでは発動しません。
 
 ## 所有メモリーの入力方法
 
@@ -124,9 +126,15 @@ seed逆算では、画面上の開幕順からは `IsInitial` が元のシャッ
 ## テスト
 
 ```bash
-python -m unittest -v
-node test_web.mjs
-node test_v3.mjs
+python3 -m unittest discover -s tests -p 'test_*.py'
+node --test tests/*.mjs
+```
+
+現行マスタ一式に対する試験効果・Pアイテムの網羅確認は、YAMLを置いた
+ディレクトリを指定して実行できます。
+
+```bash
+node tools/audit_exam_effect_coverage.mjs /path/to/master-data
 ```
 
 seed `0x12345678` の山札 `A..H` が `GFECBHDA` になる固定ベクトルをPython / JavaScriptで確認しています。`test_v3.mjs` では観測順からのseed条件復元、重複カード、Monte Carlo集計も検査します。
