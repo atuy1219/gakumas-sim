@@ -107,6 +107,22 @@ assert.equal(supportState.hand[0].upgradeCount, 1, "the guaranteed support upgra
 assert.equal(supportState.hand[0].name, "A+");
 assert.deepEqual([...supportState.turnUseSupportCardIds], ["always"]);
 assert.equal(supportState.supportCardRollHistory.filter((roll) => roll.supportCardId === "never").length, 3);
+
+const handSearchState = createTowerTurnState(
+  [{ id: "S-A", upgradeCount: 0, fixedDeckOrder: 0 }],
+  2,
+  supportMasters,
+  {
+    supportCards: [{
+      supportCardId: "manual-support-1",
+      cardSearchId: "p_card_search-hand",
+      produceCardUpgradePermil: 0,
+    }],
+  },
+);
+drawTowerTurn(handSearchState, 1);
+assert.equal(handSearchState.supportCardRollHistory.length, 1, "the common Hand search does not require a catalog row");
+assert.deepEqual(handSearchState.unsupported, []);
 }
 
 // ResetHand preserves the relative Hand order for Grave and sends

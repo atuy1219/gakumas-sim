@@ -26,7 +26,7 @@ const preset = createExamPreset({
     { number: 3, produceCardId: "p_card-b", upgradeCount: 0, deleted: false, originType: "ProduceCardOriginType_Initial" },
   ],
   supportCards: [
-    { supportCardId: "support-a", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300 },
+    { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300 },
   ],
   stamina: 30,
   targetScore: 12000,
@@ -42,6 +42,7 @@ assert.equal(preset.progressCards.length, 2);
 assert.equal(preset.progressCards[0].customField, "preserve");
 assert.deepEqual(preset.supportCards, [{
   supportCardId: "support-a",
+  rarity: "SSR",
   filterParameterType: "ProduceExamParameterType_Vocal",
   cardSearchId: "search-a",
   produceCardUpgradePermil: 300,
@@ -81,6 +82,40 @@ assert.throws(() => parseExamPreset(JSON.stringify({ ...preset, format: "wrong" 
 assert.throws(() => createExamPreset({ ...preset, cards: [] }), /1枚もありません/);
 
 console.log("exam preset tests: ok");
+}
+
+// test_exam_support_cards.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  defaultSupportUpgradePercent,
+  normalizeManualSupportCards,
+} = await import("../web/exam_support_cards.js");
+
+assert.equal(defaultSupportUpgradePercent("R", "ProduceParameterType_Vocal"), 1.9);
+assert.equal(defaultSupportUpgradePercent("SR", "ProduceParameterType_Dance"), 2.8);
+assert.equal(defaultSupportUpgradePercent("SSR", "ProduceParameterType_Visual"), 3.7);
+assert.equal(defaultSupportUpgradePercent("SR", "ProduceParameterType_Unknown"), 1.5);
+assert.equal(defaultSupportUpgradePercent("SSR", "ProduceParameterType_Unknown"), 2.0);
+
+const manualSupports = normalizeManualSupportCards(Array.from({ length: 6 }, (_, index) => ({
+  slot: index + 1,
+  rarity: index % 2 ? "SR" : "SSR",
+  filterParameterType: index === 5 ? "ProduceParameterType_Unknown" : "ProduceParameterType_Vocal",
+  upgradePercent: index === 5 ? "2.0" : "3.7",
+})));
+assert.equal(manualSupports.length, 6);
+assert.equal(manualSupports[0].supportCardId, "manual-support-1");
+assert.equal(manualSupports[0].produceCardUpgradePermil, 37);
+assert.equal(manualSupports[5].produceCardUpgradePermil, 20);
+assert.equal(manualSupports[5].cardSearchId, "p_card_search-hand");
+assert.throws(() => normalizeManualSupportCards([{
+  slot: 1,
+  rarity: "SSR",
+  filterParameterType: "ProduceParameterType_Vocal",
+  upgradePercent: 3.7,
+}]), /6枚すべて/);
+assert.deepEqual(normalizeManualSupportCards([]), []);
 }
 
 // test_tower_preset.mjs

@@ -73,8 +73,9 @@ function normalizeSupportCards(cards) {
     const produceCardUpgradePermil = Math.max(0, Math.trunc(Number(source?.produceCardUpgradePermil ?? 0) || 0));
     return {
       supportCardId,
+      rarity: String(source?.rarity ?? "").toUpperCase(),
       filterParameterType: String(source?.filterParameterType ?? ""),
-      cardSearchId: String(source?.cardSearchId ?? source?.produceCardSearchId ?? ""),
+      cardSearchId: String(source?.cardSearchId ?? source?.produceCardSearchId ?? "p_card_search-hand"),
       produceCardUpgradePermil,
     };
   });

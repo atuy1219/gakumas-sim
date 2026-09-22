@@ -1317,8 +1317,12 @@ function applyExamSupportCardUpgrades(state, drawnCards, runtimeEvent = null) {
         ?? supportCard?.produceCardSearchId
         ?? "",
       );
-      const search = resolvedMasterSearch(state, searchId);
-      if (searchId && !search) {
+      // Every current SupportCard master row uses p_card_search-hand. The card
+      // being processed has already entered Hand, so this common search needs
+      // no catalog lookup and imposes no further card-property restriction.
+      const handSearch = searchId === "p_card_search-hand";
+      const search = handSearch ? null : resolvedMasterSearch(state, searchId);
+      if (searchId && !handSearch && !search) {
         rememberUnsupported(state, `support-card-search:${searchId}`);
         continue;
       }

@@ -880,6 +880,7 @@ assert.deepEqual(captureProgress.allCards.map((card) => [card.number, card.delet
 assert.deepEqual(captureProgress.deletedCards.map((card) => card.number), [1]);
 assert.deepEqual(captureProgress.supportCards, [{
   supportCardId: "s_card-test",
+  rarity: "",
   filterParameterType: "ProduceParameterType_Vocal",
   cardSearchId: "p_card_search-test",
   produceCardUpgradePermil: 250,

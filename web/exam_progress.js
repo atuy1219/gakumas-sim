@@ -64,6 +64,7 @@ function normalizeProgressExamSupportCards(payload) {
     ) ?? 0);
     return [{
       supportCardId,
+      rarity: String(field(record, "rarity", "Rarity") ?? "").toUpperCase(),
       filterParameterType: String(field(record, "filterParameterType", "FilterParameterType") ?? ""),
       cardSearchId: String(field(
         record,

@@ -4,6 +4,11 @@ import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCard
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
 import {
+  EXAM_SUPPORT_CARD_COUNT,
+  defaultSupportUpgradePercent,
+  normalizeManualSupportCards,
+} from "./exam_support_cards.js";
+import {
   describeCustomize,
   normalizeCustomizes,
   parseCardMemoryRules,
@@ -127,6 +132,82 @@ const manualExamDeck = () => buildExamDeck(examCards, examCounts, examManualInst
 const examDeck = () => examProgressDeck.length
   ? examProgressDeck.map((card) => ({ ...card }))
   : manualExamDeck();
+
+function parameterTypeForSupportInput(value) {
+  const text = String(value ?? "");
+  if (text.endsWith("_Vocal") || text.toLowerCase() === "vocal") return "ProduceParameterType_Vocal";
+  if (text.endsWith("_Dance") || text.toLowerCase() === "dance") return "ProduceParameterType_Dance";
+  if (text.endsWith("_Visual") || text.toLowerCase() === "visual") return "ProduceParameterType_Visual";
+  if (text.endsWith("_Unknown") || text.toLowerCase() === "unknown") return "ProduceParameterType_Unknown";
+  return "";
+}
+
+function readExamSupportCardInputs({ requireAll = true } = {}) {
+  const rows = [...document.querySelectorAll(".exam-support-row-v18")].map((row, index) => ({
+    slot: index + 1,
+    supportCardId: row.dataset.supportCardId || `manual-support-${index + 1}`,
+    rarity: row.querySelector("[data-support-rarity]")?.value ?? "",
+    filterParameterType: row.querySelector("[data-support-parameter]")?.value ?? "",
+    upgradePercent: row.querySelector("[data-support-percent]")?.value ?? "",
+  }));
+  return normalizeManualSupportCards(rows, { requireAll });
+}
+
+function updateExamSupportStatus() {
+  const status = document.getElementById("exam-support-status");
+  if (!status) return;
+  try {
+    const cards = readExamSupportCardInputs({ requireAll: false });
+    status.textContent = cards.length
+      ? `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · CardSearchは手札で内部固定`
+      : "未入力の場合、サポートカード強化抽選は行いません。";
+  } catch (error) {
+    status.textContent = String(error?.message ?? error);
+  }
+}
+
+function renderExamSupportCardInputs(cards = examProgressSupportCards) {
+  const host = document.getElementById("exam-support-card-inputs");
+  if (!host) return;
+  host.replaceChildren();
+  for (let index = 0; index < EXAM_SUPPORT_CARD_COUNT; index += 1) {
+    const source = cards[index] ?? {};
+    const parameterType = parameterTypeForSupportInput(source.filterParameterType);
+    const probability = Number(source.produceCardUpgradePermil);
+    const row = document.createElement("div");
+    row.className = "exam-support-grid-v18 exam-support-row-v18";
+    row.dataset.supportCardId = String(source.supportCardId ?? `manual-support-${index + 1}`);
+    row.innerHTML = `
+      <span class="exam-support-slot-v18">${index + 1}</span>
+      <label><span>レアリティ</span><select data-support-rarity>
+        <option value="">未選択</option><option value="R">R</option><option value="SR">SR</option><option value="SSR">SSR</option>
+      </select></label>
+      <label><span>対象属性</span><select data-support-parameter>
+        <option value="">未選択</option>
+        <option value="ProduceParameterType_Vocal">Vo</option>
+        <option value="ProduceParameterType_Dance">Da</option>
+        <option value="ProduceParameterType_Visual">Vi</option>
+        <option value="ProduceParameterType_Unknown">全属性</option>
+      </select></label>
+      <label><span>強化確率</span><span class="exam-support-probability-v18"><input data-support-percent type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="例: 3.7"><b>%</b></span></label>`;
+    const rarity = row.querySelector("[data-support-rarity]");
+    const parameter = row.querySelector("[data-support-parameter]");
+    const percent = row.querySelector("[data-support-percent]");
+    rarity.value = String(source.rarity ?? "").toUpperCase();
+    parameter.value = parameterType;
+    percent.value = Number.isFinite(probability) ? String(probability / 10) : "";
+    const fillDefaultProbability = () => {
+      const value = defaultSupportUpgradePercent(rarity.value, parameter.value);
+      if (value !== null) percent.value = String(value);
+      updateExamSupportStatus();
+    };
+    rarity.addEventListener("change", fillDefaultProbability);
+    parameter.addEventListener("change", fillDefaultProbability);
+    percent.addEventListener("input", updateExamSupportStatus);
+    host.append(row);
+  }
+  updateExamSupportStatus();
+}
 
 
 function cloneExamInstanceConfig(source = {}) {
@@ -357,6 +438,7 @@ function clearExamProgressDeck(message = "") {
   examProgressInstances = [];
   examProgressPath = "";
   examProgressSupportCards = [];
+  renderExamSupportCardInputs();
   renderExamProgressCards();
   renderExamProgressStatus(message);
 }
@@ -367,6 +449,7 @@ function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
   examProgressInstances = parsed.allCards ?? parsed.cards;
   examProgressPath = parsed.path;
   examProgressSupportCards = parsed.supportCards ?? [];
+  renderExamSupportCardInputs();
   examCounts = progressDeckCounts(parsed.cards);
   seedExamManualInstances(parsed.cards);
   examCardSearch.value = "";
@@ -384,6 +467,7 @@ function examPresetStatus(message) {
 
 function exportExamPreset() {
   try {
+    examProgressSupportCards = readExamSupportCardInputs();
     const preset = createExamPreset({
       characterId: examCharacter.value,
       planType: examPlan.value,
@@ -470,6 +554,7 @@ async function importExamPreset(file) {
     clearExamProgressDeck();
   }
   examProgressSupportCards = preset.supportCards ?? examProgressSupportCards;
+  renderExamSupportCardInputs();
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
@@ -871,6 +956,7 @@ async function initializeExamSetup() {
     for (const character of examCharacters) examCharacter.add(new Option(character.name, character.id));
     refreshExamIdols();
     renderExamCards();
+    renderExamSupportCardInputs();
     renderExamProgressStatus();
   } catch (error) {
     document.getElementById("exam-card-selection").textContent = "カードカタログを読み込めませんでした。再読み込みしてください。";
@@ -950,6 +1036,11 @@ document.getElementById("exam-load-progress-text")?.addEventListener("click", ()
 document.getElementById("exam-next").addEventListener("click", () => {
   if (!examCharacter.value || !examPlan.value || !examIdol.value) return showExamError("キャラクター、プラン、Pアイドルを選択してください。");
   if (!examDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
+  try {
+    examProgressSupportCards = readExamSupportCardInputs();
+  } catch (error) {
+    return showExamError(error);
+  }
   document.getElementById("global-error").hidden = true;
   resetExamObservation();
   renderExamDeckSummary();
@@ -971,6 +1062,11 @@ document.getElementById("exam-seed-next").addEventListener("click", () => {
 document.getElementById("exam-run").addEventListener("click", () => {
   const deck = examDeck();
   if (!deck.length) return showExamError("使用するカードを1枚以上追加してください。");
+  try {
+    examProgressSupportCards = readExamSupportCardInputs();
+  } catch (error) {
+    return showExamError(error);
+  }
   document.dispatchEvent(new CustomEvent("exam-simulation-start", {
     detail: {
       cards: deck.map((card) => ({ ...card })),

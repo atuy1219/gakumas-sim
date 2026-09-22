@@ -1042,6 +1042,61 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
   text-decoration: line-through;
 }
 
+.exam-support-config-v18 {
+  display: grid;
+  gap: .65rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--m3e-outline, currentColor) 22%, transparent);
+  border-radius: 18px;
+}
+.exam-support-card-inputs-v18 {
+  display: grid;
+  gap: .55rem;
+}
+.exam-support-grid-v18 {
+  display: grid;
+  grid-template-columns: 3rem minmax(7rem, .8fr) minmax(8rem, 1fr) minmax(8rem, .8fr);
+  align-items: end;
+  gap: .6rem;
+}
+.exam-support-grid-head-v18 {
+  padding: 0 .65rem;
+  font-size: .75rem;
+  font-weight: 800;
+  color: var(--m3e-on-surface-variant, currentColor);
+}
+.exam-support-row-v18 {
+  padding: .65rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--m3e-surface-container, transparent) 82%, transparent);
+}
+.exam-support-slot-v18 {
+  align-self: center;
+  font-weight: 900;
+  text-align: center;
+}
+.exam-support-row-v18 label {
+  display: grid;
+  gap: .25rem;
+}
+.exam-support-row-v18 label > span {
+  display: none;
+}
+.exam-support-probability-v18 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .35rem;
+}
+@media (max-width: 680px) {
+  .exam-support-grid-head-v18 { display: none; }
+  .exam-support-grid-v18 {
+    grid-template-columns: 2.5rem 1fr 1fr;
+  }
+  .exam-support-row-v18 label > span { display: block; }
+  .exam-support-row-v18 label:last-child { grid-column: 2 / -1; }
+}
+
 
 /* exam card per-instance upgrade/customization */
 .exam-card-config-v17 {
