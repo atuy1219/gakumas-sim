@@ -466,10 +466,11 @@ upgradeState.hand = [upgradeState.deck.splice(upgradeState.deck.findIndex((card)
 upgradeState.playsRemaining = 1;
 playTowerCard(upgradeState, 0);
 finishTowerTurn(upgradeState);
-assert.equal(upgradeState.pendingHandUpgradeAll, 1);
+assert.equal(upgradeState.pendingHandUpgradeAll, 0);
 const upgradedHand = drawTowerTurn(upgradeState, 2).hand;
 assert.equal(upgradedHand.length, 2);
 assert.ok(upgradedHand.every((card) => card.upgradeCount === 1));
+assert.equal(upgradeState.pendingHandUpgradeAll, 0);
 
 const timerTwo = masterCard("timer-two", ["e_effect-exam_effect_timer-0002-01-e_effect-exam_card_draw-0001"]);
 const timerTwoState = createState(["timer-two", "a", "b"], [timerTwo, ...fillerCards]);
@@ -478,9 +479,14 @@ timerTwoState.playsRemaining = 1;
 playTowerCard(timerTwoState, 0);
 finishTowerTurn(timerTwoState);
 assert.equal(timerTwoState.pendingDraw, 0);
-drawTowerTurn(timerTwoState, 1);
+const timerTwoTurn1 = drawTowerTurn(timerTwoState, 1);
+assert.equal(timerTwoTurn1.hand.length, 1);
 finishTowerTurn(timerTwoState);
-assert.equal(timerTwoState.pendingDraw, 1);
+assert.equal(timerTwoState.pendingDraw, 0);
+const timerTwoTurn2 = drawTowerTurn(timerTwoState, 1);
+assert.equal(timerTwoTurn2.hand.length, 2);
+assert.match(timerTwoTurn2.nativePhaseEffects.join(" / "), /1枚ドロー/);
+assert.equal(timerTwoState.pendingDraw, 0);
 
 console.log("effect runtime v8 tests: ok");
 }
