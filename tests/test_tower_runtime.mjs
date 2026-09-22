@@ -887,3 +887,59 @@ assert.equal(stanceRegistration.remainingCount, 2, "03 status enchant consumes o
 
 console.log("current card grow/enchant runtime regressions: ok");
 }
+
+
+{
+const { describeParsedEffect, parseExamEffectId } = await import("../web/exam_effects.js");
+
+const timerEffectId = "e_effect-exam_effect_timer-0001-01-e_effect-exam_preservation-0001";
+const parsedTimer = parseExamEffectId(timerEffectId);
+assert.equal(parsedTimer.kind, "effect_timer");
+assert.equal(
+  describeParsedEffect(parsedTimer),
+  "1ターン後: 温存1段階目に変更",
+  "timer log must expose the delayed child effect",
+);
+
+const timerMasters = [
+  {
+    id: "TIMER",
+    name: "インフルエンサー+",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: timerEffectId }],
+  },
+  { id: "A", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  { id: "B", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+];
+const timerById = new Map(timerMasters.map((card) => [card.id, card]));
+const timerState = createTowerTurnState(
+  timerMasters.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  1,
+  timerById,
+);
+drawTowerTurn(timerState, 3);
+const timerIndex = timerState.hand.findIndex((card) => card.id === "TIMER");
+assert.notEqual(timerIndex, -1);
+const timerPlay = playTowerCard(timerState, timerIndex);
+assert.match(timerPlay.effects.join(" / "), /1ターン後: 温存1段階目に変更/);
+finishTowerTurn(timerState, { type: "end" });
+assert.equal(
+  timerState.exam.idolStatusType,
+  0,
+  "a 1-turn timer must not fire at the end of the turn where it was registered",
+);
+
+const timerTurn2 = drawTowerTurn(timerState, 3);
+assert.equal(timerState.turn, 2);
+assert.equal(timerState.exam.idolStatusType, 2, "the delayed effect must switch to Preservation on the next turn");
+assert.equal(timerState.exam.idolStatusStep, 1);
+assert.match(timerTurn2.nativePhaseEffects.join(" / "), /温存1段階目に変更/);
+finishTowerTurn(timerState, { type: "skip" });
+assert.match(
+  (timerState.history[1]?.turnStartEffects ?? []).join(" / "),
+  /温存1段階目に変更/,
+  "the delayed effect must be attached to Turn 2 start history",
+);
+
+console.log("effect timer next-turn semantics tests: ok");
+}
