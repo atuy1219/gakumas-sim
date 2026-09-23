@@ -168,9 +168,31 @@
           <div id="exam-support-card-inputs" class="exam-support-card-inputs-v18"></div>
           <p id="exam-support-status" class="hint" aria-live="polite">未入力の場合、サポートカード強化抽選は行いません。</p>
           <label class="exam-turn-parameters-v19">
-            <span>ターンごとの審査属性順</span>
+            <span>試験・オーディション</span>
+            <select id="exam-turn-stage">
+              <option value="">選択してください</option>
+              <optgroup label="N.I.A">
+                <option value="nia-first-standard">1次（メロBang! / Music Order）</option>
+                <option value="nia-first-harmony">1次（ハーモニーToNight）</option>
+                <option value="nia-second">2次オーディション</option>
+                <option value="nia-final">最終オーディション</option>
+              </optgroup>
+              <optgroup label="H.I.F">
+                <option value="hif-selection-1">選抜試験1</option>
+                <option value="hif-selection-2">選抜試験2</option>
+                <option value="hif-selection-3">選抜試験3</option>
+                <option value="hif-final-round-1">本戦 ラウンド1</option>
+                <option value="hif-final-round-2">本戦 ラウンド2</option>
+              </optgroup>
+              <option value="manual">その他（属性順を手動入力）</option>
+            </select>
+            <small>キャラクターの審査基準とSeedから、各ターンのVo・Da・Viを自動生成します。</small>
+          </label>
+          <p id="exam-turn-config-status" class="hint" aria-live="polite">試験・オーディションを選択してください。</p>
+          <label id="exam-turn-parameters-manual" class="exam-turn-parameters-v19" hidden>
+            <span>ターンごとの審査属性順（手動）</span>
             <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
-            <small>実機の1ターン目からVo・Da・Viを順に入力してください。サポート強化の属性判定に使用します。</small>
+            <small>N.I.A/H.I.F以外、または自動配分が未登録のキャラクターのみ使用してください。</small>
           </label>
         </section>
         <div class="sim-config-grid">
