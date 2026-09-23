@@ -7,8 +7,10 @@ import {
   EXAM_SUPPORT_CARD_COUNT,
   defaultSupportUpgradePercent,
   formatExamTurnParameterTypes,
+  inferSupportLimitBreak,
   normalizeManualSupportCards,
   parseExamTurnParameterTypes,
+  supportCardRateBonusPercent,
 } from "./exam_support_cards.js";
 import {
   describeCustomize,
@@ -144,17 +146,17 @@ function parameterTypeForSupportInput(value) {
   return "";
 }
 
+
 function readExamSupportCardInputs({ requireAll = true } = {}) {
   const rows = [...document.querySelectorAll(".exam-support-row-v18")].map((row, index) => ({
     slot: index + 1,
     supportCardId: row.dataset.supportCardId || `manual-support-${index + 1}`,
     rarity: row.querySelector("[data-support-rarity]")?.value ?? "",
     filterParameterType: row.querySelector("[data-support-parameter]")?.value ?? "",
-    upgradePercent: row.querySelector("[data-support-percent]")?.value ?? "",
+    limitBreak: row.querySelector("[data-support-limit-break]")?.value ?? "",
   }));
   return normalizeManualSupportCards(rows, { requireAll });
 }
-
 function readExamTurnParameterTypes(supportCards = examProgressSupportCards) {
   const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
   const types = parseExamTurnParameterTypes(input);
@@ -167,16 +169,14 @@ function readExamTurnParameterTypes(supportCards = examProgressSupportCards) {
   return types;
 }
 
+
 function updateExamSupportStatus() {
   const status = document.getElementById("exam-support-status");
   if (!status) return;
   try {
     const cards = readExamSupportCardInputs({ requireAll: false });
-    const suspicious = cards.some((card) => Number(card.produceCardUpgradePermil ?? 0) > 100);
     status.textContent = cards.length
-      ? suspicious
-        ? `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · 10%超の値があります。「サポート発生率」ではなくスキルカード強化率か確認してください。`
-        : `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · CardSearchは手札で内部固定`
+      ? `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · レアリティの基礎率 × 上限解放補正を自動計算 · CardSearchは手札で内部固定`
       : "未入力の場合、サポートカード強化抽選は行いません。";
   } catch (error) {
     status.textContent = String(error?.message ?? error);
@@ -190,7 +190,17 @@ function renderExamSupportCardInputs(cards = examProgressSupportCards) {
   for (let index = 0; index < EXAM_SUPPORT_CARD_COUNT; index += 1) {
     const source = cards[index] ?? {};
     const parameterType = parameterTypeForSupportInput(source.filterParameterType);
-    const probability = Number(source.produceCardUpgradePermil);
+    const explicitLimitBreak = Number(source.limitBreak);
+    const inferredLimitBreak = inferSupportLimitBreak(
+      source.rarity,
+      parameterType,
+      source.produceCardUpgradePermil,
+    );
+    const initialLimitBreak = Number.isInteger(explicitLimitBreak)
+      && explicitLimitBreak >= 0
+      && explicitLimitBreak <= 4
+      ? explicitLimitBreak
+      : inferredLimitBreak;
     const row = document.createElement("div");
     row.className = "exam-support-grid-v18 exam-support-row-v18";
     row.dataset.supportCardId = String(source.supportCardId ?? `manual-support-${index + 1}`);
@@ -206,27 +216,50 @@ function renderExamSupportCardInputs(cards = examProgressSupportCards) {
         <option value="ProduceParameterType_Visual">Vi</option>
         <option value="ProduceParameterType_Unknown">全属性</option>
       </select></label>
-      <label><span>強化確率</span><span class="exam-support-probability-v18"><input data-support-percent type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="例: 3.7"><b>%</b></span></label>`;
+      <label><span>上限解放</span><select data-support-limit-break></select><small data-support-rate-preview></small></label>`;
     const rarity = row.querySelector("[data-support-rarity]");
     const parameter = row.querySelector("[data-support-parameter]");
-    const percent = row.querySelector("[data-support-percent]");
+    const limitBreak = row.querySelector("[data-support-limit-break]");
+    const preview = row.querySelector("[data-support-rate-preview]");
     rarity.value = String(source.rarity ?? "").toUpperCase();
     parameter.value = parameterType;
-    percent.value = Number.isFinite(probability) ? String(probability / 10) : "";
-    const fillDefaultProbability = () => {
-      const value = defaultSupportUpgradePercent(rarity.value, parameter.value);
-      if (value !== null) percent.value = String(value);
+
+    const refreshLimitBreakOptions = () => {
+      const current = limitBreak.value || (initialLimitBreak === null ? "" : String(initialLimitBreak));
+      limitBreak.replaceChildren(new Option("未選択", ""));
+      for (let value = 0; value <= 4; value += 1) {
+        const bonus = supportCardRateBonusPercent(rarity.value, value);
+        const name = value === 0 ? "無凸" : `${value}凸`;
+        limitBreak.add(new Option(
+          bonus === null ? name : `${name}（+${bonus.toFixed(1)}%）`,
+          String(value),
+        ));
+      }
+      if ([...limitBreak.options].some((option) => option.value === current)) limitBreak.value = current;
+    };
+
+    const refreshPreview = () => {
+      const bonus = supportCardRateBonusPercent(rarity.value, limitBreak.value);
+      const base = defaultSupportUpgradePercent(rarity.value, parameter.value);
+      preview.textContent = bonus === null || base === null
+        ? ""
+        : `基礎 ${base.toFixed(1)}% · 発生率 +${bonus.toFixed(1)}%`;
       updateExamSupportStatus();
     };
-    rarity.addEventListener("change", fillDefaultProbability);
-    parameter.addEventListener("change", fillDefaultProbability);
-    percent.addEventListener("input", updateExamSupportStatus);
+
+    refreshLimitBreakOptions();
+    if (initialLimitBreak !== null) limitBreak.value = String(initialLimitBreak);
+    refreshPreview();
+    rarity.addEventListener("change", () => {
+      refreshLimitBreakOptions();
+      refreshPreview();
+    });
+    parameter.addEventListener("change", refreshPreview);
+    limitBreak.addEventListener("change", refreshPreview);
     host.append(row);
   }
   updateExamSupportStatus();
 }
-
-
 function cloneExamInstanceConfig(source = {}) {
   return {
     upgradeCount: Number(source?.upgradeCount ?? 0) > 0 ? 1 : 0,
