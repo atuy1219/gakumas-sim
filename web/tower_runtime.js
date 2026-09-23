@@ -452,7 +452,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   let initialRandomStateSource;
   if (Number.isInteger(explicitInitialRandomState) && explicitInitialRandomState >= 0 && explicitInitialRandomState <= 0xffffffff) {
     initialRandomState = explicitInitialRandomState >>> 0;
-    initialRandomStateSource = "exact";
+    initialRandomStateSource = String(options.initialRandomStateSource ?? "exact");
   } else {
     const preShuffleRng = new XorShift32(seed);
     for (let index = 0; index < preShuffleAdvanceSteps; index += 1) preShuffleRng.nextU32();
