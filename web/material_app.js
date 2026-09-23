@@ -20,6 +20,13 @@ import {
   parseGrowEffectCatalog,
 } from "./memory_judgement.js";
 import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
+import {
+  calculateExamTurnTypes,
+  describeExamTurnConfig,
+  examJudgingStyleLabel,
+  getExamTurnProfile,
+  getExamTurnStage,
+} from "./exam_turns.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
 const routeLabels = Object.freeze({ memory: "メモリー管理", cards: "P図鑑 · カード", items: "P図鑑 · Pアイテム", exam: "試験（オーディション）", contest: "コンテスト", tower: "ドル道" });
@@ -132,6 +139,7 @@ const examPlan = document.getElementById("exam-plan");
 const examIdol = document.getElementById("exam-idol");
 const examCardPoolMode = document.getElementById("exam-card-pool-mode");
 const examCardSearch = document.getElementById("exam-card-search");
+const examTurnStage = document.getElementById("exam-turn-stage");
 const manualExamDeck = () => buildExamDeck(examCards, examCounts, examManualInstances);
 const examDeck = () => examProgressDeck.length
   ? examProgressDeck.map((card) => ({ ...card }))
@@ -157,16 +165,71 @@ function readExamSupportCardInputs({ requireAll = true } = {}) {
   }));
   return normalizeManualSupportCards(rows, { requireAll });
 }
-function readExamTurnParameterTypes(supportCards = examProgressSupportCards) {
-  const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
-  const types = parseExamTurnParameterTypes(input);
+function readExamTurnParameterTypes(supportCards = examProgressSupportCards, seedInput = null) {
+  const stageId = String(examTurnStage?.value ?? "");
   const needsAttribute = (supportCards ?? []).some((card) => (
     !String(card?.filterParameterType ?? "").endsWith("_Unknown")
   ));
+
+  if (stageId && stageId !== "manual") {
+    if (!getExamTurnStage(stageId)) throw new Error("試験・オーディションを選択してください。");
+    if (!getExamTurnProfile(examCharacter.value)) {
+      throw new Error("このキャラクターの審査基準は自動計算データに未登録です。「その他（属性順を手動入力）」を使用してください。");
+    }
+    if (seedInput !== null && String(seedInput ?? "").trim()) {
+      return calculateExamTurnTypes(examCharacter.value, stageId, seedInput);
+    }
+    return [];
+  }
+
+  const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
+  const types = parseExamTurnParameterTypes(input);
   if (needsAttribute && !types.length) {
-    throw new Error("サポートカード強化を再現するには、ターンごとの審査属性順をVo・Da・Viで入力してください。");
+    throw new Error("サポートカード強化を再現するには、試験・オーディションを選択するか、属性順を手動入力してください。");
   }
   return types;
+}
+
+function updateExamTurnConfigUi() {
+  const manual = document.getElementById("exam-turn-parameters-manual");
+  const status = document.getElementById("exam-turn-config-status");
+  const stageId = String(examTurnStage?.value ?? "");
+  if (manual) manual.hidden = stageId !== "manual";
+  if (!status) return;
+
+  if (!stageId) {
+    status.textContent = "試験・オーディションを選択してください。";
+    return;
+  }
+  if (stageId === "manual") {
+    const types = parseExamTurnParameterTypes(document.getElementById("exam-turn-parameter-types")?.value ?? "");
+    status.textContent = types.length
+      ? `手動: ${formatExamTurnParameterTypes(types)}`
+      : "手動入力を使用します。";
+    return;
+  }
+
+  const config = describeExamTurnConfig(examCharacter.value, stageId);
+  if (!config) {
+    status.textContent = examCharacter.value
+      ? "このキャラクターの自動配分は未登録です。手動入力を使用してください。"
+      : "キャラクターを選択すると審査基準を表示します。";
+    return;
+  }
+
+  const flow = config.order.map((type) => ({ Vocal: "Vo", Dance: "Da", Visual: "Vi" })[type] ?? type);
+  const base = `${config.label} · ${examJudgingStyleLabel(config.style)} · 流1 ${flow[0]} / 流2 ${flow[1]} / 流3 ${flow[2]} · ${config.turn}T（${config.counts.join("/")}）`;
+  const seed = document.getElementById("exam-seed")?.value ?? "";
+  if (!String(seed).trim()) {
+    status.textContent = base;
+    return;
+  }
+  try {
+    const types = calculateExamTurnTypes(examCharacter.value, stageId, seed);
+    status.textContent = `${base} · ${formatExamTurnParameterTypes(types)}`;
+  } catch {
+    status.textContent = base;
+  }
 }
 
 
@@ -539,6 +602,7 @@ function exportExamPreset() {
         customizes: normalizeCustomizes(card.customizes),
       })),
       supportCards: examProgressSupportCards,
+      turnStageId: examTurnStage?.value ?? "",
       turnParameterTypes,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
@@ -611,6 +675,13 @@ async function importExamPreset(file) {
   renderExamSupportCardInputs();
   const turnTypes = document.getElementById("exam-turn-parameter-types");
   if (turnTypes) turnTypes.value = formatExamTurnParameterTypes(preset.turnParameterTypes ?? []);
+  if (examTurnStage) {
+    const requestedStage = String(preset.turnStageId ?? "");
+    examTurnStage.value = [...examTurnStage.options].some((option) => option.value === requestedStage)
+      ? requestedStage
+      : ((preset.turnParameterTypes ?? []).length ? "manual" : "");
+  }
+  updateExamTurnConfigUi();
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
@@ -1122,7 +1193,10 @@ document.getElementById("exam-run").addEventListener("click", () => {
   let turnParameterTypes;
   try {
     examProgressSupportCards = readExamSupportCardInputs();
-    turnParameterTypes = readExamTurnParameterTypes(examProgressSupportCards);
+    turnParameterTypes = readExamTurnParameterTypes(
+      examProgressSupportCards,
+      document.getElementById("exam-seed")?.value ?? "",
+    );
   } catch (error) {
     return showExamError(error);
   }
@@ -1176,6 +1250,11 @@ document.getElementById("exam-undo-observation").addEventListener("click", () =>
 document.getElementById("exam-reset-observation").addEventListener("click", resetExamObservation);
 document.getElementById("exam-cancel-seed").addEventListener("click", cancelExamSeedSearch);
 document.getElementById("exam-find-seed").addEventListener("click", () => startExamSeedSearch().catch(showExamError));
+examTurnStage?.addEventListener("change", updateExamTurnConfigUi);
+examCharacter?.addEventListener("change", updateExamTurnConfigUi);
+document.getElementById("exam-turn-parameter-types")?.addEventListener("input", updateExamTurnConfigUi);
+document.getElementById("exam-seed")?.addEventListener("input", updateExamTurnConfigUi);
+updateExamTurnConfigUi();
 
 const initialRoute = new URLSearchParams(location.search).get("tab") || "memory";
 markRoute(routeLabels[initialRoute] ? initialRoute : "memory");
