@@ -1275,7 +1275,7 @@ function renderTurnState(mode, state) {
   if (!state) return;
 
   $(`${mode}-turn-number`).textContent = String(state.turn);
-  const turnTypes = mode === "tower" && Array.isArray(state.turnParameterTypes) ? state.turnParameterTypes : [];
+  const turnTypes = Array.isArray(state.turnParameterTypes) ? state.turnParameterTypes : [];
   const currentTurnIndex = Math.max(0, Number(state.turn) - 1);
   const currentType = turnTypes.length
     ? turnTypes[Math.min(currentTurnIndex, turnTypes.length - 1)]
@@ -1284,7 +1284,10 @@ function renderTurnState(mode, state) {
   const turnAttribute = currentType
     ? `${towerParameterLabel(currentType)}ターン${Number.isFinite(Number(currentBonus)) ? ` · ${currentBonus}%` : ""} · `
     : "";
-  $(`${mode}-turn-meta`).textContent = `${turnAttribute}${state.ended ? "試験終了 · " : ""}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
+  const seedMeta = mode === "exam" && state.initialRandomState !== undefined
+    ? `Seed ${state.seed} · 初期Shuffle ${asHex(state.initialRandomState)} · `
+    : "";
+  $(`${mode}-turn-meta`).textContent = `${turnAttribute}${seedMeta}${state.ended ? "試験終了 · " : ""}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
   const statusGrid = $(`${mode}-status-grid`);
   statusGrid.replaceChildren(...examStateTiles(state.exam).map(([label, value]) => {
     const tile = document.createElement("div");
@@ -1374,10 +1377,14 @@ function renderTurnState(mode, state) {
     const action = actions.length ? actions.join(" → ") : "スキップ";
     const startEffects = (entry.turnStartEffects ?? []).filter(Boolean);
     const start = startEffects.length ? `ターン開始: ${startEffects.join(" / ")} → ` : "";
+    const supportRolls = (entry.turnStartSupportCardRolls ?? []).map((roll) =>
+      `${roll.supportCardId}: ${roll.result}/${roll.permil}${roll.succeeded ? " 成功" : " 失敗"}`
+    );
+    const support = supportRolls.length ? ` · サポ抽選 ${supportRolls.join(" / ")}` : "";
     const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
     const endEffects = (entry.turnEndEffects ?? []).filter(Boolean);
     const end = endEffects.length ? ` · ターン終了: ${endEffects.join(" / ")}` : "";
-    li.textContent = `Turn ${entry.turn}: ${start}${action}${remains}${end}`;
+    li.textContent = `Turn ${entry.turn}: ${start}${action}${support}${remains}${end}`;
     history.append(li);
   }
 }
@@ -1477,6 +1484,7 @@ document.addEventListener("exam-simulation-start", (event) => {
       cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
       supportCards: event.detail?.supportCards ?? [],
       turnParameterTypes: event.detail?.turnParameterTypes ?? [],
+      preShuffleAdvanceSteps: Number(event.detail?.preShuffleAdvanceSteps ?? 0),
       turnLimit: event.detail?.turnParameterTypes?.length || null,
     });
     examSelectedCardIndex = 0;
