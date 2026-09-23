@@ -138,6 +138,24 @@ assert.deepEqual(
   ["p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162"],
 );
 
+// An explicitly supplied numeric zero is still a real explicit state. This is
+// the exact wrong permutation that exposed the null-coercion bug in the UI.
+const explicitZeroState = createTowerTurnState(
+  realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  171624539,
+  new Map(),
+  {
+    preShuffleAdvanceSteps: hifFinalRound1Advance,
+    initialRandomState: 0,
+    initialRandomStateSource: "explicit-test",
+  },
+);
+assert.equal(explicitZeroState.initialRandomState, 0);
+assert.deepEqual(
+  explicitZeroState.shuffledInitialDeck.slice(0, 3).map((card) => card.id),
+  ["p_card-03-men-2_078", "p_card-00-sup-3_152", "p_card-01-men-2_037"],
+);
+
 // Exact observed shuffle state must override a wrong stage-derived step count.
 const exactState = createTowerTurnState(
   realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
