@@ -19,6 +19,10 @@ export const EXAM_ITEM_URLS = Object.freeze({
   examEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceExamEffect.yaml",
   cardSearchesPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardSearch.yaml",
   cardSearchesFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceCardSearch.yaml",
+  drinksPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrink.yaml",
+  drinksFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrink.yaml",
+  drinkEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrinkEffect.yaml",
+  drinkEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrinkEffect.yaml",
 });
 
 export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
@@ -211,6 +215,18 @@ export function parseProduceCardSearchCatalog(text) {
   );
 }
 
+export function parseProduceDrinkCatalog(text) {
+  return parseYamlRecordsWithLists(
+    text,
+    ["name", "planType", "rarity", "assetId", "libraryHidden", "order"],
+    ["produceDrinkEffectIds"],
+  ).filter((drink) => drink.libraryHidden !== true);
+}
+
+export function parseProduceDrinkEffectCatalog(text) {
+  return parseYamlRecordsWithLists(text, ["produceEffectId", "produceExamEffectId"]);
+}
+
 async function fetchText(primary, fallback, fetchImpl) {
   try {
     const response = await fetchImpl(primary);
@@ -235,6 +251,8 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     triggerText,
     examEffectText,
     cardSearchText,
+    drinkText,
+    drinkEffectText,
   ] = await Promise.all([
     fetchText(urls.itemsPrimary, urls.itemsFallback, fetchImpl),
     fetchText(urls.itemEffectsPrimary, urls.itemEffectsFallback, fetchImpl),
@@ -242,6 +260,8 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     fetchText(urls.examTriggersPrimary, urls.examTriggersFallback, fetchImpl),
     fetchText(urls.examEffectsPrimary, urls.examEffectsFallback, fetchImpl),
     fetchText(urls.cardSearchesPrimary, urls.cardSearchesFallback, fetchImpl),
+    fetchText(urls.drinksPrimary, urls.drinksFallback, fetchImpl),
+    fetchText(urls.drinkEffectsPrimary, urls.drinkEffectsFallback, fetchImpl),
   ]);
   const items = parseProduceItemCatalogForExam(itemText);
   const itemEffects = parseProduceItemEffectCatalog(effectText);
@@ -249,6 +269,8 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
   const examTriggers = parseProduceExamTriggerCatalog(triggerText);
   const examEffects = parseProduceExamEffectCatalog(examEffectText);
   const cardSearches = parseProduceCardSearchCatalog(cardSearchText);
+  const drinks = parseProduceDrinkCatalog(drinkText);
+  const drinkEffects = parseProduceDrinkEffectCatalog(drinkEffectText);
   return {
     items,
     itemById: new Map(items.map((item) => [String(item.id), item])),
@@ -262,6 +284,10 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     examEffectById: new Map(examEffects.map((effect) => [String(effect.id), effect])),
     cardSearches,
     cardSearchById: new Map(cardSearches.map((search) => [String(search.id), search])),
+    drinks,
+    drinkById: new Map(drinks.map((drink) => [String(drink.id), drink])),
+    drinkEffects,
+    drinkEffectById: new Map(drinkEffects.map((effect) => [String(effect.id), effect])),
   };
 }
 
@@ -324,6 +350,48 @@ export function resolveProduceItems(
   }
   return { items: resolved, unresolved };
 }
+
+export function resolveProduceDrinks(
+  drinkIds,
+  drinkById = new Map(),
+  drinkEffectById = new Map(),
+  catalogs = {},
+) {
+  const resolved = [];
+  const unresolved = [];
+  for (const rawId of drinkIds ?? []) {
+    const id = String(rawId ?? "");
+    if (!id) continue;
+    const drink = drinkById.get(id);
+    if (!drink) {
+      unresolved.push(id);
+      resolved.push({ id, name: id, effects: [], unresolved: true });
+      continue;
+    }
+    const effects = (drink.produceDrinkEffectIds ?? []).map((effectId) => {
+      const effect = drinkEffectById.get(String(effectId));
+      if (!effect) return { id: String(effectId), unresolved: true };
+      const examEffectId = String(effect.produceExamEffectId ?? "");
+      const examEffect = examEffectId
+        ? catalogs.examEffectById?.get?.(examEffectId) ?? null
+        : null;
+      return {
+        ...effect,
+        // The public ProduceExamEffect snapshot can lag behind ProduceDrinkEffect.
+        // Keep the ID as a valid fallback because parseExamEffectId covers many
+        // effects directly and preserves deterministic RNG behavior without a
+        // stale master row.
+        examEffect: examEffect
+          ? { ...examEffect }
+          : (examEffectId ? { id: examEffectId, idFallback: true } : null),
+        unresolved: false,
+      };
+    });
+    resolved.push({ ...drink, id, effects });
+  }
+  return { drinks: resolved, unresolved };
+}
+
 
 function integer(value) {
   return Number.parseInt(String(value), 10);

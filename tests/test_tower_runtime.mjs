@@ -11,6 +11,7 @@ import {
   playTowerCard,
   resolveNativeInitialHand,
   resolveTowerDefaultDeck,
+  useTowerDrink,
 } from "../web/tower_runtime.js";
 
 const effectDeckCases = [
@@ -107,6 +108,10 @@ assert.equal(supportState.hand[0].upgradeCount, 1, "the guaranteed support upgra
 assert.equal(supportState.hand[0].name, "A+");
 assert.deepEqual([...supportState.turnUseSupportCardIds], ["always"]);
 assert.equal(supportState.supportCardRollHistory.filter((roll) => roll.supportCardId === "never").length, 3);
+finishTowerTurn(supportState, { type: "skip" });
+const revertedSupportCard = supportState.discard.find((card) => card.id === "S-A");
+assert.equal(revertedSupportCard.upgradeCount, 0, "support-card upgrade is temporary for the current turn");
+assert.notEqual(revertedSupportCard.name, "A+", "temporary support-card variant data is removed at turn end");
 
 const handSearchState = createTowerTurnState(
   [{ id: "S-A", upgradeCount: 0, fixedDeckOrder: 0 }],
@@ -138,6 +143,65 @@ const parameterFilteredState = createTowerTurnState(
 );
 drawTowerTurn(parameterFilteredState, 1);
 assert.deepEqual(parameterFilteredState.supportCardRollHistory.map((roll) => roll.supportCardId), ["dance"]);
+}
+
+// In-exam drinks execute the same exam-effect runtime. Hand replacement moves
+// the current hand to Grave, draws the same count, recycles Grave when needed,
+// and support-card checks on the replacement draw consume the shared RNG.
+{
+const drinkMasters = new Map(
+  ["D-A", "D-B", "D-C", "D-D"].map((id) => [
+    id,
+    { id, name: id, playMovePositionType: "ProduceCardMovePositionType_Grave" },
+  ]),
+);
+const drinkState = createTowerTurnState(
+  ["D-A", "D-B", "D-C", "D-D"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  123,
+  drinkMasters,
+);
+drawTowerTurn(drinkState, 3);
+const handBeforeDrink = drinkState.hand.map((card) => card.id);
+assert.equal(drinkState.deck.length, 1);
+drinkState.supportCards = [{
+  supportCardId: "drink-never",
+  cardSearchId: "p_card_search-hand",
+  produceCardUpgradePermil: 0,
+}];
+drinkState.randomState = 0x12345678;
+const expectedDrinkRandom = new XorShift32(0x12345678);
+// 3-card Grave recycle = 2 Fisher-Yates draws, replacement hand = 3 support rolls.
+for (let index = 0; index < 5; index += 1) expectedDrinkRandom.nextU32();
+
+const drinkEvent = useTowerDrink(drinkState, {
+  id: "pdrink-test-swap",
+  name: "テストスムージー",
+  effects: [{
+    id: "p_drink_effect-e_effect-exam_hand_grave_count_card_draw",
+    produceExamEffectId: "e_effect-exam_hand_grave_count_card_draw",
+    examEffect: {
+      id: "e_effect-exam_hand_grave_count_card_draw",
+      effectType: "ProduceExamEffectType_ExamHandGraveCountCardDraw",
+    },
+  }],
+});
+assert.equal(drinkEvent.drink.name, "テストスムージー");
+assert.match(drinkEvent.effects.join(" / "), /手札をすべて入れ替え/);
+assert.equal(drinkState.hand.length, 3);
+assert.equal(drinkState.recycleCount, 1);
+assert.equal(drinkState.supportCardRollHistory.length, 3);
+assert.deepEqual(
+  drinkState.supportCardRollHistory.map((roll) => roll.supportCardId),
+  ["drink-never", "drink-never", "drink-never"],
+);
+assert.equal(drinkState.randomState >>> 0, expectedDrinkRandom.state >>> 0);
+assert.equal(drinkState.drinkHistory.length, 1);
+assert.equal(drinkState.currentTurnDrinks.length, 1);
+assert.ok(
+  handBeforeDrink.some((id) => drinkState.discard.some((card) => card.id === id))
+  || handBeforeDrink.some((id) => drinkState.hand.some((card) => card.id === id)),
+  "the old hand participates in the Grave/recycle path",
+);
 }
 
 // ResetHand preserves the relative Hand order for Grave and sends
