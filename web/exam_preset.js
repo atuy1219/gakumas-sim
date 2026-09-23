@@ -122,7 +122,7 @@ export function createExamPreset({
   const normalizedManualCards = normalizeManualCards(manualCards);
   const normalizedProgressCards = normalizeProgressCards(progressCards);
   const normalizedCards = normalizeCards(
-    Array.isArray(cards) && cards.length
+    Array.isArray(cards)
       ? cards
       : cardsFromInstances(normalizedManualCards.length ? normalizedManualCards : normalizedProgressCards),
     { allowEmpty: allowPartial },
