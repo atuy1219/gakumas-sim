@@ -1,5 +1,5 @@
 import { CATALOG_URLS, buildCanonicalCardCatalog, fetchTextWithFallback, parseCharacterCatalog, parseIdolCardCatalog, planLabel } from "./catalog.js";
-import { parseProduceCardCatalogYaml } from "./engine.js";
+import { parseProduceCardCatalogYaml, parseSeed } from "./engine.js";
 import { EXAM_CARD_POOL_MODE, buildExamDeck, changeExamCardCount, filterExamCards, filterExamIdols } from "./exam_setup.js";
 import { createExamPreset, parseExamPreset } from "./exam_preset.js";
 import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progress.js";
@@ -19,7 +19,7 @@ import {
   parseCustomizeCatalog,
   parseGrowEffectCatalog,
 } from "./memory_judgement.js";
-import { makeCardInstances, prepareSeedBatchSearch, rewindXorshift32, seedIntervalFromChoices } from "./simulation.js";
+import { findXorshiftAdvanceMatchingChoices, makeCardInstances, prepareSeedBatchSearch, rewindXorshift32, seedIntervalFromChoices } from "./simulation.js";
 import {
   calculateExamTurnTypes,
   describeExamTurnConfig,
@@ -137,6 +137,7 @@ let examObservedBatches = [[]];
 let examSeedWorkers = [];
 let examSearchCancelled = false;
 let examSeedShuffleStateByTrueSeed = new Map();
+let examSeedAdvanceStepsByTrueSeed = new Map();
 const examCharacter = document.getElementById("exam-character");
 const examPlan = document.getElementById("exam-plan");
 const examIdol = document.getElementById("exam-idol");
@@ -210,6 +211,43 @@ function readExamPreShuffleAdvanceSteps() {
   const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
   const types = parseExamTurnParameterTypes(input);
   return nativeExamPreShuffleAdvanceSteps(types.length);
+}
+
+function resolveExamInitialShuffleState(seedInput) {
+  const trueSeed = parseSeed(seedInput);
+  const known = examSeedShuffleStateByTrueSeed.get(trueSeed);
+  if (known !== undefined) {
+    return {
+      state: Number(known) >>> 0,
+      steps: examSeedAdvanceStepsByTrueSeed.get(trueSeed) ?? null,
+      source: "seed-search",
+    };
+  }
+
+  try {
+    const observation = examObservationState();
+    if (observation.complete) {
+      const prepared = prepareSeedBatchSearch(examDeck(), [observation.initialIds]);
+      const variants = prepared.choices ?? [];
+      const recovered = findXorshiftAdvanceMatchingChoices(trueSeed, variants, 256);
+      const uniqueStates = [...new Map(recovered.map((entry) => [entry.state, entry])).values()];
+      if (uniqueStates.length === 1) {
+        const match = uniqueStates[0];
+        examSeedShuffleStateByTrueSeed.set(trueSeed, match.state >>> 0);
+        examSeedAdvanceStepsByTrueSeed.set(trueSeed, match.steps);
+        return { state: match.state >>> 0, steps: match.steps, source: "observed-order" };
+      }
+    }
+  } catch {
+    // Fall through to the stage-based native setup estimate when the observed
+    // first pass is not complete yet.
+  }
+
+  return {
+    state: null,
+    steps: readExamPreShuffleAdvanceSteps(),
+    source: "stage-derived",
+  };
 }
 
 function updateExamTurnConfigUi() {
@@ -1002,6 +1040,7 @@ async function startExamSeedSearch() {
   cancelExamSeedSearch();
   examSearchCancelled = false;
   examSeedShuffleStateByTrueSeed = new Map();
+  examSeedAdvanceStepsByTrueSeed = new Map();
   if (!examProgressDeck.length) {
     throw new Error("Seed特定にはNumber付きproduceCardsを含む進行中プロデュースJSONが必要です。編成画面で読み込んでください。");
   }
@@ -1084,6 +1123,7 @@ async function startExamSeedSearch() {
             const trueSeed = rewindXorshift32(shuffleState, preShuffleAdvanceSteps);
             matches.add(trueSeed);
             examSeedShuffleStateByTrueSeed.set(trueSeed, shuffleState);
+            examSeedAdvanceStepsByTrueSeed.set(trueSeed, preShuffleAdvanceSteps);
           }
           progress.value = Math.min(scanned, total);
           renderExamSeedCandidates([...matches].sort((a, b) => a - b), scanned, total, false);
@@ -1248,12 +1288,12 @@ document.getElementById("exam-run").addEventListener("click", () => {
   const deck = examDeck();
   if (!deck.length) return showExamError("使用するカードを1枚以上追加してください。");
   let turnParameterTypes;
+  let shuffleResolution;
   try {
     examProgressSupportCards = readExamSupportCardInputs();
-    turnParameterTypes = readExamTurnParameterTypes(
-      examProgressSupportCards,
-      document.getElementById("exam-seed")?.value ?? "",
-    );
+    const seedInput = document.getElementById("exam-seed")?.value ?? "";
+    turnParameterTypes = readExamTurnParameterTypes(examProgressSupportCards, seedInput);
+    shuffleResolution = resolveExamInitialShuffleState(seedInput);
   } catch (error) {
     return showExamError(error);
   }
@@ -1265,7 +1305,9 @@ document.getElementById("exam-run").addEventListener("click", () => {
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
       supportCards: examProgressSupportCards.map((item) => ({ ...item })),
       turnParameterTypes,
-      preShuffleAdvanceSteps: readExamPreShuffleAdvanceSteps(),
+      preShuffleAdvanceSteps: shuffleResolution.steps ?? readExamPreShuffleAdvanceSteps(),
+      initialRandomState: shuffleResolution.state,
+      initialRandomStateSource: shuffleResolution.source,
     },
   }));
 });
