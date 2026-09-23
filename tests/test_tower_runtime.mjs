@@ -1616,3 +1616,102 @@ assert.deepEqual(poolState.unsupported, []);
 
 console.log("native random selection regressions: ok");
 }
+
+{
+const effect = {
+  id: "TEST-BLOCK-SEARCH-COUNT",
+  effectType: "ProduceExamEffectType_ExamLessonDependBlockAndSearchCount",
+  effectValue1: 0,
+  effectValue2: 200,
+  effectCount: 1,
+  produceCardSearchId: "lost-target",
+};
+const cards = new Map([
+  ["PLAY", { id: "PLAY", playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: effect.id }] }],
+  ["TARGET", { id: "TARGET", playEffects: [] }],
+]);
+const run = (lostCount) => {
+  const state = createTowerTurnState([{ id: "PLAY", fixedDeckOrder: 0 }], 1, cards, {
+    examEffectById: new Map([[effect.id, effect]]),
+    cardSearchById: new Map([["lost-target", {
+      id: "lost-target", cardPositionType: "ProduceCardPositionType_Lost",
+      produceCardIds: ["TARGET"],
+    }]]),
+  });
+  drawTowerTurn(state, 1);
+  state.exam.block = 10;
+  for (let i = 0; i < lostCount; i += 1) state.lost.push({ id: "TARGET", token: `lost-${i}` });
+  playTowerCard(state, 0);
+  assert.deepEqual(state.unsupported, []);
+  return state.exam.parameter;
+};
+assert.equal(run(0), 0, "zero matching cards must produce zero base score");
+assert.equal(run(2), 4, "200 permil × two matching cards × ten block");
+console.log("native block and search count score tests: ok");
+}
+
+{
+const runEffect = (effect, setup = () => {}) => {
+  const card = { id: "PLAY", playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: effect.id }] };
+  const state = createTowerTurnState([{ id: card.id, fixedDeckOrder: 0 }], 1,
+    new Map([[card.id, card], ["TARGET", { id: "TARGET", playEffects: [] }]]), {
+      examEffectById: new Map([[effect.id, effect]]),
+      cardSearchById: new Map([["lost-target", {
+        id: "lost-target", cardPositionType: "ProduceCardPositionType_Lost",
+        produceCardIds: ["TARGET"],
+      }]]),
+    });
+  drawTowerTurn(state, 1);
+  setup(state);
+  playTowerCard(state, 0);
+  assert.deepEqual(state.unsupported, []);
+  return state.exam.parameter;
+};
+assert.equal(runEffect({
+  id: "SEARCH-LESSON", effectType: "ProduceExamEffectType_ExamLessonPerSearchCount",
+  effectValue1: 9, effectValue2: 1000, effectCount: 1, produceCardSearchId: "lost-target",
+}, (state) => state.lost.push({ id: "TARGET", token: "lost-1" }, { id: "TARGET", token: "lost-2" })),
+11, "native search contribution is added to the fixed lesson value");
+assert.equal(runEffect({
+  id: "PLAY-COUNT-LESSON", effectType: "ProduceExamEffectType_ExamLessonDependPlayCardCountSum",
+  effectValue1: 2, effectValue2: 3, effectCount: 1,
+}, (state) => { state.exam.cardPlayCount = 3; state.exam.playCardCountSum = 99; }),
+14, "native reads the current card-play counter including the played card");
+assert.equal(runEffect({
+  id: "FULL-POWER-SUM-LESSON", effectType: "ProduceExamEffectType_ExamLessonFullPowerPoint",
+  effectValue1: 2, effectValue2: 1200, effectCount: 2,
+}, (state) => { state.exam.fullPowerPoint = 1; state.exam.fullPowerPointGetSum = 5; }),
+16, "native floors the cumulative gained Full Power contribution for each hit");
+console.log("native search and play count score tests: ok");
+}
+
+{
+const child = { id: "COUNT-CHILD", effectType: "ProduceExamEffectType_ExamBlock", effectValue1: 2 };
+const parent = {
+  id: "COUNT-PARENT", effectType: "ProduceExamEffectType_ExamEffectPerSearchCount",
+  effectValue2: 1000, produceCardSearchId: "lost-target",
+  chainProduceExamEffectId: child.id,
+};
+const card = { id: "PLAY", playMovePositionType: "ProduceCardMovePositionType_Grave",
+  playEffects: [{ produceExamTriggerId: "", produceExamEffectId: parent.id }] };
+const run = (count) => {
+  const state = createTowerTurnState([{ id: "PLAY", fixedDeckOrder: 0 }], 1,
+    new Map([["PLAY", card], ["TARGET", { id: "TARGET", playEffects: [] }]]), {
+      examEffectById: new Map([[parent.id, parent], [child.id, child]]),
+      cardSearchById: new Map([["lost-target", {
+        id: "lost-target", cardPositionType: "ProduceCardPositionType_Lost",
+        produceCardIds: ["TARGET"],
+      }]]),
+    });
+  drawTowerTurn(state, 1);
+  for (let i = 0; i < count; i += 1) state.lost.push({ id: "TARGET", token: `target-${i}` });
+  playTowerCard(state, 0);
+  assert.deepEqual(state.unsupported, []);
+  return state.exam.block;
+};
+assert.equal(run(0), 0, "zero matches skip chained effects");
+assert.equal(run(2), 4, "two matches run the chained effect twice");
+console.log("native effect per search count tests: ok");
+}
