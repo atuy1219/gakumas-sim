@@ -234,6 +234,24 @@ assert.deepEqual(
   [5, 3, 2],
 );
 
+// Verified real-device H.I.F Final Round 1 configuration for hrnm / SUGAR FLAVOR.
+// ProduceExamBattleConfig is Da > Vi > Vo (290/180/110), and the observed
+// turn-schedule RNG state reproduces Da,Vi,Da,Vi,Da for Turns 1-5.
+const hifRound1 = getExamTurnStage("hif-final-round-1");
+assert.equal(nativeExamPreShuffleAdvanceSteps(hifRound1), 24);
+const hrnmHifConfig = describeExamTurnConfig("hrnm", "hif-final-round-1");
+assert.equal(hrnmHifConfig.verifiedBattleConfig, true);
+assert.deepEqual(hrnmHifConfig.order, ["Dance", "Visual", "Vocal"]);
+const hrnmHifTurns = calculateExamTurnTypes("hrnm", "hif-final-round-1", 171624539);
+assert.deepEqual(hrnmHifTurns, [
+  "Dance", "Visual", "Dance", "Visual", "Dance",
+  "Vocal", "Vocal", "Visual", "Dance",
+]);
+assert.deepEqual(
+  ["Dance", "Visual", "Vocal"].map((type) => hrnmHifTurns.filter((value) => value === type).length),
+  [4, 3, 2],
+);
+
 const harmony = calculateExamTurnTypes("fktn", "nia-first-harmony", 2696513658);
 assert.deepEqual(
   ["Dance", "Visual", "Vocal"].map((type) => harmony.filter((value) => value === type).length),
