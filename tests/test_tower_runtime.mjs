@@ -68,6 +68,42 @@ drawTowerTurn(initialState, 3);
 assert.deepEqual(initialState.hand.map((card) => card.id), ["C", "A", "B"]);
 assert.equal(initialState.randomState, 2647435461, "SetInitialCard must not consume RNG");
 
+// Real-device exam regression: the public Seed is not the initial-shuffle
+// RandomState. A 12-turn exam advances 24 XorShift words before shuffling.
+{
+const realDeckIds = [
+  "p_card-03-ido-3_234", "p_card-03-men-2_078", "p_card-00-sup-3_152",
+  "p_card-01-men-2_037", "p_card-03-men-2_112", "p_card-01-men-3_006",
+  "p_card-03-act-2_102", "p_card-00-men-2_012", "p_card-03-men-2_076",
+  "p_card-03-men-2_080", "p_card-03-men-3_058", "p_card-03-act-3_065",
+  "p_card-01-men-2_011", "p_card-03-men-2_074", "p_card-01-act-3_049",
+  "p_card-03-sup-3_162", "p_card-01-act-2_001", "p_card-01-men-3_036",
+  "p_card-01-act-3_185", "p_card-03-act-2_081", "p_card-01-men-1_034",
+  "p_card-01-act-3_184",
+];
+const realExpectedShuffle = [
+  "p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162",
+  "p_card-01-men-3_006", "p_card-00-men-2_012", "p_card-01-act-3_184",
+  "p_card-03-act-2_081", "p_card-01-act-3_185", "p_card-01-act-2_001",
+  "p_card-03-men-3_058", "p_card-03-men-2_074", "p_card-01-act-3_049",
+  "p_card-03-men-2_080", "p_card-01-men-2_011", "p_card-03-ido-3_234",
+  "p_card-03-men-2_076", "p_card-03-men-2_078", "p_card-03-act-3_065",
+  "p_card-01-men-1_034", "p_card-01-men-3_036", "p_card-03-act-2_102",
+  "p_card-03-men-2_112",
+];
+const realState = createTowerTurnState(
+  realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  171624539,
+  new Map(),
+  { preShuffleAdvanceSteps: 24 },
+);
+assert.equal(realState.seed, 171624539);
+assert.equal(realState.preShuffleAdvanceSteps, 24);
+assert.equal(realState.initialRandomState, 809254905);
+assert.deepEqual(realState.shuffledInitialDeck.map((card) => card.id), realExpectedShuffle);
+assert.equal(realState.randomState, 2281153048);
+}
+
 // Native ExamSequence.GetInsertEffectResultTriggerCommand evaluates support
 // card upgrades for newly drawn cards. Every eligible check consumes
 // GetRandomInt(0, 1000), including 0% and 100% probabilities, and a support
@@ -108,7 +144,12 @@ assert.equal(supportState.hand[0].upgradeCount, 1, "the guaranteed support upgra
 assert.equal(supportState.hand[0].name, "A+");
 assert.deepEqual([...supportState.turnUseSupportCardIds], ["always"]);
 assert.equal(supportState.supportCardRollHistory.filter((roll) => roll.supportCardId === "never").length, 3);
-finishTowerTurn(supportState, { type: "skip" });
+const supportTurnEntry = finishTowerTurn(supportState, { type: "skip" });
+assert.equal(supportTurnEntry.turnStartSupportCardRolls.length, 4);
+assert.deepEqual(
+  supportTurnEntry.turnStartSupportCardRolls.map((roll) => roll.supportCardId),
+  ["always", "never", "never", "never"],
+);
 const revertedSupportCard = supportState.discard.find((card) => card.id === "S-A");
 assert.equal(revertedSupportCard.upgradeCount, 0, "support-card upgrade is temporary for the current turn");
 assert.notEqual(revertedSupportCard.name, "A+", "temporary support-card variant data is removed at turn end");
