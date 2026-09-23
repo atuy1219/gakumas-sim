@@ -26,7 +26,7 @@ const preset = createExamPreset({
     { number: 3, produceCardId: "p_card-b", upgradeCount: 0, deleted: false, originType: "ProduceCardOriginType_Initial" },
   ],
   supportCards: [
-    { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300 },
+    { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300, limitBreak: 3 },
   ],
   turnParameterTypes: ["Dance", "Visual", "Dance"],
   stamina: 30,
@@ -47,6 +47,7 @@ assert.deepEqual(preset.supportCards, [{
   filterParameterType: "ProduceExamParameterType_Vocal",
   cardSearchId: "search-a",
   produceCardUpgradePermil: 300,
+  limitBreak: 3,
 }]);
 assert.deepEqual(preset.turnParameterTypes, ["Dance", "Visual", "Dance"]);
 assert.equal(preset.stamina, 30);
@@ -92,9 +93,12 @@ console.log("exam preset tests: ok");
 const { default: assert } = await import("node:assert/strict");
 const {
   defaultSupportUpgradePercent,
+  effectiveSupportUpgradePermil,
   formatExamTurnParameterTypes,
+  inferSupportLimitBreak,
   normalizeManualSupportCards,
   parseExamTurnParameterTypes,
+  supportCardRateBonusPercent,
 } = await import("../web/exam_support_cards.js");
 
 assert.equal(defaultSupportUpgradePercent("R", "ProduceParameterType_Vocal"), 1.9);
@@ -103,23 +107,52 @@ assert.equal(defaultSupportUpgradePercent("SSR", "ProduceParameterType_Visual"),
 assert.equal(defaultSupportUpgradePercent("SR", "ProduceParameterType_Unknown"), 1.5);
 assert.equal(defaultSupportUpgradePercent("SSR", "ProduceParameterType_Unknown"), 2.0);
 
+assert.deepEqual(
+  [0, 1, 2, 3, 4].map((limitBreak) => supportCardRateBonusPercent("SSR", limitBreak)),
+  [66.1, 74.6, 83.1, 91.5, 100],
+);
+assert.deepEqual(
+  [0, 1, 2, 3, 4].map((limitBreak) => supportCardRateBonusPercent("SR", limitBreak)),
+  [59.2, 69.4, 79.6, 89.8, 100],
+);
+assert.deepEqual(
+  [0, 1, 2, 3, 4].map((limitBreak) => supportCardRateBonusPercent("R", limitBreak)),
+  [48.7, 61.5, 74.4, 87.2, 100],
+);
+assert.equal(effectiveSupportUpgradePermil("SSR", "ProduceParameterType_Vocal", 0), 61);
+assert.equal(effectiveSupportUpgradePermil("SSR", "ProduceParameterType_Vocal", 4), 74);
+assert.equal(effectiveSupportUpgradePermil("SR", "ProduceParameterType_Dance", 0), 44);
+assert.equal(effectiveSupportUpgradePermil("R", "ProduceParameterType_Visual", 0), 28);
+assert.equal(inferSupportLimitBreak("SSR", "ProduceParameterType_Vocal", 61), 0);
+assert.equal(inferSupportLimitBreak("SSR", "ProduceParameterType_Vocal", 74), 4);
+assert.equal(inferSupportLimitBreak("SSR", "ProduceParameterType_Vocal", 37), null);
+
 const manualSupports = normalizeManualSupportCards(Array.from({ length: 6 }, (_, index) => ({
   slot: index + 1,
   rarity: index % 2 ? "SR" : "SSR",
   filterParameterType: index === 5 ? "ProduceParameterType_Unknown" : "ProduceParameterType_Vocal",
-  upgradePercent: index === 5 ? "2.0" : "3.7",
+  limitBreak: index === 5 ? "0" : "4",
 })));
 assert.equal(manualSupports.length, 6);
 assert.equal(manualSupports[0].supportCardId, "manual-support-1");
-assert.equal(manualSupports[0].produceCardUpgradePermil, 37);
-assert.equal(manualSupports[5].produceCardUpgradePermil, 20);
+assert.equal(manualSupports[0].produceCardUpgradePermil, 74);
+assert.equal(manualSupports[0].baseProduceCardUpgradePermil, 37);
+assert.equal(manualSupports[0].skillCardSupportRateBonusPercent, 100);
+assert.equal(manualSupports[5].produceCardUpgradePermil, 23);
+assert.equal(manualSupports[5].skillCardSupportRateBonusPercent, 59.2);
 assert.equal(manualSupports[5].cardSearchId, "p_card_search-hand");
 assert.throws(() => normalizeManualSupportCards([{
   slot: 1,
   rarity: "SSR",
   filterParameterType: "ProduceParameterType_Vocal",
-  upgradePercent: 3.7,
+  limitBreak: 0,
 }]), /6枚すべて/);
+assert.throws(() => normalizeManualSupportCards(Array.from({ length: 6 }, (_, index) => ({
+  slot: index + 1,
+  rarity: "SSR",
+  filterParameterType: "ProduceParameterType_Vocal",
+  limitBreak: index === 0 ? "" : 4,
+}))), /上限解放/);
 assert.deepEqual(normalizeManualSupportCards([]), []);
 assert.deepEqual(parseExamTurnParameterTypes("Da, Vi → Vo、Da"), ["Dance", "Visual", "Vocal", "Dance"]);
 assert.equal(formatExamTurnParameterTypes(["Dance", "Visual", "Vocal"]), "Da, Vi, Vo");
