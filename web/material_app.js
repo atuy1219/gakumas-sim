@@ -757,8 +757,9 @@ function renderExamInstanceConfig(host, card, config, index) {
         selects.map((select) => select.value).filter(Boolean).map((id) => ({ id, customizeCount: 1 })),
       );
       summary.textContent = examCustomizeSummary(config);
-      renderExamDeckSummary();
+      clearExamPreShuffleOrder("カードのカスタムを変更したため、シャッフル前順を再設定してください。");
       updateExamSummary();
+      persistExamWorkflow();
     };
     for (const select of selects) select.addEventListener("change", update);
     summary.textContent = examCustomizeSummary(config);
@@ -769,8 +770,9 @@ function renderExamInstanceConfig(host, card, config, index) {
     config.upgradeCount = upgrade.value === "1" ? 1 : 0;
     if (!config.upgradeCount) config.customizes = [];
     renderExamInstanceConfig(host, card, config, index);
-    renderExamDeckSummary();
+    clearExamPreShuffleOrder("カードの強化状態を変更したため、シャッフル前順を再設定してください。");
     updateExamSummary();
+    persistExamWorkflow();
   });
 
   host.append(heading, upgradeLabel, customHost);
@@ -1044,15 +1046,32 @@ async function importExamPreset(file) {
 function renderExamCards() {
   const container = document.getElementById("exam-card-selection");
   const cards = filterExamCards(examCards, currentExamCardFilter());
+  const prev = document.getElementById("exam-card-prev");
+  const next = document.getElementById("exam-card-next-page");
+  const pageStatus = document.getElementById("exam-card-page-status");
   updateExamCardPoolHint();
   container.replaceChildren();
   if (!examPlan.value || !examCharacter.value || !cards.length) {
     const missingBase = !examCharacter.value || !examPlan.value;
     container.innerHTML = `<p class="hint">${missingBase ? "キャラクターとプランを選択してください。" : "条件に一致するカードがありません。"}</p>`;
+    if (prev) prev.disabled = true;
+    if (next) next.disabled = true;
+    if (pageStatus) pageStatus.textContent = "0 / 0";
     updateExamSummary();
     return;
   }
-  for (const card of cards) {
+
+  const pageCount = Math.max(1, Math.ceil(cards.length / EXAM_CARD_PAGE_SIZE));
+  examCardPage = Math.max(0, Math.min(examCardPage, pageCount - 1));
+  const start = examCardPage * EXAM_CARD_PAGE_SIZE;
+  const visibleCards = cards.slice(start, start + EXAM_CARD_PAGE_SIZE);
+  if (prev) prev.disabled = examCardPage === 0;
+  if (next) next.disabled = examCardPage >= pageCount - 1;
+  if (pageStatus) {
+    pageStatus.textContent = `${examCardPage + 1} / ${pageCount} · ${start + 1}〜${start + visibleCards.length} / ${cards.length}枚`;
+  }
+
+  for (const card of visibleCards) {
     const row = document.createElement("div");
     row.className = "m3e-select-card m3e-quantity-card";
     const text = document.createElement("span");
@@ -1082,18 +1101,20 @@ function renderExamCards() {
     minus.disabled = !examCounts.get(card.id);
     plus.disabled = card.noDeckDuplication && examCounts.get(card.id) === 1;
     minus.addEventListener("click", () => {
-      clearExamProgressDeck("カードを手動編集したため、進行中produceCardsのinstance情報を解除しました。");
+      clearExamProgressDeck("編成を変更したため、読み込んだNumber順を解除しました。");
       examCounts = changeExamCardCount(examCounts, card, -1);
       syncExamManualInstances(card.id, examCounts.get(card.id) ?? 0);
-      resetExamObservation();
+      clearExamPreShuffleOrder("編成を変更したため、シャッフル前順を再設定してください。");
       renderExamCards();
+      persistExamWorkflow();
     });
     plus.addEventListener("click", () => {
-      clearExamProgressDeck("カードを手動編集したため、進行中produceCardsのinstance情報を解除しました。");
+      clearExamProgressDeck("編成を変更したため、読み込んだNumber順を解除しました。");
       examCounts = changeExamCardCount(examCounts, card, 1);
       syncExamManualInstances(card.id, examCounts.get(card.id) ?? 0);
-      resetExamObservation();
+      clearExamPreShuffleOrder("編成を変更したため、シャッフル前順を再設定してください。");
       renderExamCards();
+      persistExamWorkflow();
     });
     controls.append(minus, count, plus);
     row.append(text, controls);
