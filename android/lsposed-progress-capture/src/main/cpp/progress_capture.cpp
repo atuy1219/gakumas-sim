@@ -1364,6 +1364,7 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     if (!target_process()) return nullptr;
     g_hook = entries->hookFunc;
     write_status("native-init");
+    start_export_request_watcher();
 
     // LSPosed may load this module after libil2cpp.so is already mapped.
     // Install immediately when possible, and also keep the load callback for
