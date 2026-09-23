@@ -618,8 +618,6 @@ function clearExamProgressDeck(message = "") {
   examProgressInstances = [];
   examProgressPath = "";
   examProgressSupportCards = [];
-  const turnTypes = document.getElementById("exam-turn-parameter-types");
-  if (turnTypes) turnTypes.value = "";
   renderExamSupportCardInputs();
   renderExamProgressCards();
   renderExamProgressStatus(message);
