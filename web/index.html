@@ -172,9 +172,55 @@
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
           <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
           <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
-          <label><span>試験・オーディション</span>
+          <label><span>試験・レッスン</span>
             <select id="exam-turn-stage">
               <option value="">選択してください</option>
+              <optgroup label="初 / レギュラー">
+                <option value="hajime-regular-normal-a">通常レッスンA</option>
+                <option value="hajime-regular-normal-b">通常レッスンB</option>
+                <option value="hajime-regular-normal-c">通常レッスンC</option>
+                <option value="hajime-regular-normal-d">通常レッスンD</option>
+                <option value="hajime-regular-sp-a">SPレッスンA</option>
+                <option value="hajime-regular-sp-b">SPレッスンB</option>
+                <option value="hajime-regular-sp-c">SPレッスンC</option>
+                <option value="hajime-regular-hard-1">追い込みレッスン（中間前）</option>
+                <option value="hajime-regular-hard-2">追い込みレッスン（最終前）</option>
+                <option value="hajime-regular-mid">中間試験</option>
+                <option value="hajime-regular-final">最終試験</option>
+              </optgroup>
+              <optgroup label="初 / プロ">
+                <option value="hajime-pro-normal-a">通常レッスンA</option>
+                <option value="hajime-pro-normal-b">通常レッスンB</option>
+                <option value="hajime-pro-normal-c">通常レッスンC</option>
+                <option value="hajime-pro-normal-d">通常レッスンD</option>
+                <option value="hajime-pro-normal-e">通常レッスンE</option>
+                <option value="hajime-pro-sp-a">SPレッスンA</option>
+                <option value="hajime-pro-sp-b">SPレッスンB</option>
+                <option value="hajime-pro-sp-c">SPレッスンC</option>
+                <option value="hajime-pro-sp-d">SPレッスンD</option>
+                <option value="hajime-pro-hard-1">追い込みレッスン（中間前）</option>
+                <option value="hajime-pro-hard-2">追い込みレッスン（最終前）</option>
+                <option value="hajime-pro-mid">中間試験</option>
+                <option value="hajime-pro-final">最終試験</option>
+              </optgroup>
+              <optgroup label="初 / マスター">
+                <option value="hajime-master-normal-a">通常レッスンA</option>
+                <option value="hajime-master-normal-c">通常レッスンC</option>
+                <option value="hajime-master-normal-d">通常レッスンD</option>
+                <option value="hajime-master-normal-e">通常レッスンE</option>
+                <option value="hajime-master-sp-a">SPレッスンA</option>
+                <option value="hajime-master-sp-b">SPレッスンB</option>
+                <option value="hajime-master-sp-c">SPレッスンC</option>
+                <option value="hajime-master-sp-d">SPレッスンD</option>
+                <option value="hajime-master-hard-1">追い込みレッスン（中間前）</option>
+                <option value="hajime-master-hard-2">追い込みレッスン（最終前）</option>
+                <option value="hajime-master-mid">中間試験</option>
+                <option value="hajime-master-final">最終試験</option>
+              </optgroup>
+              <optgroup label="初 / レジェンド">
+                <option value="hajime-legend-mid">中間試験</option>
+                <option value="hajime-legend-final">最終試験</option>
+              </optgroup>
               <optgroup label="N.I.A">
                 <option value="nia-first-standard">1次（メロBang! / Music Order）</option>
                 <option value="nia-first-harmony">1次（ハーモニーToNight）</option>
@@ -188,19 +234,21 @@
                 <option value="hif-final-round-1">本戦 ラウンド1</option>
                 <option value="hif-final-round-2">本戦 ラウンド2</option>
               </optgroup>
-              <option value="manual">その他（属性順を手動入力）</option>
+            </select>
+          </label>
+          <label id="exam-lesson-parameter-wrap" hidden><span>レッスン属性</span>
+            <select id="exam-lesson-parameter">
+              <option value="">選択してください</option>
+              <option value="Vocal">Vo</option>
+              <option value="Dance">Da</option>
+              <option value="Visual">Vi</option>
             </select>
           </label>
           <label><span>カード出現ルール</span><select id="exam-card-pool-mode"><option value="normal">通常</option><option value="research">あさりゼミ</option><option value="highScore">強化月間</option></select></label>
           <label><span>開始時の体力</span><input id="exam-start-stamina" type="number" min="0" value="30"></label>
           <label><span>目標スコア（任意）</span><input id="exam-target-score" type="number" min="0" value="0" placeholder="0なら判定なし"></label>
         </div>
-        <p id="exam-turn-config-status" class="hint" aria-live="polite">試験・オーディションを選択してください。</p>
-        <label id="exam-turn-parameters-manual" class="exam-turn-parameters-v19" hidden>
-          <span>ターンごとの審査属性順（手動）</span>
-          <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
-          <small>N.I.A/H.I.F以外、または自動配分が未登録のキャラクターのみ使用してください。</small>
-        </label>
+        <p id="exam-turn-config-status" class="hint" aria-live="polite">試験・レッスンを選択してください。</p>
         <p id="exam-card-pool-hint" class="hint">通常: 共通＋選択プラン。固有カードは選択中のキャラクター/Pアイドルだけ表示します。</p>
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
