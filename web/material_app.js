@@ -1239,6 +1239,7 @@ function renderExamObservation() {
       button.addEventListener("click", () => {
         examObservedBatches.at(-1).push(instance.id);
         renderExamObservation();
+        persistExamWorkflow();
       });
       buttons.append(button);
     }
@@ -1253,6 +1254,7 @@ function renderExamObservation() {
     button.addEventListener("click", () => {
       examObservedBatches.at(-1).push(target.id);
       renderExamObservation();
+      persistExamWorkflow();
     });
     buttons.append(button);
   }
@@ -1314,6 +1316,7 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
       button.setAttribute("aria-pressed", "true");
       navigator.clipboard?.writeText(String(seed)).catch(() => {});
       updateExamTurnConfigUi();
+      persistExamWorkflow();
     });
     container.append(button);
   }
@@ -1336,9 +1339,8 @@ async function startExamSeedSearch() {
   examSearchCancelled = false;
   examSeedShuffleStateByTrueSeed = new Map();
   examSeedAdvanceStepsByTrueSeed = new Map();
-  if (!examProgressDeck.length) {
-    throw new Error("Seed特定にはNumber付きproduceCardsを含む進行中プロデュースJSONが必要です。編成画面で読み込んでください。");
-  }
+  ensureExamPreShuffleReady();
+  examProgressSupportCards = readExamSupportCardInputs();
   const deck = examDeck();
   const preShuffleAdvanceSteps = readExamPreShuffleAdvanceSteps();
   const observation = examObservationState();
@@ -1477,6 +1479,12 @@ async function initializeExamSetup() {
     renderExamCards();
     renderExamSupportCardInputs();
     renderExamProgressStatus();
+    renderExamPreShuffleOrder();
+    examSetupReady = true;
+    if (!restoreExamWorkflow()) {
+      setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.IMPORT, { preserve: true });
+      persistExamWorkflow();
+    }
   } catch (error) {
     document.getElementById("exam-card-selection").textContent = "カードカタログを読み込めませんでした。再読み込みしてください。";
     showExamError(error);
@@ -1486,34 +1494,54 @@ async function initializeExamSetup() {
 examCharacter.addEventListener("change", () => {
   examCounts = new Map();
   examManualInstances = new Map();
+  examCardPage = 0;
   clearExamProgressDeck();
+  clearExamPreShuffleOrder();
   refreshExamIdols();
   renderExamCards();
-  resetExamObservation();
+  updateExamTurnConfigUi();
+  persistExamWorkflow();
 });
 examPlan.addEventListener("change", () => {
   examCounts = new Map();
   examManualInstances = new Map();
+  examCardPage = 0;
   clearExamProgressDeck();
+  clearExamPreShuffleOrder();
   refreshExamIdols();
   renderExamCards();
-  resetExamObservation();
+  persistExamWorkflow();
 });
 examIdol.addEventListener("change", () => {
   examCounts = new Map();
   examManualInstances = new Map();
+  examCardPage = 0;
   clearExamProgressDeck();
+  clearExamPreShuffleOrder();
   renderExamCards();
-  resetExamObservation();
+  persistExamWorkflow();
 });
 examCardPoolMode?.addEventListener("change", () => {
   examCounts = new Map();
   examManualInstances = new Map();
+  examCardPage = 0;
   clearExamProgressDeck();
+  clearExamPreShuffleOrder();
   renderExamCards();
-  resetExamObservation();
+  persistExamWorkflow();
 });
-examCardSearch.addEventListener("input", renderExamCards);
+examCardSearch.addEventListener("input", () => {
+  examCardPage = 0;
+  renderExamCards();
+});
+document.getElementById("exam-card-prev")?.addEventListener("click", () => {
+  examCardPage = Math.max(0, examCardPage - 1);
+  renderExamCards();
+});
+document.getElementById("exam-card-next-page")?.addEventListener("click", () => {
+  examCardPage += 1;
+  renderExamCards();
+});
 document.getElementById("exam-export-preset").addEventListener("click", exportExamPreset);
 document.getElementById("exam-import-preset").addEventListener("change", async (event) => {
   const input = event.currentTarget;
@@ -1554,7 +1582,7 @@ document.getElementById("exam-load-progress-text")?.addEventListener("click", ()
 });
 document.getElementById("exam-next").addEventListener("click", () => {
   if (!examCharacter.value || !examPlan.value || !examIdol.value) return showExamError("キャラクター、プラン、Pアイドルを選択してください。");
-  if (!examDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
+  if (!examCompositionDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
   try {
     examProgressSupportCards = readExamSupportCardInputs();
     readExamTurnParameterTypes(examProgressSupportCards);
@@ -1562,15 +1590,57 @@ document.getElementById("exam-next").addEventListener("click", () => {
     return showExamError(error);
   }
   document.getElementById("global-error").hidden = true;
+  renderExamPreShuffleOrder();
+  setSimulationStage("exam", "order");
+  persistExamWorkflow();
+});
+for (const button of document.querySelectorAll("#tab-exam [data-exam-back]")) {
+  button.addEventListener("click", () => {
+    setSimulationStage("exam", button.dataset.examBack);
+    persistExamWorkflow();
+  });
+}
+for (const radio of document.querySelectorAll('input[name="exam-order-mode"]')) {
+  radio.addEventListener("change", () => {
+    if (!radio.checked) return;
+    setExamPreShuffleMode(radio.value, { preserve: false });
+  });
+}
+document.getElementById("exam-order-undo")?.addEventListener("click", () => {
+  examManualOrderTokens.pop();
+  syncManualPreShuffleDeck();
+  resetExamObservation();
+  renderExamPreShuffleOrder();
+  persistExamWorkflow();
+});
+document.getElementById("exam-order-reset")?.addEventListener("click", () => {
+  examManualOrderTokens = [];
+  examPreShuffleDeck = [];
+  resetExamObservation();
+  renderExamPreShuffleOrder();
+  persistExamWorkflow();
+});
+document.getElementById("exam-order-next")?.addEventListener("click", () => {
+  try {
+    ensureExamPreShuffleReady();
+    examProgressSupportCards = readExamSupportCardInputs();
+  } catch (error) {
+    return showExamError(error);
+  }
+  document.getElementById("global-error").hidden = true;
   resetExamObservation();
   renderExamDeckSummary();
   setSimulationStage("exam", "seed");
+  persistExamWorkflow();
 });
-for (const button of document.querySelectorAll("#tab-exam [data-exam-back]")) {
-  button.addEventListener("click", () => setSimulationStage("exam", button.dataset.examBack));
-}
 document.getElementById("exam-seed-next").addEventListener("click", () => {
   const input = document.getElementById("exam-seed");
+  try {
+    ensureExamPreShuffleReady();
+    examProgressSupportCards = readExamSupportCardInputs();
+  } catch (error) {
+    return showExamError(error);
+  }
   if (!String(input?.value ?? "").trim()) {
     showExamError("Seedを入力するか、下の手順でSeed候補を特定してください。");
     input?.focus();
@@ -1578,6 +1648,7 @@ document.getElementById("exam-seed-next").addEventListener("click", () => {
   }
   document.getElementById("global-error").hidden = true;
   setSimulationStage("exam", "simulation");
+  persistExamWorkflow();
 });
 document.getElementById("exam-run").addEventListener("click", () => {
   const deck = examDeck();
@@ -1585,6 +1656,7 @@ document.getElementById("exam-run").addEventListener("click", () => {
   let turnParameterTypes;
   let shuffleResolution;
   try {
+    ensureExamPreShuffleReady();
     examProgressSupportCards = readExamSupportCardInputs();
     const seedInput = document.getElementById("exam-seed")?.value ?? "";
     turnParameterTypes = readExamTurnParameterTypes(examProgressSupportCards, seedInput);
@@ -1592,6 +1664,7 @@ document.getElementById("exam-run").addEventListener("click", () => {
   } catch (error) {
     return showExamError(error);
   }
+  persistExamWorkflow();
   document.dispatchEvent(new CustomEvent("exam-simulation-start", {
     detail: {
       cards: deck.map((card) => ({ ...card })),
@@ -1636,19 +1709,35 @@ document.getElementById("exam-next-draw").addEventListener("click", () => {
   if (!current?.length) return showExamError("先に新しく手札へ来たカードを選択してください。");
   if (examObservedBatches.flat().length < examDeck().length) examObservedBatches.push([]);
   renderExamObservation();
+  persistExamWorkflow();
 });
 document.getElementById("exam-undo-observation").addEventListener("click", () => {
   while (examObservedBatches.length > 1 && !examObservedBatches.at(-1).length) examObservedBatches.pop();
   examObservedBatches.at(-1)?.pop();
   renderExamObservation();
+  persistExamWorkflow();
 });
-document.getElementById("exam-reset-observation").addEventListener("click", resetExamObservation);
+document.getElementById("exam-reset-observation").addEventListener("click", () => {
+  resetExamObservation();
+  persistExamWorkflow();
+});
 document.getElementById("exam-cancel-seed").addEventListener("click", cancelExamSeedSearch);
 document.getElementById("exam-find-seed").addEventListener("click", () => startExamSeedSearch().catch(showExamError));
-examTurnStage?.addEventListener("change", updateExamTurnConfigUi);
+examTurnStage?.addEventListener("change", () => {
+  updateExamTurnConfigUi();
+  persistExamWorkflow();
+});
 examCharacter?.addEventListener("change", updateExamTurnConfigUi);
-examLessonParameter?.addEventListener("change", updateExamTurnConfigUi);
-document.getElementById("exam-seed")?.addEventListener("input", updateExamTurnConfigUi);
+examLessonParameter?.addEventListener("change", () => {
+  updateExamTurnConfigUi();
+  persistExamWorkflow();
+});
+document.getElementById("exam-start-stamina")?.addEventListener("input", persistExamWorkflow);
+document.getElementById("exam-target-score")?.addEventListener("input", persistExamWorkflow);
+document.getElementById("exam-seed")?.addEventListener("input", () => {
+  updateExamTurnConfigUi();
+  persistExamWorkflow();
+});
 updateExamTurnConfigUi();
 
 const initialRoute = new URLSearchParams(location.search).get("tab") || "memory";
