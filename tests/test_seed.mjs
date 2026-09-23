@@ -436,3 +436,21 @@ assert.equal(generatedFiltered.conservativeFallback, false, "normal narrowing mu
 console.log("seed runtime replay v13 tests: ok");
 }
 
+
+
+// test_true_exam_seed_transform.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const { advanceXorshift32, rewindXorshift32 } = await import("../web/simulation.js");
+
+// Real-device 12-turn exam trace:
+// ExamParameterModel.Seed=171624539, initial ExamCardPoolModel.Shuffle starts
+// from RandomState=809254905 after the native setup stream advances 24 words.
+const trueSeed = 171624539;
+const shuffleState = 809254905;
+assert.equal(advanceXorshift32(trueSeed, 24), shuffleState);
+assert.equal(rewindXorshift32(shuffleState, 24), trueSeed);
+assert.equal(rewindXorshift32(advanceXorshift32(0x12345678, 37), 37), 0x12345678);
+
+console.log("true exam seed transform tests: ok");
+}
