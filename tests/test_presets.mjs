@@ -243,6 +243,8 @@ assert.deepEqual(
 const lesson = getExamTurnStage("hajime-pro-sp-b");
 assert.equal(lesson.lesson, true);
 assert.equal(lesson.turn, 6);
+assert.equal(nativeExamPreShuffleAdvanceSteps(lesson), 18);
+assert.equal(getExamTurnStage("hajime-master-normal-b").turn, 5);
 assert.deepEqual(
   calculateExamTurnTypes("hrnm", "hajime-pro-sp-b", 171624539, "Visual"),
   ["Visual", "Visual", "Visual", "Visual", "Visual", "Visual"],
