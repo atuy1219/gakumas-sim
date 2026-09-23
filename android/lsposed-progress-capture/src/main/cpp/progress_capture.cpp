@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -84,6 +86,9 @@ std::atomic<bool> g_hooks_installed{false};
 std::string g_runtime_build_id;
 std::mutex g_seen_mutex;
 std::map<int32_t, CardRecord> g_seen_by_number;
+std::mutex g_last_deck_mutex;
+std::vector<CardRecord> g_last_deck;
+std::atomic<bool> g_export_watcher_started{false};
 thread_local int g_capture_depth = 0;
 thread_local std::vector<CardRecord> g_capture_cards;
 
@@ -140,6 +145,8 @@ RuntimeObjectGetClassFn g_runtime_object_get_class = nullptr;
 RuntimeClassGetMethodFromNameFn g_runtime_class_get_method_from_name = nullptr;
 
 std::vector<CustomizeRecord> read_customizes(void* collection);
+int32_t read_int_property(void* object, const char* name, int32_t fallback);
+std::string read_string_property(void* object, const char* name);
 
 std::string process_name() {
     std::ifstream in("/proc/self/cmdline", std::ios::binary);
