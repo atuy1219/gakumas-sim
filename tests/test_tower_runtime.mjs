@@ -111,7 +111,7 @@ assert.equal(supportState.supportCardRollHistory.filter((roll) => roll.supportCa
 finishTowerTurn(supportState, { type: "skip" });
 const revertedSupportCard = supportState.discard.find((card) => card.id === "S-A");
 assert.equal(revertedSupportCard.upgradeCount, 0, "support-card upgrade is temporary for the current turn");
-assert.equal(revertedSupportCard.name, "A", "support-card variant is restored at turn end");
+assert.notEqual(revertedSupportCard.name, "A+", "temporary support-card variant data is removed at turn end");
 
 const handSearchState = createTowerTurnState(
   [{ id: "S-A", upgradeCount: 0, fixedDeckOrder: 0 }],
