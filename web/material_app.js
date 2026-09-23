@@ -199,7 +199,7 @@ function readExamPreShuffleAdvanceSteps() {
   const stageId = String(examTurnStage?.value ?? "");
   const stage = getExamTurnStage(stageId);
   if (!stage) throw new Error("試験・レッスンを選択してください。");
-  return nativeExamPreShuffleAdvanceSteps(stage.turn);
+  return nativeExamPreShuffleAdvanceSteps(stage);
 }
 
 function resolveExamInitialShuffleState(seedInput) {
