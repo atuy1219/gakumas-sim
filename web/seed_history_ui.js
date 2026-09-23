@@ -334,6 +334,7 @@ function replayOptions() {
     examStatusEnchantById: state.examCatalogs?.examStatusEnchantById ?? new Map(),
     examTriggerById: state.examCatalogs?.examTriggerById ?? new Map(),
     cardSearchById: state.examCatalogs?.cardSearchById ?? new Map(),
+    cardRandomPoolById: state.examCatalogs?.cardRandomPoolById ?? new Map(),
   };
 }
 
