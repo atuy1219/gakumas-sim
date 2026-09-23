@@ -82,6 +82,14 @@ are included when available.
 No extra Gakumas API request is made by this module, and it does not alter return
 values, RNG state, card data, or server traffic.
 
+### Diagnostics
+
+Version 1.1.2 records the Java bootstrap path in `bootstrap_status.json`, including
+the module `nativeLibraryDir` and the exact native `.so` path that was attempted.
+The launcher also shows whether `libgakumas_progress_capture.so` is actually mapped
+inside the game process. This distinguishes Java module loading, native library
+loading, `native_init` execution, request watching, deck capture, and export.
+
 ## Build
 
 The build is intentionally independent of Gradle. It needs Android SDK build-tools,
