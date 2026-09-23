@@ -80,6 +80,7 @@ export const EXAM_TURN_STAGES = Object.freeze([
 
   // 初 / マスター。レッスンレベルはPro系マスタと共通で、出現週が異なる。
   LESSON("hajime-master-normal-a", "初 マスター · 通常レッスンA", "master", 5),
+  LESSON("hajime-master-normal-b", "初 マスター · 通常レッスンB", "master", 5),
   LESSON("hajime-master-normal-c", "初 マスター · 通常レッスンC", "master", 6),
   LESSON("hajime-master-normal-d", "初 マスター · 通常レッスンD", "master", 6),
   LESSON("hajime-master-normal-e", "初 マスター · 通常レッスンE", "master", 6),
@@ -121,9 +122,19 @@ export function getExamTurnStage(stageIdInput) {
 // Seed 171624539 -> initial shuffle state 809254905 after 24 XorShift words.
 // Native CalcTurnParameterType(9) consumes 6 (= turn - 3) words, leaving an
 // 18-word setup prefix. This replaces the invalid old 2*turn heuristic.
-export function nativeExamPreShuffleAdvanceSteps(turnCountInput) {
-  const turnCount = Math.max(0, Math.trunc(Number(turnCountInput) || 0));
-  return 18 + Math.max(0, turnCount - 3);
+export function nativeExamPreShuffleAdvanceSteps(stageOrTurnInput) {
+  const stage = stageOrTurnInput && typeof stageOrTurnInput === "object"
+    ? stageOrTurnInput
+    : null;
+  const turnCount = Math.max(
+    0,
+    Math.trunc(Number(stage?.turn ?? stageOrTurnInput) || 0),
+  );
+  // The 18-word prefix is inferred from the verified H.I.F round-1 trace.
+  // Battle stages then consume one shared RNG word per random attribute turn
+  // in CalcTurnParameterType. A single-attribute lesson does not run that
+  // random attribute schedule, so it keeps only the setup prefix.
+  return 18 + (stage?.lesson ? 0 : Math.max(0, turnCount - 3));
 }
 
 export function examJudgingStyleLabel(styleInput) {
