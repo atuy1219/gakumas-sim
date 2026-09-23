@@ -65,10 +65,10 @@ export function normalizeManualSupportCards(rows, { requireAll = true } = {}) {
     || String(row?.filterParameterType ?? "").trim()
     || String(row?.limitBreak ?? "").trim()
   ));
-  if (!active.length) return [];
   if (requireAll && active.length !== EXAM_SUPPORT_CARD_COUNT) {
-    throw new Error(`サポートカードは${EXAM_SUPPORT_CARD_COUNT}枚すべて入力してください（現在${active.length}枚）。`);
+    throw new Error(`サポートカードはSeed再現に必要なため${EXAM_SUPPORT_CARD_COUNT}枚すべて必須です（現在${active.length}枚）。`);
   }
+  if (!active.length) return [];
 
   return active.map((row, index) => {
     const slot = Number(row?.slot ?? index + 1);

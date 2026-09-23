@@ -24,6 +24,8 @@ import {
   finishTowerTurn,
   playTowerCard,
   resolveTowerDefaultDeck,
+  restoreTowerTurnState,
+  serializeTowerTurnState,
   useTowerDrink,
 } from "./tower_runtime.js";
 import {
@@ -56,6 +58,9 @@ const STORAGE_KEY = MEMORY_STORAGE_KEY;
 const MEMORY_PAGE_SIZE = 40;
 const MAX_SEED_MATCHES = 100;
 const SEED_TASK_SIZE = 1_000_000;
+const EXAM_WORKFLOW_STORAGE_KEY = "gakumas-sim-exam-workflow-v1";
+const EXAM_SIMULATION_STORAGE_KEY = "gakumas-sim-exam-runtime-v1";
+const EXAM_SIMULATION_STORAGE_VERSION = 1;
 
 let catalogs = {
   cards: [], cardById: new Map(), initialDecks: [], initialDeckById: new Map(),
@@ -87,6 +92,117 @@ const simState = {
   contest: { slots: [], baseCards: [] },
   tower: { slots: [], baseCards: [] },
 };
+
+function readExamWorkflowSnapshotForRuntime() {
+  try {
+    const source = JSON.parse(localStorage.getItem(EXAM_WORKFLOW_STORAGE_KEY) || "null");
+    return source && typeof source === "object" ? source : null;
+  } catch {
+    return null;
+  }
+}
+
+function examWorkflowRuntimeFingerprint(snapshot = readExamWorkflowSnapshotForRuntime()) {
+  if (!snapshot) return "";
+  return JSON.stringify({
+    version: Number(snapshot.version ?? 0),
+    characterId: String(snapshot.characterId ?? ""),
+    planType: String(snapshot.planType ?? ""),
+    idolCardId: String(snapshot.idolCardId ?? ""),
+    cardPoolMode: String(snapshot.cardPoolMode ?? ""),
+    turnStageId: String(snapshot.turnStageId ?? ""),
+    lessonParameterType: String(snapshot.lessonParameterType ?? ""),
+    stamina: Number(snapshot.stamina ?? 0),
+    targetScore: Number(snapshot.targetScore ?? 0),
+    counts: Array.isArray(snapshot.counts) ? snapshot.counts : [],
+    manualCards: Array.isArray(snapshot.manualCards) ? snapshot.manualCards : [],
+    supportDrafts: Array.isArray(snapshot.supportDrafts) ? snapshot.supportDrafts : [],
+    preShuffleMode: String(snapshot.preShuffleMode ?? ""),
+    preShuffleOrder: Array.isArray(snapshot.preShuffleOrder) ? snapshot.preShuffleOrder : [],
+    seed: String(snapshot.seed ?? ""),
+  });
+}
+
+function examRuntimeSharedCatalogs() {
+  return {
+    cardById: catalogs.cardById,
+    cardVariantByKey: catalogs.cardVariantByKey,
+    customizeById: catalogs.customizeById,
+    growEffectById: catalogs.growEffectById,
+    examEffectById: examItemCatalogs.examEffectById,
+    examStatusEnchantById: examItemCatalogs.examStatusEnchantById,
+    examTriggerById: examItemCatalogs.examTriggerById,
+    cardSearchById: examItemCatalogs.cardSearchById,
+    cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
+  };
+}
+
+function persistExamSimulationState() {
+  if (!examTurnState) return;
+  try {
+    const workflowFingerprint = examWorkflowRuntimeFingerprint();
+    if (!workflowFingerprint) return;
+    const payload = {
+      version: EXAM_SIMULATION_STORAGE_VERSION,
+      savedAt: new Date().toISOString(),
+      workflowFingerprint,
+      state: serializeTowerTurnState(examTurnState),
+      undo: simulationUndoStacks.exam.map((snapshot) => serializeTowerTurnState(snapshot)),
+      selectedCardIndex: Math.max(0, Math.trunc(Number(examSelectedCardIndex) || 0)),
+    };
+    localStorage.setItem(EXAM_SIMULATION_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn("exam simulation persistence failed", error);
+  }
+}
+
+function clearExamSimulationPersistence() {
+  try {
+    localStorage.removeItem(EXAM_SIMULATION_STORAGE_KEY);
+  } catch {}
+}
+
+function restoreExamSimulationState() {
+  const workflow = readExamWorkflowSnapshotForRuntime();
+  const workflowFingerprint = examWorkflowRuntimeFingerprint(workflow);
+  if (!workflow || !workflowFingerprint) return false;
+  let source;
+  try {
+    source = JSON.parse(localStorage.getItem(EXAM_SIMULATION_STORAGE_KEY) || "null");
+  } catch {
+    clearExamSimulationPersistence();
+    return false;
+  }
+  if (!source) return false;
+  if (
+    Number(source.version) !== EXAM_SIMULATION_STORAGE_VERSION
+    || String(source.workflowFingerprint ?? "") !== workflowFingerprint
+  ) {
+    clearExamSimulationPersistence();
+    return false;
+  }
+
+  try {
+    const shared = examRuntimeSharedCatalogs();
+    examTurnState = restoreTowerTurnState(source.state, shared);
+    simulationUndoStacks.exam = (Array.isArray(source.undo) ? source.undo : [])
+      .slice(-MAX_SIMULATION_UNDO)
+      .map((snapshot) => restoreTowerTurnState(snapshot, shared));
+    examSelectedCardIndex = Math.max(0, Math.trunc(Number(source.selectedCardIndex) || 0));
+    const drinkStatus = $("exam-drink-status");
+    if (drinkStatus) drinkStatus.textContent = "リロード前のシミュレーション進行状況を復元しました。";
+    renderTurnState("exam", examTurnState);
+    updateSimulationUndoButton("exam");
+    return true;
+  } catch (error) {
+    console.warn("exam simulation restore failed", error);
+    examTurnState = null;
+    simulationUndoStacks.exam = [];
+    examSelectedCardIndex = 0;
+    clearExamSimulationPersistence();
+    return false;
+  }
+}
 
 function asHex(value) {
   return `0x${(Number(value) >>> 0).toString(16).padStart(8, "0").toUpperCase()}`;
@@ -1305,6 +1421,7 @@ function undoSimulationAction(mode) {
   clearError();
   renderTurnState(mode, restored);
   updateSimulationUndoButton(mode);
+  if (mode === "exam") persistExamSimulationState();
 }
 
 function examStateTiles(exam) {
@@ -1467,6 +1584,7 @@ function advanceSimulationTurn(mode, action) {
     if (mode === "tower") towerSelectedCardIndex = 0;
     else examSelectedCardIndex = 0;
     renderTurnState(mode, state);
+    if (mode === "exam") persistExamSimulationState();
   } catch (error) {
     // Card effects may mutate several pools before an unsupported operation or
     // required selection throws. Restore the pre-action snapshot atomically.
@@ -1557,6 +1675,7 @@ document.addEventListener("exam-simulation-start", (event) => {
     const drinkStatus = $("exam-drink-status");
     if (drinkStatus) drinkStatus.textContent = "実機で使用したタイミングに合わせてドリンクを選択してください。";
     renderTurnState("exam", examTurnState);
+    persistExamSimulationState();
   } catch (error) {
     examTurnState = null;
     $("exam-turn-result").hidden = true;
@@ -1594,6 +1713,7 @@ $("exam-use-drink")?.addEventListener("click", () => {
     }
     pushSimulationUndo("exam", snapshot);
     renderTurnState("exam", examTurnState);
+    persistExamSimulationState();
   } catch (error) {
     examTurnState = snapshot;
     showError(error);
@@ -1986,6 +2106,13 @@ restoreLibrary();
 renderMemoryList();
 renderSimBuilder("contest");
 renderSimBuilder("tower");
-initializeCatalogs();
-initializeExamItemCatalogs();
+const catalogInitialization = initializeCatalogs();
+const examItemInitialization = initializeExamItemCatalogs();
 initializeTowerStageCatalog();
+Promise.all([catalogInitialization, examItemInitialization]).then(() => {
+  const restored = restoreExamSimulationState();
+  const workflow = readExamWorkflowSnapshotForRuntime();
+  if (!restored && String(workflow?.stage ?? "") === "simulation") {
+    setTimeout(() => document.dispatchEvent(new CustomEvent("exam-simulation-restore-missing")), 0);
+  }
+});

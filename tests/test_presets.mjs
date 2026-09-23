@@ -28,6 +28,12 @@ const preset = createExamPreset({
   supportCards: [
     { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300, limitBreak: 3 },
   ],
+  preShuffleMode: "manual",
+  preShuffleOrder: [
+    { id: "p_card-b", upgradeCount: 0, customizes: [] },
+    { id: "p_card-a", upgradeCount: 1, customizes: [{ id: "custom-a", customizeCount: 2 }] },
+    { id: "p_card-a", upgradeCount: 0, customizes: [] },
+  ],
   turnStageId: "hajime-pro-sp-b",
   lessonParameterType: "Visual",
   turnParameterTypes: ["Dance", "Visual", "Dance"],
@@ -51,6 +57,8 @@ assert.deepEqual(preset.supportCards, [{
   produceCardUpgradePermil: 300,
   limitBreak: 3,
 }]);
+assert.equal(preset.preShuffleMode, "manual");
+assert.deepEqual(preset.preShuffleOrder.map((card) => card.id), ["p_card-b", "p_card-a", "p_card-a"]);
 assert.equal(preset.turnStageId, "hajime-pro-sp-b");
 assert.equal(preset.lessonParameterType, "Visual");
 assert.deepEqual(preset.turnParameterTypes, ["Dance", "Visual", "Dance"]);
@@ -64,6 +72,8 @@ assert.deepEqual(parsed.cards, preset.cards);
 assert.deepEqual(parsed.manualCards, preset.manualCards);
 assert.deepEqual(parsed.progressCards, preset.progressCards);
 assert.deepEqual(parsed.supportCards, preset.supportCards);
+assert.equal(parsed.preShuffleMode, "manual");
+assert.deepEqual(parsed.preShuffleOrder, preset.preShuffleOrder);
 assert.equal(parsed.turnStageId, preset.turnStageId);
 assert.equal(parsed.lessonParameterType, "Visual");
 assert.deepEqual(parsed.turnParameterTypes, preset.turnParameterTypes);
@@ -97,6 +107,8 @@ const importedV8Preset = parseExamPreset(JSON.stringify({
 }));
 assert.equal(importedV8Preset.turnStageId, "hif-final-round-1");
 assert.equal(importedV8Preset.lessonParameterType, "");
+assert.equal(importedV8Preset.preShuffleMode, "manual");
+assert.deepEqual(importedV8Preset.preShuffleOrder, []);
 
 const v2Preset = parseExamPreset(JSON.stringify({
   ...preset,
@@ -181,10 +193,74 @@ assert.throws(() => normalizeManualSupportCards(Array.from({ length: 6 }, (_, in
   filterParameterType: "ProduceParameterType_Vocal",
   limitBreak: index === 0 ? "" : 4,
 }))), /上限解放/);
-assert.deepEqual(normalizeManualSupportCards([]), []);
+assert.throws(() => normalizeManualSupportCards([]), /6枚すべて必須/);
+assert.deepEqual(normalizeManualSupportCards([], { requireAll: false }), []);
 assert.deepEqual(parseExamTurnParameterTypes("Da, Vi → Vo、Da"), ["Dance", "Visual", "Vocal", "Dance"]);
 assert.equal(formatExamTurnParameterTypes(["Dance", "Visual", "Vocal"]), "Da, Vi, Vo");
 assert.throws(() => parseExamTurnParameterTypes("Da, Unknown"), /認識できません/);
+}
+
+// test_exam_workflow.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  EXAM_CARD_PAGE_SIZE,
+  EXAM_PRE_SHUFFLE_MODE,
+  applyExamPreShuffleOrder,
+  applyProgressNumberOrder,
+  createExamWorkflowSnapshot,
+  parseExamWorkflowSnapshot,
+  serializeExamPreShuffleOrder,
+} = await import("../web/exam_workflow.js");
+
+assert.equal(EXAM_CARD_PAGE_SIZE, 10);
+const base = [
+  { id: "A", upgradeCount: 0, customizes: [], name: "A1" },
+  { id: "B", upgradeCount: 0, customizes: [], name: "B" },
+  { id: "A", upgradeCount: 1, customizes: [{ id: "grow", customizeCount: 1 }], name: "A2" },
+];
+const manualOrder = [
+  { id: "A", upgradeCount: 1, customizes: [{ id: "grow", customizeCount: 1 }] },
+  { id: "A", upgradeCount: 0, customizes: [] },
+  { id: "B", upgradeCount: 0, customizes: [] },
+];
+const manuallyOrdered = applyExamPreShuffleOrder(base, manualOrder);
+assert.deepEqual(manuallyOrdered.map((card) => card.name), ["A2", "A1", "B"]);
+assert.deepEqual(serializeExamPreShuffleOrder(manuallyOrdered), manualOrder);
+
+const progressOrdered = applyProgressNumberOrder(base, [
+  { id: "B", number: 20, upgradeCount: 0 },
+  { id: "A", number: 30, upgradeCount: 1, customizes: [{ id: "grow", customizeCount: 1 }] },
+  { id: "A", number: 10, upgradeCount: 0 },
+]);
+assert.deepEqual(progressOrdered.map((card) => card.name), ["A1", "B", "A2"]);
+assert.throws(() => applyExamPreShuffleOrder(base, [{ id: "A" }]), /枚数が編成と一致/);
+
+const snapshot = createExamWorkflowSnapshot({
+  stage: "seed",
+  characterId: "hski",
+  counts: [["A", 2], ["B", 1]],
+  manualCards: base,
+  supportDrafts: Array.from({ length: 6 }, (_, index) => ({
+    slot: index + 1,
+    rarity: "SSR",
+    filterParameterType: "ProduceParameterType_Vocal",
+    limitBreak: "4",
+  })),
+  preShuffleMode: EXAM_PRE_SHUFFLE_MODE.MANUAL,
+  preShuffleOrder: manuallyOrdered,
+  observedBatches: [["A", "B"], ["A"]],
+  seed: "2696513658",
+});
+const restored = parseExamWorkflowSnapshot(JSON.stringify(snapshot));
+assert.equal(restored.stage, "seed");
+assert.equal(restored.preShuffleMode, "manual");
+assert.deepEqual(restored.preShuffleOrder.map((card) => card.id), ["A", "A", "B"]);
+assert.deepEqual(restored.observedBatches, [["A", "B"], ["A"]]);
+assert.equal(restored.seed, "2696513658");
+assert.equal(restored.supportDrafts.length, 6);
+
+console.log("exam workflow tests: ok");
 }
 
 // test_exam_turn_profiles.mjs

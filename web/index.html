@@ -126,47 +126,29 @@
     </section>
 
     <section id="tab-exam" class="tab-panel section-stack m3e-simulator" hidden>
-      <div class="m3e-flow-nav"><span class="active" data-stage="setup">1&nbsp; 編成</span><i></i><span data-stage="seed">2&nbsp; Seed</span><i></i><span data-stage="simulation">3&nbsp; シミュレーション</span></div>
+      <div class="m3e-flow-nav exam-flow-nav-v21"><span class="active" data-stage="setup">1&nbsp; 編成</span><i></i><span data-stage="order">2&nbsp; シャッフル前</span><i></i><span data-stage="seed">3&nbsp; Seed</span><i></i><span data-stage="simulation">4&nbsp; シミュレーション</span></div>
       <section class="panel input-panel" data-sim-stage="setup">
         <div class="section-head">
           <div><p class="step">01</p><h2>試験・オーディション編成</h2></div>
           <div class="button-row">
-            <button id="exam-export-preset" type="button" class="secondary">編成をエクスポート</button>
-            <label class="file-button">編成をインポート<input id="exam-import-preset" type="file" accept="application/json,.json"></label>
+            <button id="exam-export-preset" type="button" class="secondary">設定をエクスポート</button>
+            <label class="file-button">設定をインポート<input id="exam-import-preset" type="file" accept="application/json,.json"></label>
           </div>
         </div>
         <p id="exam-preset-status" class="hint" aria-live="polite"></p>
         <p class="hint">キャラクター、プラン、Pアイドルを選び、使用するカードを必要な枚数だけ追加してください。追加後はカードごとに「強化・カスタムを設定」から、各1枚の強化状態とカスタム内容を指定できます。</p>
-        <section class="seed-route-card-v14" aria-labelledby="exam-progress-title">
-          <div class="seed-route-number-v14" aria-hidden="true">実</div>
-          <div class="seed-route-body-v14">
-            <div class="seed-route-title-v14">
-              <div><strong id="exam-progress-title">produce_cards.jsonを読み込む</strong><small>LSPosedモジュールが出力したproduce_cards.jsonをそのままインポートできます。削除済みカードも一覧表示し、Seed特定ではDeletedを除外してNumber昇順でShuffle前Deckを構築します。</small></div>
-            </div>
-            <div class="button-row">
-              <label class="file-button">produce_cards.jsonをインポート<input id="exam-progress-file" type="file" accept="application/json,.json"></label>
-            </div>
-            <details class="advanced">
-              <summary>JSONを貼り付けて読み込む</summary>
-              <textarea id="exam-progress-text" rows="5" spellcheck="false" placeholder="produce_cards.json / UserProduceProgress / produceCards を含むJSON"></textarea>
-              <button id="exam-load-progress-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
-            </details>
-            <p id="exam-progress-status" class="hint" aria-live="polite">Seed特定には、Number付きproduceCardsを含むproduce_cards.jsonまたは進行中プロデュースJSONを読み込んでください。</p>
-            <div id="exam-progress-card-list" class="chip-list exam-progress-card-list-v16" hidden></div>
-          </div>
-        </section>
         <section class="exam-support-config-v18" aria-labelledby="exam-support-title">
           <div class="section-head compact-head">
             <div>
-              <h3 id="exam-support-title">サポートカードのスキルカード強化</h3>
-              <p class="hint">ゲーム内の左から右を1～6として入力します。基礎強化率はレアリティ・対象属性から自動決定し、各凸段階の最大Lvにおける「スキルカードサポート発生率を○%増加」を反映します。ゲーム内表示は%ですが、基礎強化率の内部値は‰単位です。</p>
+              <h3 id="exam-support-title">サポートカード（6枚必須）</h3>
+              <p class="hint">サポートカード強化抽選も同じRNGを消費するため、Seed再現には6枚すべての入力が必要です。ゲーム内の左から右を1～6として、レアリティ・対象属性・上限解放を入力してください。</p>
             </div>
           </div>
           <div class="exam-support-grid-v18 exam-support-grid-head-v18" aria-hidden="true">
             <span>枠</span><span>レアリティ</span><span>対象属性</span><span>上限解放</span>
           </div>
           <div id="exam-support-card-inputs" class="exam-support-card-inputs-v18"></div>
-          <p id="exam-support-status" class="hint" aria-live="polite">未入力の場合、サポートカード強化抽選は行いません。</p>
+          <p id="exam-support-status" class="hint" aria-live="polite">6枚すべて入力してください。</p>
         </section>
         <div class="sim-config-grid">
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
@@ -253,14 +235,69 @@
         <p id="exam-card-pool-hint" class="hint">通常: 共通＋選択プラン。固有カードは選択中のキャラクター/Pアイドルだけ表示します。</p>
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
+        <div class="exam-card-pager-v21" aria-label="カード一覧ページ">
+          <button id="exam-card-prev" type="button" class="secondary compact">← 前の10枚</button>
+          <span id="exam-card-page-status" class="hint">1 / 1</span>
+          <button id="exam-card-next-page" type="button" class="secondary compact">次の10枚 →</button>
+        </div>
         <p id="exam-card-summary" class="hint">0枚選択</p>
-        <button id="exam-next" type="button" class="primary">Seed設定へ</button>
+        <button id="exam-next" type="button" class="primary mobile-primary-v21">シャッフル前の順番を設定</button>
+      </section>
+
+      <section class="panel seed-stage-v14 exam-order-stage-v21" data-sim-stage="order" hidden>
+        <div class="section-head seed-stage-head-v14">
+          <div><p class="step">02</p><h2>シャッフル前の順番</h2><p class="hint">Seed計算では、試験開始時のShuffleへ渡されるカード順が必要です。produce_cards.jsonのNumber順を使うか、実機の取得順を自分で並べてください。</p></div>
+          <button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button>
+        </div>
+
+        <div class="exam-order-mode-v21" role="radiogroup" aria-label="シャッフル前順の設定方法">
+          <label><input type="radio" name="exam-order-mode" value="import" checked> Number順を読み込む</label>
+          <label><input type="radio" name="exam-order-mode" value="manual"> 自分で並べる</label>
+        </div>
+
+        <section id="exam-order-import-panel" class="seed-route-card-v14" aria-labelledby="exam-progress-title">
+          <div class="seed-route-number-v14" aria-hidden="true">読</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong id="exam-progress-title">produce_cards.json / 進行JSONを読み込む</strong><small>Deletedを除外し、Number昇順だけをシャッフル前順として使用します。編成自体は上の画面で設定した内容を維持します。</small></div>
+            </div>
+            <div class="button-row">
+              <label class="file-button">JSONをインポート<input id="exam-progress-file" type="file" accept="application/json,.json"></label>
+            </div>
+            <details class="advanced">
+              <summary>JSONを貼り付けて読み込む</summary>
+              <textarea id="exam-progress-text" rows="5" spellcheck="false" placeholder="produce_cards.json / UserProduceProgress / produceCards を含むJSON"></textarea>
+              <button id="exam-load-progress-text" type="button" class="secondary compact">貼り付け内容を読み込む</button>
+            </details>
+            <p id="exam-progress-status" class="hint" aria-live="polite">Number順を使う場合だけ読み込んでください。手動設定なら不要です。</p>
+            <div id="exam-progress-card-list" class="chip-list exam-progress-card-list-v16" hidden></div>
+          </div>
+        </section>
+
+        <section id="exam-order-manual-panel" class="seed-route-card-v14" hidden>
+          <div class="seed-route-number-v14" aria-hidden="true">手</div>
+          <div class="seed-route-body-v14">
+            <div class="seed-route-title-v14">
+              <div><strong>実機の取得順に並べる</strong><small>左上から、Shuffle前に並んでいる順番でカードをタップしてください。同名カードは #番号で区別します。</small></div>
+              <span id="exam-order-count" class="badge">0 / 0枚</span>
+            </div>
+            <div id="exam-order-selected" class="observed-sequence seed-observed-v14"><span class="hint">まだカードがありません。</span></div>
+            <div id="exam-order-buttons" class="observation-grid seed-card-grid-v14"></div>
+            <div class="seed-mobile-actions-v14">
+              <button id="exam-order-undo" type="button" class="ghost-button">1枚戻す</button>
+              <button id="exam-order-reset" type="button" class="ghost-button">順番をクリア</button>
+            </div>
+          </div>
+        </section>
+
+        <p id="exam-order-status" class="hint" aria-live="polite">シャッフル前の順番を設定してください。</p>
+        <button id="exam-order-next" type="button" class="primary mobile-primary-v21">Seed設定へ</button>
       </section>
 
       <section class="panel seed-stage-v14" data-sim-stage="seed" hidden>
         <div class="section-head seed-stage-head-v14">
-          <div><p class="step">02</p><h2>Seedを設定</h2><p class="hint">Seedが分かっている場合は直接入力。不明な場合は実機の手札を記録して特定します。Seed特定には進行中produceCardsのNumber順を使用します。</p></div>
-          <button type="button" class="secondary" data-exam-back="setup">編成へ戻る</button>
+          <div><p class="step">03</p><h2>Seedを設定</h2><p class="hint">Seedが分かっている場合は直接入力。不明な場合は実機の手札を記録して特定します。前段で確定したシャッフル前順を使用します。</p></div>
+          <button type="button" class="secondary" data-exam-back="order">シャッフル前へ戻る</button>
         </div>
 
         <div id="exam-deck-summary" class="chip-list seed-deck-summary-v14"></div>
@@ -312,7 +349,7 @@
       </section>
 
       <section class="panel m3e-play-panel" data-sim-stage="simulation" hidden>
-        <div class="section-head"><div><p class="step">03</p><h2>試験・オーディション</h2></div><button type="button" class="secondary" data-exam-back="seed">Seed設定へ戻る</button></div>
+        <div class="section-head"><div><p class="step">04</p><h2>試験・オーディション</h2></div><button type="button" class="secondary" data-exam-back="seed">Seed設定へ戻る</button></div>
         <button id="exam-run" type="button" class="primary">シミュレーション開始 / リセット</button>
         <div id="exam-turn-result" class="m3e-battle-surface" hidden>
           <div class="m3e-battle-hud">

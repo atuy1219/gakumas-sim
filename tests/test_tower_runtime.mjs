@@ -13,6 +13,8 @@ import {
   playTowerCard,
   resolveNativeInitialHand,
   resolveTowerDefaultDeck,
+  restoreTowerTurnState,
+  serializeTowerTurnState,
   useTowerDrink,
 } from "../web/tower_runtime.js";
 
@@ -69,6 +71,33 @@ assert.deepEqual(openingPreview.hand.map((card) => card.id), ["C", "A", "B"]);
 drawTowerTurn(initialState, 3);
 assert.deepEqual(initialState.hand.map((card) => card.id), ["C", "A", "B"]);
 assert.equal(initialState.randomState, 2647435461, "SetInitialCard must not consume RNG");
+
+{
+  const persistentState = cloneTowerTurnState(initialState);
+  persistentState.pItemEffectRemainingCounts.set("pitem-a", 2);
+  persistentState.gimmickEffectRemainingCounts.set("gimmick-a", 1);
+  persistentState.turnUseSupportCardIds.add("support-a");
+  persistentState.effectScheduler.registrations.push({
+    registrationId: "persist-test",
+    active: true,
+    metadata: { nested: { value: 7 } },
+  });
+  const serialized = serializeTowerTurnState(persistentState);
+  const jsonRoundTrip = JSON.parse(JSON.stringify(serialized));
+  const restoredState = restoreTowerTurnState(jsonRoundTrip, { cardById });
+
+  assert.equal(restoredState.cardById, cardById, "catalog maps must be reattached, not serialized");
+  assert.ok(restoredState.pItemEffectRemainingCounts instanceof Map);
+  assert.equal(restoredState.pItemEffectRemainingCounts.get("pitem-a"), 2);
+  assert.ok(restoredState.gimmickEffectRemainingCounts instanceof Map);
+  assert.equal(restoredState.gimmickEffectRemainingCounts.get("gimmick-a"), 1);
+  assert.ok(restoredState.turnUseSupportCardIds instanceof Set);
+  assert.equal(restoredState.turnUseSupportCardIds.has("support-a"), true);
+  assert.equal(restoredState.effectScheduler.registrations.at(-1).metadata.nested.value, 7);
+  assert.deepEqual(restoredState.hand.map((card) => card.id), persistentState.hand.map((card) => card.id));
+  assert.equal(restoredState.randomState, persistentState.randomState);
+  assert.throws(() => restoreTowerTurnState({ version: 999, state: {} }), /バージョン/);
+}
 
 // Real-device H.I.F Final Round 1 regression: the public Seed is not the
 // initial-shuffle RandomState. This 9-turn stage advances 24 XorShift words
