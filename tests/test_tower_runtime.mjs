@@ -94,7 +94,7 @@ const realExpectedShuffle = [
   "p_card-03-men-2_112",
 ];
 const hifFinalRound1 = getExamTurnStage("hif-final-round-1");
-const hifFinalRound1Advance = nativeExamPreShuffleAdvanceSteps(hifFinalRound1.turn);
+const hifFinalRound1Advance = nativeExamPreShuffleAdvanceSteps(hifFinalRound1);
 assert.equal(hifFinalRound1.turn, 9);
 assert.equal(hifFinalRound1Advance, 24);
 const realState = createTowerTurnState(
