@@ -9,7 +9,6 @@ import {
   formatExamTurnParameterTypes,
   inferSupportLimitBreak,
   normalizeManualSupportCards,
-  parseExamTurnParameterTypes,
   supportCardRateBonusPercent,
 } from "./exam_support_cards.js";
 import {
@@ -144,6 +143,7 @@ const examIdol = document.getElementById("exam-idol");
 const examCardPoolMode = document.getElementById("exam-card-pool-mode");
 const examCardSearch = document.getElementById("exam-card-search");
 const examTurnStage = document.getElementById("exam-turn-stage");
+const examLessonParameter = document.getElementById("exam-lesson-parameter");
 const manualExamDeck = () => buildExamDeck(examCards, examCounts, examManualInstances);
 const examDeck = () => examProgressDeck.length
   ? examProgressDeck.map((card) => ({ ...card }))
@@ -171,46 +171,35 @@ function readExamSupportCardInputs({ requireAll = true } = {}) {
 }
 function readExamTurnParameterTypes(supportCards = examProgressSupportCards, seedInput = null) {
   const stageId = String(examTurnStage?.value ?? "");
-  const needsAttribute = (supportCards ?? []).some((card) => (
-    !String(card?.filterParameterType ?? "").endsWith("_Unknown")
-  ));
+  const stage = getExamTurnStage(stageId);
+  if (!stage) throw new Error("試験・レッスンを選択してください。");
 
-  if (stageId && stageId !== "manual") {
-    const stage = getExamTurnStage(stageId);
-    if (!stage) throw new Error("試験・オーディションを選択してください。");
-    if (!getExamTurnProfile(examCharacter.value)) {
-      throw new Error("このキャラクターの審査基準は自動計算データに未登録です。「その他（属性順を手動入力）」を使用してください。");
+  if (!isExamTurnStageSupported(examCharacter.value, stageId)) {
+    if (String(examCharacter.value) === "atbm" && stage.scenario === "hif") {
+      throw new Error("雨夜燕はH.I.F未実装です。N.I.Aを選択してください。");
     }
-    if (!isExamTurnStageSupported(examCharacter.value, stageId)) {
-      if (String(examCharacter.value) === "atbm" && stage.scenario === "hif") {
-        throw new Error("雨夜燕はH.I.F未実装です。N.I.Aを選択してください。");
-      }
-      throw new Error("このキャラクターは選択した試験・オーディションの自動生成に未対応です。");
-    }
-    if (seedInput !== null && String(seedInput ?? "").trim()) {
-      return calculateExamTurnTypes(examCharacter.value, stageId, seedInput);
-    }
-    return [];
+    throw new Error("このキャラクターは選択した試験・レッスンの自動生成に未対応です。");
   }
 
-  const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
-  const types = parseExamTurnParameterTypes(input);
-  if (needsAttribute && !types.length) {
-    throw new Error("サポートカード強化を再現するには、試験・オーディションを選択するか、属性順を手動入力してください。");
+  const lessonParameterType = String(examLessonParameter?.value ?? "");
+  if (stage.lesson) {
+    return calculateExamTurnTypes(examCharacter.value, stageId, seedInput ?? 0, lessonParameterType);
   }
-  return types;
+
+  if (seedInput !== null && String(seedInput ?? "").trim()) {
+    return calculateExamTurnTypes(examCharacter.value, stageId, seedInput, lessonParameterType);
+  }
+
+  // Battle attribute order depends on Seed. It is generated when the user
+  // enters/identifies the Seed; no manual fallback is supported.
+  return [];
 }
 
 function readExamPreShuffleAdvanceSteps() {
   const stageId = String(examTurnStage?.value ?? "");
-  if (stageId && stageId !== "manual") {
-    const stage = getExamTurnStage(stageId);
-    if (!stage) throw new Error("試験・オーディションを選択してください。");
-    return nativeExamPreShuffleAdvanceSteps(stage.turn);
-  }
-  const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
-  const types = parseExamTurnParameterTypes(input);
-  return nativeExamPreShuffleAdvanceSteps(types.length);
+  const stage = getExamTurnStage(stageId);
+  if (!stage) throw new Error("試験・レッスンを選択してください。");
+  return nativeExamPreShuffleAdvanceSteps(stage.turn);
 }
 
 function resolveExamInitialShuffleState(seedInput) {
@@ -239,8 +228,8 @@ function resolveExamInitialShuffleState(seedInput) {
       }
     }
   } catch {
-    // Fall through to the stage-based native setup estimate when the observed
-    // first pass is not complete yet.
+    // Use native stage accounting if a complete observed first pass is not
+    // available. Seed search still stores an exact shuffle state when used.
   }
 
   return {
@@ -251,45 +240,48 @@ function resolveExamInitialShuffleState(seedInput) {
 }
 
 function updateExamTurnConfigUi() {
-  const manual = document.getElementById("exam-turn-parameters-manual");
   const status = document.getElementById("exam-turn-config-status");
+  const lessonWrap = document.getElementById("exam-lesson-parameter-wrap");
 
   const profile = getExamTurnProfile(examCharacter.value);
   if (examTurnStage && profile) {
-    for (const option of examTurnStage.querySelectorAll("option[value^='hif-'], option[value^='nia-']")) {
+    for (const option of examTurnStage.querySelectorAll("option[value]")) {
+      if (!option.value) continue;
       option.disabled = !isExamTurnStageSupported(examCharacter.value, option.value);
     }
     if (examTurnStage.selectedOptions[0]?.disabled) examTurnStage.value = "";
   } else if (examTurnStage) {
-    for (const option of examTurnStage.querySelectorAll("option[value^='hif-'], option[value^='nia-']")) {
-      option.disabled = false;
-    }
+    for (const option of examTurnStage.querySelectorAll("option[value]")) option.disabled = false;
   }
 
   const stageId = String(examTurnStage?.value ?? "");
-  if (manual) manual.hidden = stageId !== "manual";
+  const stage = getExamTurnStage(stageId);
+  if (lessonWrap) lessonWrap.hidden = !stage?.lesson;
   if (!status) return;
 
-  if (!stageId) {
-    status.textContent = "試験・オーディションを選択してください。";
-    return;
-  }
-  if (stageId === "manual") {
-    const types = parseExamTurnParameterTypes(document.getElementById("exam-turn-parameter-types")?.value ?? "");
-    status.textContent = types.length
-      ? `手動: ${formatExamTurnParameterTypes(types)}`
-      : "手動入力を使用します。";
+  if (!stage) {
+    status.textContent = "試験・レッスンを選択してください。";
     return;
   }
 
-  const config = describeExamTurnConfig(examCharacter.value, stageId);
+  const lessonParameterType = String(examLessonParameter?.value ?? "");
+  const config = describeExamTurnConfig(examCharacter.value, stageId, lessonParameterType);
   if (!config) {
-    const stage = getExamTurnStage(stageId);
-    status.textContent = String(examCharacter.value) === "atbm" && stage?.scenario === "hif"
+    status.textContent = String(examCharacter.value) === "atbm" && stage.scenario === "hif"
       ? "雨夜燕はH.I.F未実装です。N.I.Aを選択してください。"
       : examCharacter.value
-        ? "このキャラクターの自動配分は未登録です。手動入力を使用してください。"
+        ? "このキャラクターの自動配分は未登録です。"
         : "キャラクターを選択すると審査基準を表示します。";
+    return;
+  }
+
+  if (stage.lesson) {
+    if (!lessonParameterType) {
+      status.textContent = `${config.label} · ${config.turn}T · レッスン属性を選択してください。`;
+      return;
+    }
+    const label = ({ Vocal: "Vo", Dance: "Da", Visual: "Vi" })[lessonParameterType] ?? lessonParameterType;
+    status.textContent = `${config.label} · ${label}固定 · ${config.turn}T · 属性順は自動生成`;
     return;
   }
 
@@ -297,17 +289,16 @@ function updateExamTurnConfigUi() {
   const base = `${config.label} · ${examJudgingStyleLabel(config.style)} · 流1 ${flow[0]} / 流2 ${flow[1]} / 流3 ${flow[2]} · ${config.turn}T（${config.counts.join("/")}）`;
   const seed = document.getElementById("exam-seed")?.value ?? "";
   if (!String(seed).trim()) {
-    status.textContent = base;
+    status.textContent = `${base} · Seed入力後にターン属性順を自動生成`;
     return;
   }
   try {
-    const types = calculateExamTurnTypes(examCharacter.value, stageId, seed);
+    const types = calculateExamTurnTypes(examCharacter.value, stageId, seed, lessonParameterType);
     status.textContent = `${base} · ${formatExamTurnParameterTypes(types)}`;
   } catch {
     status.textContent = base;
   }
 }
-
 
 function updateExamSupportStatus() {
   const status = document.getElementById("exam-support-status");
@@ -679,6 +670,7 @@ function exportExamPreset() {
       })),
       supportCards: examProgressSupportCards,
       turnStageId: examTurnStage?.value ?? "",
+      lessonParameterType: examLessonParameter?.value ?? "",
       turnParameterTypes,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
@@ -749,14 +741,13 @@ async function importExamPreset(file) {
   }
   examProgressSupportCards = preset.supportCards ?? examProgressSupportCards;
   renderExamSupportCardInputs();
-  const turnTypes = document.getElementById("exam-turn-parameter-types");
-  if (turnTypes) turnTypes.value = formatExamTurnParameterTypes(preset.turnParameterTypes ?? []);
   if (examTurnStage) {
     const requestedStage = String(preset.turnStageId ?? "");
     examTurnStage.value = [...examTurnStage.options].some((option) => option.value === requestedStage)
       ? requestedStage
-      : ((preset.turnParameterTypes ?? []).length ? "manual" : "");
+      : "";
   }
+  if (examLessonParameter) examLessonParameter.value = String(preset.lessonParameterType ?? "");
   updateExamTurnConfigUi();
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
@@ -1352,7 +1343,7 @@ document.getElementById("exam-cancel-seed").addEventListener("click", cancelExam
 document.getElementById("exam-find-seed").addEventListener("click", () => startExamSeedSearch().catch(showExamError));
 examTurnStage?.addEventListener("change", updateExamTurnConfigUi);
 examCharacter?.addEventListener("change", updateExamTurnConfigUi);
-document.getElementById("exam-turn-parameter-types")?.addEventListener("input", updateExamTurnConfigUi);
+examLessonParameter?.addEventListener("change", updateExamTurnConfigUi);
 document.getElementById("exam-seed")?.addEventListener("input", updateExamTurnConfigUi);
 updateExamTurnConfigUi();
 
