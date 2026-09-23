@@ -198,6 +198,12 @@ assert.match(towerHtml, /data-stage="memory">1[^<]*編成[\s\S]*data-stage="seed
 assert.match(towerHtml, /id="exam-seed"/);
 assert.match(towerHtml, /id="exam-export-preset"/);
 assert.match(towerHtml, /id="exam-import-preset"/);
+assert.match(towerHtml, /id="exam-lesson-parameter"/);
+assert.match(towerHtml, /hajime-regular-normal-a/);
+assert.match(towerHtml, /hajime-pro-sp-b/);
+assert.match(towerHtml, /hajime-master-hard-2/);
+assert.match(towerHtml, /hajime-legend-final/);
+assert.doesNotMatch(towerHtml, /exam-turn-parameter-types|ターンごとの審査属性順（手動）|その他（属性順を手動入力）/);
 assert.match(towerHtml, /id="exam-selected-card"/);
 assert.match(towerHtml, /id="tower-selected-card"/);
 assert.doesNotMatch(towerHtml, /毎ターン3枚を実際にドローし/);
@@ -210,6 +216,8 @@ assert.match(materialAppSource, /Number付きproduceCardsを含む進行中プ�
 assert.match(materialAppSource, /examProgressDeck\.length/);
 assert.match(materialAppSource, /examProgressInstances/);
 assert.match(materialAppSource, /削除済み/);
+assert.doesNotMatch(materialAppSource, /exam-turn-parameter-types|手動入力を使用/);
+assert.match(materialAppSource, /examLessonParameter/);
 
 const seedReplayUiSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/seed_history_ui.js", import.meta.url), "utf8"));
 assert.match(seedReplayUiSource, /① 実機で使ったカードを入力/);

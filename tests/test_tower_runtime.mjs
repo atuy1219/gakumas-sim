@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { XorShift32 } from "../web/engine.js";
+import { getExamTurnStage, nativeExamPreShuffleAdvanceSteps } from "../web/exam_turns.js";
 import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
   TOWER_EXAM_EFFECT_LABELS,
@@ -68,8 +69,9 @@ drawTowerTurn(initialState, 3);
 assert.deepEqual(initialState.hand.map((card) => card.id), ["C", "A", "B"]);
 assert.equal(initialState.randomState, 2647435461, "SetInitialCard must not consume RNG");
 
-// Real-device exam regression: the public Seed is not the initial-shuffle
-// RandomState. A 12-turn exam advances 24 XorShift words before shuffling.
+// Real-device H.I.F Final Round 1 regression: the public Seed is not the
+// initial-shuffle RandomState. This 9-turn stage advances 24 XorShift words
+// before shuffling.
 {
 const realDeckIds = [
   "p_card-03-ido-3_234", "p_card-03-men-2_078", "p_card-00-sup-3_152",
@@ -91,17 +93,28 @@ const realExpectedShuffle = [
   "p_card-01-men-1_034", "p_card-01-men-3_036", "p_card-03-act-2_102",
   "p_card-03-men-2_112",
 ];
+const hifFinalRound1 = getExamTurnStage("hif-final-round-1");
+const hifFinalRound1Advance = nativeExamPreShuffleAdvanceSteps(hifFinalRound1);
+assert.equal(hifFinalRound1.turn, 9);
+assert.equal(hifFinalRound1Advance, 24);
 const realState = createTowerTurnState(
   realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
   171624539,
   new Map(),
-  { preShuffleAdvanceSteps: 24 },
+  { preShuffleAdvanceSteps: hifFinalRound1Advance },
 );
 assert.equal(realState.seed, 171624539);
 assert.equal(realState.preShuffleAdvanceSteps, 24);
 assert.equal(realState.initialRandomState, 809254905);
 assert.deepEqual(realState.shuffledInitialDeck.map((card) => card.id), realExpectedShuffle);
 assert.equal(realState.randomState, 2281153048);
+drawTowerTurn(realState, 3);
+assert.deepEqual(
+  realState.hand.map((card) => card.id),
+  ["p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162"],
+  "H.I.F Final Round 1 opening hand must match the real-device trace",
+);
+assert.equal(realState.randomState, 2281153048, "opening draw itself must not consume RNG");
 
 // Exact observed shuffle state must override a wrong stage-derived step count.
 const exactState = createTowerTurnState(
