@@ -1202,3 +1202,76 @@ assert.equal(parsed.cards[0].hasCustomizes, true);
 
 console.log("exam card instance customization input tests: ok");
 }
+
+
+// test_exam_drink_master.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  parseProduceDrinkCatalog,
+  parseProduceDrinkEffectCatalog,
+  resolveProduceDrinks,
+} = await import("../web/exam_effects.js");
+
+const drinkYaml = `
+- id: pdrink-test
+  assetId: img_test
+  name: テストスムージー
+  planType: ProducePlanType_Common
+  produceDrinkEffectIds:
+  - p_drink_effect-swap
+  - p_drink_effect-recover
+  rarity: ProduceDrinkRarity_Sr
+  libraryHidden: false
+  order: "200"
+- id: pdrink-hidden
+  name: 非表示
+  planType: ProducePlanType_Common
+  produceDrinkEffectIds: []
+  rarity: ProduceDrinkRarity_R
+  libraryHidden: true
+  order: "999"
+`;
+const effectYaml = `
+- id: p_drink_effect-swap
+  produceEffectId: ""
+  produceExamEffectId: e_effect-exam_hand_grave_count_card_draw
+- id: p_drink_effect-recover
+  produceEffectId: ""
+  produceExamEffectId: e_effect-exam_stamina_recover_fix-0002
+`;
+
+const drinks = parseProduceDrinkCatalog(drinkYaml);
+const drinkEffects = parseProduceDrinkEffectCatalog(effectYaml);
+assert.equal(drinks.length, 1);
+assert.equal(drinks[0].id, "pdrink-test");
+assert.deepEqual(drinks[0].produceDrinkEffectIds, ["p_drink_effect-swap", "p_drink_effect-recover"]);
+assert.equal(drinkEffects.length, 2);
+
+const examEffectById = new Map([
+  ["e_effect-exam_hand_grave_count_card_draw", {
+    id: "e_effect-exam_hand_grave_count_card_draw",
+    effectType: "ProduceExamEffectType_ExamHandGraveCountCardDraw",
+  }],
+  ["e_effect-exam_stamina_recover_fix-0002", {
+    id: "e_effect-exam_stamina_recover_fix-0002",
+    effectType: "ProduceExamEffectType_ExamStaminaRecoverFix",
+    effectValue1: 2,
+  }],
+]);
+const resolved = resolveProduceDrinks(
+  ["pdrink-test"],
+  new Map(drinks.map((drink) => [drink.id, drink])),
+  new Map(drinkEffects.map((effect) => [effect.id, effect])),
+  { examEffectById },
+);
+assert.equal(resolved.unresolved.length, 0);
+assert.equal(resolved.drinks[0].effects.length, 2);
+assert.equal(
+  resolved.drinks[0].effects[0].examEffect.effectType,
+  "ProduceExamEffectType_ExamHandGraveCountCardDraw",
+);
+assert.equal(resolved.drinks[0].effects[1].examEffect.effectValue1, 2);
+
+console.log("exam drink master tests: ok");
+}
