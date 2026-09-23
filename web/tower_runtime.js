@@ -142,6 +142,76 @@ export function cloneTowerTurnState(state) {
   return clone;
 }
 
+export const TOWER_TURN_STATE_SNAPSHOT_VERSION = 1;
+const TOWER_STATE_SNAPSHOT_KIND = "__gakumasSimRuntimeKind";
+
+function encodeTowerStateValue(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(encodeTowerStateValue);
+  if (value instanceof Map) {
+    return {
+      [TOWER_STATE_SNAPSHOT_KIND]: "Map",
+      entries: [...value.entries()].map(([key, item]) => [encodeTowerStateValue(key), encodeTowerStateValue(item)]),
+    };
+  }
+  if (value instanceof Set) {
+    return {
+      [TOWER_STATE_SNAPSHOT_KIND]: "Set",
+      values: [...value.values()].map(encodeTowerStateValue),
+    };
+  }
+  const result = {};
+  for (const [key, item] of Object.entries(value)) result[key] = encodeTowerStateValue(item);
+  return result;
+}
+
+function decodeTowerStateValue(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(decodeTowerStateValue);
+  if (value[TOWER_STATE_SNAPSHOT_KIND] === "Map") {
+    return new Map((value.entries ?? []).map(([key, item]) => [
+      decodeTowerStateValue(key),
+      decodeTowerStateValue(item),
+    ]));
+  }
+  if (value[TOWER_STATE_SNAPSHOT_KIND] === "Set") {
+    return new Set((value.values ?? []).map(decodeTowerStateValue));
+  }
+  const result = {};
+  for (const [key, item] of Object.entries(value)) result[key] = decodeTowerStateValue(item);
+  return result;
+}
+
+export function serializeTowerTurnState(state) {
+  if (!state || typeof state !== "object") throw new Error("保存する試験状態がありません。");
+  const snapshot = {};
+  for (const [key, value] of Object.entries(state)) {
+    if (TOWER_STATE_SHARED_KEYS.has(key)) continue;
+    snapshot[key] = encodeTowerStateValue(value);
+  }
+  return {
+    version: TOWER_TURN_STATE_SNAPSHOT_VERSION,
+    state: snapshot,
+  };
+}
+
+export function restoreTowerTurnState(input, shared = {}) {
+  let source;
+  try {
+    source = typeof input === "string" ? JSON.parse(input) : input;
+  } catch {
+    throw new Error("保存済みの試験状態を読み込めませんでした。");
+  }
+  if (!source || Number(source.version) !== TOWER_TURN_STATE_SNAPSHOT_VERSION || !source.state) {
+    throw new Error("保存済みの試験状態のバージョンが不明です。");
+  }
+  const state = decodeTowerStateValue(source.state);
+  for (const key of TOWER_STATE_SHARED_KEYS) {
+    state[key] = shared?.[key] ?? new Map();
+  }
+  return state;
+}
+
 function runtimeInstances(
   cards,
   cardById,
