@@ -39,9 +39,11 @@ const preset = createExamPreset({
   turnParameterTypes: ["Dance", "Visual", "Dance"],
   stamina: 30,
   targetScore: 12000,
+  seed: "2696513658",
 });
 assert.equal(preset.format, EXAM_PRESET_FORMAT);
 assert.equal(preset.version, EXAM_PRESET_VERSION);
+assert.equal(preset.source, "web");
 assert.equal(preset.characterId, "hski");
 assert.equal(preset.cardPoolMode, "highScore");
 assert.deepEqual(preset.cards, [{ id: "p_card-a", count: 2 }, { id: "p_card-b", count: 1 }]);
@@ -64,6 +66,7 @@ assert.equal(preset.lessonParameterType, "Visual");
 assert.deepEqual(preset.turnParameterTypes, ["Dance", "Visual", "Dance"]);
 assert.equal(preset.stamina, 30);
 assert.equal(preset.targetScore, 12000);
+assert.equal(preset.seed, "2696513658");
 
 const parsed = parseExamPreset(JSON.stringify(preset));
 assert.equal(parsed.idolCardId, "i_card-hski-3-001");
@@ -77,6 +80,7 @@ assert.deepEqual(parsed.preShuffleOrder, preset.preShuffleOrder);
 assert.equal(parsed.turnStageId, preset.turnStageId);
 assert.equal(parsed.lessonParameterType, "Visual");
 assert.deepEqual(parsed.turnParameterTypes, preset.turnParameterTypes);
+assert.equal(parsed.seed, "2696513658");
 
 const legacyPreset = parseExamPreset(JSON.stringify({
   ...preset,
@@ -120,6 +124,64 @@ assert.deepEqual(v2Preset.progressCards, []);
 
 const grouped = createExamPreset({ ...preset, cards: [{ id: "p_card-a", count: 1 }, { id: "p_card-a", count: 2 }] });
 assert.deepEqual(grouped.cards, [{ id: "p_card-a", count: 3 }]);
+
+const lsposedV11 = parseExamPreset(JSON.stringify({
+  format: EXAM_PRESET_FORMAT,
+  version: 11,
+  source: "lsposed",
+  capturedAtUnixMs: 1790160000000,
+  packageName: "com.bandainamcoent.idolmaster_gakuen",
+  libil2cppBuildId: "build-id",
+  characterId: "",
+  planType: "",
+  idolCardId: "",
+  cardPoolMode: "normal",
+  cards: [{ id: "p_card-a", count: 2 }, { id: "p_card-b", count: 1 }],
+  manualCards: [
+    { id: "p_card-a", upgradeCount: 1, customizes: [{ id: "custom-a", customizeCount: 1 }] },
+    { id: "p_card-a", upgradeCount: 0, customizes: [] },
+    { id: "p_card-b", upgradeCount: 0, customizes: [] },
+  ],
+  progressCards: [
+    { number: 1, produceCardId: "p_card-a", upgradeCount: 1, deleted: false, customizes: [{ id: "custom-a", customizeCount: 1 }] },
+    { number: 2, produceCardId: "p_card-a", upgradeCount: 0, deleted: false, customizes: [] },
+    { number: 3, produceCardId: "p_card-b", upgradeCount: 0, deleted: false, customizes: [] },
+  ],
+  supportCards: [],
+  preShuffleMode: "manual",
+  preShuffleOrder: [
+    { id: "p_card-a", upgradeCount: 1, customizes: [{ id: "custom-a", customizeCount: 1 }] },
+    { id: "p_card-a", upgradeCount: 0, customizes: [] },
+    { id: "p_card-b", upgradeCount: 0, customizes: [] },
+  ],
+  turnStageId: "",
+  lessonParameterType: "",
+  turnParameterTypes: [],
+  stamina: 0,
+  targetScore: 0,
+  seed: "2696513658",
+}));
+assert.equal(lsposedV11.source, "lsposed");
+assert.equal(lsposedV11.characterId, "");
+assert.equal(lsposedV11.manualCards.length, 3);
+assert.equal(lsposedV11.progressCards.length, 3);
+assert.equal(lsposedV11.seed, "2696513658");
+
+const legacyLsposed = parseExamPreset(JSON.stringify({
+  format: "gakumas-sim-progress-capture",
+  version: 2,
+  capturedAtUnixMs: 1790160000000,
+  packageName: "com.bandainamcoent.idolmaster_gakuen",
+  libil2cppBuildId: "legacy-build",
+  produceCards: [
+    { number: 20, produceCardId: "p_card-b", upgradeCount: 0, deleted: false, customizes: [] },
+    { number: 10, produceCardId: "p_card-a", upgradeCount: 1, deleted: false, customizes: [{ id: "custom-a", customizeCount: 1 }] },
+    { number: 30, produceCardId: "p_card-deleted", upgradeCount: 0, deleted: true, customizes: [] },
+  ],
+}));
+assert.equal(legacyLsposed.source, "lsposed-legacy");
+assert.deepEqual(legacyLsposed.preShuffleOrder.map((card) => card.id), ["p_card-a", "p_card-b"]);
+assert.deepEqual(legacyLsposed.cards, [{ id: "p_card-a", count: 1 }, { id: "p_card-b", count: 1 }]);
 assert.throws(() => parseExamPreset("not-json"), /JSON/);
 assert.throws(() => parseExamPreset(JSON.stringify({ ...preset, format: "wrong" })), /編成ファイル/);
 assert.throws(() => createExamPreset({ ...preset, cards: [] }), /1枚もありません/);
