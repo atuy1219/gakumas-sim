@@ -8,6 +8,7 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -18,26 +19,31 @@ import java.util.Locale;
 public final class ExportActivity extends Activity {
     private static final String TARGET = "com.bandainamcoent.idolmaster_gakuen";
     private TextView status;
+    private TextView diagnostics;
     private Button exportButton;
+    private Button refreshButton;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
 
+        ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (20 * getResources().getDisplayMetrics().density);
         root.setPadding(pad, pad, pad, pad);
+        scroll.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Gakumas Progress Capture");
+        title.setText("Gakumas Progress Capture 1.1.1");
         title.setTextSize(22f);
         root.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView guide = new TextView(this);
         guide.setText("ゲームを起動し、LSPosedフックが有効な状態で実行してください。\n"
-                + "現在の最新既知データを取得し、/storage/emulated/0/Download/gakumas-sim/ に保存します。");
+                + "要求の検出状況・取得枚数まで下の診断欄に表示します。");
         guide.setPadding(0, pad / 2, 0, pad / 2);
         root.addView(guide);
 
@@ -54,52 +60,136 @@ public final class ExportActivity extends Activity {
         root.addView(exportButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        refreshButton = new Button(this);
+        refreshButton.setText("診断情報を更新");
+        root.addView(refreshButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         status = new TextView(this);
-        status.setPadding(0, pad / 2, 0, 0);
+        status.setPadding(0, pad / 2, 0, pad / 2);
         status.setText("待機中");
         root.addView(status);
+
+        TextView diagnosticTitle = new TextView(this);
+        diagnosticTitle.setText("診断");
+        diagnosticTitle.setTextSize(18f);
+        root.addView(diagnosticTitle);
+
+        diagnostics = new TextView(this);
+        diagnostics.setTextIsSelectable(true);
+        diagnostics.setText("読み込み中…");
+        root.addView(diagnostics, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         exportButton.setOnClickListener(v -> {
             final String requested = sanitizeFileName(fileName.getText().toString());
             exportButton.setEnabled(false);
+            refreshButton.setEnabled(false);
             status.setText("ゲームプロセスへ取得要求を送信中…");
             new Thread(() -> performExport(requested), "GakumasExportUi").start();
         });
+        refreshButton.setOnClickListener(v -> refreshDiagnostics());
 
-        setContentView(root);
+        setContentView(scroll);
+        refreshDiagnostics();
+    }
+
+    private String internalDir() {
+        final int userId = Process.myUid() / 100000;
+        return "/data/user/" + userId + "/" + TARGET + "/files/gakumas-sim";
+    }
+
+    private void refreshDiagnostics() {
+        refreshButton.setEnabled(false);
+        new Thread(() -> {
+            String result;
+            try {
+                result = collectDiagnostics().output;
+            } catch (Throwable error) {
+                result = "診断取得エラー: " + String.valueOf(error.getMessage());
+            }
+            final String shown = result;
+            runOnUiThread(() -> {
+                diagnostics.setText(shown);
+                refreshButton.setEnabled(true);
+            });
+        }, "GakumasDiagnostics").start();
+    }
+
+    private RootResult collectDiagnostics() throws Exception {
+        final String dir = internalDir();
+        final String capture = dir + "/capture_status.json";
+        final String exportStatus = dir + "/export_status.json";
+        final String snapshot = dir + "/exam_preset.json";
+        final String request = dir + "/export_request.txt";
+        final String done = dir + "/export_done.txt";
+        final String manual = dir + "/manual_export.json";
+        String command =
+                "echo 'module=1.1.1'; "
+                + "printf 'gamePids='; pidof " + shellQuote(TARGET) + " 2>/dev/null || true; echo; "
+                + "echo '--- capture_status.json ---'; cat " + shellQuote(capture) + " 2>/dev/null || echo '(なし)'; "
+                + "echo '--- export_status.json ---'; cat " + shellQuote(exportStatus) + " 2>/dev/null || echo '(なし)'; "
+                + "echo '--- files ---'; ls -lZ "
+                + shellQuote(snapshot) + " "
+                + shellQuote(request) + " "
+                + shellQuote(done) + " "
+                + shellQuote(manual)
+                + " 2>&1 || true";
+        return runRoot(command);
     }
 
     private void performExport(String fileName) {
         final int userId = Process.myUid() / 100000;
-        final String internalDir = "/data/user/" + userId + "/" + TARGET + "/files/gakumas-sim";
+        final String internalDir = internalDir();
         final String request = internalDir + "/export_request.txt";
         final String done = internalDir + "/export_done.txt";
         final String source = internalDir + "/manual_export.json";
+        final String exportStatus = internalDir + "/export_status.json";
         final String downloadDir = "/storage/emulated/" + userId + "/Download/gakumas-sim";
         final String destination = downloadDir + "/" + fileName;
         final String token = System.currentTimeMillis() + "-" + Process.myPid();
 
         try {
+            postDiagnostics(collectDiagnostics().output);
             RootResult requestResult = runRoot(
                     "mkdir -p " + shellQuote(internalDir)
+                    + " && owner=\"$(stat -c '%u:%g' " + shellQuote(internalDir) + " 2>/dev/null || true)\""
                     + " && rm -f " + shellQuote(done)
-                    + " && printf %s " + shellQuote(token) + " > " + shellQuote(request));
+                    + " && printf %s " + shellQuote(token) + " > " + shellQuote(request)
+                    + " && if [ -n \"$owner\" ]; then chown \"$owner\" " + shellQuote(request) + "; fi"
+                    + " && chmod 0600 " + shellQuote(request)
+                    + " && (restorecon -F " + shellQuote(request) + " >/dev/null 2>&1 || true)");
             if (requestResult.exitCode != 0) {
                 throw new IllegalStateException("root要求の作成に失敗しました: " + requestResult.output);
             }
 
+            postStatus("要求ファイルを作成しました。ゲーム側の検出を待っています…");
             String completion = "";
-            for (int i = 0; i < 40; i++) {
+            for (int i = 0; i < 60; i++) {
                 Thread.sleep(250L);
                 RootResult result = runRoot("cat " + shellQuote(done) + " 2>/dev/null || true");
                 completion = result.output.trim();
                 if (completion.startsWith(token + "\t")) break;
+                if (i % 4 == 3) {
+                    RootResult live = runRoot(
+                            "echo '--- export_status.json ---'; cat " + shellQuote(exportStatus)
+                            + " 2>/dev/null || echo '(なし)'; echo '--- request ---'; "
+                            + "ls -lZ " + shellQuote(request) + " 2>&1 || true");
+                    postDiagnostics(live.output);
+                }
             }
             if (!completion.startsWith(token + "\t")) {
-                throw new IllegalStateException("ゲーム側から応答がありません。ゲーム起動・LSPosed有効化を確認してください。");
+                postDiagnostics(collectDiagnostics().output);
+                throw new IllegalStateException(
+                        "ゲーム側から応答がありません。診断欄の export_status.json を確認してください。"
+                        + " watcher-started まで出ていれば要求ファイルの権限/SELinux、"
+                        + " export_status.json 自体が無ければnative初期化を疑えます。");
             }
             if (!completion.equals(token + "\tok")) {
-                throw new IllegalStateException("取得可能なカードデータがまだありません。プロデュースを開いてから再実行してください。");
+                postDiagnostics(collectDiagnostics().output);
+                throw new IllegalStateException(
+                        "ゲーム側は要求を受信しましたが、取得可能なカードが0枚です。"
+                        + " 診断欄の deckCount を確認してください。");
             }
 
             RootResult copyResult = runRoot(
@@ -110,17 +200,24 @@ public final class ExportActivity extends Activity {
             if (copyResult.exitCode != 0) {
                 throw new IllegalStateException("Downloadへの保存に失敗しました: " + copyResult.output);
             }
+            postDiagnostics(collectDiagnostics().output);
             postStatus("保存しました\n" + destination);
         } catch (Throwable error) {
             postStatus("エラー: " + String.valueOf(error.getMessage()));
+        } finally {
+            runOnUiThread(() -> {
+                exportButton.setEnabled(true);
+                refreshButton.setEnabled(true);
+            });
         }
     }
 
     private void postStatus(String message) {
-        runOnUiThread(() -> {
-            status.setText(message);
-            exportButton.setEnabled(true);
-        });
+        runOnUiThread(() -> status.setText(message));
+    }
+
+    private void postDiagnostics(String message) {
+        runOnUiThread(() -> diagnostics.setText(message));
     }
 
     private static String sanitizeFileName(String input) {

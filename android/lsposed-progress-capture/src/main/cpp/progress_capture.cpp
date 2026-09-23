@@ -327,6 +327,12 @@ std::string export_done_path() {
         "/files/gakumas-sim/export_done.txt";
 }
 
+std::string export_status_path() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/export_status.json";
+}
+
 void ensure_parent_dir(const std::string& file_path) {
     const auto slash = file_path.rfind('/');
     if (slash == std::string::npos) return;
@@ -375,6 +381,27 @@ int64_t unix_time_ms() {
     timespec ts{};
     clock_gettime(CLOCK_REALTIME, &ts);
     return static_cast<int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+}
+
+void write_export_status(
+    const std::string& phase,
+    const std::string& token = "",
+    int64_t deck_count = -1,
+    const std::string& detail = "") {
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"phase\": \"" << json_escape(phase) << "\",\n"
+        << "  \"updatedAtUnixMs\": " << unix_time_ms() << ",\n"
+        << "  \"pid\": " << static_cast<int>(getpid()) << ",\n"
+        << "  \"uid\": " << static_cast<int>(getuid()) << ",\n"
+        << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
+        << "  \"token\": \"" << json_escape(token) << "\",\n"
+        << "  \"deckCount\": " << deck_count << ",\n"
+        << "  \"detail\": \"" << json_escape(detail) << "\",\n"
+        << "  \"requestPath\": \"" << json_escape(export_request_path()) << "\",\n"
+        << "  \"donePath\": \"" << json_escape(export_done_path()) << "\"\n"
+        << "}\n";
+    atomic_write(export_status_path(), out.str());
 }
 
 std::vector<CardRecord> normalize_deck(std::vector<CardRecord> deck) {
@@ -505,30 +532,58 @@ std::vector<CardRecord> current_snapshot_deck() {
 
 void write_snapshot(std::vector<CardRecord> deck) {
     deck = normalize_deck(std::move(deck));
-    if (deck.empty()) return;
+    if (deck.empty()) {
+        write_export_status("snapshot-empty", "", 0, "CreateDeckProduceCardMasters returned no active cards");
+        return;
+    }
     {
         std::lock_guard<std::mutex> lock(g_last_deck_mutex);
         g_last_deck = deck;
     }
     const std::string json = exam_preset_json(deck);
-    if (json.empty()) return;
+    if (json.empty()) {
+        write_export_status("snapshot-json-empty", "", static_cast<int64_t>(deck.size()));
+        return;
+    }
     for (const auto& path : output_paths()) atomic_write(path, json);
+    write_export_status(
+        "snapshot-updated",
+        "",
+        static_cast<int64_t>(deck.size()),
+        "CreateDeckProduceCardMasters captured the current deck");
 }
 
 void export_request_watcher() {
+    write_export_status("watcher-started", "", -1, "waiting for export_request.txt");
     std::string last_token;
     for (;;) {
         std::ifstream in(export_request_path(), std::ios::binary);
         std::string token;
         if (in) std::getline(in, token);
         if (!token.empty() && token != last_token) {
+            write_export_status("request-detected", token, -1, "manual export request accepted");
             const std::vector<CardRecord> deck = current_snapshot_deck();
+            write_export_status(
+                "snapshot-collected",
+                token,
+                static_cast<int64_t>(deck.size()),
+                "latest captured deck assembled");
             const std::string json = exam_preset_json(deck);
             if (!json.empty()) {
                 atomic_write(manual_export_path(), json);
                 atomic_write(export_done_path(), token + "\tok\n");
+                write_export_status(
+                    "export-written",
+                    token,
+                    static_cast<int64_t>(deck.size()),
+                    manual_export_path());
             } else {
                 atomic_write(export_done_path(), token + "\tempty\n");
+                write_export_status(
+                    "export-empty",
+                    token,
+                    static_cast<int64_t>(deck.size()),
+                    "no captured deck is available yet");
             }
             last_token = token;
         }
@@ -537,7 +592,11 @@ void export_request_watcher() {
 }
 
 void start_export_request_watcher() {
-    if (g_export_watcher_started.exchange(true)) return;
+    if (g_export_watcher_started.exchange(true)) {
+        write_export_status("watcher-already-started");
+        return;
+    }
+    write_export_status("watcher-starting");
     std::thread(export_request_watcher).detach();
 }
 
