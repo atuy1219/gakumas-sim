@@ -506,6 +506,23 @@ export function seedMatchesChoices(seed, choices) {
   return true;
 }
 
+export function findXorshiftAdvanceMatchingChoices(seedInput, choiceVariantsInput, maxStepsInput = 256) {
+  const variants = Array.isArray(choiceVariantsInput)
+    ? choiceVariantsInput.filter(Array.isArray)
+    : [];
+  if (!variants.length) return [];
+  const maxSteps = Math.max(0, Math.trunc(Number(maxStepsInput) || 0));
+  const matches = [];
+  let state = Number(seedInput) >>> 0;
+  for (let steps = 0; steps <= maxSteps; steps += 1) {
+    if (variants.some((choices) => seedMatchesChoices(state, choices))) {
+      matches.push({ steps, state: state >>> 0 });
+    }
+    state = xorshift32(state);
+  }
+  return matches;
+}
+
 export function scanSeedRange(choices, start, end, maxMatches = 128) {
   const out = [];
   const lo = Math.max(0, Math.trunc(Number(start)));

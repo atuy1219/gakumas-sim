@@ -447,9 +447,18 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   // before ExamCardPoolModel.Shuffle. Keep the public seed as the true
   // ExamParameterModel.Seed and advance only the internal shuffle state.
   const preShuffleAdvanceSteps = Math.max(0, Math.trunc(Number(options.preShuffleAdvanceSteps ?? 0) || 0));
-  const preShuffleRng = new XorShift32(seed);
-  for (let index = 0; index < preShuffleAdvanceSteps; index += 1) preShuffleRng.nextU32();
-  const initialRandomState = preShuffleRng.state >>> 0;
+  const explicitInitialRandomState = Number(options.initialRandomState);
+  let initialRandomState;
+  let initialRandomStateSource;
+  if (Number.isInteger(explicitInitialRandomState) && explicitInitialRandomState >= 0 && explicitInitialRandomState <= 0xffffffff) {
+    initialRandomState = explicitInitialRandomState >>> 0;
+    initialRandomStateSource = String(options.initialRandomStateSource ?? "exact");
+  } else {
+    const preShuffleRng = new XorShift32(seed);
+    for (let index = 0; index < preShuffleAdvanceSteps; index += 1) preShuffleRng.nextU32();
+    initialRandomState = preShuffleRng.state >>> 0;
+    initialRandomStateSource = "derived";
+  }
 
   // Native ExamCardPoolModel.Shuffle does not filter IsInitial. The whole Deck
   // is shuffled first; SetInitialCard later extracts opening-hand cards.
@@ -467,6 +476,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     seed,
     preShuffleAdvanceSteps,
     initialRandomState,
+    initialRandomStateSource,
     randomState: shuffled.randomState,
     shuffledInitialDeck: shuffled.deck.map((card) => ({ ...card })),
     initialDeck: openingPreview.visibleOrder.map((card) => ({ ...card })),
