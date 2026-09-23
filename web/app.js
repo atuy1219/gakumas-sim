@@ -1285,7 +1285,7 @@ function renderTurnState(mode, state) {
     ? `${towerParameterLabel(currentType)}ターン${Number.isFinite(Number(currentBonus)) ? ` · ${currentBonus}%` : ""} · `
     : "";
   const seedMeta = mode === "exam" && state.initialRandomState !== undefined
-    ? `Seed ${state.seed} · 初期Shuffle ${asHex(state.initialRandomState)} · `
+    ? `Seed ${state.seed} · 初期Shuffle ${asHex(state.initialRandomState)}${state.initialRandomStateSource ? ` [${state.initialRandomStateSource}]` : ""} · `
     : "";
   $(`${mode}-turn-meta`).textContent = `${turnAttribute}${seedMeta}${state.ended ? "試験終了 · " : ""}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
   const statusGrid = $(`${mode}-status-grid`);
@@ -1485,6 +1485,8 @@ document.addEventListener("exam-simulation-start", (event) => {
       supportCards: event.detail?.supportCards ?? [],
       turnParameterTypes: event.detail?.turnParameterTypes ?? [],
       preShuffleAdvanceSteps: Number(event.detail?.preShuffleAdvanceSteps ?? 0),
+      initialRandomState: event.detail?.initialRandomState,
+      initialRandomStateSource: event.detail?.initialRandomStateSource,
       turnLimit: event.detail?.turnParameterTypes?.length || null,
     });
     examSelectedCardIndex = 0;
