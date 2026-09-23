@@ -484,6 +484,8 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     }),
     playsRemaining: 0,
     currentTurnPlays: [],
+    currentTurnDrinks: [],
+    drinkHistory: [],
     turnStartEffects: [],
     unsupported: [],
     timers: [],
@@ -1285,16 +1287,83 @@ function supportCardParameterMatches(state, supportCard) {
   return normalizedFilter === current.toLowerCase();
 }
 
-function upgradeRuntimeCardInPlace(state, card) {
-  const nextUpgrade = Number(card?.upgradeCount ?? 0) + 1;
-  const nextMaster = state.cardVariantByKey?.get?.(`${card.id}@@${nextUpgrade}`) ?? {};
+function cloneRuntimeCardSnapshot(card) {
+  const {
+    _supportBaseSnapshot,
+    _supportUpgradeCount,
+    ...source
+  } = card ?? {};
+  return {
+    ...source,
+    effectGroupIds: Array.isArray(source.effectGroupIds) ? [...source.effectGroupIds] : source.effectGroupIds,
+    playEffects: Array.isArray(source.playEffects) ? source.playEffects.map((effect) => ({ ...effect })) : source.playEffects,
+    customizes: Array.isArray(source.customizes) ? source.customizes.map((item) => ({ ...item })) : source.customizes,
+  };
+}
+
+function applyRuntimeUpgradeVariant(state, card, targetUpgradeCount) {
+  const target = Math.max(0, Math.trunc(Number(targetUpgradeCount) || 0));
+  const master = state.cardVariantByKey?.get?.(`${card.id}@@${target}`) ?? {};
   const identity = {
     token: card.token,
     originalIndex: card.originalIndex,
     generated: card.generated,
+    growBlockAdd: card.growBlockAdd,
+    growCostAdd: card.growCostAdd,
   };
-  Object.assign(card, nextMaster, identity, { upgradeCount: nextUpgrade });
-  return nextUpgrade;
+  Object.assign(card, master, identity, { upgradeCount: target });
+  card.onceOnly = isOnceOnlyMove(card.playMovePositionType);
+  return target;
+}
+
+function applySupportCardUpgradeInPlace(state, card) {
+  if (!card._supportBaseSnapshot) {
+    card._supportBaseSnapshot = cloneRuntimeCardSnapshot(card);
+    card._supportUpgradeCount = 0;
+  }
+  card._supportUpgradeCount = Math.max(0, Number(card._supportUpgradeCount ?? 0)) + 1;
+  return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
+}
+
+function applyPermanentCardUpgradeInPlace(state, card) {
+  const supportCount = Math.max(0, Math.trunc(Number(card?._supportUpgradeCount ?? 0)));
+  if (!card?._supportBaseSnapshot || supportCount <= 0) {
+    return applyRuntimeUpgradeVariant(state, card, Number(card?.upgradeCount ?? 0) + 1);
+  }
+
+  const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
+  const nextBaseCount = Math.max(0, Number(base.upgradeCount ?? 0)) + 1;
+  const baseMaster = state.cardVariantByKey?.get?.(`${card.id}@@${nextBaseCount}`) ?? {};
+  const nextBase = {
+    ...base,
+    ...baseMaster,
+    token: base.token,
+    originalIndex: base.originalIndex,
+    generated: base.generated,
+    growBlockAdd: base.growBlockAdd,
+    growCostAdd: base.growCostAdd,
+    upgradeCount: nextBaseCount,
+  };
+  card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
+
+  Object.assign(card, cloneRuntimeCardSnapshot(nextBase));
+  card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
+  card._supportUpgradeCount = supportCount;
+  return applyRuntimeUpgradeVariant(state, card, nextBaseCount + supportCount);
+}
+
+function clearSupportCardUpgrades(state) {
+  const seen = new Set();
+  for (const pool of [state.hand, state.deck, state.discard, state.lost, state.hold]) {
+    for (const card of pool ?? []) {
+      if (!card || seen.has(card)) continue;
+      seen.add(card);
+      if (!card._supportBaseSnapshot) continue;
+      const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
+      for (const key of Object.keys(card)) delete card[key];
+      Object.assign(card, base);
+    }
+  }
 }
 
 function applyExamSupportCardUpgrades(state, drawnCards, runtimeEvent = null) {
@@ -1357,7 +1426,7 @@ function applyExamSupportCardUpgrades(state, drawnCards, runtimeEvent = null) {
       };
       if (succeeded) {
         state.turnUseSupportCardIds.add(supportCardId);
-        roll.upgradeCountAfter = upgradeRuntimeCardInPlace(state, card);
+        roll.upgradeCountAfter = applySupportCardUpgradeInPlace(state, card);
       }
       rolls.push(roll);
     }
@@ -1449,6 +1518,7 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.turn += 1;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
+  state.currentTurnDrinks = [];
   state.turnUseSupportCardIds = new Set();
 
   // EffectTimer counts completed turn boundaries and fires when the delayed
@@ -1480,11 +1550,7 @@ export function drawTowerTurn(state, drawCount = 3) {
 }
 
 function upgradeHandCards(state) {
-  state.hand = state.hand.map((card) => {
-    const nextUpgrade = Number(card.upgradeCount ?? 0) + 1;
-    const nextMaster = state.cardVariantByKey?.get?.(`${card.id}@@${nextUpgrade}`) ?? {};
-    return { ...card, ...nextMaster, token: card.token, originalIndex: card.originalIndex, upgradeCount: nextUpgrade };
-  });
+  for (const card of state.hand) applyPermanentCardUpgradeInPlace(state, card);
 }
 
 export function currentTowerScoreContext(state) {
@@ -1973,9 +2039,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "ExamCardUpgrade": {
       for (const card of pickedMasterCards(state, parsed)) {
-        const next = Number(card.upgradeCount ?? 0) + 1;
-        const master = state.cardVariantByKey?.get?.(`${card.id}@@${next}`) ?? {};
-        Object.assign(card, master, { upgradeCount: next });
+        applyPermanentCardUpgradeInPlace(state, card);
       }
       event.effects.push("対象カードを強化"); return;
     }
@@ -2211,6 +2275,57 @@ function addGrowEffectsToDeckAll(state, parsed, event) {
   return matched;
 }
 
+export function useTowerDrink(state, drinkInput) {
+  if (!state || state.ended) throw new Error("試験が終了しています。");
+  if (Number(state.turn ?? 0) <= 0) throw new Error("ターン開始後にドリンクを使用してください。");
+
+  const drink = drinkInput && typeof drinkInput === "object" ? drinkInput : null;
+  if (!drink || !String(drink.id ?? "")) throw new Error("使用するドリンクを選択してください。");
+  if (drink.unresolved) throw new Error(`ドリンク ${drink.id} のマスタを解決できません。`);
+
+  const event = nativeRuntimeEvent();
+  event.drink = {
+    id: String(drink.id),
+    name: String(drink.name ?? drink.id),
+  };
+  event.randomStateBefore = state.randomState >>> 0;
+
+  for (const effect of drink.effects ?? []) {
+    if (effect?.unresolved) {
+      rememberUnsupported(state, `drink-effect:${String(effect?.id ?? "")}`);
+      event.effects.push(`未解決ドリンク効果: ${String(effect?.id ?? "")}`);
+      continue;
+    }
+    if (effect?.examEffect) {
+      executeParsedTowerEffect(state, parseExamEffectMaster(effect.examEffect), event);
+      continue;
+    }
+    if (effect?.produceExamEffectId) {
+      const master = state.examEffectById?.get?.(String(effect.produceExamEffectId));
+      if (master) {
+        executeParsedTowerEffect(state, parseExamEffectMaster(master), event);
+        continue;
+      }
+      rememberUnsupported(state, `drink-exam-effect:${String(effect.produceExamEffectId)}`);
+      event.effects.push(`未解決試験効果: ${String(effect.produceExamEffectId)}`);
+    }
+  }
+
+  event.randomStateAfter = state.randomState >>> 0;
+  const record = {
+    ...event,
+    effects: [...event.effects],
+    drawn: event.drawn.map((card) => ({ ...card })),
+    created: event.created.map((entry) => ({ ...entry, card: entry.card ? { ...entry.card } : entry.card })),
+    moved: event.moved.map((entry) => ({ ...entry, card: entry.card ? { ...entry.card } : entry.card })),
+    supportCardRolls: event.supportCardRolls.map((roll) => ({ ...roll })),
+    recycleEvents: event.recycleEvents.map((entry) => ({ ...entry })),
+  };
+  state.currentTurnDrinks.push(record);
+  state.drinkHistory.push({ turn: state.turn, ...record });
+  return record;
+}
+
 export function playTowerCard(state, indexInput) {
   if (!state.hand.length) throw new Error("使用する手札がありません。");
   if (Number(state.playsRemaining ?? 0) <= 0) throw new Error("このターンのカード使用回数が残っていません。");
@@ -2357,6 +2472,13 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   }
   state.hand = [];
 
+  const drinks = (state.currentTurnDrinks ?? []).map((drink) => ({
+    ...drink,
+    drink: { ...(drink.drink ?? {}) },
+    effects: [...(drink.effects ?? [])],
+    drawn: (drink.drawn ?? []).map((card) => ({ ...card })),
+    supportCardRolls: (drink.supportCardRolls ?? []).map((roll) => ({ ...roll })),
+  }));
   const plays = state.currentTurnPlays.map((play) => ({
     ...play,
     card: { ...play.card },
@@ -2379,6 +2501,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     used,
     onceOnly,
     plays,
+    drinks,
     turnStartEffects: [...(state.turnStartEffects ?? [])],
     deckCount: state.deck.length,
     discardCount: state.discard.length,
@@ -2388,6 +2511,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   };
   state.history.push(entry);
   state.currentTurnPlays = [];
+  state.currentTurnDrinks = [];
   state.playsRemaining = 0;
   const turnEndEvent = { effects: [], drawn: [], recycleEvents: [] };
 
@@ -2431,5 +2555,10 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   tickCardEffectPlayCountBuff(state);
   tickNativeEffectSchedulerTurn(state.effectScheduler, { turn: state.turn });
   entry.examAfterTurnEnd = { ...state.exam };
+
+  // Support-card upgrades are temporary for the current turn. Revert every
+  // affected runtime instance after all turn-end effects have resolved so a
+  // recycled card starts the next turn at its permanent upgrade level.
+  clearSupportCardUpgrades(state);
   return entry;
 }
