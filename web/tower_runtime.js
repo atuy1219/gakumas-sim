@@ -1990,7 +1990,7 @@ function registerMasterStatusEnchant(state, parsed) {
 
 function executeMasterChain(state, parsed, event, repeat = 1) {
   const ids = [parsed.chainEffectId, ...(parsed.chainEffectIds ?? [])].filter(Boolean);
-  for (let n = 0; n < Math.max(1, Math.trunc(Number(repeat) || 1)); n += 1) {
+  for (let n = 0; n < Math.max(0, Math.trunc(Number(repeat) || 0)); n += 1) {
     for (const id of ids) {
       const master = state.examEffectById?.get?.(String(id));
       executeParsedTowerEffect(
@@ -2132,10 +2132,38 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamLessonDependStamina": applyMasterLesson(state, parsed, scaledMasterValue(exam.stamina, parsed), event, "体力参照"); return;
     case "ExamLessonDependBlockConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.blockConsumptionSum, parsed), event, "元気消費量参照"); return;
     case "ExamLessonDependStaminaConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.staminaConsumptionSum, parsed), event, "体力消費量参照"); return;
-    case "ExamLessonDependPlayCardCountSum": applyMasterLesson(state, parsed, Math.min(v2 || Infinity, v1 * Number(exam.playCardCountSum ?? exam.cardPlayCount ?? 0)), event, "カード使用数参照"); return;
-    case "ExamLessonFullPowerPoint": applyMasterLesson(state, parsed, scaledMasterValue(exam.fullPowerPoint, parsed), event, "全力値参照"); return;
-    case "ExamLessonPerSearchCount": applyMasterLesson(state, parsed, v1 * searchCount(), event, "カード枚数参照"); return;
-    case "ExamLessonDependBlockAndSearchCount": applyMasterLesson(state, parsed, scaledMasterValue(exam.block, parsed) * Math.max(1, searchCount()), event, "元気・カード枚数参照"); return;
+    case "ExamLessonDependPlayCardCountSum":
+      // Native executor @ 0x80133E0: value1 + value2 * ExamCardPlayCount.
+      applyMasterLesson(state, parsed, v1 + v2 * Number(exam.cardPlayCount ?? 0), event, "カード使用数参照");
+      return;
+    case "ExamLessonFullPowerPoint": {
+      // Native @ 0x8014618 reads FullPowerPointGetSumCount, and floors the
+      // scaled contribution before adding the fixed value (once per hit).
+      const gained = Math.max(0, Number(exam.fullPowerPointGetSum ?? 0));
+      const extra = Math.floor(Math.fround(Math.fround(v2 / 1000) * Math.fround(gained)));
+      applyMasterLesson(state, parsed, v1 + extra, event, "全力値獲得累計参照");
+      return;
+    }
+    case "ExamLessonPerSearchCount": {
+      // Native executor @ 0x8008B88 rounds the search contribution before
+      // adding value1, then calculates the lesson independently for each hit.
+      const extra = Math.ceil(Math.fround(Math.fround(v2 / 1000) * Math.fround(searchCount())));
+      applyMasterLesson(state, parsed, v1 + extra, event, "カード枚数参照");
+      return;
+    }
+    case "ExamLessonDependBlockAndSearchCount": {
+      // LessonDependBlockAndSearchCountEffectExecutor @ 0x8011ABC:
+      // ceil((value1 + value2 * matchingCardCount) / 1000 * block).
+      // The native code keeps this as float32 until the final epsilon ceil;
+      // in particular, zero matching cards must not be coerced to one.
+      const permil = Math.fround(
+        Math.fround(v1 / 1000)
+        + Math.fround(Math.fround(v2 / 1000) * Math.fround(searchCount())),
+      );
+      const base = calculateNativeDependentLessonBase(exam.block, Math.fround(permil * 1000));
+      applyMasterLesson(state, parsed, base, event, "元気・カード枚数参照");
+      return;
+    }
     case "ExamLessonAddMultipleLessonBuff": applyMasterLesson(state, parsed, scaledMasterValue(exam.lessonBuff, parsed), event, "集中参照"); return;
     case "ExamMultipleEnthusiasticLesson": {
       const base = Math.max(0, v1 + scaledMasterValue(exam.enthusiastic, { ...parsed, value1: v2 || 1000 }));
@@ -2365,7 +2393,13 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       }
       event.effects.push("対象カードを強制使用"); return;
     }
-    case "ExamEffectPerSearchCount": executeMasterChain(state, parsed, event, searchCount()); return;
+    case "ExamEffectPerSearchCount": {
+      // Native @ 0x8006CA4: ceil(value2 / 1000 * matchingCardCount).
+      // A zero result skips the child effect entirely.
+      const repeats = Math.ceil(Math.fround(Math.fround(v2 / 1000) * Math.fround(searchCount())));
+      executeMasterChain(state, parsed, event, repeats);
+      return;
+    }
     default:
       rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
       event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
