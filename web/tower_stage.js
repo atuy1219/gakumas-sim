@@ -1,4 +1,4 @@
-import { XorShift32, parseSeed } from "./engine.js";
+import { calculateWeightedTurnParameterTypes } from "./turn_parameters.js";
 
 export const TOWER_STAGE_MASTER_URLS = Object.freeze({
   battleConfigs: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleConfig.yaml",
@@ -365,55 +365,9 @@ export function calculateTowerParameterBonus(config, scoreRowsById, parameters, 
   };
 }
 
-function roundToEven(value) {
-  const floor = Math.floor(value);
-  const fraction = value - floor;
-  if (fraction < 0.5) return floor;
-  if (fraction > 0.5) return floor + 1;
-  return floor % 2 === 0 ? floor : floor + 1;
-}
-
 export function calculateTowerTurnTypes(config, seedInput) {
   if (!config) throw new Error("ドル道ステージ設定を選択してください。");
-  const limitTurn = Math.trunc(Number(config.turn ?? 0));
-  if (limitTurn <= 0) return [];
-  const ordered = [
-    { type: "Vocal", order: 0, weight: Math.trunc(Number(config.vocal ?? 0)) },
-    { type: "Dance", order: 1, weight: Math.trunc(Number(config.dance ?? 0)) },
-    { type: "Visual", order: 2, weight: Math.trunc(Number(config.visual ?? 0)) },
-  ].sort((a, b) => b.weight - a.weight || a.order - b.order);
-
-  const [high, middle, low] = ordered;
-  const randomTurnCount = limitTurn - 3;
-  const pool = [];
-  if (randomTurnCount > 0) {
-    const totalWeight = high.weight + middle.weight + low.weight;
-    if (!totalWeight) throw new Error("ドル道ステージのVo/Da/Vi設定値がすべて0です。");
-    const highRatio = Math.fround(
-      Math.fround(Math.fround(randomTurnCount) * Math.fround(high.weight))
-      / Math.fround(totalWeight)
-    );
-    const highCount = Math.ceil(highRatio);
-    const remaining = randomTurnCount - highCount;
-    const middleLowWeight = middle.weight + low.weight;
-    const middleRatio = remaining
-      ? Math.fround(
-          Math.fround(Math.fround(remaining) * Math.fround(middle.weight))
-          / Math.fround(middleLowWeight)
-        )
-      : 0;
-    const middleCount = remaining ? roundToEven(middleRatio) : 0;
-    const lowCount = remaining - middleCount;
-    pool.push(...Array(Math.max(0, highCount)).fill(high.type));
-    pool.push(...Array(Math.max(0, middleCount)).fill(middle.type));
-    pool.push(...Array(Math.max(0, lowCount)).fill(low.type));
-  }
-
-  const rng = new XorShift32(parseSeed(seedInput));
-  const result = [];
-  while (pool.length) result.push(pool.splice(rng.nextInt(0, pool.length), 1)[0]);
-  result.push(...[low.type, middle.type, high.type].slice(3 - Math.min(limitTurn, 3)));
-  return result;
+  return calculateWeightedTurnParameterTypes(config, seedInput);
 }
 
 export function towerParameterLabel(type) {
