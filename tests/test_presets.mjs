@@ -179,6 +179,7 @@ const {
   describeExamTurnConfig,
   getExamTurnProfile,
   getExamTurnStage,
+  isExamTurnStageSupported,
 } = await import("../web/exam_turns.js");
 
 const fktn = getExamTurnProfile("fktn");
@@ -217,7 +218,25 @@ assert.deepEqual(
   ["Dance", "Visual", "Vocal"].map((type) => harmony.filter((value) => value === type).length),
   [5, 2, 2],
 );
-assert.throws(() => calculateExamTurnTypes("atbm", "hif-selection-1", 1), /未登録/);
+
+const atbm = getExamTurnProfile("atbm");
+assert.equal(atbm.style, "focused");
+assert.deepEqual(atbm.order, ["Dance", "Vocal", "Visual"]);
+assert.deepEqual(atbm.scenarios, ["nia"]);
+assert.equal(isExamTurnStageSupported("atbm", "nia-final"), true);
+assert.equal(isExamTurnStageSupported("atbm", "hif-selection-1"), false);
+
+const atbmFinal = describeExamTurnConfig("atbm", "nia-final");
+assert.equal(atbmFinal.turn, 12);
+assert.deepEqual(atbmFinal.counts, [6, 3, 3]);
+const atbmTurns = calculateExamTurnTypes("atbm", "nia-final", 2696513658);
+assert.equal(atbmTurns.length, 12);
+assert.deepEqual(
+  ["Dance", "Vocal", "Visual"].map((type) => atbmTurns.filter((value) => value === type).length),
+  [6, 3, 3],
+);
+assert.deepEqual(atbmTurns.slice(-3), ["Visual", "Vocal", "Dance"]);
+assert.throws(() => calculateExamTurnTypes("atbm", "hif-selection-1", 1), /H\.I\.F未実装/);
 assert.throws(() => calculateExamTurnTypes("fktn", "unknown", 1), /選択/);
 
 console.log("exam turn profile tests: ok");
