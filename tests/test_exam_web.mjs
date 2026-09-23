@@ -1288,3 +1288,37 @@ assert.equal(
 
 console.log("exam drink master tests: ok");
 }
+
+
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  groupProduceCardRandomPools,
+  parseProduceCardRandomPoolCatalog,
+} = await import("../web/exam_effects.js");
+
+const rows = parseProduceCardRandomPoolCatalog(`
+- id: p_random_pool-test
+  produceCardId: CARD-A
+  upgradeCount: 1
+  ratio: 1
+- id: p_random_pool-test
+  produceCardId: CARD-B
+  upgradeCount: 0
+  ratio: 3
+- id: p_random_pool-other
+  produceCardId: CARD-C
+  upgradeCount: 0
+  ratio: 2
+`);
+assert.equal(rows.length, 3);
+const grouped = groupProduceCardRandomPools(rows);
+assert.equal(grouped.get("p_random_pool-test").length, 2);
+assert.deepEqual(
+  grouped.get("p_random_pool-test").map((row) => [row.produceCardId, row.upgradeCount, row.ratio]),
+  [["CARD-A", 1, 1], ["CARD-B", 0, 3]],
+);
+assert.equal(grouped.get("p_random_pool-other")[0].ratio, 2);
+
+console.log("card random pool parser tests: ok");
+}
