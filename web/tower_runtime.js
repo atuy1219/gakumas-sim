@@ -1563,7 +1563,12 @@ export function drawTowerTurn(state, drawCount = 3) {
   const result = isOpeningTurn
     ? setNativeInitialCard(state, requested)
     : drawCardsIntoHand(state, requested);
-  applyExamSupportCardUpgrades(state, result.drawn, phaseEvent);
+  // Native SetInitialCard's opening draw only runs skill-card support
+  // against the first visible opening card. Subsequent ordinary DrawCard calls
+  // evaluate every newly drawn card in order. The real-device H.I.F trace for
+  // Seed 171624539 consumes 4 Da-support rolls on 存在感+ only here.
+  const supportTargets = isOpeningTurn ? result.drawn.slice(0, 1) : result.drawn;
+  applyExamSupportCardUpgrades(state, supportTargets, phaseEvent);
   state.turnStartSupportCardRolls = (phaseEvent.supportCardRolls ?? []).map((roll) => ({ ...roll }));
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);

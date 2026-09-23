@@ -116,6 +116,135 @@ assert.deepEqual(
 );
 assert.equal(realState.randomState, 2281153048, "opening draw itself must not consume RNG");
 
+const realSupportCards = [
+  { supportCardId: "manual-support-1", filterParameterType: "ProduceParameterType_Dance", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 56 },
+  { supportCardId: "manual-support-2", filterParameterType: "ProduceParameterType_Dance", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 64 },
+  { supportCardId: "manual-support-3", filterParameterType: "ProduceParameterType_Dance", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 61 },
+  { supportCardId: "manual-support-4", filterParameterType: "ProduceParameterType_Visual", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 61 },
+  { supportCardId: "manual-support-5", filterParameterType: "ProduceParameterType_Visual", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 67 },
+  { supportCardId: "manual-support-6", filterParameterType: "ProduceParameterType_Dance", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 74 },
+];
+const zeroUpgradeIds = new Set([
+  "p_card-03-act-3_065",
+  "p_card-01-men-3_036",
+  "p_card-01-act-3_184",
+]);
+const realCard = (id) => ({
+  id,
+  upgradeCount: zeroUpgradeIds.has(id) ? 0 : 1,
+  fixedDeckOrder: 0,
+});
+
+// Opening SetInitialCard is special: only the first visible card receives
+// support-card checks. Real trace: Da turn, 4 rolls = 531,20,826,786;
+// only manual-support-2 succeeds, so 存在感+ becomes 存在感++.
+const openingSupportState = createTowerTurnState(
+  realDeckIds.map(realCard),
+  171624539,
+  new Map(),
+  {
+    preShuffleAdvanceSteps: hifFinalRound1Advance,
+    turnParameterTypes: [
+      "Dance", "Visual", "Dance", "Visual", "Dance",
+      "Vocal", "Vocal", "Visual", "Dance",
+    ],
+    supportCards: realSupportCards,
+  },
+);
+drawTowerTurn(openingSupportState, 3);
+assert.deepEqual(
+  openingSupportState.hand.map((card) => card.id),
+  ["p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162"],
+);
+assert.deepEqual(
+  openingSupportState.supportCardRollHistory.map((roll) => roll.result),
+  [531, 20, 826, 786],
+);
+assert.deepEqual(
+  openingSupportState.supportCardRollHistory.filter((roll) => roll.succeeded).map((roll) => roll.supportCardId),
+  ["manual-support-2"],
+);
+assert.equal(openingSupportState.hand[0].upgradeCount, 2);
+assert.equal(openingSupportState.hand[1].upgradeCount, 1);
+assert.equal(openingSupportState.hand[2].upgradeCount, 1);
+assert.equal(openingSupportState.randomState >>> 0, 2041155747);
+
+// Exact first recycle regression from the same real-device trace. At Turn 5
+// Deck has only Overdrive+ / FullThrottle+ left; the 13-card Grave is shuffled
+// with state 0x2CB45AFC. The resulting order and subsequent support rolls must
+// reproduce FullThrottle++ and the native RNG state.
+const recycleSourceIds = [
+  "p_card-01-men-2_037", // 存在感+
+  "p_card-00-sup-3_152", // 夏夜に咲く思い出+
+  "p_card-01-men-3_006", // 国民的アイドル+
+  "p_card-01-act-3_184", // 話題沸騰
+  "p_card-01-act-3_185", // 脚光+
+  "p_card-01-act-2_001", // シュプレヒコール+
+  "p_card-03-men-3_058", // アイドルになります+
+  "p_card-01-men-2_011", // スポットライト+
+  "p_card-03-men-2_074", // タフネス+
+  "p_card-01-act-3_049", // 至高のエンタメ+
+  "p_card-03-act-3_065", // 全身全霊
+  "p_card-01-men-1_034", // ひと呼吸+
+  "p_card-01-men-3_036", // 魅惑の視線
+];
+const recycleExpectedIds = [
+  "p_card-03-men-3_058", // アイドルになります+
+  "p_card-03-men-2_074", // タフネス+
+  "p_card-00-sup-3_152", // 夏夜に咲く思い出+
+  "p_card-01-men-2_037", // 存在感+
+  "p_card-01-men-2_011", // スポットライト+
+  "p_card-01-men-3_036", // 魅惑の視線
+  "p_card-01-act-3_049", // 至高のエンタメ+
+  "p_card-01-act-2_001", // シュプレヒコール+
+  "p_card-01-act-3_184", // 話題沸騰
+  "p_card-01-men-1_034", // ひと呼吸+
+  "p_card-03-act-3_065", // 全身全霊
+  "p_card-01-act-3_185", // 脚光+
+  "p_card-01-men-3_006", // 国民的アイドル+
+];
+const recycleState = createTowerTurnState(
+  realDeckIds.map(realCard),
+  1,
+  new Map(),
+  {
+    turnParameterTypes: [
+      "Dance", "Visual", "Dance", "Visual", "Dance",
+      "Vocal", "Vocal", "Visual", "Dance",
+    ],
+    supportCards: realSupportCards,
+  },
+);
+recycleState.turn = 4;
+recycleState.openingResolved = true;
+recycleState.hand = [];
+recycleState.deck = [
+  realCard("p_card-03-act-2_102"),
+  realCard("p_card-03-men-2_112"),
+];
+recycleState.discard = recycleSourceIds.map(realCard);
+recycleState.lost = [];
+recycleState.randomState = 0x2CB45AFC;
+drawTowerTurn(recycleState, 3);
+assert.equal(recycleState.recycleCount, 1);
+assert.deepEqual(recycleState.lastRecycle.shuffled.map((card) => card.id), recycleExpectedIds);
+assert.deepEqual(
+  recycleState.hand.map((card) => card.id),
+  ["p_card-03-act-2_102", "p_card-03-men-2_112", "p_card-03-men-3_058"],
+);
+assert.deepEqual(
+  recycleState.turnStartSupportCardRolls.map((roll) => roll.result),
+  [172, 331, 111, 603, 24, 66, 570, 795, 889, 470, 767],
+);
+assert.deepEqual(
+  recycleState.turnStartSupportCardRolls.filter((roll) => roll.succeeded).map((roll) => [roll.supportCardId, roll.cardId]),
+  [["manual-support-1", "p_card-03-men-2_112"]],
+);
+assert.equal(recycleState.hand[0].upgradeCount, 1);
+assert.equal(recycleState.hand[1].upgradeCount, 2);
+assert.equal(recycleState.hand[2].upgradeCount, 1);
+assert.equal(recycleState.randomState >>> 0, 0x24F0F1FF);
+
 // UI stage-derived path passes initialRandomState:null plus the 24-step count.
 // null must mean "derive from the true Seed", never the explicit state 0.
 const nullDerivedState = createTowerTurnState(
@@ -203,6 +332,10 @@ supportState.deck = ["S-A", "S-B", "S-C"].map((id, index) => ({
   ...supportState.shuffledInitialDeck.find((card) => card.id === id),
   originalIndex: index,
 }));
+// This block tests ordinary DrawCard support checks. Opening SetInitialCard has
+// a separate native path covered by the H.I.F real-device regression above.
+supportState.openingResolved = true;
+supportState.turn = 1;
 supportState.randomState = 0x12345678;
 const expectedSupportRandom = new XorShift32(0x12345678);
 for (let index = 0; index < 4; index += 1) expectedSupportRandom.nextU32();
