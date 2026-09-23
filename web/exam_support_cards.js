@@ -30,7 +30,9 @@ export function defaultSupportUpgradePercent(rarityInput, parameterTypeInput) {
 
 export function supportCardRateBonusPercent(rarityInput, limitBreakInput) {
   const rarity = String(rarityInput ?? "").toUpperCase();
-  const limitBreak = Number(limitBreakInput);
+  const limitBreakText = String(limitBreakInput ?? "").trim();
+  if (limitBreakText === "") return null;
+  const limitBreak = Number(limitBreakText);
   if (!Number.isInteger(limitBreak) || limitBreak < 0 || limitBreak > 4) return null;
   return SUPPORT_RATE_BONUS_PERCENT[rarity]?.[limitBreak] ?? null;
 }
