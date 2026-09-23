@@ -85,6 +85,19 @@ const v7Preset = parseExamPreset(JSON.stringify({
 }));
 assert.equal(v7Preset.turnStageId, "", "legacy manual turn arrays remain readable but no longer select a manual UI mode");
 
+const importedV8Preset = parseExamPreset(JSON.stringify({
+  ...preset,
+  version: 8,
+  characterId: "hrnm",
+  planType: "ProducePlanType_Plan3",
+  idolCardId: "i_card-hrnm-3-018",
+  turnStageId: "hif-final-round-1",
+  turnParameterTypes: [],
+  lessonParameterType: undefined,
+}));
+assert.equal(importedV8Preset.turnStageId, "hif-final-round-1");
+assert.equal(importedV8Preset.lessonParameterType, "");
+
 const v2Preset = parseExamPreset(JSON.stringify({
   ...preset,
   version: 2,
