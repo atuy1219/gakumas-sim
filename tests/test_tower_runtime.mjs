@@ -190,7 +190,7 @@ const recycleSourceIds = [
 ];
 const recycleExpectedIds = [
   "p_card-03-men-3_058", // アイドルになります+
-  "p_card-01-men-2_074", // タフネス+
+  "p_card-03-men-2_074", // タフネス+
   "p_card-00-sup-3_152", // 夏夜に咲く思い出+
   "p_card-01-men-2_037", // 存在感+
   "p_card-01-men-2_011", // スポットライト+
