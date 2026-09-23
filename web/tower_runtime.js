@@ -162,6 +162,7 @@ function runtimeInstances(
       ...card,
       token: `${id}@@${ordinal}`,
       originalIndex: index,
+      name: String(master.name ?? card.name ?? id),
       playMovePositionType,
       category: String(master.category ?? card.category ?? ""),
       rarity: String(master.rarity ?? card.rarity ?? ""),
