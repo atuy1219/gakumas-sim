@@ -71,6 +71,7 @@ let examTurnState = null;
 let examSelectedCardIndex = 0;
 let examItemCatalogs = {
   items: [], itemById: new Map(), itemEffects: [], itemEffectById: new Map(),
+  cardRandomPools: [], cardRandomPoolById: new Map(),
   drinks: [], drinkById: new Map(), drinkEffects: [], drinkEffectById: new Map(),
 };
 let towerStageCatalog = null;
@@ -1438,6 +1439,7 @@ $("tower-run").addEventListener("click", () => {
       examStatusEnchantById: examItemCatalogs.examStatusEnchantById,
       examTriggerById: examItemCatalogs.examTriggerById,
       cardSearchById: examItemCatalogs.cardSearchById,
+      cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
       turnLimit: Number(stageConfig.turn),
     });
     towerTurnState.stageConfig = { ...stageConfig };
@@ -1472,6 +1474,7 @@ document.addEventListener("exam-simulation-start", (event) => {
       examStatusEnchantById: examItemCatalogs.examStatusEnchantById,
       examTriggerById: examItemCatalogs.examTriggerById,
       cardSearchById: examItemCatalogs.cardSearchById,
+      cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
       supportCards: event.detail?.supportCards ?? [],
       turnParameterTypes: event.detail?.turnParameterTypes ?? [],
       turnLimit: event.detail?.turnParameterTypes?.length || null,

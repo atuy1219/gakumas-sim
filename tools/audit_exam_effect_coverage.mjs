@@ -4,6 +4,8 @@ import path from "node:path";
 import { parseProduceCardCatalogYaml } from "../web/engine.js";
 import {
   parseExamEffectMaster,
+  groupProduceCardRandomPools,
+  parseProduceCardRandomPoolCatalog,
   parseProduceCardSearchCatalog,
   parseProduceExamEffectCatalog,
   parseProduceExamStatusEnchantCatalog,
@@ -28,12 +30,14 @@ const itemEffects = parseProduceItemEffectCatalog(read("ProduceItemEffect"));
 const enchants = parseProduceExamStatusEnchantCatalog(read("ProduceExamStatusEnchant"));
 const triggers = parseProduceExamTriggerCatalog(read("ProduceExamTrigger"));
 const searches = parseProduceCardSearchCatalog(read("ProduceCardSearch"));
+const randomPools = parseProduceCardRandomPoolCatalog(read("ProduceCardRandomPool"));
 
 const catalogs = {
   examEffectById: new Map(examEffects.map((row) => [row.id, row])),
   examStatusEnchantById: new Map(enchants.map((row) => [row.id, row])),
   examTriggerById: new Map(triggers.map((row) => [row.id, row])),
   cardSearchById: new Map(searches.map((row) => [row.id, row])),
+  cardRandomPoolById: groupProduceCardRandomPools(randomPools),
 };
 const resolved = resolveProduceItems(
   items.map((row) => row.id),

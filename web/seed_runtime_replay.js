@@ -150,6 +150,7 @@ export function replayTowerSeed(seedInput, cards, turnScript = [], options = {})
     examStatusEnchantById: options.examStatusEnchantById ?? new Map(),
     examTriggerById: options.examTriggerById ?? new Map(),
     cardSearchById: options.cardSearchById ?? new Map(),
+    cardRandomPoolById: options.cardRandomPoolById ?? new Map(),
   });
 
   if (!sameVisibleOrder(state.initialDeck, options.expectedInitialOrder)) {

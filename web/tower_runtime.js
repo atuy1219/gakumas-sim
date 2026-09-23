@@ -498,6 +498,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     examStatusEnchantById: options.examStatusEnchantById ?? new Map(),
     examTriggerById: options.examTriggerById ?? new Map(),
     cardSearchById: options.cardSearchById ?? new Map(),
+    cardRandomPoolById: options.cardRandomPoolById ?? new Map(),
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
     pItemEffectRemainingCounts: new Map(),
@@ -1617,14 +1618,53 @@ function checkRuntimeCardTrigger(state, triggerId, card = null, event = null) {
 function masterPickCount(state, parsed, available) {
   let min = Math.max(0, Math.trunc(Number(parsed.pickCountMin ?? 0)));
   let max = Math.max(min, Math.trunc(Number(parsed.pickCountMax ?? min)));
-  if (String(parsed.pickRangeType ?? "").endsWith("_All") && min === 0 && max === 0) {
+  const range = String(parsed.pickRangeType ?? "");
+  if (range.endsWith("_All") && min === 0 && max === 0) {
     return available;
   }
-  max = Math.min(max, available);
+  max = Math.min(max, Math.max(0, Number(available) || 0));
   min = Math.min(min, max);
+  if (range.endsWith("_Select")) return max;
+
+  // Native ExamEffectUtility.PickCardPositionListImpl calls
+  // GetRandomInt(min, max + 1) before the range-specific selection. This call
+  // is present even for a fixed 1_1 Random pick, so width==1 must still advance
+  // the shared Exam XorShift state.
+  if (range.endsWith("_Random")) {
+    return consumeNativeRandomInt(state, min, max + 1);
+  }
+
   if (max === min) return min;
-  if (String(parsed.pickRangeType ?? "").endsWith("_Select")) return max;
   return consumeNativeRandomInt(state, min, max + 1);
+}
+
+function randomPoolRowsForSearch(state, search) {
+  const poolId = String(search?.produceCardRandomPoolId ?? "");
+  if (!poolId) return [];
+  return state.cardRandomPoolById?.get?.(poolId) ?? [];
+}
+
+function consumeWeightedRandomPoolRow(state, rowsInput) {
+  const rows = (rowsInput ?? []).filter((row) => (
+    String(row?.produceCardId ?? "")
+    && Math.max(0, Math.trunc(Number(row?.ratio ?? 0) || 0)) > 0
+  ));
+  const totalWeight = rows.reduce(
+    (sum, row) => sum + Math.max(0, Math.trunc(Number(row.ratio ?? 0) || 0)),
+    0,
+  );
+  if (!rows.length || totalWeight <= 0) return null;
+
+  // ProduceCardRandomPool is a weighted pool. Native-style selection uses one
+  // ranged Exam RNG draw per generated card, then resolves the cumulative ratio
+  // bucket. A one-entry / weight-1 pool still consumes one RNG word.
+  const roll = consumeNativeRandomInt(state, 0, totalWeight);
+  let cursor = 0;
+  for (const row of rows) {
+    cursor += Math.max(0, Math.trunc(Number(row.ratio ?? 0) || 0));
+    if (roll < cursor) return row;
+  }
+  return rows.at(-1) ?? null;
 }
 
 function masterSelectionIdentity(card, index = 0) {
@@ -2052,23 +2092,99 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "ExamCardCreateSearch": {
       const search = resolvedMasterSearch(state, parsed.searchId);
-      const candidates = [...(state.cardById?.values?.() ?? [])].filter((card) => cardMatchesMasterSearch(card, search));
+      if (!search) {
+        rememberUnsupported(state, `card-create-search:${parsed.searchId}`);
+        event.effects.push(`カード検索マスタを取得できません: ${parsed.searchId}`);
+        return;
+      }
+
+      const randomPoolId = String(search.produceCardRandomPoolId ?? "");
+      if (randomPoolId) {
+        const poolRows = randomPoolRowsForSearch(state, search);
+        if (!poolRows.length) {
+          rememberUnsupported(state, `card-random-pool:${randomPoolId}`);
+          event.effects.push(`ランダムカードプールを取得できません: ${randomPoolId}`);
+          return;
+        }
+
+        // RandomPool draws are with replacement, so pick-count is not capped by
+        // the number of distinct pool rows. The count roll happens first, then
+        // each generated card consumes one weighted ranged RNG draw.
+        const requestedMax = Math.max(
+          0,
+          Math.trunc(Number(parsed.pickCountMin ?? 0) || 0),
+          Math.trunc(Number(parsed.pickCountMax ?? 0) || 0),
+        );
+        const amount = masterPickCount(state, parsed, Math.max(poolRows.length, requestedMax));
+        for (let i = 0; i < amount; i += 1) {
+          const row = consumeWeightedRandomPoolRow(state, poolRows);
+          if (!row) {
+            rememberUnsupported(state, `card-random-pool-empty:${randomPoolId}`);
+            break;
+          }
+          const card = generatedRuntimeCard(
+            state,
+            String(row.produceCardId ?? ""),
+            Number(row.upgradeCount ?? 0),
+          );
+          if (!card) {
+            rememberUnsupported(
+              state,
+              `card-create-master:${String(row.produceCardId ?? "")}@@${Number(row.upgradeCount ?? 0)}`,
+            );
+            continue;
+          }
+          const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+          event.created.push({
+            card: { ...card },
+            to,
+            randomPoolId,
+            ratio: Number(row.ratio ?? 0),
+          });
+        }
+        event.effects.push("ランダムプールからカード生成");
+        return;
+      }
+
+      if (String(search.produceCardPoolId ?? "")) {
+        rememberUnsupported(state, `card-pool:${String(search.produceCardPoolId)}`);
+        event.effects.push(`カードプール未対応: ${String(search.produceCardPoolId)}`);
+        return;
+      }
+
+      const candidates = [...(state.cardById?.values?.() ?? [])]
+        .filter((card) => cardMatchesMasterSearch(card, search));
       const selected = selectedMasterCandidates(state, parsed, candidates);
       if (selected) {
         for (const master of selected) {
           const card = generatedRuntimeCard(state, master.id, Number(master.upgradeCount ?? 0));
-          if (card) { addRuntimeCardAt(state, card, parsed.movePositionType); event.created.push({ card: { ...card } }); }
+          if (card) {
+            const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+            event.created.push({ card: { ...card }, to });
+          }
         }
-        event.effects.push("検索条件からカード生成"); return;
+        event.effects.push("検索条件からカード生成");
+        return;
       }
+
       const amount = masterPickCount(state, parsed, candidates.length);
-      for (let i = 0; i < amount && candidates.length; i += 1) {
-        const index = consumeNativeRandomInt(state, 0, candidates.length);
-        const master = candidates.splice(index, 1)[0];
+      const range = String(parsed.pickRangeType ?? "");
+      const picked = range.endsWith("_Random")
+        ? candidates
+          .map((master, order) => ({ master, order, key: consumeNativeRandomSortKey(state) }))
+          .sort((a, b) => a.key - b.key || a.order - b.order)
+          .slice(0, amount)
+          .map((row) => row.master)
+        : candidates.slice(0, amount);
+
+      for (const master of picked) {
         const card = generatedRuntimeCard(state, master.id, Number(master.upgradeCount ?? 0));
-        if (card) { addRuntimeCardAt(state, card, parsed.movePositionType); event.created.push({ card: { ...card } }); }
+        if (!card) continue;
+        const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+        event.created.push({ card: { ...card }, to });
       }
-      event.effects.push("検索条件からカード生成"); return;
+      event.effects.push("検索条件からカード生成");
+      return;
     }
     case "ExamSearchPlayCardStaminaConsumptionChange": {
       for (const card of cardsForMasterSearch(state, resolvedMasterSearch(state, parsed.searchId))) {
