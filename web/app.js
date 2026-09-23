@@ -18,6 +18,7 @@ import {
 } from "./simulation.js";
 import { createTowerPreset, parseTowerPreset } from "./tower_preset.js";
 import {
+  cloneTowerTurnState,
   createTowerTurnState,
   drawTowerTurn,
   finishTowerTurn,
@@ -69,6 +70,11 @@ let towerTurnState = null;
 let towerSelectedCardIndex = 0;
 let examTurnState = null;
 let examSelectedCardIndex = 0;
+const simulationUndoStacks = {
+  tower: [],
+  exam: [],
+};
+const MAX_SIMULATION_UNDO = 100;
 let examItemCatalogs = {
   items: [], itemById: new Map(), itemEffects: [], itemEffectById: new Map(),
   cardRandomPools: [], cardRandomPoolById: new Map(),
@@ -1251,7 +1257,54 @@ $("contest-run").addEventListener("click", () => {
 });
 
 function runtimeCardLabel(card) {
-  return observationCardLabel(catalogName(card), Number(card?.upgradeCount ?? 0));
+  const id = String(card?.id ?? "");
+  const upgradeCount = Math.max(0, Math.trunc(Number(card?.upgradeCount ?? 0) || 0));
+  const variant = catalogs.cardVariantByKey?.get?.(`${id}@@${upgradeCount}`);
+  const rawName = String(card?.name ?? variant?.name ?? catalogName(card) ?? id);
+  const baseName = rawName.replace(/\s*\++\s*$/, "").trim() || rawName;
+  return `${baseName}${"+".repeat(upgradeCount)}`;
+}
+
+function simulationState(mode) {
+  return mode === "tower" ? towerTurnState : examTurnState;
+}
+
+function setSimulationState(mode, state) {
+  if (mode === "tower") towerTurnState = state;
+  else examTurnState = state;
+}
+
+function updateSimulationUndoButton(mode) {
+  const button = $(`${mode}-undo-action`);
+  if (button) button.disabled = simulationUndoStacks[mode].length === 0;
+}
+
+function resetSimulationUndo(mode) {
+  simulationUndoStacks[mode] = [];
+  updateSimulationUndoButton(mode);
+}
+
+function pushSimulationUndo(mode, snapshot) {
+  const stack = simulationUndoStacks[mode];
+  stack.push(snapshot);
+  if (stack.length > MAX_SIMULATION_UNDO) stack.shift();
+  updateSimulationUndoButton(mode);
+}
+
+function undoSimulationAction(mode) {
+  const stack = simulationUndoStacks[mode];
+  if (!stack.length) return;
+  const restored = stack.pop();
+  setSimulationState(mode, restored);
+  if (mode === "tower") towerSelectedCardIndex = 0;
+  else {
+    examSelectedCardIndex = 0;
+    const status = $("exam-drink-status");
+    if (status) status.textContent = "一手戻しました。";
+  }
+  clearError();
+  renderTurnState(mode, restored);
+  updateSimulationUndoButton(mode);
 }
 
 function examStateTiles(exam) {
@@ -1272,6 +1325,7 @@ function renderTurnState(mode, state) {
   const box = $(`${mode}-turn-result`);
   if (!box) return;
   box.hidden = !state;
+  updateSimulationUndoButton(mode);
   if (!state) return;
 
   $(`${mode}-turn-number`).textContent = String(state.turn);
@@ -1394,7 +1448,9 @@ function renderTowerTurnState() {
 }
 
 function advanceSimulationTurn(mode, action) {
-  const state = mode === "tower" ? towerTurnState : examTurnState;
+  const state = simulationState(mode);
+  if (!state) return;
+  const snapshot = cloneTowerTurnState(state);
   try {
     clearError();
     if (String(action?.type) === "use") {
@@ -1407,12 +1463,16 @@ function advanceSimulationTurn(mode, action) {
       finishTowerTurn(state, action);
       drawTowerTurn(state, 3);
     }
+    pushSimulationUndo(mode, snapshot);
     if (mode === "tower") towerSelectedCardIndex = 0;
     else examSelectedCardIndex = 0;
     renderTurnState(mode, state);
   } catch (error) {
+    // Card effects may mutate several pools before an unsupported operation or
+    // required selection throws. Restore the pre-action snapshot atomically.
+    setSimulationState(mode, snapshot);
     showError(error);
-    renderTurnState(mode, state);
+    renderTurnState(mode, snapshot);
   }
 }
 
@@ -1456,6 +1516,7 @@ $("tower-run").addEventListener("click", () => {
     towerTurnState.turnLimit = Number(stageConfig.turn);
     towerSelectedCardIndex = 0;
     drawTowerTurn(towerTurnState, 3);
+    resetSimulationUndo("tower");
     renderTowerTurnState();
   } catch (error) {
     towerTurnState = null;
@@ -1466,6 +1527,7 @@ $("tower-run").addEventListener("click", () => {
 $("tower-skip-turn").addEventListener("click", () => {
   if (towerTurnState) advanceSimulationTurn("tower", { type: "skip" });
 });
+$("tower-undo-action")?.addEventListener("click", () => undoSimulationAction("tower"));
 
 document.addEventListener("exam-simulation-start", (event) => {
   try {
@@ -1491,6 +1553,7 @@ document.addEventListener("exam-simulation-start", (event) => {
     });
     examSelectedCardIndex = 0;
     drawTowerTurn(examTurnState, 3);
+    resetSimulationUndo("exam");
     const drinkStatus = $("exam-drink-status");
     if (drinkStatus) drinkStatus.textContent = "実機で使用したタイミングに合わせてドリンクを選択してください。";
     renderTurnState("exam", examTurnState);
@@ -1503,11 +1566,13 @@ document.addEventListener("exam-simulation-start", (event) => {
 $("exam-skip-turn").addEventListener("click", () => {
   if (examTurnState) advanceSimulationTurn("exam", { type: "skip" });
 });
+$("exam-undo-action")?.addEventListener("click", () => undoSimulationAction("exam"));
 
 $("exam-use-drink")?.addEventListener("click", () => {
   if (!examTurnState) return showError("先に試験シミュレーションを開始してください。");
   const id = String($("exam-drink-select")?.value ?? "");
   if (!id) return showError("使用するドリンクを選択してください。");
+  const snapshot = cloneTowerTurnState(examTurnState);
   try {
     clearError();
     const resolved = resolveProduceDrinks(
@@ -1527,8 +1592,10 @@ $("exam-use-drink")?.addEventListener("click", () => {
         + (effects.length ? ` · ${effects.join(" / ")}` : "")
         + ` · RNG ${asHex(event.randomStateBefore)} → ${asHex(event.randomStateAfter)}`;
     }
+    pushSimulationUndo("exam", snapshot);
     renderTurnState("exam", examTurnState);
   } catch (error) {
+    examTurnState = snapshot;
     showError(error);
     renderTurnState("exam", examTurnState);
   }
