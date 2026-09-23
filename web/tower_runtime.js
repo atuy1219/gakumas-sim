@@ -447,7 +447,15 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   // before ExamCardPoolModel.Shuffle. Keep the public seed as the true
   // ExamParameterModel.Seed and advance only the internal shuffle state.
   const preShuffleAdvanceSteps = Math.max(0, Math.trunc(Number(options.preShuffleAdvanceSteps ?? 0) || 0));
-  const explicitInitialRandomState = Number(options.initialRandomState);
+  // Do not coerce an absent state to zero: Number(null) === 0. A null/undefined/
+  // empty initialRandomState means "derive it from Seed + preShuffleAdvanceSteps".
+  const rawInitialRandomState = options.initialRandomState;
+  const hasExplicitInitialRandomState = rawInitialRandomState !== null
+    && rawInitialRandomState !== undefined
+    && String(rawInitialRandomState).trim() !== "";
+  const explicitInitialRandomState = hasExplicitInitialRandomState
+    ? Number(rawInitialRandomState)
+    : Number.NaN;
   let initialRandomState;
   let initialRandomStateSource;
   if (Number.isInteger(explicitInitialRandomState) && explicitInitialRandomState >= 0 && explicitInitialRandomState <= 0xffffffff) {
@@ -457,7 +465,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     const preShuffleRng = new XorShift32(seed);
     for (let index = 0; index < preShuffleAdvanceSteps; index += 1) preShuffleRng.nextU32();
     initialRandomState = preShuffleRng.state >>> 0;
-    initialRandomStateSource = "derived";
+    initialRandomStateSource = String(options.initialRandomStateSource ?? "derived");
   }
 
   // Native ExamCardPoolModel.Shuffle does not filter IsInitial. The whole Deck
