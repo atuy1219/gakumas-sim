@@ -1319,3 +1319,27 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
     box-shadow: 0 8px 24px rgb(0 0 0 / .18);
   }
 }
+
+
+/* global notifications */
+.global-notification {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 10000;
+  width: min(calc(100vw - 24px), 760px);
+  margin: 0;
+  padding: .9rem 1.1rem;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--danger, #ba1a1a) 45%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface, #fff) 94%, var(--danger, #ba1a1a) 6%);
+  color: var(--danger, #ba1a1a);
+  box-shadow: 0 10px 32px rgb(0 0 0 / .22);
+  font-weight: 750;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.global-notification[hidden] {
+  display: none !important;
+}

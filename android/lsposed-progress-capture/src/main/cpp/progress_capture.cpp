@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -84,6 +86,9 @@ std::atomic<bool> g_hooks_installed{false};
 std::string g_runtime_build_id;
 std::mutex g_seen_mutex;
 std::map<int32_t, CardRecord> g_seen_by_number;
+std::mutex g_last_deck_mutex;
+std::vector<CardRecord> g_last_deck;
+std::atomic<bool> g_export_watcher_started{false};
 thread_local int g_capture_depth = 0;
 thread_local std::vector<CardRecord> g_capture_cards;
 
@@ -140,6 +145,8 @@ RuntimeObjectGetClassFn g_runtime_object_get_class = nullptr;
 RuntimeClassGetMethodFromNameFn g_runtime_class_get_method_from_name = nullptr;
 
 std::vector<CustomizeRecord> read_customizes(void* collection);
+int32_t read_int_property(void* object, const char* name, int32_t fallback);
+std::string read_string_property(void* object, const char* name);
 
 std::string process_name() {
     std::ifstream in("/proc/self/cmdline", std::ios::binary);
@@ -297,9 +304,27 @@ std::vector<std::string> output_paths() {
     const int user_id = static_cast<int>(getuid() / 100000);
     const std::string user = std::to_string(user_id);
     return {
-        "/data/user/" + user + "/" + kTargetPackage + "/files/gakumas-sim/produce_cards.json",
-        "/storage/emulated/" + user + "/Android/data/" + kTargetPackage + "/files/gakumas-sim/produce_cards.json",
+        "/data/user/" + user + "/" + kTargetPackage + "/files/gakumas-sim/exam_preset.json",
+        "/storage/emulated/" + user + "/Android/data/" + kTargetPackage + "/files/gakumas-sim/exam_preset.json",
     };
+}
+
+std::string manual_export_path() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/manual_export.json";
+}
+
+std::string export_request_path() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/export_request.txt";
+}
+
+std::string export_done_path() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/export_done.txt";
 }
 
 void ensure_parent_dir(const std::string& file_path) {
@@ -326,6 +351,7 @@ void atomic_write(const std::string& path, const std::string& data) {
     }
     ::rename(temp.c_str(), path.c_str());
 }
+
 void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
     const int user_id = static_cast<int>(getuid() / 100000);
     const std::string path =
@@ -351,7 +377,7 @@ int64_t unix_time_ms() {
     return static_cast<int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
 }
 
-void write_snapshot(std::vector<CardRecord> deck) {
+std::vector<CardRecord> normalize_deck(std::vector<CardRecord> deck) {
     deck.erase(std::remove_if(deck.begin(), deck.end(), [](const CardRecord& card) {
         return card.number <= 0 || card.produce_card_id.empty() || card.deleted;
     }), deck.end());
@@ -361,37 +387,158 @@ void write_snapshot(std::vector<CardRecord> deck) {
     deck.erase(std::unique(deck.begin(), deck.end(), [](const CardRecord& a, const CardRecord& b) {
         return a.number == b.number;
     }), deck.end());
-    if (deck.empty()) return;
+    return deck;
+}
 
-    std::vector<CardRecord> seen;
-    {
-        std::lock_guard<std::mutex> lock(g_seen_mutex);
-        for (const auto& [number, card] : g_seen_by_number) seen.push_back(card);
+std::string compact_card_json(const CardRecord& card) {
+    std::ostringstream out;
+    out << "{\"id\":\"" << json_escape(card.produce_card_id) << "\","
+        << "\"upgradeCount\":" << card.upgrade_count << ","
+        << "\"customizes\":[";
+    for (size_t i = 0; i < card.customizes.size(); ++i) {
+        const auto& customize = card.customizes[i];
+        out << "{\"id\":\"" << json_escape(customize.id) << "\",\"customizeCount\":"
+            << customize.customize_count << "}";
+        if (i + 1 != card.customizes.size()) out << ",";
     }
+    out << "]}";
+    return out.str();
+}
+
+std::string first_string_property(void* object, const std::vector<const char*>& names) {
+    for (const char* name : names) {
+        const std::string value = read_string_property(object, name);
+        if (!value.empty()) return value;
+    }
+    return {};
+}
+
+std::string current_plan_type(void* parameter) {
+    if (!parameter) return {};
+    int32_t value = read_int_property(parameter, "get_ProducePlanType", -1);
+    if (value < 0) value = read_int_property(parameter, "get_PlanType", -1);
+    if (value >= 1 && value <= 3) return "ProducePlanType_Plan" + std::to_string(value);
+    return {};
+}
+
+std::string exam_preset_json(const std::vector<CardRecord>& input_deck) {
+    const std::vector<CardRecord> deck = normalize_deck(input_deck);
+    if (deck.empty()) return {};
+
+    void* parameter = g_last_parameter_model.load();
+    const uint32_t seed = parameter
+        ? static_cast<uint32_t>(read_int_property(parameter, "get_Seed", 0))
+        : 0;
+    const std::string idol_card_id = first_string_property(
+        parameter, {"get_IdolCardId", "get_ProduceIdolCardId"});
+    const std::string character_id = first_string_property(
+        parameter, {"get_CharacterId", "get_ProduceCharacterId"});
+    const std::string plan_type = current_plan_type(parameter);
+
+    std::map<std::string, int32_t> counts;
+    for (const auto& card : deck) ++counts[card.produce_card_id];
 
     std::ostringstream out;
     out << "{\n"
-        << "  \"format\": \"gakumas-sim-progress-capture\",\n"
-        << "  \"version\": 2,\n"
+        << "  \"format\": \"gakumas-sim-exam-preset\",\n"
+        << "  \"version\": 11,\n"
+        << "  \"source\": \"lsposed\",\n"
+        << "  \"exportedAt\": \"\",\n"
         << "  \"capturedAtUnixMs\": " << unix_time_ms() << ",\n"
-        << "  \"source\": \"LSPosed native hook / CreateDeckProduceCardMasters\",\n"
         << "  \"packageName\": \"" << kTargetPackage << "\",\n"
         << "  \"libil2cppBuildId\": \"" << json_escape(g_runtime_build_id) << "\",\n"
-        << "  \"ordering\": \"Deleted=false, Number ascending (native deck construction order)\",\n"
-        << "  \"produceCards\": [\n";
+        << "  \"characterId\": \"" << json_escape(character_id) << "\",\n"
+        << "  \"planType\": \"" << json_escape(plan_type) << "\",\n"
+        << "  \"idolCardId\": \"" << json_escape(idol_card_id) << "\",\n"
+        << "  \"cardPoolMode\": \"normal\",\n"
+        << "  \"cards\": [\n";
+    size_t count_index = 0;
+    for (const auto& [id, count] : counts) {
+        out << "    {\"id\":\"" << json_escape(id) << "\",\"count\":" << count << "}"
+            << (++count_index == counts.size() ? "" : ",") << "\n";
+    }
+    out << "  ],\n"
+        << "  \"manualCards\": [\n";
+    for (size_t i = 0; i < deck.size(); ++i) {
+        out << "    " << compact_card_json(deck[i]) << (i + 1 == deck.size() ? "" : ",") << "\n";
+    }
+    out << "  ],\n"
+        << "  \"progressCards\": [\n";
     for (size_t i = 0; i < deck.size(); ++i) {
         out << "    " << card_json(deck[i]) << (i + 1 == deck.size() ? "" : ",") << "\n";
     }
     out << "  ],\n"
-        << "  \"observedInstances\": [\n";
-    for (size_t i = 0; i < seen.size(); ++i) {
-        out << "    " << card_json(seen[i]) << (i + 1 == seen.size() ? "" : ",") << "\n";
+        << "  \"supportCards\": [],\n"
+        << "  \"preShuffleMode\": \"manual\",\n"
+        << "  \"preShuffleOrder\": [\n";
+    for (size_t i = 0; i < deck.size(); ++i) {
+        out << "    " << compact_card_json(deck[i]) << (i + 1 == deck.size() ? "" : ",") << "\n";
     }
-    out << "  ]\n"
+    out << "  ],\n"
+        << "  \"turnStageId\": \"\",\n"
+        << "  \"lessonParameterType\": \"\",\n"
+        << "  \"turnParameterTypes\": [],\n"
+        << "  \"stamina\": 0,\n"
+        << "  \"targetScore\": 0,\n"
+        << "  \"seed\": \"" << seed << "\"\n"
         << "}\n";
+    return out.str();
+}
 
-    const std::string json = out.str();
+std::vector<CardRecord> current_snapshot_deck() {
+    std::map<int32_t, CardRecord> merged;
+    {
+        std::lock_guard<std::mutex> lock(g_last_deck_mutex);
+        for (const auto& card : g_last_deck) {
+            if (card.number > 0) merged[card.number] = card;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_seen_mutex);
+        for (const auto& [number, card] : g_seen_by_number) merged[number] = card;
+    }
+    std::vector<CardRecord> deck;
+    deck.reserve(merged.size());
+    for (const auto& [number, card] : merged) deck.push_back(card);
+    return normalize_deck(std::move(deck));
+}
+
+void write_snapshot(std::vector<CardRecord> deck) {
+    deck = normalize_deck(std::move(deck));
+    if (deck.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(g_last_deck_mutex);
+        g_last_deck = deck;
+    }
+    const std::string json = exam_preset_json(deck);
+    if (json.empty()) return;
     for (const auto& path : output_paths()) atomic_write(path, json);
+}
+
+void export_request_watcher() {
+    std::string last_token;
+    for (;;) {
+        std::ifstream in(export_request_path(), std::ios::binary);
+        std::string token;
+        if (in) std::getline(in, token);
+        if (!token.empty() && token != last_token) {
+            const std::vector<CardRecord> deck = current_snapshot_deck();
+            const std::string json = exam_preset_json(deck);
+            if (!json.empty()) {
+                atomic_write(manual_export_path(), json);
+                atomic_write(export_done_path(), token + "\tok\n");
+            } else {
+                atomic_write(export_done_path(), token + "\tempty\n");
+            }
+            last_token = token;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+}
+
+void start_export_request_watcher() {
+    if (g_export_watcher_started.exchange(true)) return;
+    std::thread(export_request_watcher).detach();
 }
 
 struct ImageInfo {
@@ -1217,6 +1364,7 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     if (!target_process()) return nullptr;
     g_hook = entries->hookFunc;
     write_status("native-init");
+    start_export_request_watcher();
 
     // LSPosed may load this module after libil2cpp.so is already mapped.
     // Install immediately when possible, and also keep the load callback for

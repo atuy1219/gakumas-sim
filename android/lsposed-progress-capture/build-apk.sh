@@ -73,24 +73,26 @@ curl -fL --retry 3 \
 unzip -p "$LIBXPOSED_AAR" classes.jar > "$LIBXPOSED_API"
 test -s "$LIBXPOSED_API"
 
+mapfile -t JAVA_SOURCES < <(find "$ROOT/src/main/java" -name '*.java' -type f | sort)
 javac -source 8 -target 8 \
   -cp "$LIBXPOSED_API:$ANDROID_JAR" \
   -d "$OUT/app-classes" \
-  "$ROOT/src/main/java/dev/atuy1219/gakumas/progresscapture/ModuleEntry.java"
+  "${JAVA_SOURCES[@]}"
 
+mapfile -t CLASS_FILES < <(find "$OUT/app-classes" -name '*.class' -type f | sort)
 "$D8" \
   --lib "$ANDROID_JAR" \
   --classpath "$LIBXPOSED_API" \
   --min-api "$MIN_API" \
   --output "$OUT/dex" \
-  "$OUT/app-classes/dev/atuy1219/gakumas/progresscapture/ModuleEntry.class"
+  "${CLASS_FILES[@]}"
 
 cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.0.12.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.1.0.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 

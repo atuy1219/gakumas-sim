@@ -2,8 +2,8 @@
 
 Native-only LSPosed module for `com.bandainamcoent.idolmaster_gakuen`.
 It passively captures the card-instance sequence that the game itself feeds into
-`ProduceUtility::CreateDeckProduceCardMasters()` and writes a JSON file compatible
-with `gakumas-sim`'s exam progress importer.
+`ProduceUtility::CreateDeckProduceCardMasters()`. Exports now use the same
+`gakumas-sim-exam-preset` v11 JSON schema as the Web UI.
 
 ## What it hooks
 
@@ -37,26 +37,38 @@ entries are decoded read-only from the runtime protobuf
 contains `observedInstances`, populated from protobuf `InternalMergeFrom` calls,
 which can include deleted/stale instances observed during the current process.
 
-## Output paths
+## On-demand export
 
-The module attempts both paths:
+The installed module now has a launcher activity. With Gakumas running and the
+LSPosed scope enabled:
+
+1. Open **Gakumas Progress Capture** from the launcher.
+2. Enter any file name.
+3. Tap **現在のデータを取得してエクスポート**.
+4. Grant the root request if prompted.
+
+The module sends a request to the injected game process, snapshots the latest
+known card data at that moment, then copies the unified preset to:
 
 ```text
-/data/user/<userId>/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/produce_cards.json
-/storage/emulated/<userId>/Android/data/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/produce_cards.json
+/storage/emulated/0/Download/gakumas-sim/<requested-name>.json
 ```
 
-The internal path is the authoritative one. The external app-specific path is
-best-effort because Android storage policy can vary by ROM.
+Root is intentionally used for this hand-off because the module UI and the
+injected target process run under different Android UIDs, while Android scoped
+storage prevents a normal target-process write to the public Download directory.
 
-Example with root:
+The passive capture is also refreshed at:
 
-```sh
-su -c 'cat /data/user/0/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/produce_cards.json' \
-  > /sdcard/Download/gakumas-produce-cards.json
+```text
+/data/user/<userId>/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/exam_preset.json
+/storage/emulated/<userId>/Android/data/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/exam_preset.json
 ```
 
-Load that JSON in the `進行中プロデュースJSON` field of `gakumas-sim`.
+The exported file contains the same top-level fields as the Web export. Fields
+that cannot be resolved safely from the live game process remain blank/default;
+card instances, customization state, Number order, Build ID and the current Seed
+are included when available.
 
 ## Installation
 
@@ -64,8 +76,8 @@ Load that JSON in the `進行中プロデュースJSON` field of `gakumas-sim`.
 2. Enable it in LSPosed.
 3. Confirm the scope is only `com.bandainamcoent.idolmaster_gakuen`.
 4. Force-stop and restart Gakumas.
-5. Enter/open a part of Produce that causes the current deck to be built; the file is refreshed whenever `CreateDeckProduceCardMasters` runs.
-6. Copy/read the generated JSON locally and import it into the simulator.
+5. Enter/open a part of Produce that causes the current deck to be built.
+6. Open the module app and export the snapshot with the desired file name.
 
 No extra Gakumas API request is made by this module, and it does not alter return
 values, RNG state, card data, or server traffic.
