@@ -107,14 +107,17 @@ export const EXAM_TURN_STAGES = Object.freeze([
   STAGE("hif-selection-3", "H.I.F 選抜試験3", "hif", [5, 4, 3], [6, 3, 3]),
   STAGE("hif-final-round-1", "H.I.F 本戦 ラウンド1", "hif", [4, 3, 2], [4, 3, 2], {
     verifiedPreShuffleAdvanceSteps: 24,
-    // ProduceExamBattleConfig: p_exam_battle_config-davi-01-produce_005-1-1.
-    // The current hrnm trace uses Da > Vi > Vo (290/180/110).
+    // Real-device SUGAR FLAVOR / Plan3 H.I.F Final Round 1:
+    // p_exam_battle_config-vida-03-produce_005-1-1.
+    // Visual > Dance > Vocal (254/202/121). CalcTurnParameterType starts from
+    // the public Exam Seed itself; its six random turns are part of the known
+    // 24-word pre-shuffle setup path, not a separate 27-word-pre-advanced RNG.
     verifiedBattleConfigByCharacter: Object.freeze({
       hrnm: Object.freeze({
-        vocal: 110,
-        dance: 290,
-        visual: 180,
-        turnRngAdvanceSteps: 27,
+        vocal: 121,
+        dance: 202,
+        visual: 254,
+        turnRngAdvanceSteps: 0,
       }),
     }),
   }),

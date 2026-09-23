@@ -135,9 +135,9 @@ const realCard = (id) => ({
   fixedDeckOrder: 0,
 });
 
-// Opening SetInitialCard is special: only the first visible card receives
-// support-card checks. Real trace: Da turn, 4 rolls = 531,20,826,786;
-// only manual-support-2 succeeds, so 存在感+ becomes 存在感++.
+// Native opening support checks are card-major across all three drawn cards.
+// Real trace: Vi turn, two Vi supports yield 4 rolls = 531,20,826,786;
+// manual-support-5 succeeds on the first card, so 存在感+ becomes 存在感++.
 const openingSupportState = createTowerTurnState(
   realDeckIds.map(realCard),
   171624539,
@@ -145,8 +145,8 @@ const openingSupportState = createTowerTurnState(
   {
     preShuffleAdvanceSteps: hifFinalRound1Advance,
     turnParameterTypes: [
-      "Dance", "Visual", "Dance", "Visual", "Dance",
-      "Vocal", "Vocal", "Visual", "Dance",
+      "Visual", "Visual", "Dance", "Visual", "Dance",
+      "Vocal", "Vocal", "Dance", "Visual",
     ],
     supportCards: realSupportCards,
   },
@@ -162,7 +162,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   openingSupportState.supportCardRollHistory.filter((roll) => roll.succeeded).map((roll) => roll.supportCardId),
-  ["manual-support-2"],
+  ["manual-support-5"],
 );
 assert.equal(openingSupportState.hand[0].upgradeCount, 2);
 assert.equal(openingSupportState.hand[1].upgradeCount, 1);
@@ -209,8 +209,8 @@ const recycleState = createTowerTurnState(
   new Map(),
   {
     turnParameterTypes: [
-      "Dance", "Visual", "Dance", "Visual", "Dance",
-      "Vocal", "Vocal", "Visual", "Dance",
+      "Visual", "Visual", "Dance", "Visual", "Dance",
+      "Vocal", "Vocal", "Dance", "Visual",
     ],
     supportCards: realSupportCards,
   },

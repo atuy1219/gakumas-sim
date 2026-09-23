@@ -1563,12 +1563,11 @@ export function drawTowerTurn(state, drawCount = 3) {
   const result = isOpeningTurn
     ? setNativeInitialCard(state, requested)
     : drawCardsIntoHand(state, requested);
-  // Native SetInitialCard's opening draw only runs skill-card support
-  // against the first visible opening card. Subsequent ordinary DrawCard calls
-  // evaluate every newly drawn card in order. The real-device H.I.F trace for
-  // Seed 171624539 consumes 4 Da-support rolls on 存在感+ only here.
-  const supportTargets = isOpeningTurn ? result.drawn.slice(0, 1) : result.drawn;
-  applyExamSupportCardUpgrades(state, supportTargets, phaseEvent);
+  // Native support-card checks run card-major over every newly drawn card.
+  // A support card is skipped for the rest of the turn only after it succeeds.
+  // In the verified H.I.F opening (Vi turn), two Vi supports therefore produce
+  // 4 rolls across the three opening cards: 531,20(success),826,786.
+  applyExamSupportCardUpgrades(state, result.drawn, phaseEvent);
   state.turnStartSupportCardRolls = (phaseEvent.supportCardRolls ?? []).map((roll) => ({ ...roll }));
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);

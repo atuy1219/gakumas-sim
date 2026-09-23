@@ -235,20 +235,21 @@ assert.deepEqual(
 );
 
 // Verified real-device H.I.F Final Round 1 configuration for hrnm / SUGAR FLAVOR.
-// ProduceExamBattleConfig is Da > Vi > Vo (290/180/110), and the observed
-// turn-schedule RNG state reproduces Da,Vi,Da,Vi,Da for Turns 1-5.
+// Plan3 uses p_exam_battle_config-vida-03-produce_005-1-1:
+// Vi > Da > Vo (254/202/121). The public Exam Seed itself is the
+// CalcTurnParameterType starting state.
 const hifRound1 = getExamTurnStage("hif-final-round-1");
 assert.equal(nativeExamPreShuffleAdvanceSteps(hifRound1), 24);
 const hrnmHifConfig = describeExamTurnConfig("hrnm", "hif-final-round-1");
 assert.equal(hrnmHifConfig.verifiedBattleConfig, true);
-assert.deepEqual(hrnmHifConfig.order, ["Dance", "Visual", "Vocal"]);
+assert.deepEqual(hrnmHifConfig.order, ["Visual", "Dance", "Vocal"]);
 const hrnmHifTurns = calculateExamTurnTypes("hrnm", "hif-final-round-1", 171624539);
 assert.deepEqual(hrnmHifTurns, [
-  "Dance", "Visual", "Dance", "Visual", "Dance",
-  "Vocal", "Vocal", "Visual", "Dance",
+  "Visual", "Visual", "Dance", "Visual", "Dance",
+  "Vocal", "Vocal", "Dance", "Visual",
 ]);
 assert.deepEqual(
-  ["Dance", "Visual", "Vocal"].map((type) => hrnmHifTurns.filter((value) => value === type).length),
+  ["Visual", "Dance", "Vocal"].map((type) => hrnmHifTurns.filter((value) => value === type).length),
   [4, 3, 2],
 );
 
