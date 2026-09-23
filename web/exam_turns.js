@@ -62,6 +62,16 @@ export function getExamTurnStage(stageIdInput) {
   return STAGE_BY_ID.get(String(stageIdInput ?? "")) ?? null;
 }
 
+// Native exam setup advances the shared XorShift stream before the initial
+// card-pool shuffle. The current 12-turn real-device trace advances 24 words
+// (Seed 171624539 -> shuffle state 809254905), i.e. two words per scheduled
+// turn. Keep this in one helper so future build-specific traces can adjust the
+// setup rule without changing seed search/runtime call sites.
+export function nativeExamPreShuffleAdvanceSteps(turnCountInput) {
+  const turnCount = Math.max(0, Math.trunc(Number(turnCountInput) || 0));
+  return turnCount * 2;
+}
+
 export function examJudgingStyleLabel(styleInput) {
   return String(styleInput ?? "") === EXAM_JUDGING_STYLE.FOCUSED ? "突出" : "バランス";
 }
