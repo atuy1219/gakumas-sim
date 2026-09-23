@@ -580,7 +580,8 @@ function renderExamSupportCardInputs(cards = examProgressSupportCards) {
   for (let index = 0; index < EXAM_SUPPORT_CARD_COUNT; index += 1) {
     const source = cards[index] ?? {};
     const parameterType = parameterTypeForSupportInput(source.filterParameterType);
-    const explicitLimitBreak = Number(source.limitBreak);
+    const limitBreakText = String(source.limitBreak ?? "").trim();
+    const explicitLimitBreak = limitBreakText === "" ? Number.NaN : Number(limitBreakText);
     const inferredLimitBreak = inferSupportLimitBreak(
       source.rarity,
       parameterType,
