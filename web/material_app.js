@@ -922,18 +922,18 @@ function exportExamPreset() {
       idolCardId: examIdol.value,
       cardPoolMode: examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL,
       cards: [...examCounts].map(([id, count]) => ({ id, count })),
-      manualCards: examProgressDeck.length
-        ? []
-        : manualExamDeck().map((card) => ({
-            id: card.id,
-            upgradeCount: card.upgradeCount,
-            customizes: normalizeCustomizes(card.customizes),
-          })),
+      manualCards: manualExamDeck().map((card) => ({
+        id: card.id,
+        upgradeCount: card.upgradeCount,
+        customizes: normalizeCustomizes(card.customizes),
+      })),
       progressCards: examProgressDeck.map((card) => ({
         ...(card.progressCard ?? card),
         customizes: normalizeCustomizes(card.customizes),
       })),
       supportCards: examProgressSupportCards,
+      preShuffleMode: examPreShuffleMode,
+      preShuffleOrder: serializeExamPreShuffleOrder(ensureExamPreShuffleReady()),
       turnStageId: examTurnStage?.value ?? "",
       lessonParameterType: examLessonParameter?.value ?? "",
       turnParameterTypes,
@@ -950,7 +950,7 @@ function exportExamPreset() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    examPresetStatus(`${examDeck().length}枚の編成をエクスポートしました。`);
+    examPresetStatus(`${examDeck().length}枚の編成・シャッフル前順をエクスポートしました。`);
   } catch (error) {
     showExamError(error);
   }
@@ -997,15 +997,31 @@ async function importExamPreset(file) {
     examProgressDeck = parsedProgress.cards;
     examProgressInstances = parsedProgress.allCards;
     examProgressPath = "preset.progressCards";
-    examProgressSupportCards = parsedProgress.supportCards ?? [];
-    examCounts = progressDeckCounts(examProgressDeck);
-    seedExamManualInstances(examProgressDeck);
     renderExamProgressCards();
   } else {
-    clearExamProgressDeck();
+    examProgressDeck = [];
+    examProgressInstances = [];
+    examProgressPath = "";
   }
-  examProgressSupportCards = preset.supportCards ?? examProgressSupportCards;
-  renderExamSupportCardInputs();
+  examProgressSupportCards = preset.supportCards ?? [];
+  renderExamSupportCardInputs(examProgressSupportCards);
+
+  examPreShuffleMode = normalizeExamPreShuffleMode(preset.preShuffleMode);
+  const baseDeck = examCompositionDeck();
+  if (preset.preShuffleOrder?.length) {
+    examPreShuffleDeck = applyExamPreShuffleOrder(baseDeck, preset.preShuffleOrder);
+  } else if (preset.progressCards?.length) {
+    // v1-v9 presets did not carry an explicit pre-shuffle order. Preserve their
+    // old Number-based behavior when progressCards are present.
+    examPreShuffleDeck = applyProgressNumberOrder(baseDeck, examProgressDeck);
+    examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.IMPORT;
+  } else {
+    examPreShuffleDeck = [];
+  }
+  examManualOrderTokens = examPreShuffleDeck.length
+    ? manualOrderTokensForDeck(baseDeck, examPreShuffleDeck)
+    : [];
+  setExamPreShuffleMode(examPreShuffleMode, { preserve: true });
   if (examTurnStage) {
     const requestedStage = String(preset.turnStageId ?? "");
     examTurnStage.value = [...examTurnStage.options].some((option) => option.value === requestedStage)
@@ -1020,7 +1036,9 @@ async function importExamPreset(file) {
   renderExamCards();
   resetExamObservation();
   renderExamProgressStatus();
-  examPresetStatus(`${examDeck().length}枚の編成をインポートしました。`);
+  renderExamPreShuffleOrder();
+  persistExamWorkflow();
+  examPresetStatus(`${examCompositionDeck().length}枚の編成・シャッフル前設定をインポートしました。`);
 }
 
 function renderExamCards() {
