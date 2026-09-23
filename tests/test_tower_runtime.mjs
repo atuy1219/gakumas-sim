@@ -1156,3 +1156,91 @@ assert.ok(
 
 console.log("native Full Power lifecycle tests: ok");
 }
+
+
+{
+const createEffect = {
+  id: "TEST-CREATE-SEARCH",
+  effectType: "ProduceExamEffectType_ExamCardCreateSearch",
+  produceCardSearchId: "test-search",
+  movePositionType: "ProduceCardMovePositionType_Hand",
+  pickRangeType: "ProducePickRangeType_Random",
+  pickCountMin: 1,
+  pickCountMax: 1,
+};
+const masters = [
+  {
+    id: "TRIGGER",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamTriggerId: "", produceExamEffectId: createEffect.id }],
+  },
+  { id: "GEN-A", name: "A", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+  { id: "GEN-B", name: "B", playMovePositionType: "ProduceCardMovePositionType_Grave", playEffects: [] },
+];
+const byId = new Map(masters.map((card) => [card.id, card]));
+const effectById = new Map([[createEffect.id, createEffect]]);
+const searchById = new Map([["test-search", {
+  id: "test-search",
+  produceCardIds: ["GEN-A", "GEN-B"],
+  cardPositionType: "ProduceCardPositionType_Unknown",
+}]]);
+
+const fixedState = createTowerTurnState(
+  [{ id: "TRIGGER", upgradeCount: 0, fixedDeckOrder: 0 }],
+  1,
+  byId,
+  { examEffectById: effectById, cardSearchById: searchById },
+);
+drawTowerTurn(fixedState, 1);
+fixedState.randomState = 0x12345678;
+const fixedExpected = new XorShift32(0x12345678);
+// Fixed Random 1_1 still consumes count RNG, then one random-sort key per candidate.
+for (let i = 0; i < 3; i += 1) fixedExpected.nextU32();
+const fixedPlay = playTowerCard(fixedState, 0);
+assert.equal(fixedPlay.created.length, 1);
+assert.equal(fixedState.randomState >>> 0, fixedExpected.state >>> 0);
+assert.equal(
+  fixedState.hand.some((card) => card.id === fixedPlay.created[0].card.id),
+  true,
+);
+
+const poolSearchById = new Map([["pool-search", {
+  id: "pool-search",
+  produceCardRandomPoolId: "POOL",
+  cardPositionType: "ProduceCardPositionType_Unknown",
+}]]);
+const poolEffect = {
+  ...createEffect,
+  id: "TEST-CREATE-RANDOM-POOL",
+  produceCardSearchId: "pool-search",
+};
+const poolState = createTowerTurnState(
+  [{ id: "TRIGGER", upgradeCount: 0, fixedDeckOrder: 0 }],
+  1,
+  byId,
+  {
+    examEffectById: new Map([[poolEffect.id, poolEffect]]),
+    cardSearchById: poolSearchById,
+    cardRandomPoolById: new Map([["POOL", [
+      { id: "POOL", produceCardId: "GEN-A", upgradeCount: 0, ratio: 1 },
+      { id: "POOL", produceCardId: "GEN-B", upgradeCount: 0, ratio: 3 },
+    ]]]),
+  },
+);
+// Point the trigger to the pool effect for this isolated state.
+poolState.deck[0].playEffects = [{ produceExamTriggerId: "", produceExamEffectId: poolEffect.id }];
+drawTowerTurn(poolState, 1);
+poolState.randomState = 0x12345678;
+const poolExpected = new XorShift32(0x12345678);
+// 1x fixed count roll + 1x weighted pool roll.
+poolExpected.nextU32();
+poolExpected.nextU32();
+const poolPlay = playTowerCard(poolState, 0);
+assert.equal(poolPlay.created.length, 1);
+assert.equal(poolPlay.created[0].card.id, "GEN-B", "weighted roll 2/4 lands in GEN-B's ratio-3 bucket");
+assert.equal(poolPlay.created[0].randomPoolId, "POOL");
+assert.equal(poolState.randomState >>> 0, poolExpected.state >>> 0);
+assert.deepEqual(poolState.unsupported, []);
+
+console.log("native random selection regressions: ok");
+}
