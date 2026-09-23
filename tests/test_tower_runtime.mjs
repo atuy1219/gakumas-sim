@@ -108,6 +108,13 @@ assert.equal(realState.preShuffleAdvanceSteps, 24);
 assert.equal(realState.initialRandomState, 809254905);
 assert.deepEqual(realState.shuffledInitialDeck.map((card) => card.id), realExpectedShuffle);
 assert.equal(realState.randomState, 2281153048);
+drawTowerTurn(realState, 3);
+assert.deepEqual(
+  realState.hand.map((card) => card.id),
+  ["p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162"],
+  "H.I.F Final Round 1 opening hand must match the real-device trace",
+);
+assert.equal(realState.randomState, 2281153048, "opening draw itself must not consume RNG");
 
 // Exact observed shuffle state must override a wrong stage-derived step count.
 const exactState = createTowerTurnState(
