@@ -832,11 +832,11 @@ function refreshExamIdols() {
 }
 
 function updateExamSummary() {
-  const deck = examDeck();
-  const suffix = examProgressDeck.length
-    ? " · 進行中produceCards / Number昇順"
-    : ` · ${examCounts.size}種類選択`;
-  document.getElementById("exam-card-summary").textContent = `${deck.length}枚${suffix}`;
+  const deck = examCompositionDeck();
+  const order = examPreShuffleDeck.length === deck.length && deck.length
+    ? ` · シャッフル前順設定済み（${examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT ? "Number順" : "手動"}）`
+    : "";
+  document.getElementById("exam-card-summary").textContent = `${deck.length}枚 · ${examCounts.size}種類選択${order}`;
 }
 
 function renderExamProgressCards() {
@@ -865,41 +865,47 @@ function renderExamProgressStatus(message = "") {
     return;
   }
   if (!examProgressDeck.length) {
-    status.textContent = "Seed特定には、Number付きproduceCardsを含むproduce_cards.jsonまたは進行中プロデュースJSONを読み込んでください。既知Seedでのシミュレーションは手動編成でも利用できます。";
+    status.textContent = "Number順を使う場合だけproduce_cards.json / 進行JSONを読み込んでください。手動で並べる場合は不要です。";
     return;
   }
   const first = examProgressDeck[0]?.number;
   const last = examProgressDeck.at(-1)?.number;
   const deletedCount = examProgressInstances.filter((card) => card.deleted).length;
-  status.textContent = `有効${examProgressDeck.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""}${examProgressSupportCards.length ? ` · サポート強化${examProgressSupportCards.length}件` : ""} · Seed用はDeleted除外 · Number ${first}→${last} 昇順 · ${examProgressPath || "produceCards"}`;
+  status.textContent = `有効${examProgressDeck.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""} · Deleted除外 · Number ${first}→${last} 昇順 · ${examProgressPath || "produceCards"}`;
 }
 
 function clearExamProgressDeck(message = "") {
   examProgressDeck = [];
   examProgressInstances = [];
   examProgressPath = "";
-  examProgressSupportCards = [];
-  renderExamSupportCardInputs();
+  if (examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT) examPreShuffleDeck = [];
   renderExamProgressCards();
   renderExamProgressStatus(message);
+  renderExamPreShuffleOrder();
 }
 
 function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
+  const base = examCompositionDeck();
+  if (!base.length) throw new Error("先に編成を完成させてください。JSONはシャッフル前の順番だけに使用します。");
   const parsed = parseProgressProduceCardsJson(input, examCardById, examCardVariantByKey);
+  const ordered = applyProgressNumberOrder(base, parsed.cards);
   examProgressDeck = parsed.cards;
   examProgressInstances = parsed.allCards ?? parsed.cards;
   examProgressPath = parsed.path;
-  examProgressSupportCards = parsed.supportCards ?? [];
-  renderExamSupportCardInputs();
-  examCounts = progressDeckCounts(parsed.cards);
-  seedExamManualInstances(parsed.cards);
-  examCardSearch.value = "";
+  examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.IMPORT;
+  examPreShuffleDeck = ordered;
+  examManualOrderTokens = [];
+  if ((parsed.supportCards ?? []).length) {
+    examProgressSupportCards = parsed.supportCards;
+    renderExamSupportCardInputs(examProgressSupportCards);
+  }
+  setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.IMPORT, { preserve: true });
   resetExamObservation();
-  renderExamCards();
   renderExamProgressCards();
   const deletedCount = parsed.deletedCards?.length ?? 0;
-  renderExamProgressStatus(`${sourceLabel}: 有効${parsed.cards.length}枚${deletedCount ? ` · 削除済み${deletedCount}枚` : ""}${examProgressSupportCards.length ? ` · サポート強化${examProgressSupportCards.length}件` : ""}を読み込みました · Seed逆算では削除済みを除外しNumber昇順を使用します · ${parsed.path}`);
-  renderExamDeckSummary();
+  renderExamProgressStatus(`${sourceLabel}: Number順で${parsed.cards.length}枚を設定しました${deletedCount ? ` · 削除済み${deletedCount}枚は除外` : ""} · ${parsed.path}`);
+  renderExamPreShuffleOrder();
+  persistExamWorkflow();
 }
 
 function examPresetStatus(message) {
