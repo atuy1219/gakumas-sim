@@ -111,6 +111,7 @@ assert.deepEqual(
   [0, 1, 2, 3, 4].map((limitBreak) => supportCardRateBonusPercent("SSR", limitBreak)),
   [66.1, 74.6, 83.1, 91.5, 100],
 );
+assert.equal(supportCardRateBonusPercent("SSR", ""), null);
 assert.deepEqual(
   [0, 1, 2, 3, 4].map((limitBreak) => supportCardRateBonusPercent("SR", limitBreak)),
   [59.2, 69.4, 79.6, 89.8, 100],
