@@ -454,3 +454,46 @@ assert.equal(rewindXorshift32(advanceXorshift32(0x12345678, 37), 37), 0x12345678
 
 console.log("true exam seed transform tests: ok");
 }
+
+
+// test_exact_exam_shuffle_state_recovery.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  deriveFisherYatesChoices,
+  findXorshiftAdvanceMatchingChoices,
+  makeCardInstances,
+} = await import("../web/simulation.js");
+
+const ids = [
+  "p_card-03-ido-3_234", "p_card-03-men-2_078", "p_card-00-sup-3_152",
+  "p_card-01-men-2_037", "p_card-03-men-2_112", "p_card-01-men-3_006",
+  "p_card-03-act-2_102", "p_card-00-men-2_012", "p_card-03-men-2_076",
+  "p_card-03-men-2_080", "p_card-03-men-3_058", "p_card-03-act-3_065",
+  "p_card-01-men-2_011", "p_card-03-men-2_074", "p_card-01-act-3_049",
+  "p_card-03-sup-3_162", "p_card-01-act-2_001", "p_card-01-men-3_036",
+  "p_card-01-act-3_185", "p_card-03-act-2_081", "p_card-01-men-1_034",
+  "p_card-01-act-3_184",
+];
+const shuffledIds = [
+  "p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162",
+  "p_card-01-men-3_006", "p_card-00-men-2_012", "p_card-01-act-3_184",
+  "p_card-03-act-2_081", "p_card-01-act-3_185", "p_card-01-act-2_001",
+  "p_card-03-men-3_058", "p_card-03-men-2_074", "p_card-01-act-3_049",
+  "p_card-03-men-2_080", "p_card-01-men-2_011", "p_card-03-ido-3_234",
+  "p_card-03-men-2_076", "p_card-03-men-2_078", "p_card-03-act-3_065",
+  "p_card-01-men-1_034", "p_card-01-men-3_036", "p_card-03-act-2_102",
+  "p_card-03-men-2_112",
+];
+const cards = ids.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 }));
+const instances = makeCardInstances(cards);
+const tokenById = new Map(instances.map((item) => [item.id, item.token]));
+const choices = deriveFisherYatesChoices(
+  instances.map((item) => item.token),
+  shuffledIds.map((id) => tokenById.get(id)),
+);
+const recovered = findXorshiftAdvanceMatchingChoices(171624539, [choices], 64);
+assert.deepEqual(recovered, [{ steps: 24, state: 809254905 }]);
+
+console.log("exact exam shuffle-state recovery tests: ok");
+}
