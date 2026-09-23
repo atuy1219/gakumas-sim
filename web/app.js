@@ -23,11 +23,13 @@ import {
   finishTowerTurn,
   playTowerCard,
   resolveTowerDefaultDeck,
+  useTowerDrink,
 } from "./tower_runtime.js";
 import {
   describeCardEffects,
   describeProduceItemEffect,
   loadExamItemCatalogs,
+  resolveProduceDrinks,
   resolveProduceItems,
 } from "./exam_effects.js";
 import {
@@ -69,6 +71,7 @@ let examTurnState = null;
 let examSelectedCardIndex = 0;
 let examItemCatalogs = {
   items: [], itemById: new Map(), itemEffects: [], itemEffectById: new Map(),
+  drinks: [], drinkById: new Map(), drinkEffects: [], drinkEffectById: new Map(),
 };
 let towerStageCatalog = null;
 let towerStageChoicesByKey = new Map();
@@ -238,14 +241,34 @@ async function initializeCatalogs() {
   }
 }
 
+function renderExamDrinkOptions() {
+  const select = $("exam-drink-select");
+  if (!select) return;
+  const selected = select.value;
+  select.replaceChildren(new Option("ドリンクを選択", ""));
+  const drinks = [...(examItemCatalogs.drinks ?? [])].sort((a, b) => (
+    String(a.order ?? "").localeCompare(String(b.order ?? ""), "ja", { numeric: true })
+    || String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), "ja")
+  ));
+  for (const drink of drinks) {
+    select.add(new Option(
+      `${drink.name ?? drink.id}${drink.rarity ? ` · ${String(drink.rarity).replace("ProduceDrinkRarity_", "")}` : ""}`,
+      String(drink.id),
+    ));
+  }
+  if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+}
+
 async function initializeExamItemCatalogs() {
   try {
     examItemCatalogs = await loadExamItemCatalogs();
     renderPItems("contest");
     renderPItems("tower");
+    renderExamDrinkOptions();
     if (towerTurnState) renderTowerTurnState();
+    if (examTurnState) renderTurnState("exam", examTurnState);
   } catch (error) {
-    console.warn("P-item effect catalog load failed", error);
+    console.warn("P-item / drink effect catalog load failed", error);
   }
 }
 
@@ -1337,12 +1360,17 @@ function renderTurnState(mode, state) {
   for (const entry of [...state.history].reverse()) {
     const li = document.createElement("li");
     const plays = entry.plays ?? [];
-    const action = plays.length
-      ? plays.map((play) => {
-          const details = [...(play.cost ?? []), ...(play.effects ?? [])].filter(Boolean).join(" / ");
-          return `使用: ${runtimeCardLabel(play.card)}${details ? `（${details}）` : ""}`;
-        }).join(" → ")
-      : "スキップ";
+    const drinks = entry.drinks ?? [];
+    const drinkText = drinks.map((drink) => {
+      const details = (drink.effects ?? []).filter(Boolean).join(" / ");
+      return `ドリンク: ${drink.drink?.name ?? drink.drink?.id ?? "不明"}${details ? `（${details}）` : ""}`;
+    });
+    const playText = plays.map((play) => {
+      const details = [...(play.cost ?? []), ...(play.effects ?? [])].filter(Boolean).join(" / ");
+      return `使用: ${runtimeCardLabel(play.card)}${details ? `（${details}）` : ""}`;
+    });
+    const actions = [...drinkText, ...playText];
+    const action = actions.length ? actions.join(" → ") : "スキップ";
     const startEffects = (entry.turnStartEffects ?? []).filter(Boolean);
     const start = startEffects.length ? `ターン開始: ${startEffects.join(" / ")} → ` : "";
     const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
@@ -1450,6 +1478,8 @@ document.addEventListener("exam-simulation-start", (event) => {
     });
     examSelectedCardIndex = 0;
     drawTowerTurn(examTurnState, 3);
+    const drinkStatus = $("exam-drink-status");
+    if (drinkStatus) drinkStatus.textContent = "実機で使用したタイミングに合わせてドリンクを選択してください。";
     renderTurnState("exam", examTurnState);
   } catch (error) {
     examTurnState = null;
@@ -1459,6 +1489,36 @@ document.addEventListener("exam-simulation-start", (event) => {
 });
 $("exam-skip-turn").addEventListener("click", () => {
   if (examTurnState) advanceSimulationTurn("exam", { type: "skip" });
+});
+
+$("exam-use-drink")?.addEventListener("click", () => {
+  if (!examTurnState) return showError("先に試験シミュレーションを開始してください。");
+  const id = String($("exam-drink-select")?.value ?? "");
+  if (!id) return showError("使用するドリンクを選択してください。");
+  try {
+    clearError();
+    const resolved = resolveProduceDrinks(
+      [id],
+      examItemCatalogs.drinkById,
+      examItemCatalogs.drinkEffectById,
+      examItemCatalogs,
+    );
+    const drink = resolved.drinks[0];
+    if (!drink || drink.unresolved) throw new Error(`ドリンク ${id} のマスタを解決できません。`);
+    const event = useTowerDrink(examTurnState, drink);
+    examSelectedCardIndex = 0;
+    const effects = (event.effects ?? []).filter(Boolean);
+    const status = $("exam-drink-status");
+    if (status) {
+      status.textContent = `${drink.name ?? drink.id}を使用`
+        + (effects.length ? ` · ${effects.join(" / ")}` : "")
+        + ` · RNG ${asHex(event.randomStateBefore)} → ${asHex(event.randomStateAfter)}`;
+    }
+    renderTurnState("exam", examTurnState);
+  } catch (error) {
+    showError(error);
+    renderTurnState("exam", examTurnState);
+  }
 });
 
 function observedLines() {
