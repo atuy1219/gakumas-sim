@@ -332,6 +332,10 @@ supportState.deck = ["S-A", "S-B", "S-C"].map((id, index) => ({
   ...supportState.shuffledInitialDeck.find((card) => card.id === id),
   originalIndex: index,
 }));
+// This block tests ordinary DrawCard support checks. Opening SetInitialCard has
+// a separate native path covered by the H.I.F real-device regression above.
+supportState.openingResolved = true;
+supportState.turn = 1;
 supportState.randomState = 0x12345678;
 const expectedSupportRandom = new XorShift32(0x12345678);
 for (let index = 0; index < 4; index += 1) expectedSupportRandom.nextU32();
