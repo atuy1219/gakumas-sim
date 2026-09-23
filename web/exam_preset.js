@@ -72,7 +72,8 @@ function normalizeSupportCards(cards) {
   return cards.map((source, index) => {
     const supportCardId = requiredText(source?.supportCardId ?? source?.id, `supportCards[${index}]のID`);
     const produceCardUpgradePermil = Math.max(0, Math.trunc(Number(source?.produceCardUpgradePermil ?? 0) || 0));
-    const rawLimitBreak = Number(source?.limitBreak);
+    const limitBreakText = String(source?.limitBreak ?? "").trim();
+    const rawLimitBreak = limitBreakText === "" ? NaN : Number(limitBreakText);
     const limitBreak = Number.isInteger(rawLimitBreak) && rawLimitBreak >= 0 && rawLimitBreak <= 4
       ? rawLimitBreak
       : null;
