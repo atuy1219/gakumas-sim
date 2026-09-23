@@ -167,8 +167,12 @@
           </div>
           <div id="exam-support-card-inputs" class="exam-support-card-inputs-v18"></div>
           <p id="exam-support-status" class="hint" aria-live="polite">未入力の場合、サポートカード強化抽選は行いません。</p>
-          <label class="exam-turn-parameters-v19">
-            <span>試験・オーディション</span>
+        </section>
+        <div class="sim-config-grid">
+          <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
+          <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
+          <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
+          <label><span>試験・オーディション</span>
             <select id="exam-turn-stage">
               <option value="">選択してください</option>
               <optgroup label="N.I.A">
@@ -186,23 +190,17 @@
               </optgroup>
               <option value="manual">その他（属性順を手動入力）</option>
             </select>
-            <small>キャラクターの審査基準とSeedから、各ターンのVo・Da・Viを自動生成します。</small>
           </label>
-          <p id="exam-turn-config-status" class="hint" aria-live="polite">試験・オーディションを選択してください。</p>
-          <label id="exam-turn-parameters-manual" class="exam-turn-parameters-v19" hidden>
-            <span>ターンごとの審査属性順（手動）</span>
-            <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
-            <small>N.I.A/H.I.F以外、または自動配分が未登録のキャラクターのみ使用してください。</small>
-          </label>
-        </section>
-        <div class="sim-config-grid">
-          <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
-          <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
-          <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
           <label><span>カード出現ルール</span><select id="exam-card-pool-mode"><option value="normal">通常</option><option value="research">あさりゼミ</option><option value="highScore">強化月間</option></select></label>
           <label><span>開始時の体力</span><input id="exam-start-stamina" type="number" min="0" value="30"></label>
           <label><span>目標スコア（任意）</span><input id="exam-target-score" type="number" min="0" value="0" placeholder="0なら判定なし"></label>
         </div>
+        <p id="exam-turn-config-status" class="hint" aria-live="polite">試験・オーディションを選択してください。</p>
+        <label id="exam-turn-parameters-manual" class="exam-turn-parameters-v19" hidden>
+          <span>ターンごとの審査属性順（手動）</span>
+          <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
+          <small>N.I.A/H.I.F以外、または自動配分が未登録のキャラクターのみ使用してください。</small>
+        </label>
         <p id="exam-card-pool-hint" class="hint">通常: 共通＋選択プラン。固有カードは選択中のキャラクター/Pアイドルだけ表示します。</p>
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
