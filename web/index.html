@@ -159,28 +159,48 @@
           <div class="section-head compact-head">
             <div>
               <h3 id="exam-support-title">サポートカードのスキルカード強化</h3>
-              <p class="hint">ゲーム内の左から右を1～6として入力します。強化確率は「サポート発生率」ではなく、1回のドロー対象に対するスキルカード強化率です（通常R 1.9%・SR 2.8%・SSR 3.7%）。</p>
+              <p class="hint">ゲーム内の左から右を1～6として入力します。基礎強化率はレアリティ・対象属性から自動決定し、各凸段階の最大Lvにおける「スキルカードサポート発生率を○%増加」を反映します。ゲーム内表示は%ですが、基礎強化率の内部値は‰単位です。</p>
             </div>
           </div>
           <div class="exam-support-grid-v18 exam-support-grid-head-v18" aria-hidden="true">
-            <span>枠</span><span>レアリティ</span><span>対象属性</span><span>強化確率</span>
+            <span>枠</span><span>レアリティ</span><span>対象属性</span><span>上限解放</span>
           </div>
           <div id="exam-support-card-inputs" class="exam-support-card-inputs-v18"></div>
           <p id="exam-support-status" class="hint" aria-live="polite">未入力の場合、サポートカード強化抽選は行いません。</p>
-          <label class="exam-turn-parameters-v19">
-            <span>ターンごとの審査属性順</span>
-            <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
-            <small>実機の1ターン目からVo・Da・Viを順に入力してください。サポート強化の属性判定に使用します。</small>
-          </label>
         </section>
         <div class="sim-config-grid">
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>
           <label><span>プラン</span><select id="exam-plan"><option value="">選択してください</option><option value="ProducePlanType_Plan1">センス</option><option value="ProducePlanType_Plan2">ロジック</option><option value="ProducePlanType_Plan3">アノマリー</option></select></label>
           <label><span>Pアイドル</span><select id="exam-idol"><option value="">キャラクターとプランを先に選択</option></select></label>
+          <label><span>試験・オーディション</span>
+            <select id="exam-turn-stage">
+              <option value="">選択してください</option>
+              <optgroup label="N.I.A">
+                <option value="nia-first-standard">1次（メロBang! / Music Order）</option>
+                <option value="nia-first-harmony">1次（ハーモニーToNight）</option>
+                <option value="nia-second">2次オーディション</option>
+                <option value="nia-final">最終オーディション</option>
+              </optgroup>
+              <optgroup label="H.I.F">
+                <option value="hif-selection-1">選抜試験1</option>
+                <option value="hif-selection-2">選抜試験2</option>
+                <option value="hif-selection-3">選抜試験3</option>
+                <option value="hif-final-round-1">本戦 ラウンド1</option>
+                <option value="hif-final-round-2">本戦 ラウンド2</option>
+              </optgroup>
+              <option value="manual">その他（属性順を手動入力）</option>
+            </select>
+          </label>
           <label><span>カード出現ルール</span><select id="exam-card-pool-mode"><option value="normal">通常</option><option value="research">あさりゼミ</option><option value="highScore">強化月間</option></select></label>
           <label><span>開始時の体力</span><input id="exam-start-stamina" type="number" min="0" value="30"></label>
           <label><span>目標スコア（任意）</span><input id="exam-target-score" type="number" min="0" value="0" placeholder="0なら判定なし"></label>
         </div>
+        <p id="exam-turn-config-status" class="hint" aria-live="polite">試験・オーディションを選択してください。</p>
+        <label id="exam-turn-parameters-manual" class="exam-turn-parameters-v19" hidden>
+          <span>ターンごとの審査属性順（手動）</span>
+          <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
+          <small>N.I.A/H.I.F以外、または自動配分が未登録のキャラクターのみ使用してください。</small>
+        </label>
         <p id="exam-card-pool-hint" class="hint">通常: 共通＋選択プラン。固有カードは選択中のキャラクター/Pアイドルだけ表示します。</p>
         <div class="catalog-toolbar-v4"><input id="exam-card-search" type="search" placeholder="カード名で絞り込み"></div>
         <div id="exam-card-selection" class="m3e-card-selection"><p class="hint">カタログを読み込み中…</p></div>
