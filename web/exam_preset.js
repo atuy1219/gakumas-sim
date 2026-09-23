@@ -2,7 +2,7 @@ import { EXAM_CARD_POOL_MODE } from "./exam_setup.js";
 import { parseExamTurnParameterTypes } from "./exam_support_cards.js";
 
 export const EXAM_PRESET_FORMAT = "gakumas-sim-exam-preset";
-export const EXAM_PRESET_VERSION = 6;
+export const EXAM_PRESET_VERSION = 7;
 
 function requiredText(value, label) {
   const text = String(value ?? "").trim();
@@ -72,12 +72,17 @@ function normalizeSupportCards(cards) {
   return cards.map((source, index) => {
     const supportCardId = requiredText(source?.supportCardId ?? source?.id, `supportCards[${index}]のID`);
     const produceCardUpgradePermil = Math.max(0, Math.trunc(Number(source?.produceCardUpgradePermil ?? 0) || 0));
+    const rawLimitBreak = Number(source?.limitBreak);
+    const limitBreak = Number.isInteger(rawLimitBreak) && rawLimitBreak >= 0 && rawLimitBreak <= 4
+      ? rawLimitBreak
+      : null;
     return {
       supportCardId,
       rarity: String(source?.rarity ?? "").toUpperCase(),
       filterParameterType: String(source?.filterParameterType ?? ""),
       cardSearchId: String(source?.cardSearchId ?? source?.produceCardSearchId ?? "p_card_search-hand"),
       produceCardUpgradePermil,
+      ...(limitBreak === null ? {} : { limitBreak }),
     };
   });
 }
@@ -122,7 +127,7 @@ export function parseExamPreset(input) {
   }
   if (!source || source.format !== EXAM_PRESET_FORMAT) throw new Error("試験・オーディション編成ファイルではありません。");
   const version = Number(source.version);
-  if (![1, 2, 3, 4, 5, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
+  if (![1, 2, 3, 4, 5, 6, EXAM_PRESET_VERSION].includes(version)) throw new Error(`未対応の編成バージョンです: ${source.version}`);
   return createExamPreset({
     ...source,
     cardPoolMode: version === 1 ? EXAM_CARD_POOL_MODE.NORMAL : source.cardPoolMode,
