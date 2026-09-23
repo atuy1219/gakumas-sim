@@ -28,6 +28,7 @@ const preset = createExamPreset({
   supportCards: [
     { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300, limitBreak: 3 },
   ],
+  turnStageId: "hif-selection-2",
   turnParameterTypes: ["Dance", "Visual", "Dance"],
   stamina: 30,
   targetScore: 12000,
@@ -49,6 +50,7 @@ assert.deepEqual(preset.supportCards, [{
   produceCardUpgradePermil: 300,
   limitBreak: 3,
 }]);
+assert.equal(preset.turnStageId, "hif-selection-2");
 assert.deepEqual(preset.turnParameterTypes, ["Dance", "Visual", "Dance"]);
 assert.equal(preset.stamina, 30);
 assert.equal(preset.targetScore, 12000);
@@ -60,6 +62,7 @@ assert.deepEqual(parsed.cards, preset.cards);
 assert.deepEqual(parsed.manualCards, preset.manualCards);
 assert.deepEqual(parsed.progressCards, preset.progressCards);
 assert.deepEqual(parsed.supportCards, preset.supportCards);
+assert.equal(parsed.turnStageId, preset.turnStageId);
 assert.deepEqual(parsed.turnParameterTypes, preset.turnParameterTypes);
 
 const legacyPreset = parseExamPreset(JSON.stringify({
@@ -70,6 +73,14 @@ const legacyPreset = parseExamPreset(JSON.stringify({
 assert.equal(legacyPreset.cardPoolMode, "normal", "v1 preset must remain loadable as the normal card pool");
 assert.deepEqual(legacyPreset.manualCards, []);
 assert.deepEqual(legacyPreset.progressCards, []);
+assert.equal(legacyPreset.turnStageId, "");
+
+const v7Preset = parseExamPreset(JSON.stringify({
+  ...preset,
+  version: 7,
+  turnStageId: undefined,
+}));
+assert.equal(v7Preset.turnStageId, "manual", "legacy turn arrays must continue through manual mode");
 
 const v2Preset = parseExamPreset(JSON.stringify({
   ...preset,
@@ -158,6 +169,58 @@ assert.deepEqual(normalizeManualSupportCards([]), []);
 assert.deepEqual(parseExamTurnParameterTypes("Da, Vi → Vo、Da"), ["Dance", "Visual", "Vocal", "Dance"]);
 assert.equal(formatExamTurnParameterTypes(["Dance", "Visual", "Vocal"]), "Da, Vi, Vo");
 assert.throws(() => parseExamTurnParameterTypes("Da, Unknown"), /認識できません/);
+}
+
+// test_exam_turn_profiles.mjs
+{
+const { default: assert } = await import("node:assert/strict");
+const {
+  calculateExamTurnTypes,
+  describeExamTurnConfig,
+  getExamTurnProfile,
+  getExamTurnStage,
+} = await import("../web/exam_turns.js");
+
+const fktn = getExamTurnProfile("fktn");
+assert.equal(fktn.style, "focused");
+assert.deepEqual(fktn.order, ["Dance", "Visual", "Vocal"]);
+
+const hski = getExamTurnProfile("hski");
+assert.equal(hski.style, "balance");
+assert.deepEqual(hski.order, ["Visual", "Dance", "Vocal"]);
+
+const selection2 = describeExamTurnConfig("fktn", "hif-selection-2");
+assert.equal(selection2.turn, 12);
+assert.deepEqual(selection2.counts, [6, 3, 3]);
+assert.ok(getExamTurnStage("nia-final"));
+
+const fktnTurns = calculateExamTurnTypes("fktn", "hif-selection-2", 2696513658);
+assert.deepEqual(fktnTurns, [
+  "Visual", "Visual", "Vocal", "Dance", "Dance", "Dance",
+  "Dance", "Dance", "Vocal", "Vocal", "Visual", "Dance",
+]);
+assert.equal(fktnTurns.filter((type) => type === "Dance").length, 6);
+assert.equal(fktnTurns.filter((type) => type === "Visual").length, 3);
+assert.equal(fktnTurns.filter((type) => type === "Vocal").length, 3);
+assert.deepEqual(fktnTurns.slice(-3), ["Vocal", "Visual", "Dance"]);
+
+const hskiFirst = calculateExamTurnTypes("hski", "hif-selection-1", 2696513658);
+assert.equal(hskiFirst.length, 10);
+assert.deepEqual(hskiFirst.slice(-3), ["Vocal", "Dance", "Visual"]);
+assert.deepEqual(
+  ["Visual", "Dance", "Vocal"].map((type) => hskiFirst.filter((value) => value === type).length),
+  [5, 3, 2],
+);
+
+const harmony = calculateExamTurnTypes("fktn", "nia-first-harmony", 2696513658);
+assert.deepEqual(
+  ["Dance", "Visual", "Vocal"].map((type) => harmony.filter((value) => value === type).length),
+  [5, 2, 2],
+);
+assert.throws(() => calculateExamTurnTypes("atbm", "hif-selection-1", 1), /未登録/);
+assert.throws(() => calculateExamTurnTypes("fktn", "unknown", 1), /選択/);
+
+console.log("exam turn profile tests: ok");
 }
 
 // test_tower_preset.mjs
