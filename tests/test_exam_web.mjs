@@ -1273,5 +1273,18 @@ assert.equal(
 );
 assert.equal(resolved.drinks[0].effects[1].examEffect.effectValue1, 2);
 
+const fallbackResolved = resolveProduceDrinks(
+  ["pdrink-test"],
+  new Map(drinks.map((drink) => [drink.id, drink])),
+  new Map(drinkEffects.map((effect) => [effect.id, effect])),
+  { examEffectById: new Map() },
+);
+assert.equal(fallbackResolved.drinks[0].effects[0].unresolved, false);
+assert.equal(fallbackResolved.drinks[0].effects[0].examEffect.idFallback, true);
+assert.equal(
+  fallbackResolved.drinks[0].effects[0].examEffect.id,
+  "e_effect-exam_hand_grave_count_card_draw",
+);
+
 console.log("exam drink master tests: ok");
 }
