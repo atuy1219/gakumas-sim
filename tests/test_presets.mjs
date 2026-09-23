@@ -28,7 +28,8 @@ const preset = createExamPreset({
   supportCards: [
     { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300, limitBreak: 3 },
   ],
-  turnStageId: "hif-selection-2",
+  turnStageId: "hajime-pro-sp-b",
+  lessonParameterType: "Visual",
   turnParameterTypes: ["Dance", "Visual", "Dance"],
   stamina: 30,
   targetScore: 12000,
@@ -50,7 +51,8 @@ assert.deepEqual(preset.supportCards, [{
   produceCardUpgradePermil: 300,
   limitBreak: 3,
 }]);
-assert.equal(preset.turnStageId, "hif-selection-2");
+assert.equal(preset.turnStageId, "hajime-pro-sp-b");
+assert.equal(preset.lessonParameterType, "Visual");
 assert.deepEqual(preset.turnParameterTypes, ["Dance", "Visual", "Dance"]);
 assert.equal(preset.stamina, 30);
 assert.equal(preset.targetScore, 12000);
@@ -63,6 +65,7 @@ assert.deepEqual(parsed.manualCards, preset.manualCards);
 assert.deepEqual(parsed.progressCards, preset.progressCards);
 assert.deepEqual(parsed.supportCards, preset.supportCards);
 assert.equal(parsed.turnStageId, preset.turnStageId);
+assert.equal(parsed.lessonParameterType, "Visual");
 assert.deepEqual(parsed.turnParameterTypes, preset.turnParameterTypes);
 
 const legacyPreset = parseExamPreset(JSON.stringify({
@@ -80,7 +83,7 @@ const v7Preset = parseExamPreset(JSON.stringify({
   version: 7,
   turnStageId: undefined,
 }));
-assert.equal(v7Preset.turnStageId, "manual", "legacy turn arrays must continue through manual mode");
+assert.equal(v7Preset.turnStageId, "", "legacy manual turn arrays remain readable but no longer select a manual UI mode");
 
 const v2Preset = parseExamPreset(JSON.stringify({
   ...preset,
@@ -194,9 +197,10 @@ assert.deepEqual(hski.order, ["Visual", "Dance", "Vocal"]);
 const selection2 = describeExamTurnConfig("fktn", "hif-selection-2");
 assert.equal(selection2.turn, 12);
 assert.deepEqual(selection2.counts, [6, 3, 3]);
-assert.equal(nativeExamPreShuffleAdvanceSteps(selection2.turn), 24);
-assert.equal(nativeExamPreShuffleAdvanceSteps(10), 20);
-assert.equal(nativeExamPreShuffleAdvanceSteps(9), 18);
+assert.equal(nativeExamPreShuffleAdvanceSteps(selection2.turn), 27);
+assert.equal(nativeExamPreShuffleAdvanceSteps(10), 25);
+assert.equal(nativeExamPreShuffleAdvanceSteps(9), 24);
+assert.equal(nativeExamPreShuffleAdvanceSteps(getExamTurnStage("hif-final-round-1").turn), 24);
 assert.ok(getExamTurnStage("nia-final"));
 
 const fktnTurns = calculateExamTurnTypes("fktn", "hif-selection-2", 2696513658);
@@ -222,6 +226,18 @@ assert.deepEqual(
   ["Dance", "Visual", "Vocal"].map((type) => harmony.filter((value) => value === type).length),
   [5, 2, 2],
 );
+
+const lesson = getExamTurnStage("hajime-pro-sp-b");
+assert.equal(lesson.lesson, true);
+assert.equal(lesson.turn, 6);
+assert.deepEqual(
+  calculateExamTurnTypes("hrnm", "hajime-pro-sp-b", 171624539, "Visual"),
+  ["Visual", "Visual", "Visual", "Visual", "Visual", "Visual"],
+);
+const lessonConfig = describeExamTurnConfig("hrnm", "hajime-pro-sp-b", "Visual");
+assert.equal(lessonConfig.turn, 6);
+assert.deepEqual(lessonConfig.order, ["Visual"]);
+assert.equal(getExamTurnStage("hajime-legend-mid").turn, 10);
 
 const atbm = getExamTurnProfile("atbm");
 assert.equal(atbm.style, "focused");
