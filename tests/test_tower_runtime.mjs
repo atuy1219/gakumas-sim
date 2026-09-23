@@ -116,6 +116,28 @@ assert.deepEqual(
 );
 assert.equal(realState.randomState, 2281153048, "opening draw itself must not consume RNG");
 
+// UI stage-derived path passes initialRandomState:null plus the 24-step count.
+// null must mean "derive from the true Seed", never the explicit state 0.
+const nullDerivedState = createTowerTurnState(
+  realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  171624539,
+  new Map(),
+  {
+    preShuffleAdvanceSteps: hifFinalRound1Advance,
+    initialRandomState: null,
+    initialRandomStateSource: "stage-derived",
+  },
+);
+assert.equal(nullDerivedState.initialRandomState, 809254905);
+assert.equal(nullDerivedState.initialRandomStateSource, "stage-derived");
+assert.deepEqual(nullDerivedState.shuffledInitialDeck.map((card) => card.id), realExpectedShuffle);
+assert.equal(nullDerivedState.randomState, 2281153048);
+drawTowerTurn(nullDerivedState, 3);
+assert.deepEqual(
+  nullDerivedState.hand.map((card) => card.id),
+  ["p_card-01-men-2_037", "p_card-00-sup-3_152", "p_card-03-sup-3_162"],
+);
+
 // Exact observed shuffle state must override a wrong stage-derived step count.
 const exactState = createTowerTurnState(
   realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
