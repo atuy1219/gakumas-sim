@@ -102,6 +102,22 @@ assert.equal(realState.preShuffleAdvanceSteps, 24);
 assert.equal(realState.initialRandomState, 809254905);
 assert.deepEqual(realState.shuffledInitialDeck.map((card) => card.id), realExpectedShuffle);
 assert.equal(realState.randomState, 2281153048);
+
+// Exact observed shuffle state must override a wrong stage-derived step count.
+const exactState = createTowerTurnState(
+  realDeckIds.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  171624539,
+  new Map(),
+  {
+    preShuffleAdvanceSteps: 8,
+    initialRandomState: 809254905,
+    initialRandomStateSource: "observed-order",
+  },
+);
+assert.equal(exactState.initialRandomState, 809254905);
+assert.equal(exactState.initialRandomStateSource, "observed-order");
+assert.deepEqual(exactState.shuffledInitialDeck.map((card) => card.id), realExpectedShuffle);
+assert.equal(exactState.randomState, 2281153048);
 }
 
 // Native ExamSequence.GetInsertEffectResultTriggerCommand evaluates support
