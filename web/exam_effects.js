@@ -19,6 +19,8 @@ export const EXAM_ITEM_URLS = Object.freeze({
   examEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceExamEffect.yaml",
   cardSearchesPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardSearch.yaml",
   cardSearchesFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceCardSearch.yaml",
+  cardRandomPoolsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardRandomPool.yaml",
+  cardRandomPoolsFallback: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardRandomPool.yaml",
   drinksPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrink.yaml",
   drinksFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrink.yaml",
   drinkEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrinkEffect.yaml",
@@ -215,6 +217,26 @@ export function parseProduceCardSearchCatalog(text) {
   );
 }
 
+export function parseProduceCardRandomPoolCatalog(text) {
+  return parseYamlRecordsWithLists(text, ["produceCardId", "upgradeCount", "ratio"]);
+}
+
+export function groupProduceCardRandomPools(rows) {
+  const grouped = new Map();
+  for (const row of rows ?? []) {
+    const id = String(row?.id ?? "");
+    if (!id) continue;
+    if (!grouped.has(id)) grouped.set(id, []);
+    grouped.get(id).push({
+      ...row,
+      produceCardId: String(row?.produceCardId ?? ""),
+      upgradeCount: Math.max(0, Math.trunc(Number(row?.upgradeCount ?? 0) || 0)),
+      ratio: Math.max(0, Math.trunc(Number(row?.ratio ?? 0) || 0)),
+    });
+  }
+  return grouped;
+}
+
 export function parseProduceDrinkCatalog(text) {
   return parseYamlRecordsWithLists(
     text,
@@ -251,6 +273,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     triggerText,
     examEffectText,
     cardSearchText,
+    cardRandomPoolText,
     drinkText,
     drinkEffectText,
   ] = await Promise.all([
@@ -260,6 +283,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     fetchText(urls.examTriggersPrimary, urls.examTriggersFallback, fetchImpl),
     fetchText(urls.examEffectsPrimary, urls.examEffectsFallback, fetchImpl),
     fetchText(urls.cardSearchesPrimary, urls.cardSearchesFallback, fetchImpl),
+    fetchText(urls.cardRandomPoolsPrimary, urls.cardRandomPoolsFallback, fetchImpl),
     fetchText(urls.drinksPrimary, urls.drinksFallback, fetchImpl),
     fetchText(urls.drinkEffectsPrimary, urls.drinkEffectsFallback, fetchImpl),
   ]);
@@ -269,6 +293,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
   const examTriggers = parseProduceExamTriggerCatalog(triggerText);
   const examEffects = parseProduceExamEffectCatalog(examEffectText);
   const cardSearches = parseProduceCardSearchCatalog(cardSearchText);
+  const cardRandomPools = parseProduceCardRandomPoolCatalog(cardRandomPoolText);
   const drinks = parseProduceDrinkCatalog(drinkText);
   const drinkEffects = parseProduceDrinkEffectCatalog(drinkEffectText);
   return {
@@ -284,6 +309,8 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     examEffectById: new Map(examEffects.map((effect) => [String(effect.id), effect])),
     cardSearches,
     cardSearchById: new Map(cardSearches.map((search) => [String(search.id), search])),
+    cardRandomPools,
+    cardRandomPoolById: groupProduceCardRandomPools(cardRandomPools),
     drinks,
     drinkById: new Map(drinks.map((drink) => [String(drink.id), drink])),
     drinkEffects,
