@@ -152,7 +152,7 @@ let examProgressInstances = [];
 let examProgressPath = "";
 let examProgressSupportCards = [];
 let examPreShuffleDeck = [];
-let examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.IMPORT;
+let examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.MANUAL;
 let examManualOrderTokens = [];
 let examCardPage = 0;
 let examObservedBatches = [[]];
@@ -168,7 +168,56 @@ const examIdol = document.getElementById("exam-idol");
 const examCardPoolMode = document.getElementById("exam-card-pool-mode");
 const examCardSearch = document.getElementById("exam-card-search");
 const examTurnStage = document.getElementById("exam-turn-stage");
-const examLessonParameter = document.getElementById("exam-lesson-parameter");
+const EXAM_STAGE_VALUE_SEPARATOR = "::";
+
+function examStageSelection(value = examTurnStage?.value ?? "") {
+  const [stageId = "", lessonParameterType = ""] = String(value ?? "").split(EXAM_STAGE_VALUE_SEPARATOR);
+  return { stageId, lessonParameterType };
+}
+
+function selectedExamTurnStageId() {
+  return examStageSelection().stageId;
+}
+
+function selectedExamLessonParameterType() {
+  const { stageId, lessonParameterType } = examStageSelection();
+  return getExamTurnStage(stageId)?.lesson ? lessonParameterType : "";
+}
+
+function examStageSelectValue(stageIdInput, lessonParameterTypeInput = "") {
+  const stageId = String(stageIdInput ?? "");
+  const lessonParameterType = String(lessonParameterTypeInput ?? "");
+  const stage = getExamTurnStage(stageId);
+  return stage?.lesson && ["Vocal", "Dance", "Visual"].includes(lessonParameterType)
+    ? `${stageId}${EXAM_STAGE_VALUE_SEPARATOR}${lessonParameterType}`
+    : stageId;
+}
+
+function prepareExamStageSelector() {
+  if (!examTurnStage) return;
+  const labels = { Vocal: "Vo", Dance: "Da", Visual: "Vi" };
+  for (const option of [...examTurnStage.querySelectorAll("option[value]")]) {
+    const stageId = String(option.value ?? "");
+    const stage = getExamTurnStage(stageId);
+    if (!stage?.lesson) {
+      option.dataset.stageId = stageId;
+      continue;
+    }
+    const parent = option.parentElement;
+    for (const type of ["Vocal", "Dance", "Visual"]) {
+      const clone = new Option(
+        `${option.textContent}（${labels[type]}）`,
+        examStageSelectValue(stageId, type),
+      );
+      clone.dataset.stageId = stageId;
+      clone.dataset.lessonParameterType = type;
+      parent.insertBefore(clone, option);
+    }
+    option.remove();
+  }
+}
+prepareExamStageSelector();
+
 const manualExamDeck = () => buildExamDeck(examCards, examCounts, examManualInstances);
 const examCompositionDeck = () => manualExamDeck();
 const examDeck = () => examPreShuffleDeck.length
@@ -218,30 +267,11 @@ function syncManualPreShuffleDeck() {
     : [];
 }
 
-function setExamPreShuffleMode(modeInput, { preserve = true } = {}) {
-  examPreShuffleMode = normalizeExamPreShuffleMode(modeInput);
-  for (const radio of document.querySelectorAll('input[name="exam-order-mode"]')) {
-    radio.checked = radio.value === examPreShuffleMode;
-  }
-  const importPanel = document.getElementById("exam-order-import-panel");
+function setExamPreShuffleMode(_modeInput, _options = {}) {
+  examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.MANUAL;
   const manualPanel = document.getElementById("exam-order-manual-panel");
-  if (importPanel) importPanel.hidden = examPreShuffleMode !== EXAM_PRE_SHUFFLE_MODE.IMPORT;
-  if (manualPanel) manualPanel.hidden = examPreShuffleMode !== EXAM_PRE_SHUFFLE_MODE.MANUAL;
-
-  if (examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT) {
-    if (examProgressDeck.length) {
-      try {
-        examPreShuffleDeck = applyProgressNumberOrder(examCompositionDeck(), examProgressDeck);
-      } catch (error) {
-        examPreShuffleDeck = [];
-        if (!preserve) showExamError(error);
-      }
-    } else {
-      examPreShuffleDeck = [];
-    }
-  } else {
-    syncManualPreShuffleDeck();
-  }
+  if (manualPanel) manualPanel.hidden = false;
+  syncManualPreShuffleDeck();
   renderExamPreShuffleOrder();
   persistExamWorkflow();
 }
@@ -324,8 +354,8 @@ function persistExamWorkflow() {
       planType: examPlan?.value ?? "",
       idolCardId: examIdol?.value ?? "",
       cardPoolMode: examCardPoolMode?.value ?? EXAM_CARD_POOL_MODE.NORMAL,
-      turnStageId: examTurnStage?.value ?? "",
-      lessonParameterType: examLessonParameter?.value ?? "",
+      turnStageId: selectedExamTurnStageId(),
+      lessonParameterType: selectedExamLessonParameterType(),
       stamina: document.getElementById("exam-start-stamina")?.value ?? 0,
       targetScore: document.getElementById("exam-target-score")?.value ?? 0,
       counts: [...examCounts],
@@ -438,7 +468,7 @@ function readExamSupportCardInputs({ requireAll = true } = {}) {
   return normalizeManualSupportCards(readExamSupportCardDrafts(), { requireAll });
 }
 function readExamTurnParameterTypes(supportCards = examProgressSupportCards, seedInput = null) {
-  const stageId = String(examTurnStage?.value ?? "");
+  const stageId = selectedExamTurnStageId();
   const stage = getExamTurnStage(stageId);
   if (!stage) throw new Error("試験・レッスンを選択してください。");
 
@@ -449,7 +479,7 @@ function readExamTurnParameterTypes(supportCards = examProgressSupportCards, see
     throw new Error("このキャラクターは選択した試験・レッスンの自動生成に未対応です。");
   }
 
-  const lessonParameterType = String(examLessonParameter?.value ?? "");
+  const lessonParameterType = selectedExamLessonParameterType();
   if (stage.lesson) {
     return calculateExamTurnTypes(examCharacter.value, stageId, seedInput ?? 0, lessonParameterType);
   }
@@ -464,7 +494,7 @@ function readExamTurnParameterTypes(supportCards = examProgressSupportCards, see
 }
 
 function readExamPreShuffleAdvanceSteps() {
-  const stageId = String(examTurnStage?.value ?? "");
+  const stageId = selectedExamTurnStageId();
   const stage = getExamTurnStage(stageId);
   if (!stage) throw new Error("試験・レッスンを選択してください。");
   return nativeExamPreShuffleAdvanceSteps(stage);
@@ -522,7 +552,7 @@ function updateExamTurnConfigUi() {
     for (const option of examTurnStage.querySelectorAll("option[value]")) option.disabled = false;
   }
 
-  const stageId = String(examTurnStage?.value ?? "");
+  const stageId = selectedExamTurnStageId();
   const stage = getExamTurnStage(stageId);
   if (lessonWrap) lessonWrap.hidden = !stage?.lesson;
   if (!status) return;
@@ -532,7 +562,7 @@ function updateExamTurnConfigUi() {
     return;
   }
 
-  const lessonParameterType = String(examLessonParameter?.value ?? "");
+  const lessonParameterType = selectedExamLessonParameterType();
   const config = describeExamTurnConfig(examCharacter.value, stageId, lessonParameterType);
   if (!config) {
     status.textContent = String(examCharacter.value) === "atbm" && stage.scenario === "hif"
@@ -945,8 +975,8 @@ function exportExamPreset() {
       supportCards: examProgressSupportCards,
       preShuffleMode: examPreShuffleMode,
       preShuffleOrder: serializeExamPreShuffleOrder(ensureExamPreShuffleReady()),
-      turnStageId: examTurnStage?.value ?? "",
-      lessonParameterType: examLessonParameter?.value ?? "",
+      turnStageId: selectedExamTurnStageId(),
+      lessonParameterType: selectedExamLessonParameterType(),
       turnParameterTypes,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
