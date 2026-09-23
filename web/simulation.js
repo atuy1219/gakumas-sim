@@ -460,6 +460,42 @@ export function xorshift32(value) {
   return x >>> 0;
 }
 
+export function advanceXorshift32(value, stepsInput = 1) {
+  const steps = Math.max(0, Math.trunc(Number(stepsInput) || 0));
+  let state = Number(value) >>> 0;
+  for (let index = 0; index < steps; index += 1) state = xorshift32(state);
+  return state >>> 0;
+}
+
+function undoXorShiftLeft(value, shift) {
+  const source = Number(value) >>> 0;
+  let result = source;
+  for (let amount = shift; amount < 32; amount += shift) {
+    result = (result ^ ((source << amount) >>> 0)) >>> 0;
+  }
+  return result >>> 0;
+}
+
+function undoXorShiftRight(value, shift) {
+  const source = Number(value) >>> 0;
+  let result = source;
+  for (let amount = shift; amount < 32; amount += shift) {
+    result = (result ^ (source >>> amount)) >>> 0;
+  }
+  return result >>> 0;
+}
+
+export function rewindXorshift32(value, stepsInput = 1) {
+  const steps = Math.max(0, Math.trunc(Number(stepsInput) || 0));
+  let state = Number(value) >>> 0;
+  for (let index = 0; index < steps; index += 1) {
+    state = undoXorShiftLeft(state, 5);
+    state = undoXorShiftRight(state, 17);
+    state = undoXorShiftLeft(state, 13);
+  }
+  return state >>> 0;
+}
+
 export function seedMatchesChoices(seed, choices) {
   let state = Number(seed) >>> 0;
   for (const { n, j } of choices) {

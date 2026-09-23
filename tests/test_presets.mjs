@@ -180,6 +180,7 @@ const {
   getExamTurnProfile,
   getExamTurnStage,
   isExamTurnStageSupported,
+  nativeExamPreShuffleAdvanceSteps,
 } = await import("../web/exam_turns.js");
 
 const fktn = getExamTurnProfile("fktn");
@@ -193,6 +194,9 @@ assert.deepEqual(hski.order, ["Visual", "Dance", "Vocal"]);
 const selection2 = describeExamTurnConfig("fktn", "hif-selection-2");
 assert.equal(selection2.turn, 12);
 assert.deepEqual(selection2.counts, [6, 3, 3]);
+assert.equal(nativeExamPreShuffleAdvanceSteps(selection2.turn), 24);
+assert.equal(nativeExamPreShuffleAdvanceSteps(10), 20);
+assert.equal(nativeExamPreShuffleAdvanceSteps(9), 18);
 assert.ok(getExamTurnStage("nia-final"));
 
 const fktnTurns = calculateExamTurnTypes("fktn", "hif-selection-2", 2696513658);

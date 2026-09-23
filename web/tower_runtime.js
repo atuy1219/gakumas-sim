@@ -443,9 +443,17 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   );
   if (!instances.length) throw new Error("デッキにカードがありません。");
 
+  // Exam modes can consume the shared XorShift stream during native setup
+  // before ExamCardPoolModel.Shuffle. Keep the public seed as the true
+  // ExamParameterModel.Seed and advance only the internal shuffle state.
+  const preShuffleAdvanceSteps = Math.max(0, Math.trunc(Number(options.preShuffleAdvanceSteps ?? 0) || 0));
+  const preShuffleRng = new XorShift32(seed);
+  for (let index = 0; index < preShuffleAdvanceSteps; index += 1) preShuffleRng.nextU32();
+  const initialRandomState = preShuffleRng.state >>> 0;
+
   // Native ExamCardPoolModel.Shuffle does not filter IsInitial. The whole Deck
   // is shuffled first; SetInitialCard later extracts opening-hand cards.
-  const shuffled = shuffleObjectsWithState(instances, seed);
+  const shuffled = shuffleObjectsWithState(instances, initialRandomState);
   const exam = {
     ...createExamState({ stamina: options.stamina }),
     targetScore: Math.max(0, Number(options.targetScore ?? 0)),
@@ -457,6 +465,8 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
 
   const state = {
     seed,
+    preShuffleAdvanceSteps,
+    initialRandomState,
     randomState: shuffled.randomState,
     shuffledInitialDeck: shuffled.deck.map((card) => ({ ...card })),
     initialDeck: openingPreview.visibleOrder.map((card) => ({ ...card })),
@@ -487,6 +497,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     currentTurnDrinks: [],
     drinkHistory: [],
     turnStartEffects: [],
+    turnStartSupportCardRolls: [],
     unsupported: [],
     timers: [],
     pendingDraw: 0,
@@ -1535,6 +1546,7 @@ export function drawTowerTurn(state, drawCount = 3) {
     ? setNativeInitialCard(state, requested)
     : drawCardsIntoHand(state, requested);
   applyExamSupportCardUpgrades(state, result.drawn, phaseEvent);
+  state.turnStartSupportCardRolls = (phaseEvent.supportCardRolls ?? []).map((roll) => ({ ...roll }));
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
@@ -2619,6 +2631,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     plays,
     drinks,
     turnStartEffects: [...(state.turnStartEffects ?? [])],
+    turnStartSupportCardRolls: (state.turnStartSupportCardRolls ?? []).map((roll) => ({ ...roll })),
     deckCount: state.deck.length,
     discardCount: state.discard.length,
     lostCount: state.lost.length,
@@ -2628,6 +2641,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   state.history.push(entry);
   state.currentTurnPlays = [];
   state.currentTurnDrinks = [];
+  state.turnStartSupportCardRolls = [];
   state.playsRemaining = 0;
   const turnEndEvent = { effects: [], drawn: [], recycleEvents: [] };
 

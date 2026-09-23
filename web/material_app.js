@@ -19,7 +19,7 @@ import {
   parseCustomizeCatalog,
   parseGrowEffectCatalog,
 } from "./memory_judgement.js";
-import { makeCardInstances, prepareSeedBatchSearch, seedIntervalFromChoices } from "./simulation.js";
+import { makeCardInstances, prepareSeedBatchSearch, rewindXorshift32, seedIntervalFromChoices } from "./simulation.js";
 import {
   calculateExamTurnTypes,
   describeExamTurnConfig,
@@ -27,6 +27,7 @@ import {
   getExamTurnProfile,
   getExamTurnStage,
   isExamTurnStageSupported,
+  nativeExamPreShuffleAdvanceSteps,
 } from "./exam_turns.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
@@ -135,6 +136,7 @@ let examProgressSupportCards = [];
 let examObservedBatches = [[]];
 let examSeedWorkers = [];
 let examSearchCancelled = false;
+let examSeedShuffleStateByTrueSeed = new Map();
 const examCharacter = document.getElementById("exam-character");
 const examPlan = document.getElementById("exam-plan");
 const examIdol = document.getElementById("exam-idol");
@@ -196,6 +198,18 @@ function readExamTurnParameterTypes(supportCards = examProgressSupportCards, see
     throw new Error("サポートカード強化を再現するには、試験・オーディションを選択するか、属性順を手動入力してください。");
   }
   return types;
+}
+
+function readExamPreShuffleAdvanceSteps() {
+  const stageId = String(examTurnStage?.value ?? "");
+  if (stageId && stageId !== "manual") {
+    const stage = getExamTurnStage(stageId);
+    if (!stage) throw new Error("試験・オーディションを選択してください。");
+    return nativeExamPreShuffleAdvanceSteps(stage.turn);
+  }
+  const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
+  const types = parseExamTurnParameterTypes(input);
+  return nativeExamPreShuffleAdvanceSteps(types.length);
 }
 
 function updateExamTurnConfigUi() {
@@ -948,7 +962,10 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
     button.type = "button";
     button.className = "seed-candidate";
     button.textContent = `${seed} / ${asHex(seed)}`;
-    button.title = "このSeedを使用";
+    const shuffleState = examSeedShuffleStateByTrueSeed.get(Number(seed) >>> 0);
+    button.title = shuffleState === undefined
+      ? "この本当のSeedを使用"
+      : `この本当のSeedを使用 · 初期Shuffle state ${shuffleState} / ${asHex(shuffleState)}`;
     const seedInput = document.getElementById("exam-seed");
     const currentSeed = String(seedInput?.value ?? "").trim();
     const selected = currentSeed === String(seed) || currentSeed.toLowerCase() === asHex(seed).toLowerCase();
@@ -963,6 +980,7 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
       button.classList.add("selected");
       button.setAttribute("aria-pressed", "true");
       navigator.clipboard?.writeText(String(seed)).catch(() => {});
+      updateExamTurnConfigUi();
     });
     container.append(button);
   }
@@ -983,10 +1001,12 @@ function renderExamSeedCandidates(matches, scanned, total, complete, note = "") 
 async function startExamSeedSearch() {
   cancelExamSeedSearch();
   examSearchCancelled = false;
+  examSeedShuffleStateByTrueSeed = new Map();
   if (!examProgressDeck.length) {
     throw new Error("Seed特定にはNumber付きproduceCardsを含む進行中プロデュースJSONが必要です。編成画面で読み込んでください。");
   }
   const deck = examDeck();
+  const preShuffleAdvanceSteps = readExamPreShuffleAdvanceSteps();
   const observation = examObservationState();
   if (!observation.complete) throw new Error(`元デッキの観測が不足しています（${observation.observedInitialCount}/${observation.initialCount}枚）。`);
   const prepared = prepareSeedBatchSearch(deck, [observation.initialIds]);
@@ -1059,7 +1079,12 @@ async function startExamSeedSearch() {
         worker.onmessage = (event) => {
           if (event.data?.type !== "done" || finished) return;
           scanned += Number(event.data.scanned ?? 0);
-          for (const seed of event.data.found ?? []) matches.add(Number(seed) >>> 0);
+          for (const shuffleStateInput of event.data.found ?? []) {
+            const shuffleState = Number(shuffleStateInput) >>> 0;
+            const trueSeed = rewindXorshift32(shuffleState, preShuffleAdvanceSteps);
+            matches.add(trueSeed);
+            examSeedShuffleStateByTrueSeed.set(trueSeed, shuffleState);
+          }
           progress.value = Math.min(scanned, total);
           renderExamSeedCandidates([...matches].sort((a, b) => a - b), scanned, total, false);
           assign(worker);
@@ -1069,7 +1094,15 @@ async function startExamSeedSearch() {
     });
     const result = [...matches].sort((a, b) => a - b);
     const complete = !examSearchCancelled;
-    renderExamSeedCandidates(result, scanned, total, complete, complete ? `探索完了: ${result.length}候補` : "探索を停止しました。");
+    renderExamSeedCandidates(
+      result,
+      scanned,
+      total,
+      complete,
+      complete
+        ? `探索完了: 本当のSeed ${result.length}候補（初期Shuffle前にRNG ${preShuffleAdvanceSteps}ステップを反映）`
+        : "探索を停止しました。",
+    );
   } finally {
     for (const worker of examSeedWorkers) worker.terminate();
     examSeedWorkers = [];
@@ -1232,6 +1265,7 @@ document.getElementById("exam-run").addEventListener("click", () => {
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
       supportCards: examProgressSupportCards.map((item) => ({ ...item })),
       turnParameterTypes,
+      preShuffleAdvanceSteps: readExamPreShuffleAdvanceSteps(),
     },
   }));
 });
