@@ -358,6 +358,56 @@ void atomic_write(const std::string& path, const std::string& data) {
     ::rename(temp.c_str(), path.c_str());
 }
 
+std::string native_constructor_status_path() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/native_constructor_status.json";
+}
+
+std::string native_entry_status_path() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
+        "/files/gakumas-sim/native_entry_status.json";
+}
+
+void write_native_constructor_status() {
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"phase\": \"native-library-constructor\",\n"
+        << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
+        << "  \"pid\": " << static_cast<int>(getpid()) << ",\n"
+        << "  \"uid\": " << static_cast<int>(getuid()) << "\n"
+        << "}\n";
+    atomic_write(native_constructor_status_path(), out.str());
+}
+
+void write_native_entry_status(const std::string& phase, const NativeAPIEntries* entries) {
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"phase\": \"" << json_escape(phase) << "\",\n"
+        << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
+        << "  \"pid\": " << static_cast<int>(getpid()) << ",\n"
+        << "  \"uid\": " << static_cast<int>(getuid()) << ",\n"
+        << "  \"targetProcess\": " << (target_process() ? "true" : "false") << ",\n"
+        << "  \"entriesPresent\": " << (entries ? "true" : "false") << ",\n";
+    if (entries) {
+        out << "  \"apiVersion\": " << entries->version << ",\n"
+            << "  \"hookFuncPresent\": " << (entries->hookFunc ? "true" : "false") << ",\n"
+            << "  \"unhookFuncPresent\": " << (entries->unhookFunc ? "true" : "false") << "\n";
+    } else {
+        out << "  \"apiVersion\": 0,\n"
+            << "  \"hookFuncPresent\": false,\n"
+            << "  \"unhookFuncPresent\": false\n";
+    }
+    out << "}\n";
+    atomic_write(native_entry_status_path(), out.str());
+}
+
+__attribute__((constructor))
+void on_native_library_constructor() {
+    write_native_constructor_status();
+}
+
 void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
     const int user_id = static_cast<int>(getuid() / 100000);
     const std::string path =
@@ -1419,13 +1469,30 @@ void on_library_loaded(const char* name, void*) {
 
 extern "C" __attribute__((visibility("default")))
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
-    if (!entries || !entries->hookFunc || entries->version < 1) return nullptr;
-    if (!target_process()) return nullptr;
+    write_native_entry_status("native-init-enter", entries);
+    if (!entries) {
+        write_native_entry_status("native-init-null-entries", entries);
+        return nullptr;
+    }
+    if (entries->version < 1) {
+        write_native_entry_status("native-init-unsupported-api", entries);
+        return nullptr;
+    }
+    if (!entries->hookFunc) {
+        write_native_entry_status("native-init-no-hook-func", entries);
+        return nullptr;
+    }
+    if (!target_process()) {
+        write_native_entry_status("native-init-wrong-process", entries);
+        return nullptr;
+    }
+
     g_hook = entries->hookFunc;
+    write_native_entry_status("native-init-ready", entries);
     write_status("native-init");
     start_export_request_watcher();
 
-    // LSPosed may load this module after libil2cpp.so is already mapped.
+    // The module can be loaded after libil2cpp.so is already mapped.
     // Install immediately when possible, and also keep the load callback for
     // the normal early-module/late-il2cpp case.
     install_il2cpp_hooks();

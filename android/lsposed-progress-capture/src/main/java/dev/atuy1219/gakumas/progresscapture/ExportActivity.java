@@ -36,7 +36,7 @@ public final class ExportActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Gakumas Progress Capture 1.1.2");
+        title.setText("Gakumas Progress Capture 1.1.3");
         title.setTextSize(22f);
         root.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -119,6 +119,8 @@ public final class ExportActivity extends Activity {
     private RootResult collectDiagnostics() throws Exception {
         final String dir = internalDir();
         final String bootstrap = dir + "/bootstrap_status.json";
+        final String nativeConstructor = dir + "/native_constructor_status.json";
+        final String nativeEntry = dir + "/native_entry_status.json";
         final String capture = dir + "/capture_status.json";
         final String exportStatus = dir + "/export_status.json";
         final String snapshot = dir + "/exam_preset.json";
@@ -126,9 +128,11 @@ public final class ExportActivity extends Activity {
         final String done = dir + "/export_done.txt";
         final String manual = dir + "/manual_export.json";
         String command =
-                "echo 'module=1.1.2'; "
+                "echo 'module=1.1.3'; "
                 + "printf 'gamePids='; pidof " + shellQuote(TARGET) + " 2>/dev/null || true; echo; "
                 + "echo '--- bootstrap_status.json ---'; cat " + shellQuote(bootstrap) + " 2>/dev/null || echo '(なし)'; "
+                + "echo '--- native_constructor_status.json ---'; cat " + shellQuote(nativeConstructor) + " 2>/dev/null || echo '(なし)'; "
+                + "echo '--- native_entry_status.json ---'; cat " + shellQuote(nativeEntry) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- capture_status.json ---'; cat " + shellQuote(capture) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- export_status.json ---'; cat " + shellQuote(exportStatus) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- native maps ---'; for p in $(pidof " + shellQuote(TARGET) + " 2>/dev/null); do "
