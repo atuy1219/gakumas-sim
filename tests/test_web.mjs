@@ -288,6 +288,13 @@ const towerStageHtml = await import("node:fs/promises").then((fs) => fs.readFile
 assert.match(towerStageHtml, /id="tower-stage-config"/);
 assert.match(towerStageHtml, /id="tower-stage-summary"/);
 assert.match(towerStageHtml, /id="tower-turn-order-preview"/);
+assert.match(towerStageHtml, /id="tower-undo-action"[^>]*>一手戻る<\/button>/);
+assert.match(towerStageHtml, /id="exam-undo-action"[^>]*>一手戻る<\/button>/);
+
+const simulationAppSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/app.js", import.meta.url), "utf8"));
+assert.match(simulationAppSource, /cloneTowerTurnState/);
+assert.match(simulationAppSource, /function undoSimulationAction\(mode\)/);
+assert.match(simulationAppSource, /"\+"\.repeat\(upgradeCount\)/);
 
 const appCss = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/app.css", import.meta.url), "utf8"));
 assert.match(appCss, /\[data-sim-stage\]\[hidden\]\s*\{\s*display:\s*none\s*!important;/);

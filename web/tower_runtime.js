@@ -93,6 +93,55 @@ export class TowerCardSelectionRequired extends Error {
   }
 }
 
+const TOWER_STATE_SHARED_KEYS = new Set([
+  "cardById",
+  "cardVariantByKey",
+  "customizeById",
+  "growEffectById",
+  "examEffectById",
+  "examStatusEnchantById",
+  "examTriggerById",
+  "cardSearchById",
+  "cardRandomPoolById",
+]);
+
+function cloneTowerStateValue(value, seen = new Map()) {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const result = [];
+    seen.set(value, result);
+    for (const item of value) result.push(cloneTowerStateValue(item, seen));
+    return result;
+  }
+  if (value instanceof Map) {
+    const result = new Map();
+    seen.set(value, result);
+    for (const [key, item] of value) result.set(key, cloneTowerStateValue(item, seen));
+    return result;
+  }
+  if (value instanceof Set) {
+    const result = new Set();
+    seen.set(value, result);
+    for (const item of value) result.add(cloneTowerStateValue(item, seen));
+    return result;
+  }
+  const result = {};
+  seen.set(value, result);
+  for (const [key, item] of Object.entries(value)) result[key] = cloneTowerStateValue(item, seen);
+  return result;
+}
+
+export function cloneTowerTurnState(state) {
+  const clone = {};
+  for (const [key, value] of Object.entries(state ?? {})) {
+    clone[key] = TOWER_STATE_SHARED_KEYS.has(key)
+      ? value
+      : cloneTowerStateValue(value);
+  }
+  return clone;
+}
+
 function runtimeInstances(
   cards,
   cardById,
@@ -113,6 +162,7 @@ function runtimeInstances(
       ...card,
       token: `${id}@@${ordinal}`,
       originalIndex: index,
+      name: String(master.name ?? card.name ?? id),
       playMovePositionType,
       category: String(master.category ?? card.category ?? ""),
       rarity: String(master.rarity ?? card.rarity ?? ""),
@@ -523,6 +573,8 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     cardEffectPlayCountBuff: null,
     cardById: cardById ?? new Map(),
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
+    customizeById: options.customizeById ?? new Map(),
+    growEffectById: options.growEffectById ?? new Map(),
     examEffectById: options.examEffectById ?? new Map(),
     examStatusEnchantById: options.examStatusEnchantById ?? new Map(),
     examTriggerById: options.examTriggerById ?? new Map(),
@@ -1333,15 +1385,31 @@ function cloneRuntimeCardSnapshot(card) {
 
 function applyRuntimeUpgradeVariant(state, card, targetUpgradeCount) {
   const target = Math.max(0, Math.trunc(Number(targetUpgradeCount) || 0));
-  const master = state.cardVariantByKey?.get?.(`${card.id}@@${target}`) ?? {};
-  const identity = {
+  const master = state.cardVariantByKey?.get?.(`${card.id}@@${target}`);
+  if (!master) {
+    rememberUnsupported(state, `card-upgrade-master:${card.id}@@${target}`);
+    card.upgradeCount = target;
+    return target;
+  }
+
+  // Rebuild from the exact master variant, then reapply the card's customization
+  // route. A support-card upgrade must change not only the displayed + count but
+  // also cost/playEffects, while preserving custom grow effects.
+  const rebuilt = applyCardCustomizations({
+    ...card,
+    ...master,
     token: card.token,
     originalIndex: card.originalIndex,
     generated: card.generated,
     growBlockAdd: card.growBlockAdd,
     growCostAdd: card.growCostAdd,
-  };
-  Object.assign(card, master, identity, { upgradeCount: target });
+    customizes: Array.isArray(card.customizes) ? card.customizes.map((item) => ({ ...item })) : [],
+    upgradeCount: target,
+    playEffects: Array.isArray(master.playEffects)
+      ? master.playEffects.map((effect) => ({ ...effect }))
+      : [],
+  }, state.customizeById, state.growEffectById);
+  Object.assign(card, rebuilt);
   card.onceOnly = isOnceOnlyMove(card.playMovePositionType);
   return target;
 }
@@ -1363,17 +1431,8 @@ function applyPermanentCardUpgradeInPlace(state, card) {
 
   const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
   const nextBaseCount = Math.max(0, Number(base.upgradeCount ?? 0)) + 1;
-  const baseMaster = state.cardVariantByKey?.get?.(`${card.id}@@${nextBaseCount}`) ?? {};
-  const nextBase = {
-    ...base,
-    ...baseMaster,
-    token: base.token,
-    originalIndex: base.originalIndex,
-    generated: base.generated,
-    growBlockAdd: base.growBlockAdd,
-    growCostAdd: base.growCostAdd,
-    upgradeCount: nextBaseCount,
-  };
+  const nextBase = cloneRuntimeCardSnapshot(base);
+  applyRuntimeUpgradeVariant(state, nextBase, nextBaseCount);
   card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
 
   Object.assign(card, cloneRuntimeCardSnapshot(nextBase));
