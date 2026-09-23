@@ -127,6 +127,14 @@ setSimulationStage("contest", "memory");
 setSimulationStage("tower", "memory");
 setSimulationStage("exam", "setup");
 
+document.addEventListener("exam-simulation-restore-missing", () => {
+  const panel = document.getElementById("tab-exam");
+  if (!panel || panel.dataset.stage !== "simulation") return;
+  setSimulationStage("exam", "seed");
+  persistExamWorkflow();
+  examPresetStatus("前回のシミュレーション状態を復元できなかったため、Seed設定へ戻しました。");
+});
+
 let examCharacters = [];
 let examCharacterById = new Map();
 let examIdols = [];
