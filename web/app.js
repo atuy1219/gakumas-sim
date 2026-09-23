@@ -1445,6 +1445,8 @@ document.addEventListener("exam-simulation-start", (event) => {
       examTriggerById: examItemCatalogs.examTriggerById,
       cardSearchById: examItemCatalogs.cardSearchById,
       supportCards: event.detail?.supportCards ?? [],
+      turnParameterTypes: event.detail?.turnParameterTypes ?? [],
+      turnLimit: event.detail?.turnParameterTypes?.length || null,
     });
     examSelectedCardIndex = 0;
     drawTowerTurn(examTurnState, 3);

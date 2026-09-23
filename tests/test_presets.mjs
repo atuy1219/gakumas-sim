@@ -28,6 +28,7 @@ const preset = createExamPreset({
   supportCards: [
     { supportCardId: "support-a", rarity: "SSR", filterParameterType: "ProduceExamParameterType_Vocal", cardSearchId: "search-a", produceCardUpgradePermil: 300 },
   ],
+  turnParameterTypes: ["Dance", "Visual", "Dance"],
   stamina: 30,
   targetScore: 12000,
 });
@@ -47,6 +48,7 @@ assert.deepEqual(preset.supportCards, [{
   cardSearchId: "search-a",
   produceCardUpgradePermil: 300,
 }]);
+assert.deepEqual(preset.turnParameterTypes, ["Dance", "Visual", "Dance"]);
 assert.equal(preset.stamina, 30);
 assert.equal(preset.targetScore, 12000);
 
@@ -57,6 +59,7 @@ assert.deepEqual(parsed.cards, preset.cards);
 assert.deepEqual(parsed.manualCards, preset.manualCards);
 assert.deepEqual(parsed.progressCards, preset.progressCards);
 assert.deepEqual(parsed.supportCards, preset.supportCards);
+assert.deepEqual(parsed.turnParameterTypes, preset.turnParameterTypes);
 
 const legacyPreset = parseExamPreset(JSON.stringify({
   ...preset,
@@ -89,7 +92,9 @@ console.log("exam preset tests: ok");
 const { default: assert } = await import("node:assert/strict");
 const {
   defaultSupportUpgradePercent,
+  formatExamTurnParameterTypes,
   normalizeManualSupportCards,
+  parseExamTurnParameterTypes,
 } = await import("../web/exam_support_cards.js");
 
 assert.equal(defaultSupportUpgradePercent("R", "ProduceParameterType_Vocal"), 1.9);
@@ -116,6 +121,9 @@ assert.throws(() => normalizeManualSupportCards([{
   upgradePercent: 3.7,
 }]), /6枚すべて/);
 assert.deepEqual(normalizeManualSupportCards([]), []);
+assert.deepEqual(parseExamTurnParameterTypes("Da, Vi → Vo、Da"), ["Dance", "Visual", "Vocal", "Dance"]);
+assert.equal(formatExamTurnParameterTypes(["Dance", "Visual", "Vocal"]), "Da, Vi, Vo");
+assert.throws(() => parseExamTurnParameterTypes("Da, Unknown"), /認識できません/);
 }
 
 // test_tower_preset.mjs

@@ -473,6 +473,9 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     openingDrawCount,
     handLimit,
     holdLimit,
+    turnParameterTypes: Array.isArray(options.turnParameterTypes)
+      ? options.turnParameterTypes.map(String)
+      : [],
     turnLimit: Number.isFinite(Number(options.turnLimit)) ? Math.max(0, Math.trunc(Number(options.turnLimit))) : null,
     ended: false,
     exam,

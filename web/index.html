@@ -159,7 +159,7 @@
           <div class="section-head compact-head">
             <div>
               <h3 id="exam-support-title">サポートカードのスキルカード強化</h3>
-              <p class="hint">6枚それぞれのレアリティ、対象レッスン属性、強化確率を入力します。確率はMaster値を初期入力しますが、直接変更できます。</p>
+              <p class="hint">ゲーム内の左から右を1～6として入力します。強化確率は「サポート発生率」ではなく、1回のドロー対象に対するスキルカード強化率です（通常R 1.9%・SR 2.8%・SSR 3.7%）。</p>
             </div>
           </div>
           <div class="exam-support-grid-v18 exam-support-grid-head-v18" aria-hidden="true">
@@ -167,6 +167,11 @@
           </div>
           <div id="exam-support-card-inputs" class="exam-support-card-inputs-v18"></div>
           <p id="exam-support-status" class="hint" aria-live="polite">未入力の場合、サポートカード強化抽選は行いません。</p>
+          <label class="exam-turn-parameters-v19">
+            <span>ターンごとの審査属性順</span>
+            <input id="exam-turn-parameter-types" type="text" spellcheck="false" placeholder="例: Da, Vi, Da, Vi, Da, Vi">
+            <small>実機の1ターン目からVo・Da・Viを順に入力してください。サポート強化の属性判定に使用します。</small>
+          </label>
         </section>
         <div class="sim-config-grid">
           <label><span>キャラクター</span><select id="exam-character"><option value="">選択してください</option></select></label>

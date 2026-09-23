@@ -1088,6 +1088,17 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
   align-items: center;
   gap: .35rem;
 }
+.exam-turn-parameters-v19 {
+  display: grid;
+  gap: .35rem;
+  margin-top: .25rem;
+}
+.exam-turn-parameters-v19 > span {
+  font-weight: 800;
+}
+.exam-turn-parameters-v19 > small {
+  color: var(--m3e-on-surface-variant, currentColor);
+}
 @media (max-width: 680px) {
   .exam-support-grid-head-v18 { display: none; }
   .exam-support-grid-v18 {

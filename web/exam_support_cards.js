@@ -55,3 +55,20 @@ export function normalizeManualSupportCards(rows, { requireAll = true } = {}) {
   });
 }
 
+export function parseExamTurnParameterTypes(input) {
+  const values = Array.isArray(input)
+    ? input
+    : String(input ?? "").split(/[\s,、/／→>]+/);
+  return values.map((value) => String(value ?? "").trim()).filter(Boolean).map((value, index) => {
+    const normalized = value.toLowerCase();
+    if (["vo", "vocal", "ボーカル"].includes(normalized)) return "Vocal";
+    if (["da", "dance", "ダンス"].includes(normalized)) return "Dance";
+    if (["vi", "visual", "ビジュアル"].includes(normalized)) return "Visual";
+    throw new Error(`ターン${index + 1}の属性「${value}」を認識できません。Vo、Da、Viで入力してください。`);
+  });
+}
+
+export function formatExamTurnParameterTypes(values) {
+  const short = { Vocal: "Vo", Dance: "Da", Visual: "Vi" };
+  return parseExamTurnParameterTypes(values).map((value) => short[value]).join(", ");
+}

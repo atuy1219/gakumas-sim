@@ -6,7 +6,9 @@ import { parseProgressProduceCardsJson, progressDeckCounts } from "./exam_progre
 import {
   EXAM_SUPPORT_CARD_COUNT,
   defaultSupportUpgradePercent,
+  formatExamTurnParameterTypes,
   normalizeManualSupportCards,
+  parseExamTurnParameterTypes,
 } from "./exam_support_cards.js";
 import {
   describeCustomize,
@@ -153,13 +155,28 @@ function readExamSupportCardInputs({ requireAll = true } = {}) {
   return normalizeManualSupportCards(rows, { requireAll });
 }
 
+function readExamTurnParameterTypes(supportCards = examProgressSupportCards) {
+  const input = document.getElementById("exam-turn-parameter-types")?.value ?? "";
+  const types = parseExamTurnParameterTypes(input);
+  const needsAttribute = (supportCards ?? []).some((card) => (
+    !String(card?.filterParameterType ?? "").endsWith("_Unknown")
+  ));
+  if (needsAttribute && !types.length) {
+    throw new Error("サポートカード強化を再現するには、ターンごとの審査属性順をVo・Da・Viで入力してください。");
+  }
+  return types;
+}
+
 function updateExamSupportStatus() {
   const status = document.getElementById("exam-support-status");
   if (!status) return;
   try {
     const cards = readExamSupportCardInputs({ requireAll: false });
+    const suspicious = cards.some((card) => Number(card.produceCardUpgradePermil ?? 0) > 100);
     status.textContent = cards.length
-      ? `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · CardSearchは手札で内部固定`
+      ? suspicious
+        ? `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · 10%超の値があります。「サポート発生率」ではなくスキルカード強化率か確認してください。`
+        : `${cards.length}/${EXAM_SUPPORT_CARD_COUNT}枚入力済み · CardSearchは手札で内部固定`
       : "未入力の場合、サポートカード強化抽選は行いません。";
   } catch (error) {
     status.textContent = String(error?.message ?? error);
@@ -438,6 +455,8 @@ function clearExamProgressDeck(message = "") {
   examProgressInstances = [];
   examProgressPath = "";
   examProgressSupportCards = [];
+  const turnTypes = document.getElementById("exam-turn-parameter-types");
+  if (turnTypes) turnTypes.value = "";
   renderExamSupportCardInputs();
   renderExamProgressCards();
   renderExamProgressStatus(message);
@@ -468,6 +487,7 @@ function examPresetStatus(message) {
 function exportExamPreset() {
   try {
     examProgressSupportCards = readExamSupportCardInputs();
+    const turnParameterTypes = readExamTurnParameterTypes(examProgressSupportCards);
     const preset = createExamPreset({
       characterId: examCharacter.value,
       planType: examPlan.value,
@@ -486,6 +506,7 @@ function exportExamPreset() {
         customizes: normalizeCustomizes(card.customizes),
       })),
       supportCards: examProgressSupportCards,
+      turnParameterTypes,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
     });
@@ -555,6 +576,8 @@ async function importExamPreset(file) {
   }
   examProgressSupportCards = preset.supportCards ?? examProgressSupportCards;
   renderExamSupportCardInputs();
+  const turnTypes = document.getElementById("exam-turn-parameter-types");
+  if (turnTypes) turnTypes.value = formatExamTurnParameterTypes(preset.turnParameterTypes ?? []);
   document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
   document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
   examCardSearch.value = "";
@@ -1038,6 +1061,7 @@ document.getElementById("exam-next").addEventListener("click", () => {
   if (!examDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
   try {
     examProgressSupportCards = readExamSupportCardInputs();
+    readExamTurnParameterTypes(examProgressSupportCards);
   } catch (error) {
     return showExamError(error);
   }
@@ -1062,8 +1086,10 @@ document.getElementById("exam-seed-next").addEventListener("click", () => {
 document.getElementById("exam-run").addEventListener("click", () => {
   const deck = examDeck();
   if (!deck.length) return showExamError("使用するカードを1枚以上追加してください。");
+  let turnParameterTypes;
   try {
     examProgressSupportCards = readExamSupportCardInputs();
+    turnParameterTypes = readExamTurnParameterTypes(examProgressSupportCards);
   } catch (error) {
     return showExamError(error);
   }
@@ -1074,6 +1100,7 @@ document.getElementById("exam-run").addEventListener("click", () => {
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
       supportCards: examProgressSupportCards.map((item) => ({ ...item })),
+      turnParameterTypes,
     },
   }));
 });

@@ -123,6 +123,21 @@ const handSearchState = createTowerTurnState(
 drawTowerTurn(handSearchState, 1);
 assert.equal(handSearchState.supportCardRollHistory.length, 1, "the common Hand search does not require a catalog row");
 assert.deepEqual(handSearchState.unsupported, []);
+
+const parameterFilteredState = createTowerTurnState(
+  [{ id: "S-A", upgradeCount: 0, fixedDeckOrder: 0 }],
+  3,
+  supportMasters,
+  {
+    turnParameterTypes: ["Dance"],
+    supportCards: [
+      { supportCardId: "dance", filterParameterType: "ProduceParameterType_Dance", produceCardUpgradePermil: 0 },
+      { supportCardId: "visual", filterParameterType: "ProduceParameterType_Visual", produceCardUpgradePermil: 1000 },
+    ],
+  },
+);
+drawTowerTurn(parameterFilteredState, 1);
+assert.deepEqual(parameterFilteredState.supportCardRollHistory.map((roll) => roll.supportCardId), ["dance"]);
 }
 
 // ResetHand preserves the relative Hand order for Grave and sends
