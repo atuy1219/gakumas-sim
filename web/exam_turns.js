@@ -1,4 +1,5 @@
-import { calculateTurnParameterTypesFromCounts } from "./turn_parameters.js";
+import { calculateTurnParameterTypesFromCounts, calculateWeightedTurnParameterTypes } from "./turn_parameters.js";
+import { advanceXorshift32 } from "./simulation.js";
 
 export const EXAM_JUDGING_STYLE = Object.freeze({
   BALANCE: "balance",
@@ -104,7 +105,19 @@ export const EXAM_TURN_STAGES = Object.freeze([
   STAGE("hif-selection-1", "H.I.F 選抜試験1", "hif", [5, 3, 2]),
   STAGE("hif-selection-2", "H.I.F 選抜試験2", "hif", [5, 4, 3], [6, 3, 3]),
   STAGE("hif-selection-3", "H.I.F 選抜試験3", "hif", [5, 4, 3], [6, 3, 3]),
-  STAGE("hif-final-round-1", "H.I.F 本戦 ラウンド1", "hif", [4, 3, 2]),
+  STAGE("hif-final-round-1", "H.I.F 本戦 ラウンド1", "hif", [4, 3, 2], [4, 3, 2], {
+    verifiedPreShuffleAdvanceSteps: 24,
+    // ProduceExamBattleConfig: p_exam_battle_config-davi-01-produce_005-1-1.
+    // The current hrnm trace uses Da > Vi > Vo (290/180/110).
+    verifiedBattleConfigByCharacter: Object.freeze({
+      hrnm: Object.freeze({
+        vocal: 110,
+        dance: 290,
+        visual: 180,
+        turnRngAdvanceSteps: 27,
+      }),
+    }),
+  }),
   STAGE("hif-final-round-2", "H.I.F 本戦 ラウンド2", "hif", [5, 4, 3], [6, 3, 3]),
 ]);
 
@@ -126,14 +139,17 @@ export function nativeExamPreShuffleAdvanceSteps(stageOrTurnInput) {
   const stage = stageOrTurnInput && typeof stageOrTurnInput === "object"
     ? stageOrTurnInput
     : null;
+  const verified = Number(stage?.verifiedPreShuffleAdvanceSteps);
+  if (Number.isInteger(verified) && verified >= 0) return verified;
+
   const turnCount = Math.max(
     0,
     Math.trunc(Number(stage?.turn ?? stageOrTurnInput) || 0),
   );
-  // The 18-word prefix is inferred from the verified H.I.F round-1 trace.
-  // Battle stages then consume one shared RNG word per random attribute turn
-  // in CalcTurnParameterType. A single-attribute lesson does not run that
-  // random attribute schedule, so it keeps only the setup prefix.
+  // Fallback for stages without an instrumented trace. Do not reuse this to
+  // infer the turn-attribute RNG stream: the verified H.I.F trace shows that
+  // turn scheduling and the live card/support RNG cannot be treated as one
+  // simple sequential stream.
   return 18 + (stage?.lesson ? 0 : Math.max(0, turnCount - 3));
 }
 
@@ -172,6 +188,20 @@ export function calculateExamTurnTypes(characterIdInput, stageIdInput, seedInput
     }
     throw new Error("このキャラクターは選択した試験・オーディションの自動生成に未対応です。");
   }
+  const verifiedConfig = stage.verifiedBattleConfigByCharacter?.[characterId];
+  if (verifiedConfig) {
+    const turnSeed = advanceXorshift32(seedInput, verifiedConfig.turnRngAdvanceSteps);
+    return calculateWeightedTurnParameterTypes(
+      {
+        turn: stage.turn,
+        vocal: verifiedConfig.vocal,
+        dance: verifiedConfig.dance,
+        visual: verifiedConfig.visual,
+      },
+      turnSeed,
+    );
+  }
+
   const counts = stage.counts[profile.style];
   if (!counts) throw new Error("この審査基準のターン配分を計算できません。");
   return calculateTurnParameterTypesFromCounts(profile.order, counts, seedInput);
@@ -196,6 +226,24 @@ export function describeExamTurnConfig(characterIdInput, stageIdInput, lessonPar
 
   const profile = getExamTurnProfile(characterIdInput);
   if (!profile || !isExamTurnStageSupported(characterIdInput, stageIdInput)) return null;
+  const verifiedConfig = stage.verifiedBattleConfigByCharacter?.[String(characterIdInput ?? "")];
+  if (verifiedConfig) {
+    const ordered = [
+      ["Vocal", Number(verifiedConfig.vocal)],
+      ["Dance", Number(verifiedConfig.dance)],
+      ["Visual", Number(verifiedConfig.visual)],
+    ].sort((a, b) => b[1] - a[1]);
+    return {
+      style: profile.style,
+      order: ordered.map(([type]) => type),
+      counts: [...stage.counts[profile.style]],
+      turn: stage.turn,
+      label: stage.label,
+      difficulty: stage.difficulty ?? "",
+      verifiedBattleConfig: true,
+    };
+  }
+
   return {
     style: profile.style,
     order: [...profile.order],
