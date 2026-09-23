@@ -326,10 +326,8 @@ function renderExamPreShuffleOrder() {
   const ready = base.length > 0 && examPreShuffleDeck.length === base.length;
   if (status) {
     status.textContent = ready
-      ? `シャッフル前${base.length}枚を確定しました（${examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT ? "Number順" : "手動"}）。`
-      : examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT
-        ? "JSONを読み込んでNumber順を確定してください。"
-        : `実機の取得順に${base.length}枚すべて選択してください。`;
+      ? `シャッフル前${base.length}枚を確定しました。`
+      : `実機の取得順に${base.length}枚すべて選択してください。`;
   }
   const next = document.getElementById("exam-order-next");
   if (next) next.disabled = !ready;
@@ -410,10 +408,10 @@ function restoreExamWorkflow() {
     }
 
     renderExamSupportCardInputs(snapshot.supportDrafts);
-    if (examTurnStage && [...examTurnStage.options].some((option) => option.value === snapshot.turnStageId)) {
-      examTurnStage.value = snapshot.turnStageId;
+    if (examTurnStage) {
+      const stageValue = examStageSelectValue(snapshot.turnStageId, snapshot.lessonParameterType);
+      if ([...examTurnStage.options].some((option) => option.value === stageValue)) examTurnStage.value = stageValue;
     }
-    if (examLessonParameter) examLessonParameter.value = snapshot.lessonParameterType;
     document.getElementById("exam-start-stamina").value = String(snapshot.stamina);
     document.getElementById("exam-target-score").value = String(snapshot.targetScore);
     document.getElementById("exam-seed").value = snapshot.seed;
@@ -539,13 +537,12 @@ function resolveExamInitialShuffleState(seedInput) {
 
 function updateExamTurnConfigUi() {
   const status = document.getElementById("exam-turn-config-status");
-  const lessonWrap = document.getElementById("exam-lesson-parameter-wrap");
-
   const profile = getExamTurnProfile(examCharacter.value);
   if (examTurnStage && profile) {
     for (const option of examTurnStage.querySelectorAll("option[value]")) {
-      if (!option.value) continue;
-      option.disabled = !isExamTurnStageSupported(examCharacter.value, option.value);
+      const optionStageId = String(option.dataset.stageId ?? examStageSelection(option.value).stageId);
+      if (!optionStageId) continue;
+      option.disabled = !isExamTurnStageSupported(examCharacter.value, optionStageId);
     }
     if (examTurnStage.selectedOptions[0]?.disabled) examTurnStage.value = "";
   } else if (examTurnStage) {
@@ -554,7 +551,6 @@ function updateExamTurnConfigUi() {
 
   const stageId = selectedExamTurnStageId();
   const stage = getExamTurnStage(stageId);
-  if (lessonWrap) lessonWrap.hidden = !stage?.lesson;
   if (!status) return;
 
   if (!stage) {
@@ -940,7 +936,7 @@ function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
     examProgressSupportCards = parsed.supportCards;
     renderExamSupportCardInputs(examProgressSupportCards);
   }
-  setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.IMPORT, { preserve: true });
+  setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.MANUAL, { preserve: true });
   resetExamObservation();
   renderExamProgressCards();
   const deletedCount = parsed.deletedCards?.length ?? 0;
@@ -973,13 +969,15 @@ function exportExamPreset() {
         customizes: normalizeCustomizes(card.customizes),
       })),
       supportCards: examProgressSupportCards,
-      preShuffleMode: examPreShuffleMode,
+      source: "web",
+      preShuffleMode: EXAM_PRE_SHUFFLE_MODE.MANUAL,
       preShuffleOrder: serializeExamPreShuffleOrder(ensureExamPreShuffleReady()),
       turnStageId: selectedExamTurnStageId(),
       lessonParameterType: selectedExamLessonParameterType(),
       turnParameterTypes,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),
       targetScore: Number(document.getElementById("exam-target-score").value || 0),
+      seed: document.getElementById("exam-seed")?.value ?? "",
     });
     const blob = new Blob([`${JSON.stringify(preset, null, 2)}\n`], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -991,7 +989,7 @@ function exportExamPreset() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    examPresetStatus(`${examDeck().length}枚の編成・シャッフル前順をエクスポートしました。`);
+    examPresetStatus(`${examDeck().length}枚のWeb / LSPosed共通設定をエクスポートしました。`);
   } catch (error) {
     showExamError(error);
   }
@@ -999,36 +997,64 @@ function exportExamPreset() {
 
 async function importExamPreset(file) {
   const preset = parseExamPreset(await file.text());
-  if (![...examCharacter.options].some((option) => option.value === preset.characterId)) throw new Error(`キャラクター ${preset.characterId} が現在のデータにありません。`);
-  if (![...examPlan.options].some((option) => option.value === preset.planType)) throw new Error(`プラン ${preset.planType} が現在のデータにありません。`);
-  if (!filterExamIdols(examIdols, preset.characterId, preset.planType).some((idol) => idol.id === preset.idolCardId)) {
-    throw new Error(`Pアイドル ${preset.idolCardId} が現在のキャラクター・プランにありません。`);
+  const fromLsposed = String(preset.source ?? "").startsWith("lsposed");
+
+  let targetIdolCardId = String(preset.idolCardId || examIdol.value || "");
+  let targetCharacterId = String(preset.characterId || examCharacter.value || "");
+  let targetPlanType = String(preset.planType || examPlan.value || "");
+
+  const importedIdol = targetIdolCardId ? examIdolById.get(targetIdolCardId) : null;
+  if (importedIdol) {
+    targetCharacterId ||= String(importedIdol.characterId ?? "");
+    targetPlanType ||= String(importedIdol.planType ?? "");
   }
-  const availableCards = new Map(filterExamCards(examCards, {
-    planType: preset.planType,
-    characterId: preset.characterId,
-    idolCardId: preset.idolCardId,
-    poolMode: preset.cardPoolMode,
-    idolById: examIdolById,
-  }).map((card) => [String(card.id), card]));
+
+  if (targetCharacterId && ![...examCharacter.options].some((option) => option.value === targetCharacterId)) {
+    throw new Error(`キャラクター ${targetCharacterId} が現在のデータにありません。`);
+  }
+  if (targetPlanType && ![...examPlan.options].some((option) => option.value === targetPlanType)) {
+    throw new Error(`プラン ${targetPlanType} が現在のデータにありません。`);
+  }
+  if (targetIdolCardId && targetCharacterId && targetPlanType
+      && !filterExamIdols(examIdols, targetCharacterId, targetPlanType).some((idol) => idol.id === targetIdolCardId)) {
+    throw new Error(`Pアイドル ${targetIdolCardId} が現在のキャラクター・プランにありません。`);
+  }
+
+  const availableCards = targetCharacterId && targetPlanType && targetIdolCardId
+    ? new Map(filterExamCards(examCards, {
+        planType: targetPlanType,
+        characterId: targetCharacterId,
+        idolCardId: targetIdolCardId,
+        poolMode: preset.cardPoolMode,
+        idolById: examIdolById,
+      }).map((card) => [String(card.id), card]))
+    : new Map(examCards.map((card) => [String(card.id), card]));
+
   const nextCounts = new Map();
   for (const entry of preset.cards) {
-    const card = availableCards.get(entry.id);
-    if (!card) throw new Error(`カード ${entry.id} が現在のプランにありません。`);
+    const card = availableCards.get(entry.id) ?? examCardById.get(entry.id);
+    if (!card) throw new Error(`カード ${entry.id} が現在のカタログにありません。`);
     if (card.noDeckDuplication && entry.count > 1) throw new Error(`${card.baseName ?? card.name}: デッキ内1枚までです。`);
     nextCounts.set(entry.id, entry.count);
   }
-  examCharacter.value = preset.characterId;
-  examPlan.value = preset.planType;
+
+  if (targetCharacterId) examCharacter.value = targetCharacterId;
+  if (targetPlanType) examPlan.value = targetPlanType;
   refreshExamIdols();
-  examIdol.value = preset.idolCardId;
-  if (examCardPoolMode) examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
+  if (targetIdolCardId && [...examIdol.options].some((option) => option.value === targetIdolCardId)) {
+    examIdol.value = targetIdolCardId;
+  }
+  if (examCardPoolMode && (!fromLsposed || preset.cardPoolMode !== EXAM_CARD_POOL_MODE.NORMAL)) {
+    examCardPoolMode.value = preset.cardPoolMode ?? EXAM_CARD_POOL_MODE.NORMAL;
+  }
+
   examCounts = nextCounts;
   if (preset.manualCards?.length) seedExamManualInstances(preset.manualCards);
   else {
     examManualInstances = new Map();
     for (const [id, count] of examCounts) syncExamManualInstances(id, count);
   }
+
   if (preset.progressCards?.length) {
     const parsedProgress = parseProgressProduceCardsJson(
       { produceCards: preset.progressCards },
@@ -1037,49 +1063,58 @@ async function importExamPreset(file) {
     );
     examProgressDeck = parsedProgress.cards;
     examProgressInstances = parsedProgress.allCards;
-    examProgressPath = "preset.progressCards";
-    renderExamProgressCards();
+    examProgressPath = fromLsposed ? "lsposed.progressCards" : "preset.progressCards";
   } else {
     examProgressDeck = [];
     examProgressInstances = [];
     examProgressPath = "";
   }
-  examProgressSupportCards = preset.supportCards ?? [];
-  renderExamSupportCardInputs(examProgressSupportCards);
 
-  examPreShuffleMode = normalizeExamPreShuffleMode(preset.preShuffleMode);
+  if (!fromLsposed || preset.supportCards?.length) {
+    examProgressSupportCards = preset.supportCards ?? [];
+    renderExamSupportCardInputs(examProgressSupportCards);
+  }
+
+  examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.MANUAL;
   const baseDeck = examCompositionDeck();
   if (preset.preShuffleOrder?.length) {
     examPreShuffleDeck = applyExamPreShuffleOrder(baseDeck, preset.preShuffleOrder);
-  } else if (preset.progressCards?.length) {
-    // v1-v9 presets did not carry an explicit pre-shuffle order. Preserve their
-    // old Number-based behavior when progressCards are present.
+  } else if (!fromLsposed && preset.progressCards?.length) {
     examPreShuffleDeck = applyProgressNumberOrder(baseDeck, examProgressDeck);
-    examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.IMPORT;
   } else {
     examPreShuffleDeck = [];
   }
   examManualOrderTokens = examPreShuffleDeck.length
     ? manualOrderTokensForDeck(baseDeck, examPreShuffleDeck)
     : [];
-  setExamPreShuffleMode(examPreShuffleMode, { preserve: true });
-  if (examTurnStage) {
-    const requestedStage = String(preset.turnStageId ?? "");
+  setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.MANUAL, { preserve: true });
+
+  if (examTurnStage && (preset.turnStageId || !fromLsposed)) {
+    const requestedStage = examStageSelectValue(preset.turnStageId, preset.lessonParameterType);
     examTurnStage.value = [...examTurnStage.options].some((option) => option.value === requestedStage)
       ? requestedStage
       : "";
   }
-  if (examLessonParameter) examLessonParameter.value = String(preset.lessonParameterType ?? "");
   updateExamTurnConfigUi();
-  document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
-  document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
+
+  if (!fromLsposed) {
+    document.getElementById("exam-start-stamina").value = String(preset.stamina ?? 0);
+    document.getElementById("exam-target-score").value = String(preset.targetScore ?? 0);
+  }
+  if (preset.seed || !fromLsposed) document.getElementById("exam-seed").value = String(preset.seed ?? "");
+
   examCardSearch.value = "";
   renderExamCards();
   resetExamObservation();
+  renderExamProgressCards();
   renderExamProgressStatus();
   renderExamPreShuffleOrder();
   persistExamWorkflow();
-  examPresetStatus(`${examCompositionDeck().length}枚の編成・シャッフル前設定をインポートしました。`);
+  examPresetStatus(
+    fromLsposed
+      ? `LSPosed取得データを読み込みました（${examCompositionDeck().length}枚）。`
+      : `${examCompositionDeck().length}枚の共通設定をインポートしました。`,
+  );
 }
 
 function renderExamCards() {
@@ -1596,29 +1631,6 @@ document.getElementById("exam-import-preset").addEventListener("change", async (
     input.value = "";
   }
 });
-document.getElementById("exam-progress-file")?.addEventListener("change", async (event) => {
-  const input = event.currentTarget;
-  const file = input.files?.[0];
-  if (!file) return;
-  try {
-    document.getElementById("global-error").hidden = true;
-    applyExamProgressJson(await file.text(), file.name);
-  } catch (error) {
-    showExamError(error);
-  } finally {
-    input.value = "";
-  }
-});
-document.getElementById("exam-load-progress-text")?.addEventListener("click", () => {
-  try {
-    document.getElementById("global-error").hidden = true;
-    const text = document.getElementById("exam-progress-text")?.value ?? "";
-    if (!String(text).trim()) throw new Error("produce_cards.jsonまたは進行中プロデュースJSONを貼り付けてください。");
-    applyExamProgressJson(text, "貼り付けJSON");
-  } catch (error) {
-    showExamError(error);
-  }
-});
 document.getElementById("exam-next").addEventListener("click", () => {
   if (!examCharacter.value || !examPlan.value || !examIdol.value) return showExamError("キャラクター、プラン、Pアイドルを選択してください。");
   if (!examCompositionDeck().length) return showExamError("使用するカードを1枚以上追加してください。");
@@ -1637,12 +1649,6 @@ for (const button of document.querySelectorAll("#tab-exam [data-exam-back]")) {
   button.addEventListener("click", () => {
     setSimulationStage("exam", button.dataset.examBack);
     persistExamWorkflow();
-  });
-}
-for (const radio of document.querySelectorAll('input[name="exam-order-mode"]')) {
-  radio.addEventListener("change", () => {
-    if (!radio.checked) return;
-    setExamPreShuffleMode(radio.value, { preserve: false });
   });
 }
 document.getElementById("exam-order-undo")?.addEventListener("click", () => {
@@ -1767,10 +1773,6 @@ examTurnStage?.addEventListener("change", () => {
   persistExamWorkflow();
 });
 examCharacter?.addEventListener("change", updateExamTurnConfigUi);
-examLessonParameter?.addEventListener("change", () => {
-  updateExamTurnConfigUi();
-  persistExamWorkflow();
-});
 document.getElementById("exam-start-stamina")?.addEventListener("input", persistExamWorkflow);
 document.getElementById("exam-target-score")?.addEventListener("input", persistExamWorkflow);
 document.getElementById("exam-seed")?.addEventListener("input", () => {
