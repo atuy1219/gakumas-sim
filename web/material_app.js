@@ -871,7 +871,7 @@ function refreshExamIdols() {
 function updateExamSummary() {
   const deck = examCompositionDeck();
   const order = examPreShuffleDeck.length === deck.length && deck.length
-    ? ` · シャッフル前順設定済み（${examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT ? "Number順" : "手動"}）`
+    ? " · シャッフル前順設定済み"
     : "";
   document.getElementById("exam-card-summary").textContent = `${deck.length}枚 · ${examCounts.size}種類選択${order}`;
 }
@@ -915,35 +915,11 @@ function clearExamProgressDeck(message = "") {
   examProgressDeck = [];
   examProgressInstances = [];
   examProgressPath = "";
-  if (examPreShuffleMode === EXAM_PRE_SHUFFLE_MODE.IMPORT) examPreShuffleDeck = [];
   renderExamProgressCards();
   renderExamProgressStatus(message);
   renderExamPreShuffleOrder();
 }
 
-function applyExamProgressJson(input, sourceLabel = "produce_cards.json") {
-  const base = examCompositionDeck();
-  if (!base.length) throw new Error("先に編成を完成させてください。JSONはシャッフル前の順番だけに使用します。");
-  const parsed = parseProgressProduceCardsJson(input, examCardById, examCardVariantByKey);
-  const ordered = applyProgressNumberOrder(base, parsed.cards);
-  examProgressDeck = parsed.cards;
-  examProgressInstances = parsed.allCards ?? parsed.cards;
-  examProgressPath = parsed.path;
-  examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.IMPORT;
-  examPreShuffleDeck = ordered;
-  examManualOrderTokens = [];
-  if ((parsed.supportCards ?? []).length) {
-    examProgressSupportCards = parsed.supportCards;
-    renderExamSupportCardInputs(examProgressSupportCards);
-  }
-  setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.MANUAL, { preserve: true });
-  resetExamObservation();
-  renderExamProgressCards();
-  const deletedCount = parsed.deletedCards?.length ?? 0;
-  renderExamProgressStatus(`${sourceLabel}: Number順で${parsed.cards.length}枚を設定しました${deletedCount ? ` · 削除済み${deletedCount}枚は除外` : ""} · ${parsed.path}`);
-  renderExamPreShuffleOrder();
-  persistExamWorkflow();
-}
 
 function examPresetStatus(message) {
   document.getElementById("exam-preset-status").textContent = String(message ?? "");
@@ -1556,7 +1532,7 @@ async function initializeExamSetup() {
     renderExamPreShuffleOrder();
     examSetupReady = true;
     if (!restoreExamWorkflow()) {
-      setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.IMPORT, { preserve: true });
+      setExamPreShuffleMode(EXAM_PRE_SHUFFLE_MODE.MANUAL, { preserve: true });
       persistExamWorkflow();
     }
   } catch (error) {
