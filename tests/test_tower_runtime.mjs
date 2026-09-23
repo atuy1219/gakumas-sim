@@ -4,6 +4,7 @@ import { getExamTurnStage, nativeExamPreShuffleAdvanceSteps } from "../web/exam_
 import {
   TOWER_DEFAULT_DECK_BY_EXAM_EFFECT,
   TOWER_EXAM_EFFECT_LABELS,
+  cloneTowerTurnState,
   createTowerTurnState,
   currentTowerScoreContext,
   drawTowerTurn,
@@ -386,6 +387,105 @@ const parameterFilteredState = createTowerTurnState(
 );
 drawTowerTurn(parameterFilteredState, 1);
 assert.deepEqual(parameterFilteredState.supportCardRollHistory.map((roll) => roll.supportCardId), ["dance"]);
+
+// Support-card upgrades must load the exact ++/+++ master, not just increment
+// the visible counter. Customizations are reapplied on top of the upgraded
+// master so both native upgrade effects and grow effects survive.
+const stagedPlus = {
+  id: "SUP-STAGED",
+  name: "段階強化+",
+  upgradeCount: 1,
+  category: "ProduceCardCategory_MentalSkill",
+  stamina: 5,
+  playMovePositionType: "ProduceCardMovePositionType_Grave",
+  playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_lesson_buff-0005" }],
+};
+const stagedPlusPlus = {
+  ...stagedPlus,
+  name: "段階強化++",
+  upgradeCount: 2,
+  stamina: 4,
+  playEffects: [{ produceExamTriggerId: "", produceExamEffectId: "e_effect-exam_lesson_buff-0006" }],
+};
+const stagedVariants = new Map([
+  ["SUP-STAGED@@1", stagedPlus],
+  ["SUP-STAGED@@2", stagedPlusPlus],
+]);
+const stagedCustomizeById = new Map([[
+  "custom-cost-reduce",
+  {
+    levels: new Map([[1, {
+      growEffectIds: ["grow-cost-reduce"],
+      overwriteType: "ProduceCardGrowEffectType_Unknown",
+    }]]),
+  },
+]]);
+const stagedGrowEffectById = new Map([[
+  "grow-cost-reduce",
+  {
+    id: "grow-cost-reduce",
+    effectType: "ProduceCardGrowEffectType_CostReduce",
+    value: 1,
+  },
+]]);
+const stagedSupportState = createTowerTurnState(
+  [{
+    id: "SUP-STAGED",
+    upgradeCount: 1,
+    fixedDeckOrder: 0,
+    customizes: [{ id: "custom-cost-reduce", customizeCount: 1 }],
+  }],
+  4,
+  new Map([["SUP-STAGED", stagedPlus]]),
+  {
+    cardVariantByKey: stagedVariants,
+    customizeById: stagedCustomizeById,
+    growEffectById: stagedGrowEffectById,
+    supportCards: [{
+      supportCardId: "guaranteed-stage-upgrade",
+      cardSearchId: "p_card_search-hand",
+      produceCardUpgradePermil: 1000,
+    }],
+  },
+);
+drawTowerTurn(stagedSupportState, 1);
+assert.equal(stagedSupportState.hand[0].upgradeCount, 2);
+assert.equal(stagedSupportState.hand[0].name, "段階強化++");
+assert.equal(stagedSupportState.hand[0].stamina, 3, "++ master stamina 4 must retain customize -1");
+assert.equal(
+  stagedSupportState.hand[0].playEffects[0].produceExamEffectId,
+  "e_effect-exam_lesson_buff-0006",
+  "support upgrade must replace play effects with the exact ++ master",
+);
+const stagedPlay = playTowerCard(stagedSupportState, 0);
+assert.match(stagedPlay.effects.join(" / "), /集中 \+6/);
+finishTowerTurn(stagedSupportState, { type: "end" });
+const stagedReverted = stagedSupportState.discard.find((card) => card.id === "SUP-STAGED");
+assert.equal(stagedReverted.upgradeCount, 1);
+assert.equal(stagedReverted.name, "段階強化+");
+assert.equal(stagedReverted.stamina, 4, "turn end restores the permanent + master with customize -1");
+
+// Undo snapshots must isolate mutable runtime/RNG state while sharing immutable
+// catalog maps. Restoring a snapshot therefore reproduces the exact next RNG.
+const undoSource = createTowerTurnState(
+  ["S-A", "S-B", "S-C"].map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+  5,
+  supportMasters,
+);
+drawTowerTurn(undoSource, 3);
+const undoSnapshot = cloneTowerTurnState(undoSource);
+const undoRandom = undoSnapshot.randomState >>> 0;
+const undoFirstHand = undoSnapshot.hand.map((card) => card.id);
+undoSource.randomState = 0;
+undoSource.hand[0].name = "mutated";
+undoSource.exam.block = 999;
+undoSource.turnUseSupportCardIds.add("mutated");
+assert.equal(undoSnapshot.randomState >>> 0, undoRandom);
+assert.deepEqual(undoSnapshot.hand.map((card) => card.id), undoFirstHand);
+assert.notEqual(undoSnapshot.hand[0].name, "mutated");
+assert.notEqual(undoSnapshot.exam.block, 999);
+assert.equal(undoSnapshot.turnUseSupportCardIds.has("mutated"), false);
+assert.equal(undoSnapshot.cardVariantByKey, undoSource.cardVariantByKey);
 }
 
 // In-exam drinks execute the same exam-effect runtime. Hand replacement moves
