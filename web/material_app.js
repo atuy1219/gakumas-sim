@@ -26,6 +26,7 @@ import {
   examJudgingStyleLabel,
   getExamTurnProfile,
   getExamTurnStage,
+  isExamTurnStageSupported,
 } from "./exam_turns.js";
 import { generatedObservationLabel, partitionSeedObservations } from "./seed_observation.js";
 
@@ -172,9 +173,16 @@ function readExamTurnParameterTypes(supportCards = examProgressSupportCards, see
   ));
 
   if (stageId && stageId !== "manual") {
-    if (!getExamTurnStage(stageId)) throw new Error("試験・オーディションを選択してください。");
+    const stage = getExamTurnStage(stageId);
+    if (!stage) throw new Error("試験・オーディションを選択してください。");
     if (!getExamTurnProfile(examCharacter.value)) {
       throw new Error("このキャラクターの審査基準は自動計算データに未登録です。「その他（属性順を手動入力）」を使用してください。");
+    }
+    if (!isExamTurnStageSupported(examCharacter.value, stageId)) {
+      if (String(examCharacter.value) === "atbm" && stage.scenario === "hif") {
+        throw new Error("雨夜燕はH.I.F未実装です。N.I.Aを選択してください。");
+      }
+      throw new Error("このキャラクターは選択した試験・オーディションの自動生成に未対応です。");
     }
     if (seedInput !== null && String(seedInput ?? "").trim()) {
       return calculateExamTurnTypes(examCharacter.value, stageId, seedInput);
@@ -193,6 +201,19 @@ function readExamTurnParameterTypes(supportCards = examProgressSupportCards, see
 function updateExamTurnConfigUi() {
   const manual = document.getElementById("exam-turn-parameters-manual");
   const status = document.getElementById("exam-turn-config-status");
+
+  const profile = getExamTurnProfile(examCharacter.value);
+  if (examTurnStage && profile) {
+    for (const option of examTurnStage.querySelectorAll("option[value^='hif-'], option[value^='nia-']")) {
+      option.disabled = !isExamTurnStageSupported(examCharacter.value, option.value);
+    }
+    if (examTurnStage.selectedOptions[0]?.disabled) examTurnStage.value = "";
+  } else if (examTurnStage) {
+    for (const option of examTurnStage.querySelectorAll("option[value^='hif-'], option[value^='nia-']")) {
+      option.disabled = false;
+    }
+  }
+
   const stageId = String(examTurnStage?.value ?? "");
   if (manual) manual.hidden = stageId !== "manual";
   if (!status) return;
@@ -211,9 +232,12 @@ function updateExamTurnConfigUi() {
 
   const config = describeExamTurnConfig(examCharacter.value, stageId);
   if (!config) {
-    status.textContent = examCharacter.value
-      ? "このキャラクターの自動配分は未登録です。手動入力を使用してください。"
-      : "キャラクターを選択すると審査基準を表示します。";
+    const stage = getExamTurnStage(stageId);
+    status.textContent = String(examCharacter.value) === "atbm" && stage?.scenario === "hif"
+      ? "雨夜燕はH.I.F未実装です。N.I.Aを選択してください。"
+      : examCharacter.value
+        ? "このキャラクターの自動配分は未登録です。手動入力を使用してください。"
+        : "キャラクターを選択すると審査基準を表示します。";
     return;
   }
 
