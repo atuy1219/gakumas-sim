@@ -26,6 +26,26 @@ constexpr uintptr_t kRvaCreateDeckProduceCardMasters = 0x077C7018;
 constexpr uintptr_t kRvaGetProduceCardData = 0x074DBEE0;
 constexpr uintptr_t kRvaInternalMergeFrom = 0x074DBAB0;
 
+// Exact-build diagnostic hooks used to compare the real exam RNG/card-pool
+// transitions with gakumas-sim. These RVAs are from gakumas_analysis_fullcfg.elf.
+constexpr uintptr_t kRvaExamParameterGetRandomInt = 0x08043A80;
+constexpr uintptr_t kRvaExamParameterGetRandomIntRange = 0x08043B78;
+constexpr uintptr_t kRvaExamCardMoveReplaceGraveToDeck = 0x0823606C;
+constexpr uintptr_t kRvaExamCardMoveDrawCard = 0x082366E4;
+constexpr uintptr_t kRvaExamCardMoveResetHand = 0x08237750;
+constexpr uintptr_t kRvaExamCardMoveShuffleDeck = 0x08237F78;
+constexpr uintptr_t kRvaExamCardMoveShuffleDeckGrave = 0x082380C0;
+constexpr uintptr_t kRvaExamCardMoveSetInitialCard = 0x08239520;
+constexpr uintptr_t kRvaExamCardMoveMovePlayCard = 0x08239EF4;
+
+constexpr size_t kOffsetControllerHand = 0x10;
+constexpr size_t kOffsetControllerDeck = 0x18;
+constexpr size_t kOffsetControllerGrave = 0x20;
+constexpr size_t kOffsetControllerLost = 0x28;
+constexpr size_t kOffsetControllerHold = 0x30;
+constexpr size_t kOffsetPoolCardList = 0x10;
+constexpr size_t kOffsetRandomState = 0x77C;
+
 constexpr size_t kOffsetNumber = 0x18;
 constexpr size_t kOffsetProduceCardId = 0x20;
 constexpr size_t kOffsetUpgradeCount = 0x28;
@@ -74,6 +94,28 @@ CreateDeckFn g_orig_create_deck = nullptr;
 GetProduceCardDataFn g_orig_get_card_data = nullptr;
 InternalMergeFromFn g_orig_internal_merge_from = nullptr;
 
+using GenericExamHookFn = uintptr_t (*)(
+    uintptr_t, uintptr_t, uintptr_t, uintptr_t,
+    uintptr_t, uintptr_t, uintptr_t, uintptr_t);
+using RandomNoArgFn = int32_t (*)(void*, const void*);
+using RandomRangeFn = int32_t (*)(void*, int32_t, int32_t, const void*);
+
+GenericExamHookFn g_orig_replace_grave_to_deck = nullptr;
+GenericExamHookFn g_orig_draw_card = nullptr;
+GenericExamHookFn g_orig_reset_hand = nullptr;
+GenericExamHookFn g_orig_shuffle_deck = nullptr;
+GenericExamHookFn g_orig_shuffle_deck_grave = nullptr;
+GenericExamHookFn g_orig_set_initial_card = nullptr;
+GenericExamHookFn g_orig_move_play_card = nullptr;
+RandomNoArgFn g_orig_random_no_arg = nullptr;
+RandomRangeFn g_orig_random_range = nullptr;
+
+std::atomic<void*> g_last_parameter_model{nullptr};
+std::atomic<uintptr_t> g_il2cpp_base{0};
+std::atomic<uint64_t> g_trace_sequence{0};
+std::mutex g_trace_mutex;
+thread_local int g_trace_depth = 0;
+
 using GetterInt32Fn = int32_t (*)(void*, const void*);
 using GetterBoolFn = bool (*)(void*, const void*);
 using GetterObjectFn = void* (*)(void*, const void*);
@@ -82,6 +124,8 @@ struct RuntimeGetter {
     const void* method = nullptr;
 };
 bool g_use_runtime_getters = false;
+
+bool install_hook(uintptr_t address, void* replacement, void** original);
 RuntimeGetter g_get_number;
 RuntimeGetter g_get_produce_card_id;
 RuntimeGetter g_get_upgrade_count;
@@ -620,6 +664,407 @@ std::vector<CustomizeRecord> read_customizes(void* collection) {
     return result;
 }
 
+
+std::vector<std::string> trace_output_paths() {
+    const int user_id = static_cast<int>(getuid() / 100000);
+    const std::string user = std::to_string(user_id);
+    return {
+        "/data/user/" + user + "/" + kTargetPackage + "/files/gakumas-sim/exam_seed_trace.jsonl",
+        "/storage/emulated/" + user + "/Android/data/" + kTargetPackage + "/files/gakumas-sim/exam_seed_trace.jsonl",
+    };
+}
+
+std::string hex_value(uintptr_t value) {
+    std::ostringstream out;
+    out << "0x" << std::hex << std::uppercase << value;
+    return out.str();
+}
+
+void append_trace_line(const std::string& line) {
+    std::lock_guard<std::mutex> lock(g_trace_mutex);
+    for (const auto& path : trace_output_paths()) {
+        ensure_parent_dir(path);
+        std::ofstream out(path, std::ios::binary | std::ios::app);
+        if (!out) continue;
+        out << line << "\n";
+    }
+}
+
+void reset_trace_files() {
+    g_trace_sequence.store(0);
+    for (const auto& path : trace_output_paths()) atomic_write(path, "");
+}
+
+int32_t read_int_property(void* object, const char* name, int32_t fallback = 0) {
+    if (!object || !name) return fallback;
+    const RuntimeMethod method = resolve_object_method(object, name, 0);
+    if (!method.address) return fallback;
+    return reinterpret_cast<GetterInt32Fn>(method.address)(object, method.method);
+}
+
+std::string read_string_property(void* object, const char* name) {
+    if (!object || !name) return {};
+    const RuntimeMethod method = resolve_object_method(object, name, 0);
+    if (!method.address) return {};
+    void* value = reinterpret_cast<GetterObjectFn>(method.address)(object, method.method);
+    return il2cpp_string_to_utf8(value);
+}
+
+void* parameter_from_context(void* context) {
+    if (!context) return nullptr;
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + 0x10);
+}
+
+void remember_parameter(void* parameter) {
+    if (parameter) g_last_parameter_model.store(parameter);
+}
+
+void* controller_pool(void* controller, size_t offset) {
+    if (!controller) return nullptr;
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(controller) + offset);
+}
+
+void* pool_card_list(void* pool) {
+    if (!pool) return nullptr;
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + kOffsetPoolCardList);
+}
+
+std::string live_card_json(void* card) {
+    if (!card) return "null";
+    const std::string id = read_string_property(card, "get_Id");
+    const std::string name = read_string_property(card, "get_Name");
+    const int32_t upgrade = read_int_property(card, "get_UpgradeCount", 0);
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":\"" << json_escape(id) << "\","
+        << "\"name\":\"" << json_escape(name) << "\","
+        << "\"upgradeCount\":" << upgrade << ","
+        << "\"object\":\"" << hex_value(reinterpret_cast<uintptr_t>(card)) << "\""
+        << "}";
+    return out.str();
+}
+
+void append_live_card_list_json(std::ostringstream& out, void* list) {
+    out << "[";
+    if (list) {
+        const RuntimeMethod get_count = resolve_object_method(list, "get_Count", 0);
+        const RuntimeMethod get_item = resolve_object_method(list, "get_Item", 1);
+        if (get_count.address && get_item.address) {
+            using CountFn = int32_t (*)(void*, const void*);
+            using ItemFn = void* (*)(void*, int32_t, const void*);
+            int32_t count = reinterpret_cast<CountFn>(get_count.address)(list, get_count.method);
+            if (count < 0) count = 0;
+            if (count > 128) count = 128;
+            for (int32_t i = 0; i < count; ++i) {
+                if (i) out << ",";
+                void* card = reinterpret_cast<ItemFn>(get_item.address)(list, i, get_item.method);
+                out << live_card_json(card);
+            }
+        }
+    }
+    out << "]";
+}
+
+void append_controller_pool_json(
+    std::ostringstream& out,
+    const char* key,
+    void* controller,
+    size_t offset) {
+    out << "\"" << key << "\":";
+    append_live_card_list_json(out, pool_card_list(controller_pool(controller, offset)));
+}
+
+void trace_snapshot(
+    const char* event,
+    void* controller,
+    void* parameter_override = nullptr,
+    const std::string& extra_json = "") {
+    if (g_trace_depth != 0) return;
+    ++g_trace_depth;
+    void* parameter = parameter_override ? parameter_override : g_last_parameter_model.load();
+    remember_parameter(parameter);
+
+    const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
+    const uint32_t random_state = parameter
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + kOffsetRandomState)
+        : 0;
+    const uint32_t seed = parameter
+        ? static_cast<uint32_t>(read_int_property(parameter, "get_Seed", 0))
+        : 0;
+    const int32_t turn = parameter
+        ? read_int_property(parameter, "get_CurrentTurn", -1)
+        : -1;
+
+    std::ostringstream out;
+    out << "{"
+        << "\"seq\":" << seq << ","
+        << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"event\":\"" << json_escape(event ? event : "") << "\","
+        << "\"seed\":" << seed << ","
+        << "\"turn\":" << turn << ","
+        << "\"randomState\":" << random_state << ","
+        << "\"randomStateHex\":\"" << hex_value(random_state) << "\","
+        << "\"controller\":\"" << hex_value(reinterpret_cast<uintptr_t>(controller)) << "\","
+        << "\"parameter\":\"" << hex_value(reinterpret_cast<uintptr_t>(parameter)) << "\",";
+    append_controller_pool_json(out, "hand", controller, kOffsetControllerHand);
+    out << ",";
+    append_controller_pool_json(out, "deck", controller, kOffsetControllerDeck);
+    out << ",";
+    append_controller_pool_json(out, "grave", controller, kOffsetControllerGrave);
+    out << ",";
+    append_controller_pool_json(out, "lost", controller, kOffsetControllerLost);
+    out << ",";
+    append_controller_pool_json(out, "hold", controller, kOffsetControllerHold);
+    if (!extra_json.empty()) out << "," << extra_json;
+    out << "}";
+    append_trace_line(out.str());
+    --g_trace_depth;
+}
+
+void trace_random_event(
+    const char* overload,
+    void* parameter,
+    uint32_t before,
+    uint32_t after,
+    int32_t result,
+    bool has_range,
+    int32_t minimum,
+    int32_t maximum,
+    uintptr_t caller) {
+    if (g_trace_depth != 0) return;
+    ++g_trace_depth;
+    remember_parameter(parameter);
+    const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
+    const uint32_t seed = parameter
+        ? static_cast<uint32_t>(read_int_property(parameter, "get_Seed", 0))
+        : 0;
+    const int32_t turn = parameter
+        ? read_int_property(parameter, "get_CurrentTurn", -1)
+        : -1;
+    const uintptr_t base = g_il2cpp_base.load();
+    const uintptr_t caller_rva = (base && caller >= base) ? caller - base : 0;
+
+    std::ostringstream out;
+    out << "{"
+        << "\"seq\":" << seq << ","
+        << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"event\":\"GetRandomInt\","
+        << "\"overload\":\"" << json_escape(overload ? overload : "") << "\","
+        << "\"seed\":" << seed << ","
+        << "\"turn\":" << turn << ","
+        << "\"before\":" << before << ","
+        << "\"beforeHex\":\"" << hex_value(before) << "\","
+        << "\"after\":" << after << ","
+        << "\"afterHex\":\"" << hex_value(after) << "\","
+        << "\"result\":" << result << ","
+        << "\"callerRva\":\"" << hex_value(caller_rva) << "\"";
+    if (has_range) {
+        out << ",\"minimum\":" << minimum << ",\"maximum\":" << maximum;
+    }
+    out << "}";
+    append_trace_line(out.str());
+    --g_trace_depth;
+}
+
+int32_t hooked_random_no_arg(void* self, const void* method) {
+    remember_parameter(self);
+    if (g_trace_depth != 0) return g_orig_random_no_arg(self, method);
+    const uint32_t before = self
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        : 0;
+    const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    const int32_t result = g_orig_random_no_arg(self, method);
+    const uint32_t after = self
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        : 0;
+    trace_random_event("state", self, before, after, result, false, 0, 0, caller);
+    return result;
+}
+
+int32_t hooked_random_range(void* self, int32_t minimum, int32_t maximum, const void* method) {
+    remember_parameter(self);
+    if (g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
+    const uint32_t before = self
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        : 0;
+    const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    const int32_t result = g_orig_random_range(self, minimum, maximum, method);
+    const uint32_t after = self
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        : 0;
+    trace_random_event("range", self, before, after, result, true, minimum, maximum, caller);
+    return result;
+}
+
+uintptr_t hooked_draw_card(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
+    remember_parameter(parameter);
+    trace_snapshot(
+        "DrawCard.before",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"count\":" + std::to_string(static_cast<int32_t>(a1)) +
+        ",\"invokePoolEvents\":" + std::string((a3 & 1) ? "true" : "false"));
+    const uintptr_t result = g_orig_draw_card(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot(
+        "DrawCard.after",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"count\":" + std::to_string(static_cast<int32_t>(a1)) +
+        ",\"invokePoolEvents\":" + std::string((a3 & 1) ? "true" : "false"));
+    return result;
+}
+
+uintptr_t hooked_reset_hand(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a1));
+    remember_parameter(parameter);
+    trace_snapshot("ResetHand.before", reinterpret_cast<void*>(a0), parameter);
+    const uintptr_t result = g_orig_reset_hand(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot("ResetHand.after", reinterpret_cast<void*>(a0), parameter);
+    return result;
+}
+
+uintptr_t hooked_replace_grave_to_deck(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a1));
+    remember_parameter(parameter);
+    trace_snapshot(
+        "ReplaceGraveToDeck.before",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"flag\":" + std::string((a2 & 1) ? "true" : "false"));
+    const uintptr_t result = g_orig_replace_grave_to_deck(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot(
+        "ReplaceGraveToDeck.after",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"flag\":" + std::string((a2 & 1) ? "true" : "false"));
+    return result;
+}
+
+uintptr_t hooked_shuffle_deck(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a1));
+    remember_parameter(parameter);
+    trace_snapshot("ShuffleDeck.before", reinterpret_cast<void*>(a0), parameter);
+    const uintptr_t result = g_orig_shuffle_deck(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot("ShuffleDeck.after", reinterpret_cast<void*>(a0), parameter);
+    return result;
+}
+
+uintptr_t hooked_shuffle_deck_grave(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a1));
+    remember_parameter(parameter);
+    trace_snapshot("ShuffleDeckGrave.before", reinterpret_cast<void*>(a0), parameter);
+    const uintptr_t result = g_orig_shuffle_deck_grave(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot("ShuffleDeckGrave.after", reinterpret_cast<void*>(a0), parameter);
+    return result;
+}
+
+uintptr_t hooked_set_initial_card(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
+    remember_parameter(parameter);
+    trace_snapshot(
+        "SetInitialCard.before",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"count\":" + std::to_string(static_cast<int32_t>(a1)));
+    const uintptr_t result = g_orig_set_initial_card(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot(
+        "SetInitialCard.after",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"count\":" + std::to_string(static_cast<int32_t>(a1)));
+    return result;
+}
+
+uintptr_t hooked_move_play_card(
+    uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+    uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
+    void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
+    remember_parameter(parameter);
+    std::string card_before = live_card_json(reinterpret_cast<void*>(a1));
+    trace_snapshot(
+        "MovePlayCard.before",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"playCard\":" + card_before);
+    const uintptr_t result = g_orig_move_play_card(a0,a1,a2,a3,a4,a5,a6,a7);
+    trace_snapshot(
+        "MovePlayCard.after",
+        reinterpret_cast<void*>(a0),
+        parameter,
+        "\"playCard\":" + card_before);
+    return result;
+}
+
+bool install_seed_trace_hooks(const ImageInfo& image) {
+    if (!image.base || image.build_id != kExpectedBuildId) return false;
+    g_il2cpp_base.store(image.base);
+    reset_trace_files();
+
+    bool ok = true;
+    ok &= install_hook(
+        image.base + kRvaExamParameterGetRandomInt,
+        reinterpret_cast<void*>(hooked_random_no_arg),
+        reinterpret_cast<void**>(&g_orig_random_no_arg));
+    ok &= install_hook(
+        image.base + kRvaExamParameterGetRandomIntRange,
+        reinterpret_cast<void*>(hooked_random_range),
+        reinterpret_cast<void**>(&g_orig_random_range));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveReplaceGraveToDeck,
+        reinterpret_cast<void*>(hooked_replace_grave_to_deck),
+        reinterpret_cast<void**>(&g_orig_replace_grave_to_deck));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveDrawCard,
+        reinterpret_cast<void*>(hooked_draw_card),
+        reinterpret_cast<void**>(&g_orig_draw_card));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveResetHand,
+        reinterpret_cast<void*>(hooked_reset_hand),
+        reinterpret_cast<void**>(&g_orig_reset_hand));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveShuffleDeck,
+        reinterpret_cast<void*>(hooked_shuffle_deck),
+        reinterpret_cast<void**>(&g_orig_shuffle_deck));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveShuffleDeckGrave,
+        reinterpret_cast<void*>(hooked_shuffle_deck_grave),
+        reinterpret_cast<void**>(&g_orig_shuffle_deck_grave));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveSetInitialCard,
+        reinterpret_cast<void*>(hooked_set_initial_card),
+        reinterpret_cast<void**>(&g_orig_set_initial_card));
+    ok &= install_hook(
+        image.base + kRvaExamCardMoveMovePlayCard,
+        reinterpret_cast<void*>(hooked_move_play_card),
+        reinterpret_cast<void**>(&g_orig_move_play_card));
+
+    std::ostringstream out;
+    out << "{"
+        << "\"seq\":" << (g_trace_sequence.fetch_add(1) + 1) << ","
+        << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"event\":\"trace-start\","
+        << "\"targetSeed\":2696513658,"
+        << "\"libil2cppBuildId\":\"" << json_escape(image.build_id) << "\","
+        << "\"hooksInstalled\":" << (ok ? "true" : "false")
+        << "}";
+    append_trace_line(out.str());
+    return ok;
+}
+
+
 void* hooked_get_card_data(void* self, void* method) {
     const CardRecord card = read_card(self);
     remember_card(card);
@@ -653,6 +1098,7 @@ void install_il2cpp_hooks() {
 
     const ImageInfo image = find_il2cpp_image();
     g_runtime_build_id = image.build_id;
+    g_il2cpp_base.store(image.base);
     if (!image.base) {
         write_status("waiting-for-libil2cpp");
         g_hooks_installed.store(false);
@@ -670,6 +1116,7 @@ void install_il2cpp_hooks() {
     uintptr_t get_card_address = 0;
     uintptr_t create_deck_address = 0;
     bool merge_ok = false;
+    bool seed_trace_ok = false;
 
     if (image.build_id == kExpectedBuildId) {
         g_use_runtime_getters = false;
@@ -680,6 +1127,7 @@ void install_il2cpp_hooks() {
             image.base + kRvaInternalMergeFrom,
             reinterpret_cast<void*>(hooked_internal_merge_from),
             reinterpret_cast<void**>(&g_orig_internal_merge_from));
+        seed_trace_ok = install_seed_trace_hooks(image);
     } else {
         // App update: resolve the managed methods from IL2CPP metadata instead of
         // guessing new RVAs from the old binary.
@@ -742,7 +1190,10 @@ void install_il2cpp_hooks() {
         reinterpret_cast<void**>(&g_orig_create_deck));
 
     write_status(
-        (get_ok && deck_ok) ? "hooks-installed" : "hook-install-failed",
+        (get_ok && deck_ok)
+            ? (seed_trace_ok ? "hooks-installed-seed-trace" :
+               (image.build_id == kExpectedBuildId ? "hooks-installed-trace-partial" : "hooks-installed"))
+            : "hook-install-failed",
         image.build_id,
         get_ok,
         merge_ok,
