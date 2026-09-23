@@ -377,8 +377,14 @@ export function resolveProduceDrinks(
         : null;
       return {
         ...effect,
-        examEffect: examEffect ? { ...examEffect } : null,
-        unresolved: Boolean(examEffectId && !examEffect),
+        // The public ProduceExamEffect snapshot can lag behind ProduceDrinkEffect.
+        // Keep the ID as a valid fallback because parseExamEffectId covers many
+        // effects directly and preserves deterministic RNG behavior without a
+        // stale master row.
+        examEffect: examEffect
+          ? { ...examEffect }
+          : (examEffectId ? { id: examEffectId, idFallback: true } : null),
+        unresolved: false,
       };
     });
     resolved.push({ ...drink, id, effects });
