@@ -158,6 +158,7 @@ RuntimeClassGetMethodFromNameFn g_runtime_class_get_method_from_name = nullptr;
 
 std::vector<CustomizeRecord> read_customizes(void* collection);
 std::vector<CardRecord> normalize_deck(std::vector<CardRecord> deck);
+void replace_card_cache(std::vector<CardRecord> cards);
 int32_t read_int_property(void* object, const char* name, int32_t fallback);
 std::string read_string_property(void* object, const char* name);
 
