@@ -95,6 +95,8 @@ std::atomic<bool> g_export_watcher_started{false};
 std::atomic<uint64_t> g_get_card_data_hits{0};
 std::atomic<uint64_t> g_create_deck_hits{0};
 std::atomic<uint64_t> g_produce_card_id_hits{0};
+std::atomic<uint64_t> g_manager_card_list_hits{0};
+std::atomic<int64_t> g_manager_card_list_count{-1};
 thread_local int g_capture_depth = 0;
 thread_local int g_card_observer_depth = 0;
 thread_local std::vector<CardRecord> g_capture_cards;
@@ -146,6 +148,8 @@ RuntimeGetter g_get_origin_type;
 RuntimeGetter g_get_customizing;
 RuntimeGetter g_get_customizes;
 GetterObjectFn g_orig_produce_card_id_getter = nullptr;
+GetterObjectFn g_orig_manager_card_list_getter = nullptr;
+const void* g_manager_card_list_getter_method = nullptr;
 
 using RuntimeObjectGetClassFn = void* (*)(void*);
 using RuntimeClassGetMethodFromNameFn = const void* (*)(void*, const char*, int);
@@ -153,6 +157,8 @@ RuntimeObjectGetClassFn g_runtime_object_get_class = nullptr;
 RuntimeClassGetMethodFromNameFn g_runtime_class_get_method_from_name = nullptr;
 
 std::vector<CustomizeRecord> read_customizes(void* collection);
+std::vector<CardRecord> normalize_deck(std::vector<CardRecord> deck);
+void replace_card_cache(std::vector<CardRecord> cards);
 int32_t read_int_property(void* object, const char* name, int32_t fallback);
 std::string read_string_property(void* object, const char* name);
 
@@ -459,7 +465,8 @@ void write_status(
     bool get_ok = false,
     bool merge_ok = false,
     bool deck_ok = false,
-    bool observer_ok = false) {
+    bool observer_ok = false,
+    bool manager_observer_ok = false) {
     const std::string path = external_control_dir() + "/capture_status.json";
     std::ostringstream out;
     out << "{\n"
@@ -471,7 +478,8 @@ void write_status(
         << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
         << "\"internalMergeFrom\":" << (merge_ok ? "true" : "false") << ","
         << "\"createDeck\":" << (deck_ok ? "true" : "false") << ","
-        << "\"produceCardIdObserver\":" << (observer_ok ? "true" : "false") << "}\n"
+        << "\"produceCardIdObserver\":" << (observer_ok ? "true" : "false") << ","
+        << "\"managerCardListObserver\":" << (manager_observer_ok ? "true" : "false") << "}\n"
         << "}\n";
     atomic_write(path, out.str());
 }
@@ -509,7 +517,9 @@ void write_export_status(
         << "  \"captureHits\": {"
         << "\"createDeck\":" << g_create_deck_hits.load(std::memory_order_relaxed) << ","
         << "\"getProduceCardData\":" << g_get_card_data_hits.load(std::memory_order_relaxed) << ","
-        << "\"produceCardId\":" << g_produce_card_id_hits.load(std::memory_order_relaxed) << "},\n"
+        << "\"produceCardId\":" << g_produce_card_id_hits.load(std::memory_order_relaxed) << ","
+        << "\"managerCardList\":" << g_manager_card_list_hits.load(std::memory_order_relaxed) << "},\n"
+        << "  \"managerCardListCount\": " << g_manager_card_list_count.load(std::memory_order_relaxed) << ",\n"
         << "  \"seenCardCount\": " << seen_count << ",\n"
         << "  \"lastDeckCount\": " << last_deck_count << ",\n"
         << "  \"detail\": \"" << json_escape(detail) << "\",\n"
@@ -629,15 +639,24 @@ std::string exam_preset_json(const std::vector<CardRecord>& input_deck) {
 
 std::vector<CardRecord> current_snapshot_deck() {
     std::map<int32_t, CardRecord> merged;
+    bool have_exact_list = false;
     {
         std::lock_guard<std::mutex> lock(g_last_deck_mutex);
+        have_exact_list = !g_last_deck.empty();
         for (const auto& card : g_last_deck) {
             if (card.number > 0) merged[card.number] = card;
         }
     }
     {
         std::lock_guard<std::mutex> lock(g_seen_mutex);
-        for (const auto& [number, card] : g_seen_by_number) merged[number] = card;
+        if (have_exact_list) {
+            for (auto& [number, card] : merged) {
+                const auto it = g_seen_by_number.find(number);
+                if (it != g_seen_by_number.end()) card = it->second;
+            }
+        } else {
+            for (const auto& [number, card] : g_seen_by_number) merged[number] = card;
+        }
     }
     std::vector<CardRecord> deck;
     deck.reserve(merged.size());
@@ -651,10 +670,7 @@ void write_snapshot(std::vector<CardRecord> deck) {
         write_export_status("snapshot-empty", "", 0, "CreateDeckProduceCardMasters returned no active cards");
         return;
     }
-    {
-        std::lock_guard<std::mutex> lock(g_last_deck_mutex);
-        g_last_deck = deck;
-    }
+    replace_card_cache(deck);
     const std::string json = exam_preset_json(deck);
     if (json.empty()) {
         write_export_status("snapshot-json-empty", "", static_cast<int64_t>(deck.size()));
@@ -869,6 +885,7 @@ struct RuntimeIl2CppApi {
     using AssemblyGetImage = const void* (*)(const void*);
     using ImageGetName = const char* (*)(const void*);
     using ClassFromName = void* (*)(const void*, const char*, const char*);
+    using ClassGetParent = void* (*)(void*);
     using ClassGetMethodFromName = const void* (*)(void*, const char*, int);
 
     DomainGet domain_get = nullptr;
@@ -876,6 +893,7 @@ struct RuntimeIl2CppApi {
     AssemblyGetImage assembly_get_image = nullptr;
     ImageGetName image_get_name = nullptr;
     ClassFromName class_from_name = nullptr;
+    ClassGetParent class_get_parent = nullptr;
     ClassGetMethodFromName class_get_method_from_name = nullptr;
 };
 
@@ -890,6 +908,8 @@ bool load_runtime_il2cpp_api(const ImageInfo& image, RuntimeIl2CppApi& api) {
         resolve_export(image, "il2cpp_image_get_name"));
     api.class_from_name = reinterpret_cast<RuntimeIl2CppApi::ClassFromName>(
         resolve_export(image, "il2cpp_class_from_name"));
+    api.class_get_parent = reinterpret_cast<RuntimeIl2CppApi::ClassGetParent>(
+        resolve_export(image, "il2cpp_class_get_parent"));
     api.class_get_method_from_name = reinterpret_cast<RuntimeIl2CppApi::ClassGetMethodFromName>(
         resolve_export(image, "il2cpp_class_get_method_from_name"));
     return api.domain_get && api.domain_get_assemblies && api.assembly_get_image &&
@@ -943,6 +963,33 @@ RuntimeGetter resolve_runtime_getter(
     return result;
 }
 
+RuntimeGetter resolve_manager_card_list_getter(
+    const RuntimeIl2CppApi& api,
+    const void* assembly_image) {
+    RuntimeGetter result;
+    if (!assembly_image) return result;
+    void* klass = api.class_from_name(assembly_image, "Campus.Common.User", "UserDataManager");
+    if (!klass) return result;
+
+    void* candidates[2] = {klass, api.class_get_parent ? api.class_get_parent(klass) : nullptr};
+    const char* names[] = {
+        "get__userProduceProgressProduceCardList",
+        "get_UserProduceProgressProduceCardList",
+        "get_userProduceProgressProduceCardList",
+    };
+    for (void* candidate : candidates) {
+        if (!candidate) continue;
+        for (const char* name : names) {
+            const void* method = api.class_get_method_from_name(candidate, name, 0);
+            if (!method) continue;
+            result.method = method;
+            result.address = reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
+            return result;
+        }
+    }
+    return result;
+}
+
 
 struct RuntimeMethod {
     uintptr_t address = 0;
@@ -960,6 +1007,59 @@ RuntimeMethod resolve_object_method(void* object, const char* method_name, int a
     result.address = reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(method));
     return result;
 }
+
+std::vector<CardRecord> read_card_collection(void* collection) {
+    std::vector<CardRecord> result;
+    if (!collection) return result;
+
+    const RuntimeMethod get_count = resolve_object_method(collection, "get_Count", 0);
+    const RuntimeMethod get_item = resolve_object_method(collection, "get_Item", 1);
+    if (!get_count.address || !get_item.address) return result;
+
+    using CountFn = int32_t (*)(void*, const void*);
+    using ItemFn = void* (*)(void*, int32_t, const void*);
+    const int32_t count = reinterpret_cast<CountFn>(get_count.address)(collection, get_count.method);
+    g_manager_card_list_count.store(count, std::memory_order_relaxed);
+    if (count < 0 || count > 512) return result;
+
+    result.reserve(static_cast<size_t>(count));
+    ++g_card_observer_depth;
+    for (int32_t index = 0; index < count; ++index) {
+        void* item = reinterpret_cast<ItemFn>(get_item.address)(collection, index, get_item.method);
+        if (!item) continue;
+        CardRecord card = read_card(item);
+        if (card.number <= 0 || card.produce_card_id.empty()) continue;
+        result.push_back(std::move(card));
+    }
+    --g_card_observer_depth;
+    return result;
+}
+
+void replace_card_cache(std::vector<CardRecord> cards) {
+    cards = normalize_deck(std::move(cards));
+    {
+        std::lock_guard<std::mutex> lock(g_last_deck_mutex);
+        g_last_deck = cards;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_seen_mutex);
+        g_seen_by_number.clear();
+        for (const auto& card : cards) g_seen_by_number[card.number] = card;
+    }
+}
+
+void* hooked_manager_card_list_getter(void* self, const void* method) {
+    g_manager_card_list_hits.fetch_add(1, std::memory_order_relaxed);
+    void* collection = g_orig_manager_card_list_getter
+        ? g_orig_manager_card_list_getter(self, method)
+        : nullptr;
+    std::vector<CardRecord> cards = read_card_collection(collection);
+    if (!cards.empty() || g_manager_card_list_count.load(std::memory_order_relaxed) == 0) {
+        replace_card_cache(std::move(cards));
+    }
+    return collection;
+}
+
 
 std::vector<CustomizeRecord> read_customizes(void* collection) {
     std::vector<CustomizeRecord> result;
@@ -1530,6 +1630,26 @@ void install_il2cpp_hooks() {
         }
     }
 
+    RuntimeGetter manager_card_list_getter;
+    {
+        RuntimeIl2CppApi manager_api;
+        if (load_runtime_il2cpp_api(image, manager_api)) {
+            const void* manager_image = find_assembly_csharp(manager_api);
+            if (manager_image) {
+                manager_card_list_getter = resolve_manager_card_list_getter(manager_api, manager_image);
+            }
+        }
+    }
+
+    const bool manager_observer_ok = manager_card_list_getter.address &&
+        install_hook(
+            manager_card_list_getter.address,
+            reinterpret_cast<void*>(hooked_manager_card_list_getter),
+            reinterpret_cast<void**>(&g_orig_manager_card_list_getter));
+    if (manager_observer_ok) {
+        g_manager_card_list_getter_method = manager_card_list_getter.method;
+    }
+
     const bool get_ok = install_hook(
         get_card_address,
         reinterpret_cast<void*>(hooked_get_card_data),
@@ -1553,7 +1673,8 @@ void install_il2cpp_hooks() {
         get_ok,
         merge_ok,
         deck_ok,
-        observer_ok);
+        observer_ok,
+        manager_observer_ok);
 
     if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
 }
