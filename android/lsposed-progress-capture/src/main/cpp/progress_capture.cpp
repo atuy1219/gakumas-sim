@@ -630,6 +630,12 @@ void write_snapshot(std::vector<CardRecord> deck) {
 }
 
 void export_request_watcher() {
+    // Create the handshake files from inside the target app's own mount/SELinux
+    // context. The launcher-side root shell may be in a different app-data
+    // mount namespace on Android 16, so it only truncates these existing files
+    // through /proc/<game-pid>/root instead of creating them itself.
+    atomic_write(export_request_path(), "");
+    atomic_write(export_done_path(), "");
     write_export_status("watcher-started", "", -1, "waiting for export_request.txt");
     std::string last_token;
     for (;;) {
