@@ -36,7 +36,7 @@ public final class ExportActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Gakumas Progress Capture 1.1.6");
+        title.setText("Gakumas Progress Capture 1.1.7");
         title.setTextSize(22f);
         root.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -151,7 +151,7 @@ public final class ExportActivity extends Activity {
         final String internal = "/data/user/" + userId() + "/" + TARGET;
 
         String command =
-                "echo 'module=1.1.6'; "
+                "echo 'module=1.1.7'; "
                 + "echo 'gamePid=" + pid + "'; "
                 + "echo 'controlLogical=" + logicalDir + "'; "
                 + "echo 'controlPhysical=" + physicalDir + "'; "

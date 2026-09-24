@@ -119,3 +119,13 @@ The target game creates the control files itself. The launcher-side root shell r
 underlying files through `/data/media/<userId>/Android/data/...`, which avoids the app-private
 `/data/user` mount namespace isolation observed on Android 16 while preserving the target app's
 normal access to its own external files directory.
+
+
+### Live card observation
+
+Version 1.1.7 also observes `UserProduceProgressProduceCard.get_ProduceCardId()`.
+Whenever the game renders or otherwise reads a produce-card instance, the module snapshots that
+instance's Number, card ID, upgrade/deleted/origin fields and customizations into the live card
+cache. This removes the previous requirement that `CreateDeckProduceCardMasters` must have already
+run. `export_status.json` now includes hit counters for CreateDeck, GetProduceCardData, and
+ProduceCardId plus seen/last-deck counts for diagnosis.
