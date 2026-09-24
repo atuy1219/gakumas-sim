@@ -129,3 +129,13 @@ instance's Number, card ID, upgrade/deleted/origin fields and customizations int
 cache. This removes the previous requirement that `CreateDeckProduceCardMasters` must have already
 run. `export_status.json` now includes hit counters for CreateDeck, GetProduceCardData, and
 ProduceCardId plus seen/last-deck counts for diagnosis.
+
+
+### UserDataManager live list capture
+
+Version 1.1.8 additionally hooks `Campus.Common.User.UserDataManager` (or its base class)
+`get__userProduceProgressProduceCardList` and fallback spellings. When the game exposes the
+current produce-card collection, the module enumerates the full list and replaces the previous
+cache, preventing stale cards from an older produce session from leaking into exports.
+`capture_status.json` reports `managerCardListObserver`; `export_status.json` reports the
+manager-list hit count and last observed collection count.
