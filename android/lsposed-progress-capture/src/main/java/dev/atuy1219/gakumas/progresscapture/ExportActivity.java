@@ -36,7 +36,7 @@ public final class ExportActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Gakumas Progress Capture 1.1.3");
+        title.setText("Gakumas Progress Capture 1.1.4");
         title.setTextSize(22f);
         root.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -128,15 +128,23 @@ public final class ExportActivity extends Activity {
         final String done = dir + "/export_done.txt";
         final String manual = dir + "/manual_export.json";
         String command =
-                "echo 'module=1.1.3'; "
+                "echo 'module=1.1.4'; "
                 + "printf 'gamePids='; pidof " + shellQuote(TARGET) + " 2>/dev/null || true; echo; "
                 + "echo '--- bootstrap_status.json ---'; cat " + shellQuote(bootstrap) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- native_constructor_status.json ---'; cat " + shellQuote(nativeConstructor) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- native_entry_status.json ---'; cat " + shellQuote(nativeEntry) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- capture_status.json ---'; cat " + shellQuote(capture) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- export_status.json ---'; cat " + shellQuote(exportStatus) + " 2>/dev/null || echo '(なし)'; "
+                + "echo '--- process identity ---'; for p in $(pidof " + shellQuote(TARGET) + " 2>/dev/null); do "
+                + "echo pid=$p; grep -E '^(Name|Uid|Gid|Groups):' /proc/$p/status 2>/dev/null || true; "
+                + "printf 'selinux='; cat /proc/$p/attr/current 2>/dev/null || true; echo; done; "
+                + "echo '--- target data dirs ---'; "
+                + "ls -ldZ /data/user/0/" + TARGET + " /data/user/0/" + TARGET + "/files "
+                + shellQuote(dir) + " 2>&1 || true; "
                 + "echo '--- native maps ---'; for p in $(pidof " + shellQuote(TARGET) + " 2>/dev/null); do "
                 + "grep -F 'libgakumas_progress_capture.so' /proc/$p/maps 2>/dev/null || true; done; "
+                + "echo '--- relevant logcat ---'; "
+                + "logcat -d -v time 2>/dev/null | grep -E 'GakumasProgressCapture|VectorModuleManager|native_api|Native module library|native module|libgakumas_progress_capture' | tail -n 180 || true; "
                 + "echo '--- files ---'; ls -lZ "
                 + shellQuote(snapshot) + " "
                 + shellQuote(request) + " "
