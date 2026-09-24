@@ -2,6 +2,7 @@ package dev.atuy1219.gakumas.progresscapture;
 
 import android.content.pm.ApplicationInfo;
 import android.os.Process;
+import android.util.Log;
 import io.github.libxposed.api.XposedModule;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -11,6 +12,7 @@ public final class ModuleEntry extends XposedModule {
     private static final String TARGET = "com.bandainamcoent.idolmaster_gakuen";
     private static final String NATIVE_NAME = "gakumas_progress_capture";
     private static final String NATIVE_FILE = "libgakumas_progress_capture.so";
+    private static final String TAG = "GakumasProgressCapture";
     private static volatile boolean nativeLoaded;
     private static volatile boolean nativeLoadScheduled;
 
@@ -31,6 +33,16 @@ public final class ModuleEntry extends XposedModule {
             Throwable error,
             String nativeLibraryDir,
             String attemptedPath) {
+        String errorText = error == null
+                ? ""
+                : error.getClass().getName() + ": " + String.valueOf(error.getMessage());
+        Log.i(TAG,
+                "bootstrap phase=" + phase
+                + " pid=" + Process.myPid()
+                + " uid=" + Process.myUid()
+                + " nativeLibraryDir=" + nativeLibraryDir
+                + " attemptedPath=" + attemptedPath
+                + (errorText.isEmpty() ? "" : " error=" + errorText));
         try {
             int userId = Process.myUid() / 100000;
             File dir = new File("/data/user/" + userId + "/" + TARGET + "/files/gakumas-sim");
@@ -56,7 +68,8 @@ public final class ModuleEntry extends XposedModule {
                 stream.write(json.getBytes(StandardCharsets.UTF_8));
                 stream.flush();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable writeError) {
+            Log.e(TAG, "bootstrap status file write failed phase=" + phase, writeError);
         }
     }
 
@@ -149,6 +162,8 @@ public final class ModuleEntry extends XposedModule {
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
+        Log.i(TAG, "onModuleLoaded process=" + param.getProcessName()
+                + " systemServer=" + param.isSystemServer());
         writeBootstrapStatus("module-loaded", null, "", "");
         loadNativeDelayed();
     }
@@ -156,6 +171,8 @@ public final class ModuleEntry extends XposedModule {
     @Override
     public void onPackageLoaded(PackageLoadedParam param) {
         if (!TARGET.equals(param.getPackageName()) || !param.isFirstPackage()) return;
+        Log.i(TAG, "onPackageLoaded package=" + param.getPackageName()
+                + " firstPackage=" + param.isFirstPackage());
         // Retry from the package-ready path if the early attempt failed.
         loadNativeDelayed();
     }

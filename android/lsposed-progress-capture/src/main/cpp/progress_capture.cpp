@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <android/log.h>
+#include <cerrno>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -23,6 +25,7 @@
 namespace {
 
 constexpr const char* kTargetPackage = "com.bandainamcoent.idolmaster_gakuen";
+constexpr const char* kLogTag = "GakumasProgressCapture";
 constexpr const char* kExpectedBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
 constexpr uintptr_t kRvaCreateDeckProduceCardMasters = 0x077C7018;
 constexpr uintptr_t kRvaGetProduceCardData = 0x074DBEE0;
@@ -350,12 +353,29 @@ void atomic_write(const std::string& path, const std::string& data) {
     const std::string temp = path + ".tmp";
     {
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
+        if (!out) {
+            __android_log_print(
+                ANDROID_LOG_ERROR, kLogTag,
+                "atomic_write open failed path=%s errno=%d(%s)",
+                temp.c_str(), errno, std::strerror(errno));
+            return;
+        }
         out.write(data.data(), static_cast<std::streamsize>(data.size()));
         out.flush();
-        if (!out) return;
+        if (!out) {
+            __android_log_print(
+                ANDROID_LOG_ERROR, kLogTag,
+                "atomic_write write failed path=%s errno=%d(%s)",
+                temp.c_str(), errno, std::strerror(errno));
+            return;
+        }
     }
-    ::rename(temp.c_str(), path.c_str());
+    if (::rename(temp.c_str(), path.c_str()) != 0) {
+        __android_log_print(
+            ANDROID_LOG_ERROR, kLogTag,
+            "atomic_write rename failed from=%s to=%s errno=%d(%s)",
+            temp.c_str(), path.c_str(), errno, std::strerror(errno));
+    }
 }
 
 std::string native_constructor_status_path() {
@@ -371,6 +391,11 @@ std::string native_entry_status_path() {
 }
 
 void write_native_constructor_status() {
+    const std::string process = process_name();
+    __android_log_print(
+        ANDROID_LOG_INFO, kLogTag,
+        "SO constructor entered pid=%d uid=%d process=%s",
+        static_cast<int>(getpid()), static_cast<int>(getuid()), process.c_str());
     std::ostringstream out;
     out << "{\n"
         << "  \"phase\": \"native-library-constructor\",\n"
@@ -405,6 +430,7 @@ void write_native_entry_status(const std::string& phase, const NativeAPIEntries*
 
 __attribute__((constructor))
 void on_native_library_constructor() {
+    __android_log_print(ANDROID_LOG_INFO, kLogTag, "constructor callback executing");
     write_native_constructor_status();
 }
 
@@ -1469,6 +1495,10 @@ void on_library_loaded(const char* name, void*) {
 
 extern "C" __attribute__((visibility("default")))
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
+    __android_log_print(
+        ANDROID_LOG_INFO, kLogTag,
+        "native_init entered entries=%p pid=%d uid=%d process=%s",
+        entries, static_cast<int>(getpid()), static_cast<int>(getuid()), process_name().c_str());
     write_native_entry_status("native-init-enter", entries);
     if (!entries) {
         write_native_entry_status("native-init-null-entries", entries);
@@ -1488,6 +1518,12 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     }
 
     g_hook = entries->hookFunc;
+    __android_log_print(
+        ANDROID_LOG_INFO, kLogTag,
+        "native_init ready apiVersion=%u hookFunc=%p unhookFunc=%p",
+        entries->version,
+        reinterpret_cast<void*>(entries->hookFunc),
+        reinterpret_cast<void*>(entries->unhookFunc));
     write_native_entry_status("native-init-ready", entries);
     write_status("native-init");
     start_export_request_watcher();
