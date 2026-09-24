@@ -109,3 +109,13 @@ isolation, a root shell started from the launcher may not see another app's
 watcher creates the handshake files from inside the game process first; the launcher
 only truncates those existing files through the target process root so ownership and
 SELinux/MCS labels are preserved.
+
+
+### External-storage control channel
+
+Version 1.1.6 moves the export request/done/status/manual-export control channel to
+`/storage/emulated/<userId>/Android/data/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/`.
+The target game creates the control files itself. The launcher-side root shell reaches the same
+underlying files through `/data/media/<userId>/Android/data/...`, which avoids the app-private
+`/data/user` mount namespace isolation observed on Android 16 while preserving the target app's
+normal access to its own external files directory.

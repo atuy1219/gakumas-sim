@@ -36,14 +36,14 @@ public final class ExportActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Gakumas Progress Capture 1.1.5");
+        title.setText("Gakumas Progress Capture 1.1.6");
         title.setTextSize(22f);
         root.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView guide = new TextView(this);
         guide.setText("ゲームを起動し、LSPosedフックが有効な状態で実行してください。\n"
-                + "Androidのapp-data分離を回避するため、ゲームPIDのmount namespace経由で取得します。");
+                + "制御・取得ファイルは学マスのAndroid/data配下を使用します。");
         guide.setPadding(0, pad / 2, 0, pad / 2);
         root.addView(guide);
 
@@ -98,8 +98,12 @@ public final class ExportActivity extends Activity {
         return Process.myUid() / 100000;
     }
 
-    private String logicalInternalDir() {
-        return "/data/user/" + userId() + "/" + TARGET + "/files/gakumas-sim";
+    private String externalLogicalDir() {
+        return "/storage/emulated/" + userId() + "/Android/data/" + TARGET + "/files/gakumas-sim";
+    }
+
+    private String externalPhysicalDir() {
+        return "/data/media/" + userId() + "/Android/data/" + TARGET + "/files/gakumas-sim";
     }
 
     private int resolveGamePid() throws Exception {
@@ -112,10 +116,6 @@ public final class ExportActivity extends Activity {
         } catch (NumberFormatException ignored) {
             return -1;
         }
-    }
-
-    private static String throughGameRoot(int pid, String logicalPath) {
-        return "/proc/" + pid + "/root" + logicalPath;
     }
 
     private void refreshDiagnostics() {
@@ -137,48 +137,45 @@ public final class ExportActivity extends Activity {
 
     private RootResult collectDiagnostics() throws Exception {
         final int pid = resolveGamePid();
-        if (pid <= 0) {
-            return new RootResult(0, "module=1.1.5\ngamePids=\nゲームプロセスが見つかりません。");
-        }
-
-        final String logicalDir = logicalInternalDir();
-        final String dir = throughGameRoot(pid, logicalDir);
-        final String bootstrap = dir + "/bootstrap_status.json";
-        final String nativeConstructor = dir + "/native_constructor_status.json";
-        final String nativeEntry = dir + "/native_entry_status.json";
-        final String capture = dir + "/capture_status.json";
-        final String exportStatus = dir + "/export_status.json";
-        final String snapshot = dir + "/exam_preset.json";
-        final String request = dir + "/export_request.txt";
-        final String done = dir + "/export_done.txt";
-        final String manual = dir + "/manual_export.json";
-        final String logicalTarget = "/data/user/" + userId() + "/" + TARGET;
-        final String rootedTarget = throughGameRoot(pid, logicalTarget);
-        final String rootedFiles = rootedTarget + "/files";
+        final String logicalDir = externalLogicalDir();
+        final String physicalDir = externalPhysicalDir();
+        final String bootstrap = physicalDir + "/bootstrap_status.json";
+        final String nativeConstructor = physicalDir + "/native_constructor_status.json";
+        final String nativeEntry = physicalDir + "/native_entry_status.json";
+        final String capture = physicalDir + "/capture_status.json";
+        final String exportStatus = physicalDir + "/export_status.json";
+        final String snapshot = physicalDir + "/exam_preset.json";
+        final String request = physicalDir + "/export_request.txt";
+        final String done = physicalDir + "/export_done.txt";
+        final String manual = physicalDir + "/manual_export.json";
+        final String internal = "/data/user/" + userId() + "/" + TARGET;
 
         String command =
-                "echo 'module=1.1.5'; "
+                "echo 'module=1.1.6'; "
                 + "echo 'gamePid=" + pid + "'; "
-                + "echo 'accessMode=/proc/" + pid + "/root'; "
+                + "echo 'controlLogical=" + logicalDir + "'; "
+                + "echo 'controlPhysical=" + physicalDir + "'; "
+                + "echo '--- external dirs ---'; "
+                + "ls -ldZ " + shellQuote(logicalDir) + " " + shellQuote(physicalDir) + " 2>&1 || true; "
                 + "echo '--- bootstrap_status.json ---'; cat " + shellQuote(bootstrap) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- native_constructor_status.json ---'; cat " + shellQuote(nativeConstructor) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- native_entry_status.json ---'; cat " + shellQuote(nativeEntry) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- capture_status.json ---'; cat " + shellQuote(capture) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- export_status.json ---'; cat " + shellQuote(exportStatus) + " 2>/dev/null || echo '(なし)'; "
                 + "echo '--- process identity ---'; "
-                + "grep -E '^(Name|Uid|Gid|Groups):' /proc/" + pid + "/status 2>/dev/null || true; "
-                + "printf 'selinux='; cat /proc/" + pid + "/attr/current 2>/dev/null || true; echo; "
-                + "echo '--- target data via game namespace ---'; "
-                + "ls -ldZ " + shellQuote(rootedTarget) + " " + shellQuote(rootedFiles) + " "
-                + shellQuote(dir) + " 2>&1 || true; "
-                + "echo '--- raw host namespace visibility ---'; "
-                + "ls -ldZ " + shellQuote(logicalTarget) + " " + shellQuote(logicalTarget + "/files") + " "
-                + shellQuote(logicalDir) + " 2>&1 || true; "
+                + (pid > 0
+                    ? "grep -E '^(Name|Uid|Gid|Groups):' /proc/" + pid + "/status 2>/dev/null || true; "
+                      + "printf 'selinux='; cat /proc/" + pid + "/attr/current 2>/dev/null || true; echo; "
+                    : "echo '(game process not found)'; ")
+                + "echo '--- private-data visibility (diagnostic only) ---'; "
+                + "ls -ldZ " + shellQuote(internal) + " " + shellQuote(internal + "/files") + " 2>&1 || true; "
                 + "echo '--- native maps ---'; "
-                + "grep -F 'libgakumas_progress_capture.so' /proc/" + pid + "/maps 2>/dev/null || true; "
+                + (pid > 0
+                    ? "grep -F 'libgakumas_progress_capture.so' /proc/" + pid + "/maps 2>/dev/null || true; "
+                    : "true; ")
                 + "echo '--- relevant logcat ---'; "
                 + "logcat -d -v time 2>/dev/null | grep -E 'GakumasProgressCapture|VectorModuleManager|native_api|Native module library|native module|libgakumas_progress_capture' | tail -n 180 || true; "
-                + "echo '--- files via game namespace ---'; ls -lZ "
+                + "echo '--- control files ---'; ls -lZ "
                 + shellQuote(snapshot) + " "
                 + shellQuote(request) + " "
                 + shellQuote(done) + " "
@@ -189,9 +186,14 @@ public final class ExportActivity extends Activity {
 
     private void performExport(String fileName) {
         final int uidUser = userId();
-        final String logicalDir = logicalInternalDir();
-        final String downloadDir = "/storage/emulated/" + uidUser + "/Download/gakumas-sim";
-        final String destination = downloadDir + "/" + fileName;
+        final String controlDir = externalPhysicalDir();
+        final String request = controlDir + "/export_request.txt";
+        final String done = controlDir + "/export_done.txt";
+        final String source = controlDir + "/manual_export.json";
+        final String exportStatus = controlDir + "/export_status.json";
+        final String downloadPhysicalDir = "/data/media/" + uidUser + "/Download/gakumas-sim";
+        final String destinationPhysical = downloadPhysicalDir + "/" + fileName;
+        final String destinationLogical = "/storage/emulated/" + uidUser + "/Download/gakumas-sim/" + fileName;
         final String token = System.currentTimeMillis() + "-" + Process.myPid();
 
         try {
@@ -200,17 +202,11 @@ public final class ExportActivity extends Activity {
                 throw new IllegalStateException("ゲームプロセスが見つかりません。");
             }
 
-            final String internalDir = throughGameRoot(pid, logicalDir);
-            final String request = internalDir + "/export_request.txt";
-            final String done = internalDir + "/export_done.txt";
-            final String source = internalDir + "/manual_export.json";
-            final String exportStatus = internalDir + "/export_status.json";
-
             postDiagnostics(collectDiagnostics().output);
 
-            // The watcher creates request/done from inside the game process, preserving the
-            // target app's ownership and SELinux/MCS label. Only truncate those existing inodes
-            // through /proc/<pid>/root; never create app-private files from the launcher namespace.
+            // The game creates these files through its own /storage/emulated/.../Android/data
+            // path. Root accesses the same underlying inodes via /data/media, avoiding the
+            // per-app CE-data and FUSE mount namespaces.
             RootResult requestResult = runRoot(
                     "test -f " + shellQuote(request)
                     + " && test -f " + shellQuote(done)
@@ -220,12 +216,12 @@ public final class ExportActivity extends Activity {
                     + " && sync");
             if (requestResult.exitCode == 42) {
                 throw new IllegalStateException(
-                        "ゲーム側のexport watcherがまだ準備できていません。診断欄の"
-                        + " export_status.json / native_entry_status.json を確認してください。");
+                        "ゲーム側のexport watcherがまだ準備できていません。"
+                        + "Android/data配下の export_status.json / native_entry_status.json を確認してください。");
             }
             if (requestResult.exitCode != 0) {
                 throw new IllegalStateException(
-                        "ゲームmount namespaceへの要求書き込みに失敗しました: " + requestResult.output);
+                        "Android/data制御ファイルへの要求書き込みに失敗しました: " + requestResult.output);
             }
 
             postStatus("要求を送信しました。ゲーム側の応答を待っています…");
@@ -243,14 +239,15 @@ public final class ExportActivity extends Activity {
                             + shellQuote(request) + " " + shellQuote(done) + " 2>&1 || true");
                     postDiagnostics(live.output);
                 }
-                if (!new java.io.File("/proc/" + pid).exists()) {
+                RootResult alive = runRoot("kill -0 " + pid + " 2>/dev/null");
+                if (alive.exitCode != 0) {
                     throw new IllegalStateException("待機中にゲームプロセスが終了しました。");
                 }
             }
             if (!completion.startsWith(token + "\t")) {
                 postDiagnostics(collectDiagnostics().output);
                 throw new IllegalStateException(
-                        "ゲーム側から応答がありません。診断欄の export_status.json を確認してください。");
+                        "ゲーム側から応答がありません。Android/data側の export_status.json を確認してください。");
             }
             if (!completion.equals(token + "\tok")) {
                 postDiagnostics(collectDiagnostics().output);
@@ -261,16 +258,16 @@ public final class ExportActivity extends Activity {
 
             RootResult copyResult = runRoot(
                     "test -f " + shellQuote(source)
-                    + " && mkdir -p " + shellQuote(downloadDir)
-                    + " && cat " + shellQuote(source) + " > " + shellQuote(destination)
-                    + " && chmod 0664 " + shellQuote(destination)
+                    + " && mkdir -p " + shellQuote(downloadPhysicalDir)
+                    + " && cat " + shellQuote(source) + " > " + shellQuote(destinationPhysical)
+                    + " && chmod 0664 " + shellQuote(destinationPhysical)
                     + " && sync");
             if (copyResult.exitCode != 0) {
                 throw new IllegalStateException(
-                        "ゲームnamespaceからDownloadへの保存に失敗しました: " + copyResult.output);
+                        "Android/dataからDownloadへの保存に失敗しました: " + copyResult.output);
             }
             postDiagnostics(collectDiagnostics().output);
-            postStatus("保存しました\n" + destination);
+            postStatus("保存しました\n" + destinationLogical);
         } catch (Throwable error) {
             postStatus("エラー: " + String.valueOf(error.getMessage()));
         } finally {

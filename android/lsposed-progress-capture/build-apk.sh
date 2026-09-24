@@ -92,7 +92,7 @@ cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.1.5.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.1.6.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 

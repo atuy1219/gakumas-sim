@@ -1,7 +1,7 @@
 id=dev.atuy1219.gakumas.progresscapture
 name=Gakumas Progress Capture
-version=1.1.5
-versionCode=19
+version=1.1.6
+versionCode=20
 author=atuy1219
 description=Read-only produce capture, on-demand unified gakumas-sim export, and exact-build exam RNG/Deck/Hand/Grave trace.
 minApiVersion=102

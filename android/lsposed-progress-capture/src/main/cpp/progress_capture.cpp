@@ -312,28 +312,26 @@ std::vector<std::string> output_paths() {
     };
 }
 
-std::string manual_export_path() {
+std::string external_control_dir() {
     const int user_id = static_cast<int>(getuid() / 100000);
-    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/manual_export.json";
+    return "/storage/emulated/" + std::to_string(user_id) + "/Android/data/" +
+        kTargetPackage + "/files/gakumas-sim";
+}
+
+std::string manual_export_path() {
+    return external_control_dir() + "/manual_export.json";
 }
 
 std::string export_request_path() {
-    const int user_id = static_cast<int>(getuid() / 100000);
-    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/export_request.txt";
+    return external_control_dir() + "/export_request.txt";
 }
 
 std::string export_done_path() {
-    const int user_id = static_cast<int>(getuid() / 100000);
-    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/export_done.txt";
+    return external_control_dir() + "/export_done.txt";
 }
 
 std::string export_status_path() {
-    const int user_id = static_cast<int>(getuid() / 100000);
-    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/export_status.json";
+    return external_control_dir() + "/export_status.json";
 }
 
 void ensure_parent_dir(const std::string& file_path) {
@@ -379,15 +377,11 @@ void atomic_write(const std::string& path, const std::string& data) {
 }
 
 std::string native_constructor_status_path() {
-    const int user_id = static_cast<int>(getuid() / 100000);
-    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/native_constructor_status.json";
+    return external_control_dir() + "/native_constructor_status.json";
 }
 
 std::string native_entry_status_path() {
-    const int user_id = static_cast<int>(getuid() / 100000);
-    return "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/native_entry_status.json";
+    return external_control_dir() + "/native_entry_status.json";
 }
 
 void write_native_constructor_status() {
@@ -435,10 +429,7 @@ void on_native_library_constructor() {
 }
 
 void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
-    const int user_id = static_cast<int>(getuid() / 100000);
-    const std::string path =
-        "/data/user/" + std::to_string(user_id) + "/" + kTargetPackage +
-        "/files/gakumas-sim/capture_status.json";
+    const std::string path = external_control_dir() + "/capture_status.json";
     std::ostringstream out;
     out << "{\n"
         << "  \"phase\": \"" << json_escape(phase) << "\",\n"
@@ -630,10 +621,10 @@ void write_snapshot(std::vector<CardRecord> deck) {
 }
 
 void export_request_watcher() {
-    // Create the handshake files from inside the target app's own mount/SELinux
-    // context. The launcher-side root shell may be in a different app-data
-    // mount namespace on Android 16, so it only truncates these existing files
-    // through /proc/<game-pid>/root instead of creating them itself.
+    // Create the handshake files from inside the target app in its app-specific
+    // external storage. The launcher reaches the same inodes through /data/media
+    // to bypass Android app-data/FUSE namespace differences without touching CE
+    // private data under /data/user.
     atomic_write(export_request_path(), "");
     atomic_write(export_done_path(), "");
     write_export_status("watcher-started", "", -1, "waiting for export_request.txt");

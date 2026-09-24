@@ -45,7 +45,8 @@ public final class ModuleEntry extends XposedModule {
                 + (errorText.isEmpty() ? "" : " error=" + errorText));
         try {
             int userId = Process.myUid() / 100000;
-            File dir = new File("/data/user/" + userId + "/" + TARGET + "/files/gakumas-sim");
+            File dir = new File("/storage/emulated/" + userId
+                    + "/Android/data/" + TARGET + "/files/gakumas-sim");
             if (!dir.exists()) dir.mkdirs();
             File out = new File(dir, "bootstrap_status.json");
             String errorClass = error == null ? "" : error.getClass().getName();
