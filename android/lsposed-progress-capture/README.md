@@ -98,3 +98,14 @@ platform 35, NDK r27c or newer, JDK, `zip`, and `keytool`.
 ```sh
 ./build-apk.sh
 ```
+
+
+### Android 16 app-data isolation
+
+The launcher accesses the target app's private files through
+`/proc/<game-pid>/root/data/user/<userId>/...`. On devices with app-data mount
+isolation, a root shell started from the launcher may not see another app's
+`/data/user/0/<package>` directly even though the target process sees it. The native
+watcher creates the handshake files from inside the game process first; the launcher
+only truncates those existing files through the target process root so ownership and
+SELinux/MCS labels are preserved.
