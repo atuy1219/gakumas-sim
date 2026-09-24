@@ -92,7 +92,11 @@ std::map<int32_t, CardRecord> g_seen_by_number;
 std::mutex g_last_deck_mutex;
 std::vector<CardRecord> g_last_deck;
 std::atomic<bool> g_export_watcher_started{false};
+std::atomic<uint64_t> g_get_card_data_hits{0};
+std::atomic<uint64_t> g_create_deck_hits{0};
+std::atomic<uint64_t> g_produce_card_id_hits{0};
 thread_local int g_capture_depth = 0;
+thread_local int g_card_observer_depth = 0;
 thread_local std::vector<CardRecord> g_capture_cards;
 
 using CreateDeckFn = void* (*)(void*, void*);
@@ -141,6 +145,7 @@ RuntimeGetter g_get_deleted;
 RuntimeGetter g_get_origin_type;
 RuntimeGetter g_get_customizing;
 RuntimeGetter g_get_customizes;
+GetterObjectFn g_orig_produce_card_id_getter = nullptr;
 
 using RuntimeObjectGetClassFn = void* (*)(void*);
 using RuntimeClassGetMethodFromNameFn = const void* (*)(void*, const char*, int);
@@ -235,8 +240,10 @@ CardRecord read_card(void* self) {
             return card;
         }
         card.number = reinterpret_cast<GetterInt32Fn>(g_get_number.address)(self, g_get_number.method);
-        void* id_string = reinterpret_cast<GetterObjectFn>(g_get_produce_card_id.address)(
-            self, g_get_produce_card_id.method);
+        GetterObjectFn id_getter = g_orig_produce_card_id_getter
+            ? g_orig_produce_card_id_getter
+            : reinterpret_cast<GetterObjectFn>(g_get_produce_card_id.address);
+        void* id_string = id_getter(self, g_get_produce_card_id.method);
         card.produce_card_id = il2cpp_string_to_utf8(id_string);
         card.upgrade_count = reinterpret_cast<GetterInt32Fn>(g_get_upgrade_count.address)(
             self, g_get_upgrade_count.method);
@@ -276,6 +283,24 @@ void remember_card(const CardRecord& card) {
     if (card.number <= 0 || card.produce_card_id.empty()) return;
     std::lock_guard<std::mutex> lock(g_seen_mutex);
     g_seen_by_number[card.number] = card;
+}
+
+void* hooked_produce_card_id_getter(void* self, const void* method) {
+    g_produce_card_id_hits.fetch_add(1, std::memory_order_relaxed);
+    void* result = g_orig_produce_card_id_getter
+        ? g_orig_produce_card_id_getter(self, method)
+        : nullptr;
+
+    if (!self || g_card_observer_depth != 0) return result;
+
+    ++g_card_observer_depth;
+    CardRecord card = read_card(self);
+    if (card.produce_card_id.empty()) {
+        card.produce_card_id = il2cpp_string_to_utf8(result);
+    }
+    remember_card(card);
+    --g_card_observer_depth;
+    return result;
 }
 
 std::string card_json(const CardRecord& card) {
@@ -428,7 +453,13 @@ void on_native_library_constructor() {
     write_native_constructor_status();
 }
 
-void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
+void write_status(
+    const std::string& phase,
+    const std::string& build_id = "",
+    bool get_ok = false,
+    bool merge_ok = false,
+    bool deck_ok = false,
+    bool observer_ok = false) {
     const std::string path = external_control_dir() + "/capture_status.json";
     std::ostringstream out;
     out << "{\n"
@@ -439,7 +470,8 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"hooks\": {"
         << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
         << "\"internalMergeFrom\":" << (merge_ok ? "true" : "false") << ","
-        << "\"createDeck\":" << (deck_ok ? "true" : "false") << "}\n"
+        << "\"createDeck\":" << (deck_ok ? "true" : "false") << ","
+        << "\"produceCardIdObserver\":" << (observer_ok ? "true" : "false") << "}\n"
         << "}\n";
     atomic_write(path, out.str());
 }
@@ -455,6 +487,16 @@ void write_export_status(
     const std::string& token = "",
     int64_t deck_count = -1,
     const std::string& detail = "") {
+    size_t seen_count = 0;
+    size_t last_deck_count = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_seen_mutex);
+        seen_count = g_seen_by_number.size();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_last_deck_mutex);
+        last_deck_count = g_last_deck.size();
+    }
     std::ostringstream out;
     out << "{\n"
         << "  \"phase\": \"" << json_escape(phase) << "\",\n"
@@ -464,6 +506,12 @@ void write_export_status(
         << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
         << "  \"token\": \"" << json_escape(token) << "\",\n"
         << "  \"deckCount\": " << deck_count << ",\n"
+        << "  \"captureHits\": {"
+        << "\"createDeck\":" << g_create_deck_hits.load(std::memory_order_relaxed) << ","
+        << "\"getProduceCardData\":" << g_get_card_data_hits.load(std::memory_order_relaxed) << ","
+        << "\"produceCardId\":" << g_produce_card_id_hits.load(std::memory_order_relaxed) << "},\n"
+        << "  \"seenCardCount\": " << seen_count << ",\n"
+        << "  \"lastDeckCount\": " << last_deck_count << ",\n"
         << "  \"detail\": \"" << json_escape(detail) << "\",\n"
         << "  \"requestPath\": \"" << json_escape(export_request_path()) << "\",\n"
         << "  \"donePath\": \"" << json_escape(export_done_path()) << "\"\n"
@@ -1345,6 +1393,7 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
 
 
 void* hooked_get_card_data(void* self, void* method) {
+    g_get_card_data_hits.fetch_add(1, std::memory_order_relaxed);
     const CardRecord card = read_card(self);
     remember_card(card);
     if (g_capture_depth > 0 && !card.deleted) g_capture_cards.push_back(card);
@@ -1357,6 +1406,7 @@ void hooked_internal_merge_from(void* self, void* parse_context, void* method) {
 }
 
 void* hooked_create_deck(void* a0, void* a1) {
+    g_create_deck_hits.fetch_add(1, std::memory_order_relaxed);
     const bool outermost = g_capture_depth == 0;
     if (outermost) g_capture_cards.clear();
     ++g_capture_depth;
@@ -1459,6 +1509,27 @@ void install_il2cpp_hooks() {
         merge_ok = false;
     }
 
+    // Resolve the live card getters even on the reference build. The ProduceCardId
+    // getter is observed independently of CreateDeckProduceCardMasters so cards
+    // rendered by the in-game card list are captured before an exam starts.
+    if (!g_get_produce_card_id.address) {
+        RuntimeIl2CppApi observer_api;
+        if (load_runtime_il2cpp_api(image, observer_api)) {
+            const void* observer_image = find_assembly_csharp(observer_api);
+            if (observer_image) {
+                const char* card_ns = "Campus.Common.Proto.Client.Transaction";
+                const char* card_class = "UserProduceProgressProduceCard";
+                g_get_number = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_Number");
+                g_get_produce_card_id = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_ProduceCardId");
+                g_get_upgrade_count = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_UpgradeCount");
+                g_get_deleted = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_Deleted");
+                g_get_origin_type = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_OriginType");
+                g_get_customizing = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_Customizing");
+                g_get_customizes = resolve_runtime_getter(observer_api, observer_image, card_ns, card_class, "get_Customizes");
+            }
+        }
+    }
+
     const bool get_ok = install_hook(
         get_card_address,
         reinterpret_cast<void*>(hooked_get_card_data),
@@ -1467,6 +1538,11 @@ void install_il2cpp_hooks() {
         create_deck_address,
         reinterpret_cast<void*>(hooked_create_deck),
         reinterpret_cast<void**>(&g_orig_create_deck));
+    const bool observer_ok = g_get_produce_card_id.address &&
+        install_hook(
+            g_get_produce_card_id.address,
+            reinterpret_cast<void*>(hooked_produce_card_id_getter),
+            reinterpret_cast<void**>(&g_orig_produce_card_id_getter));
 
     write_status(
         (get_ok && deck_ok)
@@ -1476,7 +1552,8 @@ void install_il2cpp_hooks() {
         image.build_id,
         get_ok,
         merge_ok,
-        deck_ok);
+        deck_ok,
+        observer_ok);
 
     if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
 }
