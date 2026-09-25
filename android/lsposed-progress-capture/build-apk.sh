@@ -54,7 +54,7 @@ done
 rm -rf "$OUT"
 mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/META-INF/xposed" "$OUT/app-classes" "$OUT/dex" "$OUT/deps"
 
-"$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -static-libstdc++ -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl -llog   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
+"$CXX"   -std=c++17 -O2 -fPIC -fvisibility=hidden -ffunction-sections -fdata-sections   -shared -static-libstdc++ -Wl,--gc-sections -Wl,--build-id=sha1   "$ROOT/src/main/cpp/progress_capture.cpp"   -ldl   -o "$STAGE/lib/arm64-v8a/$PACKAGE_SO"
 
 READELF="$NDK/toolchains/llvm/prebuilt/$HOST_TAG/bin/llvm-readelf"
 "$READELF" -d "$STAGE/lib/arm64-v8a/$PACKAGE_SO" | tee "$OUT/native-dynamic.txt"
@@ -73,26 +73,24 @@ curl -fL --retry 3 \
 unzip -p "$LIBXPOSED_AAR" classes.jar > "$LIBXPOSED_API"
 test -s "$LIBXPOSED_API"
 
-mapfile -t JAVA_SOURCES < <(find "$ROOT/src/main/java" -name '*.java' -type f | sort)
 javac -source 8 -target 8 \
   -cp "$LIBXPOSED_API:$ANDROID_JAR" \
   -d "$OUT/app-classes" \
-  "${JAVA_SOURCES[@]}"
+  "$ROOT/src/main/java/dev/atuy1219/gakumas/progresscapture/ModuleEntry.java"
 
-mapfile -t CLASS_FILES < <(find "$OUT/app-classes" -name '*.class' -type f | sort)
 "$D8" \
   --lib "$ANDROID_JAR" \
   --classpath "$LIBXPOSED_API" \
   --min-api "$MIN_API" \
   --output "$OUT/dex" \
-  "${CLASS_FILES[@]}"
+  "$OUT/app-classes/dev/atuy1219/gakumas/progresscapture/ModuleEntry.class"
 
 cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.1.8.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.0.12.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
