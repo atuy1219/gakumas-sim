@@ -1427,6 +1427,10 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
 
 export function payCardCost(exam, card) {
   const events = [];
+  const costValue = calculateNativeBuffCost(exam, card.costValue);
+  const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
+  const field = statusCosts[card.costType];
+  if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");
   const direct = Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
   const normalBase = Math.max(0, Math.trunc(Number(card.temporaryStaminaConsumptionFix ?? card.stamina ?? 0) || 0));
 
@@ -1454,10 +1458,7 @@ export function payCardCost(exam, card) {
     events.push(`直接体力消費 ${direct}`);
   }
 
-  const costValue = calculateNativeBuffCost(exam, card.costValue);
-  const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
-  const field = statusCosts[card.costType];
-  if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");
+
   switch (String(card.costType ?? "")) {
     case "ExamCostType_ExamReview":
       consumeStatus(exam, "review", costValue, "好印象");

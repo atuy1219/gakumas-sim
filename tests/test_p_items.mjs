@@ -337,3 +337,6 @@ assert.equal(
 }
 
 console.log("P-item runtime tests: ok");
+
+// Run the completeness regressions in the repository CI entrypoint as well.
+await import("./test_exam_completeness.mjs");

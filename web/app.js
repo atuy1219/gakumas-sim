@@ -1590,7 +1590,10 @@ function renderTurnState(mode, state) {
     const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
     const endEffects = (entry.turnEndEffects ?? []).filter(Boolean);
     const end = endEffects.length ? ` · ターン終了: ${endEffects.join(" / ")}` : "";
-    li.textContent = `Turn ${entry.turn}: ${start}${action}${support}${remains}${end}`;
+    const attribute = entry.scoreContext?.parameterType ? " " + towerParameterLabel(entry.scoreContext.parameterType) : "";
+    const bonus = Number.isFinite(Number(entry.scoreContext?.battleBonusPermil)) && entry.scoreContext?.battleBonusPermil != null ? "（" + (Number(entry.scoreContext.battleBonusPermil) / 10) + "%）" : "";
+    const score = Number.isFinite(Number(entry.parameterDelta)) ? " · 獲得スコア " + Number(entry.parameterDelta).toLocaleString("ja-JP") : "";
+    li.textContent = `Turn ${entry.turn}${attribute}${bonus}: ${start}${action}${support}${remains}${end}${score}`;
     history.append(li);
   }
 }
