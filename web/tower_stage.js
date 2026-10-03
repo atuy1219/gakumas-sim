@@ -106,6 +106,7 @@ export function parseTowerLayerExams(text) {
       towerId: String(row.towerId ?? ""),
       number: Number(row.number ?? 0),
       examEffectType: String(row.examEffectType ?? ""),
+      maxSubMemoryCount: Number(row.maxSubMemoryCount ?? 0),
       parameterBaseLine: Number(row.parameterBaseLine ?? 0),
       baseScore: Number(row.baseScore ?? 0),
       produceExamGimmickEffectGroupId: String(row.produceExamGimmickEffectGroupId ?? ""),
@@ -117,6 +118,8 @@ export function parseTowerLayerExams(text) {
 }
 
 export function parseTowerLiveLayerMap(payload) {
+  const richRows = Array.isArray(payload) ? payload : payload?.layerExams;
+  if (Array.isArray(richRows)) return richRows.filter((row) => row.towerId && Number(row.number) > 0 && row.produceExamBattleConfigId).map((row) => ({ ...row }));
   const effects = Array.isArray(payload?.effects) ? payload.effects.map(String) : [];
   const configs = Array.isArray(payload?.configs) ? payload.configs.map(String) : [];
   const result = [];
@@ -210,7 +213,9 @@ export async function loadTowerStageCatalog(fetchImpl = globalThis.fetch) {
   const towerById = new Map(towers.map((tower) => [tower.id, tower]));
   const liveLayers = parseTowerLiveLayerMap(liveLayerPayload);
   const masterLayers = parseTowerLayerExams(layerText);
-  const rawLayerExams = liveLayers.length ? liveLayers : masterLayers;
+  const layerKey = (row) => row.towerId + "#" + row.number + "#" + row.examEffectType;
+  const masterLayerByKey = new Map(masterLayers.map((row) => [layerKey(row), row]));
+  const rawLayerExams = liveLayers.length ? liveLayers.map((row) => ({ ...(masterLayerByKey.get(layerKey(row)) ?? {}), ...row })) : masterLayers;
   const layerExams = rawLayerExams.filter((layer) => configById.has(layer.produceExamBattleConfigId));
   const scoreRowsById = parseTowerScoreConfigs(scoreText);
   const layerFloorCount = new Set(layerExams.map((layer) => `${layer.towerId}#${layer.number}`)).size;
@@ -252,6 +257,7 @@ export function buildTowerStageChoices(catalog, characterId = "", examEffectType
       const config = catalog.configById.get(layer.produceExamBattleConfigId);
       const tower = catalog.towerById.get(layer.towerId);
       return {
+        ...layer,
         key: `${layer.towerId}#${layer.number}`,
         configId: config.id,
         towerId: layer.towerId,

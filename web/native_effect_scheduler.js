@@ -42,6 +42,7 @@ export const NATIVE_STATUS_CHANGE_FIELDS = Object.freeze([
   "staminaConsumptionDownFix",
   "staminaConsumptionAddFix",
   "fullPowerPoint",
+  "concentrationChangeCount", "preservationChangeCount", "fullPowerChangeCount", "stanceChangeCount",
   "idolStatusType",
   "idolStatusStep",
   "lessonParameterMultiple",

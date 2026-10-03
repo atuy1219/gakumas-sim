@@ -65,7 +65,7 @@ function cleanBaseCards(cards) {
   });
 }
 
-export function createTowerPreset({ memoryCount, slots, memories, baseCards = [], filter = {} }) {
+export function createTowerPreset({ memoryCount, slots, memories, baseCards = [], filter = {}, stageKey = "", gimmickGroupId = "" }) {
   const count = Number(memoryCount);
   if (!Number.isInteger(count) || count < 2 || count > 4) throw new Error("ドル道のメモリー枚数は2〜4枚です。");
   const cleanSlotList = cleanSlots(slots, count);
@@ -79,6 +79,8 @@ export function createTowerPreset({ memoryCount, slots, memories, baseCards = []
     memories: cleanMemoryList,
     baseCards: cleanBaseCards(baseCards),
     filter: cleanFilter(filter),
+    stageKey: String(stageKey ?? ""),
+    gimmickGroupId: String(gimmickGroupId ?? ""),
   };
 }
 
@@ -102,5 +104,7 @@ export function parseTowerPreset(input) {
     memories: source.memories,
     baseCards: source.baseCards,
     filter: source.filter,
+    stageKey: source.stageKey,
+    gimmickGroupId: source.gimmickGroupId,
   });
 }

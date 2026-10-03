@@ -1,3 +1,4 @@
+import { normalizeExamContext } from "./exam_context.js";
 import { EXAM_CARD_POOL_MODE } from "./exam_setup.js";
 import { parseExamTurnParameterTypes } from "./exam_support_cards.js";
 import { normalizeExamPreShuffleMode, serializeExamPreShuffleOrder } from "./exam_workflow.js";
@@ -110,6 +111,7 @@ export function createExamPreset({
   manualCards = [],
   progressCards = [],
   supportCards = [],
+  examContext = {},
   preShuffleMode = "manual",
   preShuffleOrder = [],
   turnStageId = "",
@@ -146,6 +148,7 @@ export function createExamPreset({
     manualCards: normalizedManualCards,
     progressCards: normalizedProgressCards,
     supportCards: normalizeSupportCards(supportCards),
+    examContext: normalizeExamContext(examContext),
     preShuffleMode: normalizeExamPreShuffleMode(preShuffleMode),
     preShuffleOrder: serializeExamPreShuffleOrder(preShuffleOrder),
     turnStageId: String(turnStageId ?? "").trim(),
@@ -189,6 +192,7 @@ export function parseExamPreset(input) {
       cards: cardsFromInstances(manualCards),
       manualCards,
       progressCards,
+      examContext: source.examContext,
       preShuffleMode: "manual",
       preShuffleOrder: manualCards,
       seed: source.seed ?? "",

@@ -165,6 +165,25 @@ export function applyCardCustomizations(
   return card;
 }
 
+export function applyRuntimeCardGrowEffects(card, effects) {
+  card.runtimeGrowEffects ??= [];
+  card.customGrowEffects ??= [];
+  for (const effect of effects ?? []) {
+    applyCostGrow(card, effect) || applyEffectGrow(card, effect);
+    const type = growType(effect);
+    if (type === "ProduceCardGrowEffectType_InitialAdd") card.isInitial = true;
+    if (type === "ProduceCardGrowEffectType_PlayMovePositionTypeChange") card.playMovePositionType = effect.playMovePositionType;
+    if (type === "ProduceCardGrowEffectType_PlayTriggerChange") {
+      const targets = new Set((effect.targetPlayEffectProduceExamTriggerIds ?? []).map(String));
+      if (!targets.size || targets.has(card.playProduceExamTriggerId)) card.playProduceExamTriggerId = effect.playProduceExamTriggerId;
+    }
+    if (type === "ProduceCardGrowEffectType_CardStatusEnchantChange") card.produceCardStatusEnchantId = effect.produceCardStatusEnchantId;
+    card.runtimeGrowEffects.push({ ...effect });
+    card.customGrowEffects.push({ ...effect });
+  }
+  return card;
+}
+
 function growTotal(card, type) {
   return (card?.customGrowEffects ?? []).reduce(
     (sum, effect) => sum + (growType(effect) === type ? Number(effect?.value ?? 0) || 0 : 0),
@@ -219,6 +238,19 @@ export function applyCardGrowEffectsToParsedEffect(parsedInput, card) {
     case "parameter_buff":
       parsed.value = adjustGain(card, parsed.value, "ProduceCardGrowEffectType_ParameterBuffTurnAdd");
       break;
+    case "parameter_buff_multiple_per_turn":
+      parsed.turn = adjustGain(card, parsed.turn, "ProduceCardGrowEffectType_ParameterBuffMultiplePerTurnAdd");
+      break;
+    case "stamina_consumption_down":
+      parsed.value = adjustGain(card, parsed.value, "ProduceCardGrowEffectType_StaminaConsumptionDownTurnAdd");
+      break;
+    case "master_effect": {
+      const type = String(parsed.masterEffectType ?? "").replace("ProduceExamEffectType_", "");
+      const additions = { ExamFullPowerPoint: "FullPowerPointAdd", ExamEnthusiastic: "EnthusiasticAdd", ExamLessonDependBlock: "LessonDependBlockAdd" };
+      if (additions[type]) parsed.value1 = parsed.value = adjustGain(card, parsed.value1 ?? parsed.value,
+        "ProduceCardGrowEffectType_" + additions[type], type === "ExamFullPowerPoint" ? "ProduceCardGrowEffectType_FullPowerPointReduce" : "");
+      break;
+    }
     case "lesson_depend_exam_review":
       parsed.permil = Math.max(
         0,
