@@ -173,7 +173,7 @@ function ensureFilterControls(mode) {
   const grid = panel?.querySelector(".input-panel .sim-config-grid");
   if (!panel || !grid) return existing;
 
-  if (!existing.plan || !existing.character) {
+  if (!existing.plan) {
     const planLabelElement = document.createElement("label");
     planLabelElement.className = "sim-filter-control-v5";
     const planTitle = document.createElement("span");
@@ -182,30 +182,28 @@ function ensureFilterControls(mode) {
     planSelect.id = `${mode}-plan-filter-v5`;
     planLabelElement.append(planTitle, planSelect);
 
-    const characterLabelElement = document.createElement("label");
-    characterLabelElement.className = "sim-filter-control-v5";
-    const characterTitle = document.createElement("span");
-    characterTitle.textContent = "アイドル";
-    const characterSelect = document.createElement("select");
-    characterSelect.id = `${mode}-character-filter-v5`;
-    characterLabelElement.append(characterTitle, characterSelect);
-
-    if (mode === "tower") grid.append(planLabelElement, characterLabelElement);
+    if (mode === "tower") grid.append(planLabelElement);
     else {
+      const characterLabelElement = document.createElement("label");
+      characterLabelElement.className = "sim-filter-control-v5";
+      const characterTitle = document.createElement("span");
+      characterTitle.textContent = "アイドル";
+      const characterSelect = document.createElement("select");
+      characterSelect.id = `${mode}-character-filter-v5`;
+      characterLabelElement.append(characterTitle, characterSelect);
       grid.insertBefore(characterLabelElement, grid.firstElementChild);
       grid.insertBefore(planLabelElement, characterLabelElement);
+      characterSelect.addEventListener("change", () => {
+        filterState[mode].characterId = characterSelect.value;
+        filterState[mode].idolCardId = "";
+        saveFilterState(filterState);
+        scheduleRefresh(mode);
+      });
     }
 
     planSelect.addEventListener("change", () => {
       filterState[mode].planType = planSelect.value;
-      filterState[mode].characterId = "";
-      filterState[mode].idolCardId = "";
-      saveFilterState(filterState);
-      scheduleRefresh(mode);
-    });
-
-    characterSelect.addEventListener("change", () => {
-      filterState[mode].characterId = characterSelect.value;
+      if (mode !== "tower") filterState[mode].characterId = "";
       filterState[mode].idolCardId = "";
       saveFilterState(filterState);
       scheduleRefresh(mode);
@@ -246,7 +244,10 @@ function ensureFilterControls(mode) {
 function populatePlanSelect(mode, memories) {
   const { plan } = ensureFilterControls(mode);
   if (!plan) return;
-  const values = availablePlanTypes(memories);
+  const towerCharacter = mode === "tower" ? document.getElementById("tower-character-filter-v5")?.value ?? "" : "";
+  const floorReady = mode !== "tower" || Boolean(document.getElementById("tower-stage-config")?.value);
+  const values = availablePlanTypes(mode === "tower" ? memories.filter((memory) => memory.characterId === towerCharacter) : memories);
+  plan.disabled = !floorReady;
   const preserve = filterState[mode].planType;
   const entries = [
     { value: "", text: "プランを選択" },
@@ -258,7 +259,7 @@ function populatePlanSelect(mode, memories) {
     if (plan.value !== preserve) plan.value = preserve;
   } else {
     filterState[mode].planType = "";
-    filterState[mode].characterId = "";
+    if (mode !== "tower") filterState[mode].characterId = "";
     filterState[mode].idolCardId = "";
     if (plan.value !== "") plan.value = "";
   }
@@ -276,18 +277,24 @@ function populateCharacterSelect(mode, memories) {
   const { character } = ensureFilterControls(mode);
   if (!character) return;
   const planType = filterState[mode].planType;
-  const stageCharacter = mode === "tower" ? document.getElementById("tower-stage-config")?.dataset.characterId ?? "" : "";
+  if (mode === "tower") {
+    filterState.tower.characterId = character.value;
+    filterState.tower.idolCardId = "";
+    for (const option of character.options) {
+      if (option.value && characterNames.has(option.value)) option.textContent = characterDisplayName(option.value);
+    }
+    return;
+  }
   const values = availableCharacterIds(memories, planType)
-    .filter((id) => !stageCharacter || id === stageCharacter)
     .sort((a, b) => characterDisplayName(a).localeCompare(characterDisplayName(b), "ja"));
-  const preserve = stageCharacter || filterState[mode].characterId;
+  const preserve = filterState[mode].characterId;
   const entries = [
     { value: "", text: planType ? "アイドルを選択" : "先にプランを選択" },
     ...values.map((value) => ({ value, text: characterDisplayName(value) })),
   ];
   syncSelectOptions(character, entries);
 
-  const shouldDisable = !planType || Boolean(stageCharacter);
+  const shouldDisable = !planType;
   if (character.disabled !== shouldDisable) character.disabled = shouldDisable;
   if (preserve && values.includes(preserve)) {
     filterState[mode].characterId = preserve;
@@ -339,9 +346,12 @@ function filterMemorySelects(mode, memories) {
   const idolCardId = mode === "tower" ? "" : filterState[mode].idolCardId;
   const filtered = filterMemoriesForBuilder(memories, planType, characterId, idolCardId);
   const allowedIds = new Set(filtered.map((memory) => String(memory.userMemoryId ?? "")));
-  const ready = Boolean(planType && characterId);
+  const floorReady = mode !== "tower" || Boolean(document.getElementById("tower-stage-config")?.value);
+  const ready = Boolean(planType && characterId && floorReady);
 
-  if (!planType) setTextIfChanged(hint, "最初にプランを選択してください。");
+  if (mode === "tower" && !characterId) setTextIfChanged(hint, "最初にアイドルを選択してください。");
+  else if (!floorReady) setTextIfChanged(hint, "次に階層を選択してください。");
+  else if (!planType) setTextIfChanged(hint, mode === "tower" ? "次にプランを選択してください。" : "最初にプランを選択してください。");
   else if (!characterId) setTextIfChanged(hint, "次にアイドルを選択してください。");
   else {
     const detail = idolCardId ? ` / ${idolDisplayName(idolCardId)}` : "";
@@ -454,6 +464,8 @@ async function boot() {
 
   window.addEventListener("gakumas:tower-preset-filter", (event) => {
     const detail = event.detail ?? {};
+    const character = document.getElementById("tower-character-filter-v5");
+    if (character) character.value = String(detail.characterId ?? "");
     filterState.tower = {
       planType: String(detail.planType ?? ""),
       characterId: String(detail.characterId ?? ""),

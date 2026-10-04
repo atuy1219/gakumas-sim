@@ -186,6 +186,8 @@ assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/index.html", import.meta.url), "utf8"));
 assert.doesNotMatch(towerHtml, /id="tower-memory-count"/);
 assert.match(towerHtml, /id="tower-memory-count-status"/);
+assert.ok(towerHtml.indexOf('id="tower-character-filter-v5"') < towerHtml.indexOf('id="tower-stage-config"'));
+assert.doesNotMatch(towerHtml, /id="tower-gimmick-group"|<summary>ギミック設定<\/summary>/);
 assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="order">2[^<]*シャッフル前[\s\S]*data-stage="seed">3[^<]*Seed[\s\S]*data-stage="simulation">4[^<]*シミュレーション/);
 assert.doesNotMatch(towerHtml, /id="exam-progress-file"/);
 assert.doesNotMatch(towerHtml, /id="exam-progress-text"/);
