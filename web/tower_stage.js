@@ -1,5 +1,7 @@
 import { calculateWeightedTurnParameterTypes } from "./turn_parameters.js";
 import { resolveMemoryPItemIds } from "./memory_pitems.js";
+import { parseSeed } from "./engine.js";
+import { rewindXorshift32 } from "./simulation.js";
 
 export function collectTowerPItemIds(mainMemory, stageChoice, idolById) {
   const mainIds = resolveMemoryPItemIds(mainMemory, idolById).ids;
@@ -35,6 +37,7 @@ export const TOWER_STAGE_MASTER_URLS = Object.freeze({
   scoreConfigs: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleScoreConfig.yaml",
   towers: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Tower.yaml",
   layerExams: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/TowerLayerExam.yaml",
+  npcGroups: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleNpcGroup.yaml",
   liveLayers: "./data/tower_layer_config.json.gz",
 });
 
@@ -159,6 +162,16 @@ export function parseTowerLayerExams(text) {
     .sort((a, b) => a.towerId.localeCompare(b.towerId) || a.number - b.number);
 }
 
+export function parseTowerNpcCounts(text) {
+  const counts = new Map();
+  for (const row of yamlRecords(text)) {
+    const id = String(row.id ?? "");
+    if (!id.startsWith("p_npc_group-tower_")) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function parseTowerLiveLayerMap(payload) {
   const richRows = Array.isArray(payload) ? payload : payload?.layerExams;
   if (Array.isArray(richRows)) return richRows.filter((row) => row.towerId && Number(row.number) > 0 && row.produceExamBattleConfigId).map((row) => ({ ...row }));
@@ -242,12 +255,13 @@ async function fetchOptionalCompressedJson(url, fetchImpl) {
 
 export async function loadTowerStageCatalog(fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") throw new Error("ドル道マスタを取得する fetch がありません。");
-  const [battleText, scoreText, towerText, layerText, liveLayerPayload] = await Promise.all([
+  const [battleText, scoreText, towerText, layerText, liveLayerPayload, npcText] = await Promise.all([
     fetchRequired(TOWER_STAGE_MASTER_URLS.battleConfigs, fetchImpl),
     fetchRequired(TOWER_STAGE_MASTER_URLS.scoreConfigs, fetchImpl),
     fetchOptional(TOWER_STAGE_MASTER_URLS.towers, fetchImpl),
     fetchOptional(TOWER_STAGE_MASTER_URLS.layerExams, fetchImpl),
     fetchOptionalCompressedJson(TOWER_STAGE_MASTER_URLS.liveLayers, fetchImpl),
+    fetchRequired(TOWER_STAGE_MASTER_URLS.npcGroups, fetchImpl),
   ]);
   const configs = parseTowerBattleConfigs(battleText);
   const configById = new Map(configs.map((config) => [config.id, config]));
@@ -268,6 +282,7 @@ export async function loadTowerStageCatalog(fetchImpl = globalThis.fetch) {
     towerById,
     layerExams,
     scoreRowsById,
+    npcCountByGroupId: parseTowerNpcCounts(npcText),
     layerFloorCount,
     layerSource: liveLayers.length ? "api-snapshot" : (masterLayers.length ? "master" : "config-fallback"),
     liveLayerMeta: liveLayers.length ? {
@@ -307,6 +322,7 @@ export function buildTowerStageChoices(catalog, characterId = "", examEffectType
         examEffectType: layer.examEffectType,
         maxSubMemoryCount: Number(layer.maxSubMemoryCount ?? 0),
         exactLayer: true,
+        npcCount: catalog.npcCountByGroupId?.get(layer.produceExamBattleNpcGroupId),
         label: `${tower?.title ?? layer.towerId} · ${layer.number}階 · ${config.turn}T · Vo ${config.vocal} / Da ${config.dance} / Vi ${config.visual}`,
       };
     });
@@ -413,9 +429,25 @@ export function calculateTowerParameterBonus(config, scoreRowsById, parameters, 
   };
 }
 
-export function calculateTowerTurnTypes(config, seedInput) {
+export function resolveTowerTurnInitialization(config, seedInput, options = {}) {
   if (!config) throw new Error("ドル道ステージ設定を選択してください。");
-  return calculateWeightedTurnParameterTypes(config, seedInput);
+  const turn = Number(config.turn);
+  const npcCount = options?.npcCount;
+  if (!Number.isInteger(turn) || turn < 1) throw new Error("ドル道のターン数が不正です。");
+  if (!Number.isInteger(npcCount) || npcCount < 0) throw new Error("階層のNPC情報を取得できません。");
+  // The UI/search Seed is the state immediately before the first deck shuffle.
+  // Native Tower (ExamType 5) first generates turn attributes, then one random
+  // score per NPC per turn. Rewind both without advancing the deck RNG again.
+  const turnRandomSteps = Math.max(0, turn - 3);
+  const npcRandomSteps = turn * npcCount;
+  const shuffleState = parseSeed(seedInput);
+  const turnSeed = rewindXorshift32(shuffleState, turnRandomSteps + npcRandomSteps);
+  return { shuffleState, turnSeed, turnRandomSteps, npcRandomSteps, npcCount };
+}
+
+export function calculateTowerTurnTypes(config, seedInput, options = {}) {
+  const { turnSeed } = resolveTowerTurnInitialization(config, seedInput, options);
+  return calculateWeightedTurnParameterTypes(config, turnSeed);
 }
 
 export function towerParameterLabel(type) {

@@ -49,6 +49,7 @@ import {
   calculateTowerMemoryParameters,
   calculateTowerParameterBonus,
   calculateTowerTurnTypes,
+  resolveTowerTurnInitialization,
   collectTowerPItemIds,
   resolveTowerFloorStage,
   towerFloorMemoryCount,
@@ -1062,7 +1063,7 @@ function renderTowerStageSummary() {
     return;
   }
   try {
-    const order = calculateTowerTurnTypes(config, seedText);
+    const order = calculateTowerTurnTypes(config, seedText, currentTowerStageChoice());
     order.forEach((type, index) => {
       const chip = document.createElement("span");
       chip.className = "chip tower-turn-chip";
@@ -1664,7 +1665,7 @@ $("tower-run").addEventListener("click", async () => {
     const parameterBonus = towerStageCatalog
       ? calculateTowerParameterBonus(stageConfig, towerStageCatalog.scoreRowsById, effectiveParameters)
       : null;
-    const turnParameterTypes = calculateTowerTurnTypes(stageConfig, $("tower-seed").value);
+    const turnParameterTypes = calculateTowerTurnTypes(stageConfig, $("tower-seed").value, currentTowerStageChoice());
     towerTurnState = createTowerTurnState(composition.cards, $("tower-seed").value, catalogs.cardById, {
       cardVariantByKey: catalogs.cardVariantByKey,
       customizeById: catalogs.customizeById,
@@ -1685,6 +1686,7 @@ $("tower-run").addEventListener("click", async () => {
       turnLimit: Number(stageConfig.turn),
     });
     towerTurnState.stageConfig = { ...stageConfig };
+    towerTurnState.turnInitialization = resolveTowerTurnInitialization(stageConfig, $("tower-seed").value, currentTowerStageChoice());
     towerTurnState.effectiveParameters = { ...effectiveParameters };
     towerTurnState.parameterBonus = parameterBonus;
     towerTurnState.turnParameterTypes = [...turnParameterTypes];

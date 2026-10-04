@@ -1,4 +1,4 @@
-import { calculateTowerTurnTypes } from "./tower_stage.js";
+import { calculateTowerTurnTypes, resolveTowerTurnInitialization } from "./tower_stage.js";
 import { createTowerTurnState, drawTowerTurn } from "./tower_runtime.js";
 
 export const JUOU_SENA_TOWER26 = Object.freeze({
@@ -7,6 +7,7 @@ export const JUOU_SENA_TOWER26 = Object.freeze({
   floor: 26,
   turnLimit: 16,
   maxSubMemoryCount: 3,
+  npcCount: 5,
   battleConfigId: "p_exam_battle_config-tower_001-2096_1715_2541-2589_2118_3139-turn_16",
   supportedExamEffectTypes: Object.freeze([
     "ProduceExamEffectType_ExamParameterBuff",
@@ -75,7 +76,9 @@ export function createJuouSenaTower26State({
   state.towerProfile = { ...JUOU_SENA_TOWER26 };
   state.examEffectType = String(examEffectType);
   state.battleConfigId = battleConfig.id;
-  state.turnParameterTypes = calculateTowerTurnTypes(battleConfig, seed);
+  const initializationOptions = { npcCount: options.npcCount ?? JUOU_SENA_TOWER26.npcCount };
+  state.turnParameterTypes = calculateTowerTurnTypes(battleConfig, seed, initializationOptions);
+  state.turnInitialization = resolveTowerTurnInitialization(battleConfig, seed, initializationOptions);
   state.parameterBonus = parameterBonus;
   state.examScoreSettings = examScoreSettings;
   drawTowerTurn(state, Number(options.drawPerTurn ?? 3));

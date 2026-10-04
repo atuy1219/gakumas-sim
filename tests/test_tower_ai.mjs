@@ -58,6 +58,7 @@ const initial = createJuouSenaTower26State({
 assert.equal(initial.turn, 1);
 assert.equal(initial.turnLimit, 16);
 assert.equal(initial.turnParameterTypes.length, 16);
+assert.equal(initial.turnInitialization.npcRandomSteps, 80);
 
 const clone = cloneTowerStateForAi(initial);
 clone.exam.parameter = 999;

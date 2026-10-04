@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createTowerTurnState, drawTowerTurn, playTowerCard, finishTowerTurn, serializeTowerTurnState, useTowerDrink} from '../web/tower_runtime.js';
 import {createSimulationBackup, parseSimulationBackup, stringifySimulationBackup} from '../web/simulation_backup.js';
+import {calculateTowerTurnTypes} from '../web/tower_stage.js';
 const fixture=JSON.parse(fs.readFileSync(new URL('./fixtures/tower26-replay-masters.json',import.meta.url)));
 const map=rows=>new Map(rows.map(row=>[row.id,row]));
 const maps=Object.fromEntries(['examEffectById','examStatusEnchantById','examTriggerById','cardSearchById'].map(key=>[key,map(fixture[key])]));
@@ -43,12 +44,15 @@ const norm=s=>JSON.parse(JSON.stringify(serializeTowerTurnState(s)));
 // Real Tower26 purple debuffs, with the two observed skill cards. Recover
 // the newest debuff before drawing turn 2; leave the other debuffs intact.
 {
- const s=setup({pItems:fixture.pItems,gimmicks:fixture.gimmicks});
+ const turnParameterTypes=calculateTowerTurnTypes({turn:16,vocal:2096,dance:1715,visual:2541},3437998083,{npcCount:5});
+ const s=setup({pItems:fixture.pItems,gimmicks:fixture.gimmicks,turnParameterTypes,
+  parameterBonus:{vocal:{bonusPermil:21160},dance:{bonusPermil:20350},visual:{bonusPermil:36940}}});
  drawTowerTurn(s);
  assert.equal(s.exam.review,0);assert.equal(s.turnLimit,16);assert.equal(s.hand.length,2);
  for(const id of ['p_card-02-ido-3_169','p_card-02-men-2_054'])playTowerCard(s,s.hand.findIndex(c=>c.id===id));
  assert.equal(s.exam.review,6);
- finishTowerTurn(s);assert.equal(drawTowerTurn(s).drawn.length,3);
+ finishTowerTurn(s);assert.equal(s.exam.parameter,259, 'Turn1 Visual 3694% 好印象 score');
+ assert.equal(drawTowerTurn(s).drawn.length,3);
  assert.equal(s.exam.startTurnCardDrawDown,0);assert.equal(s.exam.blockAddDown,true);
  assert.equal(s.exam.staminaConsumptionAddFix,2);assert.ok(s.exam.lessonParameterDown>0);
  const backup=createSimulationBackup(s,'tower');
