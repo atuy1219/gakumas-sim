@@ -279,4 +279,76 @@ function row(id, effectId, extra = {}) {
   assert.deepEqual(workflow.examContext, context);
   workflow.examContext.produceItemIds.push("other"); assert.deepEqual(context.produceItemIds, ["item"]);
 }
+// Status intervals use the status/change count, independent of the turn number.
+{
+  const gain = effect("ExamLessonFix", 9);
+  for (const [phase, interval, changes] of [
+    ["ExamAggressiveUpInterval", 5, [effect("ExamCardPlayAggressive", 5), effect("ExamCardPlayAggressive", 5)]],
+    ["ExamStanceChangeCountInterval", 2, [effect("ExamConcentration", 1), effect("ExamPreservation", 1)]],
+  ]) {
+    const t = { ...trigger(phase), phaseValues: [interval] };
+    const s = state({ pItems: [{ id: "interval-item", effects: [{ id: "interval-effect",
+      effectType: "ProduceItemEffectType_ExamStatusEnchant", effectTurn: -1, effectCount: 0,
+      examStatusEnchant: { id: "interval-enchant", trigger: t, examEffects: [gain] },
+    }] }] });
+    drawTowerTurn(s);
+    for (const change of changes) apply(s, change);
+    assert.equal(s.exam.parameter, phase === "ExamAggressiveUpInterval" ? 18 : 9);
+    apply(s, effect("ExamLessonBuff", 5));
+    assert.equal(s.exam.parameter, phase === "ExamAggressiveUpInterval" ? 18 : 9);
+  }
+}
+
+// Runtime growth changes the actual post-play destination, including after restore.
+{
+  const grow = { id: "reusable", effectType: "ProduceCardGrowEffectType_PlayMovePositionTypeChange",
+    playMovePositionType: "ProduceCardMovePositionType_Grave" };
+  const card = { id: "ONCE", category: active, stamina: 0,
+    playMovePositionType: "ProduceCardMovePositionType_Lost", playEffects: [] };
+  const s = state({ growEffectById: entries([grow]),
+    cardSearchById: entries([search("hand")]) }, [card]);
+  drawTowerTurn(s);
+  apply(s, effect("ExamAddGrowEffect", 0, 0, { produceCardSearchId: "hand",
+    pickRangeType: "ProducePickRangeType_All", produceCardGrowEffectIds: [grow.id] }));
+  const restored = restoreTowerTurnState(JSON.stringify(serializeTowerTurnState(s)), s);
+  playTowerCard(restored, 0);
+  assert.equal(restored.lost.length, 0);
+  assert.equal(restored.discard.length, 1);
+  assert.equal(restored.currentTurnPlays[0].onceOnly, false);
+}
+
+// Growth earned while support-upgraded persists on the permanent card at turn end.
+{
+  const lesson = effect("ExamLesson", 5);
+  const card = { id: "SUP-GROW", category: active, stamina: 6,
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: [{ produceExamEffectId: lesson.id }] };
+  const grows = [
+    { id: "cost", effectType: "ProduceCardGrowEffectType_CostReduce", value: 1 },
+    { id: "lesson", effectType: "ProduceCardGrowEffectType_LessonAdd", value: 3 },
+  ];
+  for (const permanentUpgrade of [false, true]) {
+    const s = state({ examEffectById: entries([lesson]), growEffectById: entries(grows),
+      cardSearchById: entries([search("hand")]),
+      cardVariantByKey: new Map([[card.id + "@@1", { ...card, upgradeCount: 1, stamina: 4 }],
+        [card.id + "@@2", { ...card, upgradeCount: 2, stamina: 2 }]]),
+      supportCards: [{ supportCardId: "always", cardSearchId: "p_card_search-hand", produceCardUpgradePermil: 1000 }],
+    }, [card]);
+    drawTowerTurn(s);
+    apply(s, effect("ExamAddGrowEffect", 0, 0, { produceCardSearchId: "hand",
+      pickRangeType: "ProducePickRangeType_All", produceCardGrowEffectIds: grows.map((grow) => grow.id) }));
+    if (permanentUpgrade) apply(s, effect("ExamCardUpgrade", 0, 0, {
+      produceCardSearchId: "hand", pickRangeType: "ProducePickRangeType_All" }));
+    playTowerCard(s, 0);
+    assert.equal(s.exam.parameter, 8);
+    finishTowerTurn(s);
+    assert.equal(s.discard[0].upgradeCount, permanentUpgrade ? 1 : 0);
+    assert.equal(s.discard[0].stamina, permanentUpgrade ? 3 : 5);
+    assert.equal(s.discard[0].runtimeGrowEffects.length, 2);
+    s.supportCards = [];
+    drawTowerTurn(s); playTowerCard(s, 0);
+    assert.equal(s.exam.parameter, 16);
+  }
+}
+
 console.log("exam completeness regressions: ok");

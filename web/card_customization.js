@@ -172,7 +172,10 @@ export function applyRuntimeCardGrowEffects(card, effects) {
     applyCostGrow(card, effect) || applyEffectGrow(card, effect);
     const type = growType(effect);
     if (type === "ProduceCardGrowEffectType_InitialAdd") card.isInitial = true;
-    if (type === "ProduceCardGrowEffectType_PlayMovePositionTypeChange") card.playMovePositionType = effect.playMovePositionType;
+    if (type === "ProduceCardGrowEffectType_PlayMovePositionTypeChange") {
+      card.playMovePositionType = effect.playMovePositionType;
+      card.onceOnly = card.playMovePositionType === "ProduceCardMovePositionType_Lost";
+    }
     if (type === "ProduceCardGrowEffectType_PlayTriggerChange") {
       const targets = new Set((effect.targetPlayEffectProduceExamTriggerIds ?? []).map(String));
       if (!targets.size || targets.has(card.playProduceExamTriggerId)) card.playProduceExamTriggerId = effect.playProduceExamTriggerId;

@@ -769,7 +769,7 @@ function nativeSchedulerHooks(state, runtimeEvent) {
         if (!card) return;
         const grows = effect.growEffectIds.map((id) => state.growEffectById.get(id)).filter(Boolean);
         for (const id of effect.growEffectIds) if (!state.growEffectById.has(id)) rememberUnsupported(state, "grow-effect:" + id);
-        applyRuntimeCardGrowEffects(card, grows);
+        applyPersistentRuntimeCardGrowEffects(card, grows);
         runtimeEvent.grown ??= [];
         runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1 });
         runtimeEvent.effects.push((card.name ?? card.id) + "を成長");
@@ -1134,6 +1134,10 @@ function masterPhaseValue(state, phaseType, context) {
     case "ProduceExamPhaseType_ExamPlayCountInterval":
     case "ProduceExamPhaseType_ExamPlayCountIntervalAfter":
       return Number(state.exam.cardPlayCount ?? 0);
+    case "ProduceExamPhaseType_ExamAggressiveUpInterval":
+      return Number(state.exam.aggressive ?? 0);
+    case "ProduceExamPhaseType_ExamStanceChangeCountInterval":
+      return Number(state.exam.stanceChangeCount ?? 0);
     case "ProduceExamPhaseType_ExamCardDraw":
       return Number(context.event?.drawn?.length ?? 0);
     default:
@@ -1602,6 +1606,14 @@ function cloneRuntimeCardSnapshot(card) {
     customGrowEffects: source.customGrowEffects?.map((effect) => ({ ...effect })),
     runtimeGrowEffects: source.runtimeGrowEffects?.map((effect) => ({ ...effect })),
   };
+}
+
+function applyPersistentRuntimeCardGrowEffects(card, effects) {
+  applyRuntimeCardGrowEffects(card, effects);
+  // Support upgrades are temporary, but growth earned during the turn is not.
+  // Keep the permanent snapshot current so rollback and permanent upgrades
+  // retain the same growth without applying it twice to the active variant.
+  if (card._supportBaseSnapshot) applyRuntimeCardGrowEffects(card._supportBaseSnapshot, effects);
 }
 
 function applyRuntimeUpgradeVariant(state, card, targetUpgradeCount) {
@@ -2750,7 +2762,7 @@ function addGrowEffectsToDeckAll(state, parsed, event) {
   const grows = (parsed.growEffectIds ?? []).map((id) => state.growEffectById.get(id)).filter(Boolean);
   if (grows.length) {
     const candidates = parsed.pickRangeType ? pickedMasterCards(state, parsed) : [...state.deck, ...state.hand, ...state.discard, ...state.hold].filter((card) => cardMatchesSearchId(card, parsed.searchId));
-    for (const card of candidates) applyRuntimeCardGrowEffects(card, grows);
+    for (const card of candidates) applyPersistentRuntimeCardGrowEffects(card, grows);
     event.grown ??= [];
     event.grown.push({ searchId: parsed.searchId, growEffectIds: [...parsed.growEffectIds], matched: candidates.length });
     event.effects.push("対象カードを成長");
