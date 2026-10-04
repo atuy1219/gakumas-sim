@@ -164,7 +164,7 @@ export function buildCanonicalCardCatalog(entries) {
 }
 
 export function parseProduceItemCatalog(text) {
-  return parseTopLevelYamlRecords(text, ["name", "planType", "rarity", "assetId", "isUpgraded", "libraryHidden", "order"])
+  return parseTopLevelYamlRecords(text, ["name", "planType", "rarity", "assetId", "originIdolCardId", "originSupportCardId", "isUpgraded", "libraryHidden", "order"])
     .filter((entry) => entry.name && entry.libraryHidden !== true)
     .map((entry) => ({ ...entry, name: String(entry.name) }))
     .sort((a, b) => Number(a.order ?? Number.MAX_SAFE_INTEGER) - Number(b.order ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name, "ja"));

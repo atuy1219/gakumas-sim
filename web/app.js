@@ -41,6 +41,7 @@ import {
   partitionSeedObservations,
 } from "./seed_observation.js";
 import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
+import { buildCanonicalCardCatalog } from "./catalog.js";
 import {
   buildTowerStageChoices,
   calculateTowerMemoryParameters,
@@ -339,6 +340,13 @@ function renderCatalogOptions() {
   }
   cardList.append(cardFragment);
 
+  const memoryCardList = $("memory-card-options");
+  memoryCardList.replaceChildren(...buildCanonicalCardCatalog(catalogs.cards).map((card) => {
+    const option = document.createElement("option");
+    option.value = card.baseName;
+    return option;
+  }));
+
   const deckList = $("initial-deck-options");
   deckList.innerHTML = "";
   const deckFragment = document.createDocumentFragment();
@@ -540,7 +548,7 @@ function addEditCardRow(card = {}) {
   row.className = "edit-card-row";
   row.__originalCard = { ...card };
   const id = document.createElement("input");
-  id.setAttribute("list", "produce-card-options");
+  id.setAttribute("list", "memory-card-options");
   id.placeholder = "カード名または p_card-...";
   id.value = card.id ? `${catalogName(card)} — ${card.id}` : "";
   const upgrade = document.createElement("input");
@@ -1226,7 +1234,7 @@ function storedTowerFilter() {
     return {
       planType: String(raw?.tower?.planType ?? ""),
       characterId: String(raw?.tower?.characterId ?? ""),
-      idolCardId: String(raw?.tower?.idolCardId ?? ""),
+      idolCardId: "",
     };
   } catch {
     return { planType: "", characterId: "", idolCardId: "" };
@@ -1241,15 +1249,10 @@ function effectiveTowerFilter(requested, memories) {
   if (list.some((memory) => String(memory.planType ?? "") !== planType || String(memory.characterId ?? "") !== characterId)) {
     throw new Error("ドル道セット内のメモリーは同じプラン・アイドルである必要があります。");
   }
-  const requestedIdol = String(requested?.idolCardId ?? "");
-  const sameIdol = list.every((memory) => String(memory.idolCardId ?? "") === String(list[0].idolCardId ?? ""));
-  const commonIdol = sameIdol ? String(list[0].idolCardId ?? "") : "";
   return {
     planType: String(requested?.planType ?? "") || planType,
     characterId: String(requested?.characterId ?? "") || characterId,
-    idolCardId: requestedIdol && list.every((memory) => String(memory.idolCardId ?? "") === requestedIdol)
-      ? requestedIdol
-      : commonIdol,
+    idolCardId: "",
   };
 }
 
@@ -1259,7 +1262,7 @@ function saveTowerFilter(filter) {
     raw.tower = {
       planType: String(filter?.planType ?? ""),
       characterId: String(filter?.characterId ?? ""),
-      idolCardId: String(filter?.idolCardId ?? ""),
+      idolCardId: "",
     };
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(raw));
   } catch {

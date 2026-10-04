@@ -98,7 +98,7 @@ function loadFilterState() {
       tower: {
         planType: String(raw?.tower?.planType ?? ""),
         characterId: String(raw?.tower?.characterId ?? ""),
-        idolCardId: String(raw?.tower?.idolCardId ?? ""),
+        idolCardId: "",
       },
     };
   } catch {
@@ -158,7 +158,6 @@ function builderElements(mode) {
 let characterNames = new Map();
 let idolCardsById = new Map();
 const filterState = loadFilterState();
-lastFilterStateJson = JSON.stringify(filterState);
 let applyingFilter = false;
 const refreshModes = new Set();
 let refreshHandle = 0;
@@ -212,7 +211,7 @@ function ensureFilterControls(mode) {
     existing = builderElements(mode);
   }
 
-  if (!existing.idol) {
+  if (mode !== "tower" && !existing.idol) {
     const idolLabelElement = document.createElement("label");
     idolLabelElement.className = "sim-filter-control-v5";
     const idolTitle = document.createElement("span");
@@ -331,7 +330,7 @@ function filterMemorySelects(mode, memories) {
 
   const planType = filterState[mode].planType;
   const characterId = filterState[mode].characterId;
-  const idolCardId = filterState[mode].idolCardId;
+  const idolCardId = mode === "tower" ? "" : filterState[mode].idolCardId;
   const filtered = filterMemoriesForBuilder(memories, planType, characterId, idolCardId);
   const allowedIds = new Set(filtered.map((memory) => String(memory.userMemoryId ?? "")));
   const ready = Boolean(planType && characterId);
@@ -452,7 +451,7 @@ async function boot() {
     filterState.tower = {
       planType: String(detail.planType ?? ""),
       characterId: String(detail.characterId ?? ""),
-      idolCardId: String(detail.idolCardId ?? ""),
+      idolCardId: "",
     };
     memoryStorageSnapshot = null;
     saveFilterState(filterState);
