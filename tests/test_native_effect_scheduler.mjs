@@ -521,4 +521,19 @@ import {
   assert.deepEqual(order, ["early", "normal-a", "normal-b"]);
 }
 
+// Conditions are collected before effects mutate state, in either direction.
+{
+  const scheduler = createNativeEffectScheduler();
+  const exam = { review: 0 };
+  const executed = [];
+  for (const [id, value] of [["first", 0], ["also-eligible", 0], ["not-yet-eligible", 1]]) {
+    registerNativeEffect(scheduler, { id, phase: NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN,
+      condition: { field: "exam.review", op: "eq", value }, effects: [id] });
+  }
+  dispatchNativeEffectPhase(scheduler, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, { exam }, {
+    executeEffect(effect) { executed.push(effect); exam.review = 1; },
+  });
+  assert.deepEqual(executed, ["first", "also-eligible"]);
+}
+
 console.log("native effect scheduler tests: ok");

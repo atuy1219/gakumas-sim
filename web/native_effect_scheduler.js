@@ -390,9 +390,11 @@ export function dispatchNativeEffectPhase(
         Number(a.priority ?? 0) - Number(b.priority ?? 0)
         || Number(a.registrationOrder ?? 0) - Number(b.registrationOrder ?? 0)
       ));
-    for (const registration of phaseRegistrations) {
-      if (!registrationCanRun(scheduler, registration)) continue;
-
+    // Native GetInsertTriggerEffectListCommand builds the eligible command list
+    // before executing it. Earlier effects must not alter later conditions in
+    // this same phase (for example, a turn extension suppressing Encore).
+    const matchedRegistrations = phaseRegistrations.filter((registration) => {
+      if (!registrationCanRun(scheduler, registration)) return false;
       const supported = typeof hooks.evaluateCondition === "function"
         ? hooks.evaluateCondition(registration.condition, context, registration)
         : undefined;
@@ -400,14 +402,17 @@ export function dispatchNativeEffectPhase(
       const conditionMatched = supported === undefined
         ? evaluateNativeEffectCondition(registration.condition, conditionContext)
         : Boolean(supported);
-      if (!conditionMatched) continue;
+      return conditionMatched;
+    });
+    for (const registration of matchedRegistrations) {
+      // Nested dispatches may have spent a shared limit or disabled an entry.
+      if (!registrationCanRun(scheduler, registration)) continue;
+      if (typeof hooks.beforeRegistration === "function"
+        && hooks.beforeRegistration(registration, context) === false) continue;
 
       registration.triggerCount += 1;
       registration.lastMatchedSequence = event.sequence;
       event.matchedRegistrationIds.push(registration.registrationId);
-      if (typeof hooks.beforeRegistration === "function") {
-        hooks.beforeRegistration(registration, context);
-      }
 
       scheduler.executingRegistrationIds.push(registration.registrationId);
       try {

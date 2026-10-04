@@ -56,6 +56,36 @@ RVA evidence, intentional differences, and remaining gaps such as Link Contest.
 
 ## Verification boundary
 
+### Encore with final-turn extensions (2026-10-05)
+
+`GetPhaseEffectList` (`0x803331C`) / `GetTriggerEffectList`
+(`0x8032178`) supply the trigger candidates to
+`GetInsertTriggerEffectListCommand` (`0x8061338`). That method materializes
+commands and spends trigger counts before the commands execute. Phase conditions
+are therefore collected before any of that phase's effects mutate the state.
+This prevents 頂点の輝き's extra turn from suppressing a simultaneously eligible
+光り輝く道しるべ Encore. Execution still checks active/count/reentrancy gates;
+registrations installed during a dispatch remain deferred until the next root
+dispatch. Gimmick row payload conditions retain their ordered evaluation.
+
+`ExecuteCardCommandImpl` (`0x805F2D0`, especially `0x805F8E0`–`0x805FA70`)
+reads the card's previous play count and its `IsOncePlayEffectList` to exclude
+initial-only effects from a subsequent use's first execution. Repeat-buff
+executions retain the native repeat behavior. The runtime now stores per-card
+play counts; legacy backups recover them from completed/current play records.
+Without this exclusion, fixing the phase condition would incorrectly reinstall
+the Encore on every replay and reset its three-use lifetime.
+
+The public-master fixture covers 光り輝く道しるべ (base / +), its real Review
+cost, three-use final-turn Encore, and 頂点の輝き's two turn extensions. Tests
+check free replay, added playable count, no duplicate/lost-card leakage, no
+reinstalled Encore, exhausted activation counts, and new/legacy backup resume.
+A local replay of the supplied 18-turn backup's recorded actions keeps turns
+1–16 hands identical and activates Encore once on each of turns 17, 18 and 19.
+The private backup and deck are not committed. An existing turn-18 checkpoint
+can continue at turn 19; its missing earlier activations are not backfilled.
+This is master/ELF/replay verification, not a new device trace comparison.
+
 The current `audit_exam_effect_coverage.mjs` run against the `vertesan/gakumasu-diff`
 master YAML returned 2,098 effect rows, 1,732 card variants and 478 P-items.
 Its smoke test exercised 1,686 card variants; 46 were blocked by play conditions.

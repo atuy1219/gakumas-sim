@@ -223,6 +223,19 @@ export function restoreTowerTurnState(input, shared = {}) {
   state.statusEnchantSerial ??= 0;
   state.exam.turnCardPlayCount ??= state.currentTurnPlays?.length ?? 0;
   state.turnOpen ??= Number(state.turn) > 0 && !state.ended && Number(state.history?.at(-1)?.turn ?? 0) < Number(state.turn);
+  // Older checkpoints did not store per-card play counts. Recover them from
+  // recorded plays so resuming an Encore cannot reinstall its initial effect.
+  const playedCounts = new Map();
+  for (const play of [...(state.history ?? []).flatMap(turn => turn.plays ?? []), ...(state.turnOpen ? state.currentTurnPlays ?? [] : [])]) {
+    const token = play.card?.token;
+    if (token) playedCounts.set(token, (playedCounts.get(token) ?? 0) + 1);
+  }
+  for (const pool of [state.deck, state.discard, state.lost, state.hold, state.hand]) {
+    for (const card of pool ?? []) {
+      card.playCount ??= playedCounts.get(card.token) ?? 0;
+      if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
+    }
+  }
   return state;
 }
 
@@ -245,6 +258,7 @@ function runtimeInstances(
     const runtime = applyCardCustomizations({
       ...card,
       token: `${id}@@${ordinal}`,
+      playCount: 0,
       originalIndex: index,
       name: String(master.name ?? card.name ?? id),
       playMovePositionType,
@@ -326,6 +340,7 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
   return {
     ...card,
     token: `generated:${state.generatedCardSerial}:${id}`,
+    playCount: 0,
     name: String(master.name ?? id),
     originalIndex: -1,
     generated: true,
@@ -789,8 +804,10 @@ function nativeSchedulerHooks(state, runtimeEvent) {
       }), { phase: registration.phase, registrationId: registration.registrationId, recordIfUnchanged: true });
     },
     beforeRegistration(registration) {
+      if (registration.metadata?.statusEnchantKey && state.statusEnchantRemainingCounts.get(registration.metadata.statusEnchantKey) === 0) return false;
       const activationKey = String(registration.metadata?.activationKey ?? "");
       if (activationKey) {
+        if (runtimeEvent.__nativeEffectFired?.has(activationKey)) return false;
         if (!runtimeEvent.__nativeEffectFired) runtimeEvent.__nativeEffectFired = new Set();
         runtimeEvent.__nativeEffectFired.add(activationKey);
       }
@@ -3137,6 +3154,9 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     state.exam.playCardCountSum += 1;
     state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
     const cardPlayCount = state.exam.cardPlayCount;
+    const previouslyPlayed = Number(card.playCount ?? 0) > 0;
+    card.playCount = Number(card.playCount ?? 0) + 1;
+    if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
     const repeatBuff = state.cardEffectPlayCountBuff;
     const repeatMatches = Boolean(
@@ -3154,7 +3174,12 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
     }
     for (let n = 0; n <= repeat; n += 1) {
-      for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event, card);
+      for (const entry of card.playEffects ?? []) {
+        // ExecuteCardCommandImpl tests the card's prior play count for the
+        // first execution; repeat-buff executions keep native effect behavior.
+        if (n === 0 && previouslyPlayed && entry.isOncePlayEffect) continue;
+        applyCardEffectEntry(state, entry, event, card);
+      }
     }
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
     resolveFullPowerAfterCard(state, event);

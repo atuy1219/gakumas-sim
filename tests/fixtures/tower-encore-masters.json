@@ -1,0 +1,607 @@
+{
+  "cards": [
+    {
+      "id": "p_card-02-ido-3_203",
+      "playEffects": [
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_review-0003",
+          "hideIcon": false,
+          "isOncePlayEffect": false
+        },
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_card_play_aggressive-0001",
+          "hideIcon": false,
+          "isOncePlayEffect": false
+        },
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_playable_value_add-01",
+          "hideIcon": false,
+          "isOncePlayEffect": false
+        },
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_status_enchant_encore-0001-03-inf-enchant-p_card-02-ido-3_203-enc01",
+          "hideIcon": false,
+          "isOncePlayEffect": true
+        }
+      ],
+      "moveProduceExamEffectIds": [],
+      "upgradeCount": 0,
+      "name": "光り輝く道しるべ",
+      "assetId": "img_general_skillcard_ido-3_203",
+      "isCharacterAsset": false,
+      "rarity": "ProduceCardRarity_Ssr",
+      "planType": "ProducePlanType_Plan2",
+      "category": "ProduceCardCategory_MentalSkill",
+      "stamina": 0,
+      "forceStamina": 0,
+      "costType": "ExamCostType_ExamReview",
+      "costValue": 5,
+      "playProduceExamTriggerId": "",
+      "playMovePositionType": "ProduceCardMovePositionType_Lost",
+      "moveEffectTriggerType": "ProduceCardMoveEffectTriggerType_Unknown",
+      "isEndTurnLost": false,
+      "isInitial": false,
+      "isRestrict": false,
+      "produceCardStatusEnchantId": "",
+      "libraryHidden": false,
+      "noDeckDuplication": true,
+      "isReward": false,
+      "unlockProducerLevel": 0,
+      "evaluation": 1,
+      "originIdolCardId": "i_card-jsna-3-017",
+      "originSupportCardId": "",
+      "isInitialDeckProduceCard": false,
+      "effectGroupIds": [
+        "effect_group-visible-exam_playable_value_add-000",
+        "effect_group-visible-exam_status_enchant_encore-000",
+        "effect_group-visible-exam_review-000",
+        "effect_group-visible-exam_card_play_aggressive-000"
+      ],
+      "moveProduceExamTriggerIds": [],
+      "originCharacterId": "",
+      "originPrimaStellaIdolCardId": "",
+      "isLimited": false
+    },
+    {
+      "id": "p_card-02-ido-3_203",
+      "playEffects": [
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_review-0004",
+          "hideIcon": false,
+          "isOncePlayEffect": false
+        },
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_card_play_aggressive-0003",
+          "hideIcon": false,
+          "isOncePlayEffect": false
+        },
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_playable_value_add-01",
+          "hideIcon": false,
+          "isOncePlayEffect": false
+        },
+        {
+          "produceExamTriggerId": "",
+          "produceExamEffectId": "e_effect-exam_status_enchant_encore-0001-03-inf-enchant-p_card-02-ido-3_203-enc01",
+          "hideIcon": false,
+          "isOncePlayEffect": true
+        }
+      ],
+      "moveProduceExamEffectIds": [],
+      "upgradeCount": 1,
+      "name": "光り輝く道しるべ+",
+      "assetId": "img_general_skillcard_ido-3_203",
+      "isCharacterAsset": false,
+      "rarity": "ProduceCardRarity_Ssr",
+      "planType": "ProducePlanType_Plan2",
+      "category": "ProduceCardCategory_MentalSkill",
+      "stamina": 0,
+      "forceStamina": 0,
+      "costType": "ExamCostType_ExamReview",
+      "costValue": 5,
+      "playProduceExamTriggerId": "",
+      "playMovePositionType": "ProduceCardMovePositionType_Lost",
+      "moveEffectTriggerType": "ProduceCardMoveEffectTriggerType_Unknown",
+      "isEndTurnLost": false,
+      "isInitial": false,
+      "isRestrict": false,
+      "produceCardStatusEnchantId": "",
+      "libraryHidden": false,
+      "noDeckDuplication": true,
+      "isReward": false,
+      "unlockProducerLevel": 0,
+      "evaluation": 5,
+      "originIdolCardId": "i_card-jsna-3-017",
+      "originSupportCardId": "",
+      "isInitialDeckProduceCard": false,
+      "effectGroupIds": [
+        "effect_group-visible-exam_playable_value_add-000",
+        "effect_group-visible-exam_status_enchant_encore-000",
+        "effect_group-visible-exam_review-000",
+        "effect_group-visible-exam_card_play_aggressive-000"
+      ],
+      "moveProduceExamTriggerIds": [],
+      "originCharacterId": "",
+      "originPrimaStellaIdolCardId": "",
+      "isLimited": false
+    }
+  ],
+  "pItems": [
+    {
+      "id": "pitem_02-3-321-0",
+      "assetId": "img_general_pitem_3-321",
+      "rarity": "ProduceItemRarity_Ssr",
+      "name": "頂点の輝き",
+      "planType": "ProducePlanType_Plan2",
+      "produceItemEffectIds": [
+        "p_item_effect-exam_status_enchant-inf-02-enchant-pitem_02-3-321-0-enc01"
+      ],
+      "libraryHidden": false,
+      "isUpgraded": false,
+      "order": "42210103210",
+      "effects": [
+        {
+          "id": "p_item_effect-exam_status_enchant-inf-02-enchant-pitem_02-3-321-0-enc01",
+          "effectType": "ProduceItemEffectType_ExamStatusEnchant",
+          "effectTurn": -1,
+          "effectCount": 2,
+          "produceEffectId": "",
+          "produceExamStatusEnchantId": "enchant-p_item_effect_02-3-321-0-enc01",
+          "examStatusEnchant": {
+            "id": "enchant-p_item_effect_02-3-321-0-enc01",
+            "assetId": "",
+            "produceDescriptions": [
+              "最終ターンのターン開始後、",
+              "|",
+              "",
+              "好印象",
+              "<nobr>+",
+              "5",
+              "</nobr>",
+              "|",
+              "",
+              "ターン追加",
+              "<nobr>+1</nobr>",
+              "|",
+              "",
+              "好印象減少",
+              "<nobr>",
+              "6",
+              "</nobr>",
+              " ",
+              "",
+              ""
+            ],
+            "produceExamTriggerId": "e_trigger-start_play-remaining_turn-1",
+            "produceExamEffectIds": [
+              "e_effect-exam_review-0005",
+              "e_effect-exam_extra_turn",
+              "e_effect-exam_review_reduce-0006"
+            ],
+            "trigger": {
+              "id": "e_trigger-start_play-remaining_turn-1",
+              "phaseTypes": [
+                "ProduceExamPhaseType_StartPlay"
+              ],
+              "phaseValues": [
+                0
+              ],
+              "fieldStatusCheckTypes": [],
+              "fieldStatusTypes": [
+                "ProduceExamFieldStatusType_RemainingTurn"
+              ],
+              "fieldStatusValues": [
+                1
+              ],
+              "fieldStatusProduceCardSearchIds": [],
+              "produceCardSearchId": "",
+              "upperSearchCount": 0,
+              "lowerSearchCount": 0,
+              "cardMovePositionType": "ProduceCardMovePositionType_Unknown",
+              "effectTypes": [],
+              "lessonType": "ProduceStepLessonType_Unknown",
+              "cardSearch": null,
+              "fieldStatusCardSearches": []
+            },
+            "examEffects": [
+              {
+                "id": "e_effect-exam_review-0005",
+                "effectType": "ProduceExamEffectType_ExamReview",
+                "effectValue1": 5,
+                "effectValue2": 0,
+                "effectCount": 0,
+                "effectTurn": 0,
+                "targetProduceCardId": "",
+                "targetUpgradeCount": 0,
+                "targetExamEffectType": "ProduceExamEffectType_Unknown",
+                "produceCardSearchId": "",
+                "movePositionType": "ProduceCardMovePositionType_Unknown",
+                "pickRangeType": "ProducePickRangeType_Unknown",
+                "pickCountReferenceProduceCardSearchId": "",
+                "pickCountType": "ProducePickCountType_Unknown",
+                "pickCountMin": 0,
+                "pickCountMax": 0,
+                "produceCardSearchId2": "",
+                "pickRangeType2": "ProducePickRangeType_Unknown",
+                "pickCountReferenceProduceCardSearchId2": "",
+                "pickCountType2": "ProducePickCountType_Unknown",
+                "pickCountMin2": 0,
+                "pickCountMax2": 0,
+                "chainProduceExamEffectId": "",
+                "chainProduceExamEffectIds": [],
+                "produceExamStatusEnchantId": "",
+                "produceCardStatusEnchantId": "",
+                "produceCardGrowEffectIds": [],
+                "effectGroupIds": [
+                  "effect_group-visible-exam_review-000"
+                ]
+              },
+              {
+                "id": "e_effect-exam_extra_turn",
+                "effectType": "ProduceExamEffectType_ExamExtraTurn",
+                "effectValue1": 0,
+                "effectValue2": 0,
+                "effectCount": 0,
+                "effectTurn": 0,
+                "targetProduceCardId": "",
+                "targetUpgradeCount": 0,
+                "targetExamEffectType": "ProduceExamEffectType_Unknown",
+                "produceCardSearchId": "",
+                "movePositionType": "ProduceCardMovePositionType_Unknown",
+                "pickRangeType": "ProducePickRangeType_Unknown",
+                "pickCountReferenceProduceCardSearchId": "",
+                "pickCountType": "ProducePickCountType_Unknown",
+                "pickCountMin": 0,
+                "pickCountMax": 0,
+                "produceCardSearchId2": "",
+                "pickRangeType2": "ProducePickRangeType_Unknown",
+                "pickCountReferenceProduceCardSearchId2": "",
+                "pickCountType2": "ProducePickCountType_Unknown",
+                "pickCountMin2": 0,
+                "pickCountMax2": 0,
+                "chainProduceExamEffectId": "",
+                "chainProduceExamEffectIds": [],
+                "produceExamStatusEnchantId": "",
+                "produceCardStatusEnchantId": "",
+                "produceCardGrowEffectIds": [],
+                "effectGroupIds": [
+                  "effect_group-visible-exam_extra_turn-000"
+                ]
+              },
+              {
+                "id": "e_effect-exam_review_reduce-0006",
+                "effectType": "ProduceExamEffectType_ExamReviewReduce",
+                "effectValue1": 6,
+                "effectValue2": 0,
+                "effectCount": 0,
+                "effectTurn": 0,
+                "targetProduceCardId": "",
+                "targetUpgradeCount": 0,
+                "targetExamEffectType": "ProduceExamEffectType_Unknown",
+                "produceCardSearchId": "",
+                "movePositionType": "ProduceCardMovePositionType_Unknown",
+                "pickRangeType": "ProducePickRangeType_Unknown",
+                "pickCountReferenceProduceCardSearchId": "",
+                "pickCountType": "ProducePickCountType_Unknown",
+                "pickCountMin": 0,
+                "pickCountMax": 0,
+                "produceCardSearchId2": "",
+                "pickRangeType2": "ProducePickRangeType_Unknown",
+                "pickCountReferenceProduceCardSearchId2": "",
+                "pickCountType2": "ProducePickCountType_Unknown",
+                "pickCountMin2": 0,
+                "pickCountMax2": 0,
+                "chainProduceExamEffectId": "",
+                "chainProduceExamEffectIds": [],
+                "produceExamStatusEnchantId": "",
+                "produceCardStatusEnchantId": "",
+                "produceCardGrowEffectIds": [],
+                "effectGroupIds": [
+                  "effect_group-visible-exam_review_reduce-000"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "examEffectById": [
+    {
+      "id": "e_effect-exam_card_play_aggressive-0001",
+      "effectType": "ProduceExamEffectType_ExamCardPlayAggressive",
+      "effectValue1": 1,
+      "effectValue2": 0,
+      "effectCount": 0,
+      "effectTurn": 0,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 0,
+      "pickCountMax": 0,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": [
+        "effect_group-visible-exam_card_play_aggressive-000"
+      ]
+    },
+    {
+      "id": "e_effect-exam_card_play_aggressive-0003",
+      "effectType": "ProduceExamEffectType_ExamCardPlayAggressive",
+      "effectValue1": 3,
+      "effectValue2": 0,
+      "effectCount": 0,
+      "effectTurn": 0,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 0,
+      "pickCountMax": 0,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": [
+        "effect_group-visible-exam_card_play_aggressive-000"
+      ]
+    },
+    {
+      "id": "e_effect-exam_playable_value_add-01",
+      "effectType": "ProduceExamEffectType_ExamPlayableValueAdd",
+      "effectValue1": 0,
+      "effectValue2": 0,
+      "effectCount": 1,
+      "effectTurn": 0,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 0,
+      "pickCountMax": 0,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": [
+        "effect_group-visible-exam_playable_value_add-000"
+      ]
+    },
+    {
+      "id": "e_effect-exam_review-0003",
+      "effectType": "ProduceExamEffectType_ExamReview",
+      "effectValue1": 3,
+      "effectValue2": 0,
+      "effectCount": 0,
+      "effectTurn": 0,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 0,
+      "pickCountMax": 0,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": [
+        "effect_group-visible-exam_review-000"
+      ]
+    },
+    {
+      "id": "e_effect-exam_review-0004",
+      "effectType": "ProduceExamEffectType_ExamReview",
+      "effectValue1": 4,
+      "effectValue2": 0,
+      "effectCount": 0,
+      "effectTurn": 0,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 0,
+      "pickCountMax": 0,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": [
+        "effect_group-visible-exam_review-000"
+      ]
+    },
+    {
+      "id": "e_effect-exam_status_enchant_encore-0001-03-inf-enchant-p_card-02-ido-3_203-enc01",
+      "effectType": "ProduceExamEffectType_ExamStatusEnchantEncore",
+      "effectValue1": 1,
+      "effectValue2": 0,
+      "effectCount": 3,
+      "effectTurn": -1,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 0,
+      "pickCountMax": 0,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "enchant-p_card-02-ido-3_203-enc01",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": [
+        "effect_group-visible-exam_status_enchant_encore-000"
+      ]
+    },
+    {
+      "id": "e_effect-exam_force_play_card_search-p_card_search-target_is_self-exam_status_enchant_encore-all-1_1",
+      "effectType": "ProduceExamEffectType_ExamForcePlayCardSearch",
+      "effectValue1": 0,
+      "effectValue2": 0,
+      "effectCount": 0,
+      "effectTurn": 0,
+      "targetProduceCardId": "",
+      "targetUpgradeCount": 0,
+      "targetExamEffectType": "ProduceExamEffectType_Unknown",
+      "produceCardSearchId": "p_card_search-target_is_self-exam_status_enchant_encore",
+      "movePositionType": "ProduceCardMovePositionType_Unknown",
+      "pickRangeType": "ProducePickRangeType_All",
+      "pickCountReferenceProduceCardSearchId": "",
+      "pickCountType": "ProducePickCountType_Unknown",
+      "pickCountMin": 1,
+      "pickCountMax": 1,
+      "produceCardSearchId2": "",
+      "pickRangeType2": "ProducePickRangeType_Unknown",
+      "pickCountReferenceProduceCardSearchId2": "",
+      "pickCountType2": "ProducePickCountType_Unknown",
+      "pickCountMin2": 0,
+      "pickCountMax2": 0,
+      "chainProduceExamEffectId": "",
+      "chainProduceExamEffectIds": [],
+      "produceExamStatusEnchantId": "",
+      "produceCardStatusEnchantId": "",
+      "produceCardGrowEffectIds": [],
+      "effectGroupIds": []
+    }
+  ],
+  "examStatusEnchantById": [
+    {
+      "id": "enchant-p_card-02-ido-3_203-enc01",
+      "assetId": "",
+      "produceDescriptions": [
+        "最終ターンのターン開始後、",
+        "自身を再使用",
+        " ",
+        "",
+        ""
+      ],
+      "produceExamTriggerId": "e_trigger-start_play-remaining_turn-1",
+      "produceExamEffectIds": [
+        "e_effect-exam_force_play_card_search-p_card_search-target_is_self-exam_status_enchant_encore-all-1_1"
+      ]
+    }
+  ],
+  "examTriggerById": [
+    {
+      "id": "e_trigger-start_play-remaining_turn-1",
+      "phaseTypes": [
+        "ProduceExamPhaseType_StartPlay"
+      ],
+      "phaseValues": [
+        0
+      ],
+      "fieldStatusCheckTypes": [],
+      "fieldStatusTypes": [
+        "ProduceExamFieldStatusType_RemainingTurn"
+      ],
+      "fieldStatusValues": [
+        1
+      ],
+      "fieldStatusProduceCardSearchIds": [],
+      "produceCardSearchId": "",
+      "upperSearchCount": 0,
+      "lowerSearchCount": 0,
+      "cardMovePositionType": "ProduceCardMovePositionType_Unknown",
+      "effectTypes": [],
+      "lessonType": "ProduceStepLessonType_Unknown"
+    }
+  ],
+  "cardSearchById": [
+    {
+      "id": "p_card_search-target_is_self-exam_status_enchant_encore",
+      "cardRarities": [],
+      "produceCardIds": [],
+      "upgradeCounts": [],
+      "planType": "ProducePlanType_Unknown",
+      "cardCategories": [],
+      "cardStatusType": "ProduceCardSearchStatusType_Unknown",
+      "orderType": "ProduceCardOrderType_Unknown",
+      "cardPositionType": "ProduceCardPositionType_Target",
+      "cardSearchTag": "",
+      "produceCardRandomPoolId": "",
+      "limitCount": 0,
+      "staminaMinMaxType": "ConditionMinMaxType_Unknown",
+      "staminaMin": 0,
+      "staminaMax": 0,
+      "examEffectType": "ProduceExamEffectType_Unknown",
+      "effectGroupIds": [],
+      "isSelf": true,
+      "produceCardPoolId": "",
+      "costType": "ExamCostType_Unknown",
+      "isCustomized": false
+    }
+  ]
+}
