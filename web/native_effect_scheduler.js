@@ -28,6 +28,7 @@ export const NATIVE_EFFECT_SOURCE = Object.freeze({
 });
 
 export const NATIVE_STATUS_CHANGE_FIELDS = Object.freeze([
+  "stamina",
   "block",
   "review",
   "aggressive",

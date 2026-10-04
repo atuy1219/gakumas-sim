@@ -5,6 +5,8 @@
   "cardEnchants": 77,
   "gimmickRows": 3762,
   "gimmickGroups": 1118,
+  "towerGimmickRows": 1328,
+  "towerGimmickGroups": 242,
   "directEffectFailures": [],
   "gimmickFailures": [],
   "runtimeBoundEffectIds": [

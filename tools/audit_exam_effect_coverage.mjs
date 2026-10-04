@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { parseProduceCardCatalogYaml } from "../web/engine.js";
 import {
@@ -29,6 +30,11 @@ import {
 } from "../web/tower_runtime.js";
 
 const root = path.resolve(process.argv[2] ?? ".");
+let masterCommit;
+try {
+  masterCommit = execFileSync("git", ["-C", root, "rev-parse", "HEAD"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+} catch { /* A standalone YAML directory need not be a Git checkout. */ }
 const read = (name) => fs.readFileSync(path.join(root, `${name}.yaml`), "utf8");
 
 const examEffects = parseProduceExamEffectCatalog(read("ProduceExamEffect"));
@@ -40,6 +46,7 @@ const searches = parseProduceCardSearchCatalog(read("ProduceCardSearch"));
 const randomPools = parseProduceCardRandomPoolCatalog(read("ProduceCardRandomPool"));
 
 const gimmicks = parseProduceExamGimmickCatalog(read("ProduceExamGimmickEffectGroup"));
+const towerGimmicks = gimmicks.filter((row) => row.id.startsWith("p_exam_gimmick-tower_"));
 const cardEnchants = parseProduceCardStatusEnchantCatalog(read("ProduceCardStatusEnchant"));
 const catalogs = {
   cardStatusEnchantById: new Map(cardEnchants.map((row) => [row.id, row])),
@@ -199,10 +206,14 @@ if (fs.existsSync(cardPath)) {
 }
 
 const report = {
+  masterCommit,
+  check: "master row execution smoke test",
   examEffects: examEffects.length,
   cardEnchants: cardEnchants.length,
   gimmickRows: gimmicks.length,
   gimmickGroups: groupExamGimmicks(gimmicks).size,
+  towerGimmickRows: towerGimmicks.length,
+  towerGimmickGroups: groupExamGimmicks(towerGimmicks).size,
   directEffectFailures, gimmickFailures, runtimeBoundEffectIds,
   unsupportedEffects,
   pItems: items.length,

@@ -999,6 +999,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     gimmickPlayCardLimit: null,
     startTurnCardDrawDown: 0,
     cardPlayCount: 0,
+    turnCardPlayCount: 0,
     playCardCountSum: 0,
     blockConsumptionSum: 0,
     staminaConsumptionSum: 0,

@@ -219,6 +219,7 @@ export function restoreTowerTurnState(input, shared = {}) {
   state.cardEnchantRegistrations ??= new Map();
   state.statusEnchantRemainingCounts ??= new Map();
   state.statusEnchantSerial ??= 0;
+  state.exam.turnCardPlayCount ??= state.currentTurnPlays?.length ?? 0;
   state.turnOpen ??= Number(state.turn) > 0 && !state.ended && Number(state.history?.at(-1)?.turn ?? 0) < Number(state.turn);
   return state;
 }
@@ -728,8 +729,9 @@ function schedulerParsedEffect(effect) {
 function gimmickRowConditionMatches(state, row = {}) {
   const fieldStatusType = String(row.fieldStatusType ?? "");
   if (!fieldStatusType || fieldStatusType.endsWith("_Unknown")) return true;
-  if (fieldStatusType === "ProduceExamFieldStatusType_PlayCardSkill") {
-    const matches = state.lastPlayedCard?.category === "ProduceCardCategory_MentalSkill";
+  if (fieldStatusType === "ProduceExamFieldStatusType_PlayCardSkill"
+    || fieldStatusType === "ProduceExamFieldStatusType_PlayCardLesson") {
+    const matches = masterFieldStatusValue(state, fieldStatusType) === 1;
     return row.fieldStatusCheckType === "ProduceExamTriggerCheckType_Not" ? !matches : matches;
   }
   const current = fieldStatusType === "ProduceExamFieldStatusType_CardSearchCountUp"
@@ -759,7 +761,7 @@ function nativeSchedulerHooks(state, runtimeEvent) {
           && (!Number(row.remainingTurnPermil) || (limit > 0 && Math.fround(row.remainingTurnPermil / 1000) <= Math.fround(turn / limit)));
       }
       if (condition?.kind === "masterExamTrigger") {
-        return matchesMasterExamTrigger(state, condition, context, runtimeEvent);
+        return matchesMasterExamTrigger(state, condition, { ...context, registration }, runtimeEvent);
       }
       return undefined;
     },
@@ -845,6 +847,9 @@ function currentNativeLessonType(state) {
 
 function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
   registerRuntimeCardEnchants(state);
+  if (phase === NATIVE_EFFECT_PHASE.CARD_PLAY) {
+    incrementMasterCardPhaseCounts(state, phase, runtimeEvent, extra);
+  }
   return dispatchNativeEffectPhase(
     state.effectScheduler,
     phase,
@@ -901,14 +906,14 @@ const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
   ProduceExamPhaseType_ExamTurnCheck: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamTurnTimer: NATIVE_EFFECT_PHASE.START_OF_TURN,
   ProduceExamPhaseType_ExamTurnInterval: NATIVE_EFFECT_PHASE.START_OF_TURN,
-  ProduceExamPhaseType_ExamPlayCountInterval: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamPlayCountInterval: NATIVE_EFFECT_PHASE.CARD_PLAY,
   ProduceExamPhaseType_ExamPlayCountIntervalAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamTurnSkip: NATIVE_EFFECT_PHASE.END_TURN,
   ProduceExamPhaseType_ExamEndTurnInterval: NATIVE_EFFECT_PHASE.END_TURN,
-  ProduceExamPhaseType_ExamPlayTurnCountInterval: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamPlayTurnCountInterval: NATIVE_EFFECT_PHASE.CARD_PLAY,
   ProduceExamPhaseType_ExamBuffConsume: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
   ProduceExamPhaseType_ExamStaminaReduce: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
-  ProduceExamPhaseType_ExamStaminaReduceCard: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
+  ProduceExamPhaseType_ExamStaminaReduceCard: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
   ProduceExamPhaseType_ExamAggressiveUpInterval: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
   ProduceExamPhaseType_ExamStanceChangeConcentration: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
   ProduceExamPhaseType_ExamStanceChangePreservation: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
@@ -961,6 +966,7 @@ const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
 function masterFieldStatusValue(state, fieldStatusType) {
   switch (MASTER_FIELD_STATUS_TO_EXAM[String(fieldStatusType ?? "")]) {
     case "lastMentalCard": return state.lastPlayedCard?.category === "ProduceCardCategory_MentalSkill" ? 1 : 0;
+    case "playCardLesson": return state.lastPlayedCard?.category === "ProduceCardCategory_ActiveSkill" ? 1 : 0;
     case "debuffCount": return nativeDebuffEntries(state).length;
     case "staminaRatioPermil": {
       const max = Number(state.exam.maxStamina ?? 0);
@@ -985,7 +991,7 @@ function masterFieldStatusValue(state, fieldStatusType) {
     case "noBlock":
       return Number(state.exam.block ?? 0) === 0 ? 1 : 0;
     case "turnPlayCardCount":
-      return Array.isArray(state.currentTurnPlays) ? state.currentTurnPlays.length : 0;
+      return Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays?.length ?? 0);
     case undefined:
       return null;
     default:
@@ -1120,8 +1126,8 @@ function lessonTypeMatches(expectedInput, actualInput) {
   if (!expected || expected.endsWith("_Unknown")) return true;
   const actual = String(actualInput ?? "");
   if (expected === actual) return true;
-  const expectedCore = expected.replace(/^ProduceStepLessonType_/, "").replace(/Lesson$/, "");
-  const actualCore = actual.replace(/^ProduceStepLessonType_/, "").replace(/Lesson$/, "");
+  const expectedCore = expected.replace(/^ProduceStepLessonType_/, "").replace(/^Lesson|Lesson$/g, "");
+  const actualCore = actual.replace(/^ProduceStepLessonType_/, "").replace(/^Lesson|Lesson$/g, "");
   return expectedCore === actualCore;
 }
 
@@ -1133,7 +1139,8 @@ function masterPhaseValue(state, phaseType, context) {
       return Number(context.nextTurn ?? state.turn ?? 0) + (context.nextTurn === undefined ? 1 : 0);
     case "ProduceExamPhaseType_ExamPlayCountInterval":
     case "ProduceExamPhaseType_ExamPlayCountIntervalAfter":
-      return Number(state.exam.cardPlayCount ?? 0);
+    case "ProduceExamPhaseType_ExamPlayTurnCountInterval":
+      return Number(context.registration?.metadata.cardPhaseCount ?? 0);
     case "ProduceExamPhaseType_ExamAggressiveUpInterval":
       return Number(state.exam.aggressive ?? 0);
     case "ProduceExamPhaseType_ExamStanceChangeCountInterval":
@@ -1154,8 +1161,6 @@ function triggerFieldStatusesMatch(state, trigger, context = {}) {
     let current;
     if (type === "ProduceExamFieldStatusType_CardSearchCountUp") {
       current = masterSearchMatchCount(state, trigger.fieldStatusCardSearches?.[index], context);
-    } else if (type === "ProduceExamFieldStatusType_PlayCardLesson") {
-      current = String(context.effectType ?? "").includes("Lesson") ? 1 : 0;
     } else {
       current = masterFieldStatusValue(state, type);
     }
@@ -1164,7 +1169,9 @@ function triggerFieldStatusesMatch(state, trigger, context = {}) {
     const check = String(checks[index] ?? "ProduceExamTriggerCheckType_Unknown");
     const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple"
       || type.endsWith("MultipleDown");
-    const positiveMatch = type === "ProduceExamFieldStatusType_PlayCardSkill" ? current === 1 : reverse ? current <= expected : current >= expected;
+    const categoryCondition = type === "ProduceExamFieldStatusType_PlayCardSkill"
+      || type === "ProduceExamFieldStatusType_PlayCardLesson";
+    const positiveMatch = categoryCondition ? current === 1 : reverse ? current <= expected : current >= expected;
     if (check === "ProduceExamTriggerCheckType_Not" ? positiveMatch : !positiveMatch) return false;
   }
   return true;
@@ -1176,6 +1183,37 @@ function masterTriggerSupportIssue(trigger, phaseType) {
     if (!MASTER_FIELD_STATUS_TO_EXAM[String(type ?? "")]) return `fieldStatus:${String(type ?? "")}`;
   }
   return "";
+}
+
+// Native IsCardPlayValidTrigger reads an enchant's phase count, filtered by
+// its field conditions and card search. Increment all counters before firing
+// any effect so an earlier effect cannot change which plays are counted.
+// After-play counters also advance here: an enchant installed by the card's
+// own effects must not count that installing card.
+function incrementMasterCardPhaseCounts(state, phase, runtimeEvent, extra) {
+  const context = { state, exam: state.exam, event: runtimeEvent,
+    lessonType: currentNativeLessonType(state), ...extra };
+  for (const registration of state.effectScheduler.registrations) {
+    const condition = registration.condition;
+    if (!registration.active || ![phase, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY].includes(registration.phase)
+      || condition?.kind !== "masterExamTrigger"
+      || !["ProduceExamPhaseType_ExamPlayCountInterval", "ProduceExamPhaseType_ExamPlayCountIntervalAfter",
+        "ProduceExamPhaseType_ExamPlayTurnCountInterval"].includes(condition.phaseType)) continue;
+    const metadata = registration.metadata;
+    const serial = Number(context.cardPlayCount);
+    if (metadata.lastCountedCardPlay === serial) continue;
+    metadata.lastCountedCardPlay = serial;
+    if (condition.phaseType === "ProduceExamPhaseType_ExamPlayTurnCountInterval"
+      && metadata.cardPhaseCountTurn !== state.turn) {
+      metadata.cardPhaseCount = 0;
+      metadata.cardPhaseCountTurn = state.turn;
+    }
+    const trigger = condition.trigger ?? {};
+    if (!triggerFieldStatusesMatch(state, trigger, context)
+      || !lessonTypeMatches(trigger.lessonType, context.lessonType)
+      || !triggerSearchMatches(state, trigger, context)) continue;
+    metadata.cardPhaseCount = Number(metadata.cardPhaseCount ?? 0) + 1;
+  }
 }
 
 function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
@@ -1193,9 +1231,14 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
     ProduceExamPhaseType_ExamStanceChangeFullPower: "fullPowerChangeCount",
     ProduceExamPhaseType_ExamStanceChangeCountInterval: "stanceChangeCount",
     ProduceExamPhaseType_ExamStaminaReduce: "stamina",
+    ProduceExamPhaseType_ExamStaminaReduceCard: "stamina",
     ProduceExamPhaseType_ExamAggressiveUpInterval: "aggressive",
   }[condition.phaseType];
   if (requiredField && requiredField !== statusField) return false;
+  if (condition.phaseType === "ProduceExamPhaseType_ExamStaminaReduce"
+    && context.cause !== "effect") return false;
+  if (condition.phaseType === "ProduceExamPhaseType_ExamStaminaReduceCard"
+    && context.cause !== "cardCost") return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamStanceChangeFromFullPower"
     && (statusField !== "idolStatusType" || context.statusChange?.before !== 3)) return false;
   if (condition.ownerToken) {
@@ -1846,6 +1889,7 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.turnOpen = true;
   state.playsRemaining = 1;
   state.currentTurnPlays = [];
+  state.exam.turnCardPlayCount = 0;
   state.currentTurnDrinks = [];
   state.turnUseSupportCardIds = new Set();
 
@@ -2911,9 +2955,11 @@ export function playTowerCard(state, indexInput, { ignoreCost = false, forced = 
   state.hand.splice(index, 1);
   if (!forced) state.playsRemaining -= 1;
   state.exam.cardPlayCount += 1;
+  state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
   state.exam.playCardCountSum += 1;
   state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
-  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card });
+  const cardPlayCount = state.exam.cardPlayCount;
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
   const repeatBuff = state.cardEffectPlayCountBuff;
   const repeatMatches = Boolean(
     repeatBuff
@@ -2932,7 +2978,7 @@ export function playTowerCard(state, indexInput, { ignoreCost = false, forced = 
   for (let n = 0; n <= repeat; n += 1) {
     for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event, card);
   }
-  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card });
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
   resolveFullPowerAfterCard(state, event);
 
   if (card.onceOnly) {
@@ -3033,6 +3079,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     })),
   }));
   const used = plays[0]?.card ?? compatibilityUse?.card ?? null;
+  if (!plays.length) state.lastPlayedCard = null;
   const onceOnly = Boolean(plays[0]?.onceOnly);
   const entry = {
     turn: state.turn,
