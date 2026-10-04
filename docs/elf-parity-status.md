@@ -125,3 +125,38 @@ with different turn/NPC counts, floor-group lookup and unchanged all-skip
 draws/RNG through recycling. Only the first two attributes have device-image
 confirmation. Existing backups preserve their historical computed results;
 restart with the same recovered Seed to apply corrected attributes throughout.
+
+## Skill-card upgrades and generated cards
+
+`UpgradeEffectExecutor.ExecuteEffect @ 0x801ff74` checks
+`ExamCardData.get_IsUpgradableRaw @ 0x822a738` at `0x80202fc` before
+`SetTemporaryUpgrade @ 0x8229de0`. The original upgrade plus skill-effect
+upgrade must be zero, and the + master must exist. `SetTemporaryUpgrade`
+sets its own field to one; it does not increment an already upgraded card.
+Support upgrades use the separate `SetSupportUpgrade @ 0x8229f6c` /
+`get_IsUpgradable @ 0x822a110` path and may reach higher master variants in
+ordinary exams. Tower has no support-card upgrades.
+
+The reported action sequence used ティーパーティ+ on Turn5. The incorrect
+skill upgrade changed 私がスター+ to 私がスター++, adding its block effect
+group. That false block card incremented 私を超えて's filtered counter and
+generated an extra 私を超えて（翔）. Removing the false upgrade also removes
+that extra card, changing depletion and recycle timing without changing Seed.
+Replaying the supplied actions with the corrected logic produces one 翔 by
+Turn7, and the first recycle occurs during Turn7's draw. The predicted Turn7
+hand is 手書きのメッセージ+ / ゆめみごこち+ / 目線の基本. This is a corrected
+simulation prediction, not a confirmed real-device post-recycle comparison.
+
+The same trace consumes three RNG words before recycling: one for 眠気's
+DeckRandom insertion and two for 夏夜に咲く思い出's Random removal (fixed
+pick-count roll plus one candidate sort key). Fixed-count DeckFirst creation
+consumes none: `CardCreateIdEffectExecutor @ 0x8003cdc` skips the count roll
+when min == max; `PickCardPositionListImpl @ 0x7fea0c8` always rolls the
+Random pick count. No extra RNG advancement was added for these effects.
+
+Enchant history captures the installing card's actual name/upgrade instead
+of looking up `cardById`'s last (often +++) variant. Existing checkpoints can
+resolve the origin via their saved card token. Tests cover upgrade no-ops,
+filtered generation timing, no-RNG DeckFirst creation, recycle word count,
+and full/pruned checkpoint continuation. Historical false upgrades/generated
+cards in old backups are retained; restart to recalculate those actions.

@@ -380,13 +380,15 @@ function runtimeCardPositionName(positionInput) {
   }
 }
 
-function runtimeEnchantName(state, enchantIdInput) {
+function runtimeEnchantName(state, enchantIdInput, metadata = {}) {
   const enchantId = String(enchantIdInput ?? "");
+  const origin = metadata.originCard ?? findRuntimeCard(state, metadata.originCardToken);
+  if (origin?.id && enchantId.includes(origin.id)) return `${origin.name ?? origin.id}の継続効果`;
   const cardId = [...(state.cardById?.keys?.() ?? [])]
     .sort((a, b) => String(b).length - String(a).length)
     .find((id) => enchantId.includes(String(id)));
   if (!cardId) return "継続効果";
-  return `${runtimeCardName(state, cardId)}の継続効果`;
+  return `${runtimeCardName(state, cardId, 0)}の継続効果`;
 }
 
 function addGeneratedCard(state, parsed, event) {
@@ -762,7 +764,7 @@ function nativeSchedulerHooks(state, runtimeEvent) {
     executeEffect(effect, context, registration) {
       const source = { type: registration.sourceType, id: registration.sourceId,
         name: registration.sourceType === "pItem" ? state.pItems.find(item => item.id === registration.sourceId)?.name ?? registration.sourceId
-          : registration.sourceType === "enchant" ? runtimeEnchantName(state, registration.sourceId) : registration.sourceId };
+          : registration.sourceType === "enchant" ? runtimeEnchantName(state, registration.sourceId, registration.metadata) : registration.sourceId };
       return traceSimulation(state, source, () => withNativeEffectSource(state, registration.sourceType, () => {
         if (effect?.kind === "cardEnchantGrow") {
           const card = findRuntimeCard(state, effect.token);
@@ -1625,6 +1627,7 @@ function registerParsedStatusEnchant(state, parsed) {
       metadata: {
         installedCardPlayCount,
         legacyTrigger: { ...trigger },
+        originCard: historyCard(state.effectOwnerCard ?? state.playingCard),
       },
     }],
   );
@@ -1734,6 +1737,12 @@ function applySupportCardUpgradeInPlace(state, card) {
 
 function applyPermanentCardUpgradeInPlace(state, card) {
   const supportCount = Math.max(0, Math.trunc(Number(card?._supportUpgradeCount ?? 0)));
+  // UpgradeEffectExecutor @ 0x80202FC checks IsUpgradableRaw @ 0x822A738:
+  // original + skill-effect upgrade must be zero, and the + master must exist.
+  // Support upgrades are separate and may still produce ++ in ordinary exams.
+  const baseCard = card?._supportBaseSnapshot ?? card;
+  if (Number(baseCard?.upgradeCount ?? 0) !== 0
+    || !state.cardVariantByKey?.has(`${card.id}@@1`)) return Number(card.upgradeCount ?? 0);
   if (!card?._supportBaseSnapshot || supportCount <= 0) {
     return applyRuntimeUpgradeVariant(state, card, Number(card?.upgradeCount ?? 0) + 1);
   }
@@ -2309,7 +2318,8 @@ function registerMasterStatusEnchant(state, parsed) {
           activationKey: statusEnchantKey,
         },
         effects: enchant.examEffects,
-        metadata: { enchantId: enchant.id, triggerId: enchant.trigger.id, statusEnchantKey, originCardToken, activationKey: statusEnchantKey },
+        metadata: { enchantId: enchant.id, triggerId: enchant.trigger.id, statusEnchantKey, originCardToken,
+          originCard: historyCard(state.effectOwnerCard ?? state.playingCard), activationKey: statusEnchantKey },
       });
     }
   }
@@ -2881,7 +2891,8 @@ function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = 
       break;
     case "status_enchant":
       registerParsedStatusEnchant(state, parsed);
-      applied.label = `${runtimeEnchantName(state, parsed.enchantId)}を追加`;
+      applied.label = `${runtimeEnchantName(state, parsed.enchantId,
+        { originCard: historyCard(state.effectOwnerCard ?? state.playingCard) })}を追加`;
       break;
     case "master_effect":
       executeMasterEffect(state, applied.effect ?? parsed, event, { timed });
