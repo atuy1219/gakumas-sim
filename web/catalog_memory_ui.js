@@ -193,8 +193,10 @@ function configureEditorSelects() {
 
   $("edit-character")?.addEventListener("change", () => {
     renderIdolOptions($("edit-character").value, "");
+    syncIdolPitems();
   });
   $("edit-idol")?.addEventListener("change", () => {
+    syncIdolPitems();
     const card = state.idolById.get($("edit-idol").value);
     if (!card) return;
     if (card.characterId) {
@@ -217,7 +219,7 @@ function syncEditorSelectsAfterOpen() {
   renderIdolOptions(character, idol);
   renderPlanOptions(plan);
   renderGradeOptions(grade);
-  renderPitemEditor();
+  syncIdolPitems();
   decorateAllCardRows();
 }
 
@@ -239,7 +241,7 @@ function resolveCardVisible(value) {
 }
 
 function rewriteCardDatalist() {
-  const datalist = $("produce-card-options");
+  const datalist = $("memory-card-options");
   if (!datalist || !state.cards.length) return;
   datalist.innerHTML = "";
   const fragment = document.createDocumentFragment();
@@ -356,7 +358,7 @@ function decorateCardRow(row) {
   row.dataset.v4Decorated = "1";
   const [cardInput, upgradeInput, fixedInput] = inputs;
   cardInput.placeholder = "カード名を入力または選択";
-  cardInput.setAttribute("list", "produce-card-options");
+  cardInput.setAttribute("list", "memory-card-options");
   cardInput.value = normalizeCardVisibleText(cardInput.value);
   cardInput.classList.add("card-name-input-v4");
 
@@ -450,12 +452,44 @@ function ensurePitemEditor() {
   });
 }
 
+function idolPitemIds(idol) {
+  // 最終側を初期選択し、保存済みの強化段階はそのまま使う。
+  return [...new Set([
+    idol?.afterLevelLimitProduceItemId,
+    idol?.afterProduceItemId,
+    idol?.beforeLevelLimitProduceItemId,
+    idol?.beforeProduceItemId,
+  ].map((id) => String(id ?? "").trim()).filter(Boolean))];
+}
+
+function selectablePitems() {
+  const idolId = $("edit-idol")?.value ?? "";
+  const ownIds = new Set(idolPitemIds(state.idolById.get(idolId)));
+  const idolItemIds = new Set(state.idolCards.flatMap(idolPitemIds));
+  return state.items.filter((item) => ownIds.has(item.id) || (
+    !idolItemIds.has(item.id) && (!item.originIdolCardId || item.originIdolCardId === idolId)
+  ));
+}
+
+function syncIdolPitems() {
+  const ownIds = idolPitemIds(state.idolById.get($("edit-idol")?.value ?? ""));
+  const allowedIds = new Set(selectablePitems().map((item) => item.id));
+  const ids = currentPitemIds().filter((id) => !state.itemById.has(id) || allowedIds.has(id));
+  if (!ids.some((id) => ownIds.includes(id))) {
+    const defaultId = ownIds.find((id) => state.itemById.has(id));
+    if (defaultId) ids.unshift(defaultId);
+  }
+  setPitemIds(ids);
+  if ($("pitem-input-v4")) $("pitem-input-v4").value = "";
+  if ($("pitem-error-v4")) $("pitem-error-v4").textContent = "";
+}
+
 function rewritePitemDatalist() {
   const datalist = $("pitem-options-v4");
   if (!datalist) return;
   datalist.innerHTML = "";
   const fragment = document.createDocumentFragment();
-  for (const item of state.items) {
+  for (const item of selectablePitems()) {
     const option = document.createElement("option");
     option.value = item.name;
     fragment.append(option);
@@ -487,7 +521,7 @@ function addPitemFromPicker() {
   const error = $("pitem-error-v4");
   if (!input) return;
   const item = resolvePitem(input.value);
-  if (!item) {
+  if (!item || !selectablePitems().some((entry) => entry.id === item.id)) {
     if (error) error.textContent = "名称が一致するPアイテムを選択してください。";
     return;
   }
@@ -498,6 +532,7 @@ function addPitemFromPicker() {
 
 function renderPitemEditor() {
   ensurePitemEditor();
+  rewritePitemDatalist();
   const container = $("pitem-selected-v4");
   if (!container) return;
   container.innerHTML = "";
@@ -770,10 +805,9 @@ async function loadCatalogUi() {
   configureEditorSelects();
   ensurePitemEditor();
   rewriteCardDatalist();
-  rewritePitemDatalist();
   renderCardCatalog();
   renderItemCatalog();
-  renderPitemEditor();
+  syncIdolPitems();
   decorateAllCardRows();
   restoreCustomizeSelections();
   applyVisibleNames();
