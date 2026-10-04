@@ -1011,8 +1011,8 @@ console.log("tower runtime tests: ok");
 `);
   assert.equal(stageConfigs.length, 1);
   assert.deepEqual(
-    calculateTowerTurnTypes(stageConfigs[0], 0x12345678),
-    ["Vocal", "Visual", "Vocal", "Vocal", "Visual", "Visual", "Vocal", "Dance", "Dance", "Dance", "Visual", "Vocal"],
+    calculateTowerTurnTypes(stageConfigs[0], 0x12345678, { npcCount: 5 }),
+    ["Visual", "Vocal", "Vocal", "Visual", "Dance", "Vocal", "Dance", "Vocal", "Visual", "Dance", "Visual", "Vocal"],
   );
 
   assert.deepEqual(

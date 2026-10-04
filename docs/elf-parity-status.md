@@ -91,7 +91,37 @@ Native references: `IsFieldStatusTriggerStatusEffect` RemainingTurn branch
 debuffs descending by Uid (`0x8006918`, selector offset `0x1c`, matching
 `ExamStatusEffectBase.get_Uid @ 0x80215d0`).
 
-The reported turn attribute mismatch remains unresolved. A recovered deck
-shuffle RNG state is not proven to be the public initial Seed. The current
-seed search conflates them; reversing only the 13 randomized turn selections
-does not match both observed Visual turns. No speculative offset is applied.
+## Tower turn attribute initialization
+
+The Tower search/input Seed is the first deck shuffle's XorShift state. It
+correctly reproduces the reported all-skip draws and must stay unchanged for
+deck simulation. Turn attributes use the earlier state, before native setup
+consumes `max(0, turn - 3)` words for attributes and `turn * npcCount` words
+for NPC score jitter. The selected floor's NPC count is loaded from its
+`ProduceExamBattleNpcGroup` master, without a fixed five-NPC assumption.
+Missing NPC information blocks attribute generation instead of guessing.
+
+Native call chain checked in the supplied ELF:
+
+| RVA | Evidence |
+| --- | --- |
+| `0x8041608 -> 0x8041614` | `CreateTowerExamData` sets ExamType **5**; the `3` passed by the transition constructor is not ExamType |
+| `0x805be58 -> 0x805be84` | Tower calls `CalcTurnParameterType`; only ExamType 4 accepts a supplied list |
+| `0x804d4d0 -> 0x804d4f8` | Each randomized attribute uses the current RNG state, then advances it, including the final pool of size 1 |
+| `0x6903ce8`, `0x805bea4 -> 0x805bed4` | `IsAudition` includes Tower/5, so setup also calls `CalculateAuditionNpc` |
+| `0x804e614 -> 0x804f154` | Tower `GetScoreList` returns one score per turn without consuming randomness |
+| `0x804e130 -> 0x804e4cc`, especially `0x804e478 -> 0x804e498` | For each NPC, consume one RNG word per score, even if the jitter range is 0..1 |
+| `0x8072894 -> 0x80728ac`, `0x803f7c4 -> 0x96a0ea8` | Initial deck shuffle follows setup and uses the resulting RNG stream |
+
+For the reported 16-turn floor: 13 attribute words + 80 words for five NPCs =
+93 words. Rewinding `3437998083` yields `775645918`; the calculated first two
+attributes are Visual/Visual, and the reproduced first-turn 好印象 score is
+259 at 3694%, matching the supplied screenshots. The master has all 2,126
+snapshot exam records' NPC groups, each with five NPCs. This checks reference
+availability; it does not establish real-device parity for every floor.
+
+`tests/test_tower_turn_rng.mjs` checks the full calculated sequence, restoration
+with different turn/NPC counts, floor-group lookup and unchanged all-skip
+draws/RNG through recycling. Only the first two attributes have device-image
+confirmation. Existing backups preserve their historical computed results;
+restart with the same recovered Seed to apply corrected attributes throughout.
