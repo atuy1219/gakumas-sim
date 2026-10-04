@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { buildTowerStageChoices, collectTowerPItemIds, parseTowerLiveLayerMap } from "../web/tower_stage.js";
+import { buildTowerStageChoices, buildTowerFloorChoices, collectTowerPItemIds, parseTowerLiveLayerMap, resolveTowerFloorStage, towerFloorMemoryCount } from "../web/tower_stage.js";
 import {
   createTowerTurnState, drawTowerTurn, finishTowerTurn, playTowerCard,
   restoreTowerTurnState, serializeTowerTurnState, useTowerDrink,
@@ -224,6 +224,25 @@ for (const row of categoryRows) for (const previous of [active, mental, "skip", 
   }
   const catalog = { layerExams: rows, configById: new Map(rows.map((row) =>
     [row.produceExamBattleConfigId, { id: row.produceExamBattleConfigId, turn: 20 }])), towerById: new Map() };
+  const floors = buildTowerFloorChoices(catalog);
+  assert.equal(floors.length, 351, "Main未指定でも全階層の候補を作る");
+  for (const floor of floors) {
+    const sourceRows = rows.filter(row => row.towerId === floor.towerId && row.number === floor.number);
+    assert.equal(towerFloorMemoryCount(floor), sourceRows[0].maxSubMemoryCount + 1);
+    assert.ok([2, 3, 4].includes(towerFloorMemoryCount(floor)));
+    assert.equal(resolveTowerFloorStage(catalog, floor, null, new Map()), null,
+      "Main未指定では仮のタイプのギミック・限定Pアイテムを選ばない");
+    for (const source of sourceRows) {
+      const idols = new Map([["main-idol", { characterId: floor.characterId, examEffectType: source.examEffectType }]]);
+      const stage = resolveTowerFloorStage(catalog, floor, { idolCardId: "main-idol" }, idols);
+      assert.equal(stage.produceExamGimmickEffectGroupId, source.produceExamGimmickEffectGroupId);
+      assert.deepEqual(stage.produceItemIds, source.produceItemIds);
+    }
+    assert.equal(resolveTowerFloorStage(catalog, floor, { idolCardId: "other" }, new Map([
+      ["other", { characterId: "different-character", examEffectType: sourceRows[0].examEffectType }],
+    ])), null);
+  }
+  assert.equal(towerFloorMemoryCount(null), 0);
   for (const type of new Set(rows.map((row) => row.examEffectType))) {
     const choices = buildTowerStageChoices(catalog, "hski", type);
     for (const choice of choices) {

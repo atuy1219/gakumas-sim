@@ -43,11 +43,13 @@ import {
 import { createMemoryBackup, parseMemoryBackup } from "./memory_backup.js";
 import { buildCanonicalCardCatalog } from "./catalog.js";
 import {
-  buildTowerStageChoices,
+  buildTowerFloorChoices,
   calculateTowerMemoryParameters,
   calculateTowerParameterBonus,
   calculateTowerTurnTypes,
   collectTowerPItemIds,
+  resolveTowerFloorStage,
+  towerFloorMemoryCount,
   loadTowerStageCatalog,
   towerParameterLabel,
 } from "./tower_stage.js";
@@ -419,15 +421,7 @@ async function initializeTowerStageCatalog() {
   try {
     towerStageCatalog = await loadTowerStageCatalog();
     renderTowerStageOptions();
-    if (status) {
-      if (towerStageCatalog.layerSource === "api-snapshot") {
-        status.textContent = "MainメモリーのPアイドルに対応するドル道だけを自動表示します。";
-      } else if (towerStageCatalog.layerExams.length) {
-        status.textContent = "MainメモリーのPアイドルに対応するドル道だけを自動表示します。";
-      } else {
-        status.textContent = "階層対応表がないため、試験設定（ターン数・Vo/Da/Vi）から選択します。";
-      }
-    }
+    renderSimBuilder("tower");
   } catch (error) {
     towerStageCatalog = null;
     towerStageChoicesByKey = new Map();
@@ -807,6 +801,7 @@ function simIds(mode) {
 }
 
 function desiredSlotCount(mode) {
+  if (mode === "tower") return towerFloorMemoryCount(currentTowerFloorChoice());
   return Number($(simIds(mode).count).value || 3);
 }
 
@@ -831,7 +826,8 @@ function renderSimBuilder(mode) {
   if (!container) return;
   const slots = ensureSlots(mode);
   container.innerHTML = "";
-  const roles = slots.length === 2
+  if (mode === "tower" && !slots.length) container.textContent = "先にドル道の階層を選択してください。";
+  const roles = !slots.length ? [] : slots.length === 2
     ? ["Main", "Sub"]
     : ["Main", ...Array.from({ length: slots.length - 1 }, (_, index) => `Sub ${index + 1}`)];
 
@@ -918,6 +914,12 @@ function selectedTowerMemories() {
 }
 
 function currentTowerStageChoice() {
+  const mainSlot = simState.tower.slots[0];
+  const main = memoryList.find((memory) => memory.userMemoryId === mainSlot?.memoryId);
+  return resolveTowerFloorStage(towerStageCatalog, currentTowerFloorChoice(), main, catalogs.idolCardById);
+}
+
+function currentTowerFloorChoice() {
   return towerStageChoicesByKey.get(String($("tower-stage-config")?.value ?? "")) ?? null;
 }
 
@@ -947,46 +949,26 @@ function renderTowerStageOptions() {
   const select = $("tower-stage-config");
   if (!select || !towerStageCatalog) return;
   const previous = String(select.value ?? "");
-  const mainSlot = ensureSlots("tower")[0];
-  const mainMemory = mainSlot ? memoryList.find((memory) => memory.userMemoryId === mainSlot.memoryId) : null;
-  const mainIdol = mainMemory ? catalogs.idolCardById.get(String(mainMemory.idolCardId ?? "")) : null;
-  const characterId = String(mainIdol?.characterId ?? mainMemory?.characterId ?? "");
-  const examEffectType = String(mainIdol?.examEffectType ?? "");
-
-  if (!mainMemory || !characterId || !examEffectType) {
-    towerStageChoicesByKey = new Map();
-    select.replaceChildren(new Option("先にMainメモリーを選択してください", ""));
-    return;
-  }
-
-  const choices = buildTowerStageChoices(towerStageCatalog, characterId, examEffectType);
+  const choices = buildTowerFloorChoices(towerStageCatalog);
   towerStageChoicesByKey = new Map(choices.map((choice) => [choice.key, choice]));
-
   select.replaceChildren(new Option("階を選択してください", ""));
-  let lastTurn = null;
+  let lastTower = null;
   let group = null;
   for (const choice of choices) {
-    const config = towerStageCatalog.configById.get(choice.configId);
-    if (!choice.exactLayer && config?.turn !== lastTurn) {
-      lastTurn = config?.turn;
+    if (choice.towerId !== lastTower) {
+      lastTower = choice.towerId;
       group = document.createElement("optgroup");
-      group.label = `${lastTurn}ターン`;
+      group.label = towerStageCatalog.towerById.get(choice.towerId)?.title ?? choice.towerId;
       select.append(group);
     }
-    const option = new Option(choice.label, choice.key);
-    (group && !choice.exactLayer ? group : select).append(option);
+    group.append(new Option(choice.label, choice.key));
   }
   if (towerStageChoicesByKey.has(previous)) select.value = previous;
-
+  select.dataset.characterId = currentTowerFloorChoice()?.characterId ?? "";
   const status = $("tower-stage-source-status");
-  if (status && towerStageCatalog.layerSource === "api-snapshot") {
-    const towerId = choices[0]?.towerId ?? "";
-    const floorCount = new Set(choices.map((choice) => choice.number).filter(Boolean)).size;
-    const idolLabel = String(mainIdol?.name ?? characterId);
-    status.textContent = towerId
-      ? `${idolLabel}に対応するドル道 ${floorCount}階だけを表示しています。`
-      : `${idolLabel}に対応するドル道階層が見つかりません。`;
-  }
+  if (status) status.textContent = choices.length
+    ? `${choices.length}階を選択できます。Mainメモリーの選択後にタイプ別の試験設定を適用します。`
+    : "階層設定を取得できませんでした。";
 }
 
 function towerPercentText(value) {
@@ -1000,15 +982,20 @@ function renderTowerStageSummary() {
   if (!host) return;
   host.replaceChildren();
   const config = currentTowerStageConfig();
+  const floor = currentTowerFloorChoice();
+  const count = towerFloorMemoryCount(floor);
+  $("tower-memory-count-status").textContent = count
+    ? `${floor.number}階: Main 1枚＋Sub ${count - 1}枚（合計${count}枚）を自動設定しています。`
+    : "階層を選ぶとメモリー枚数を自動設定します。";
   const gimmicks = currentTowerGimmicks();
   const gimmickStatus = $("tower-gimmick-status");
-  if (gimmickStatus) gimmickStatus.textContent = !config ? "ステージを選択してください。"
+  if (gimmickStatus) gimmickStatus.textContent = !config ? (floor ? "この階層に対応するMainメモリーを選択してください。" : "ステージを選択してください。")
     : gimmicks.some((row) => row.unresolved) ? "このステージのギミック情報が未取得です。実機に対応するギミックを指定してください。"
     : gimmicks.length ? gimmicks.length + "件のギミック効果を適用します。" : "ギミックなしで実行します。"
   if (!config) {
     const hint = document.createElement("span");
     hint.className = "hint";
-    hint.textContent = "ドル道ステージを選択すると、メモリー実効ステータスと各属性ターンの倍率を表示します。";
+    hint.textContent = floor ? "Mainメモリーを選択すると、タイプ別のギミック・限定Pアイテムと属性倍率を表示します。" : "ドル道ステージを選択すると、メモリー実効ステータスと各属性ターンの倍率を表示します。";
     host.append(hint);
     const orderHost = $("tower-turn-order-preview");
     if (orderHost) {
@@ -1222,7 +1209,7 @@ function renderPItems(mode) {
 }
 
 for (const mode of ["contest", "tower"]) {
-  $(simIds(mode).count).addEventListener("change", () => renderSimBuilder(mode));
+  $(simIds(mode).count)?.addEventListener("change", () => renderSimBuilder(mode));
   const initialIdInput = $(simIds(mode).initialId);
   initialIdInput?.addEventListener("change", () => {
     renderBaseCards(mode);
@@ -1318,6 +1305,8 @@ async function importTowerPreset(file) {
   clearError();
   towerPresetStatus("");
   const preset = parseTowerPreset(await file.text());
+  await Promise.all([catalogInitialization, towerStageInitialization]);
+  if (!towerStageChoicesByKey.has(preset.stageKey)) throw new Error("プリセットの階層が未指定、または階層データにありません。");
   const imported = sanitizeManagedLibrary(extractMemories({ userMemoryList: preset.memories }));
   if (imported.length !== preset.memoryCount) throw new Error("プリセットのメモリー本体を正しく復元できませんでした。");
   const importedById = new Map(imported.map((memory) => [String(memory.userMemoryId), memory]));
@@ -1335,7 +1324,7 @@ async function importTowerPreset(file) {
   cancelSeedSearch();
   memoryList = mergeMemoryLibraries(memoryList, imported);
   persistLibrary();
-  $("tower-memory-count").value = String(preset.memoryCount);
+  $("tower-stage-config").value = preset.stageKey;
   simState.tower.slots = preset.slots.map((slot) => ({
     memoryId: slot.userMemoryId,
     activeIds: new Set(slot.activeProduceCardIds.map(String)),
@@ -1346,11 +1335,11 @@ async function importTowerPreset(file) {
   $("tower-seed-results").innerHTML = "";
   renderMemoryList();
   renderSimBuilder("tower");
-  if (towerStageChoicesByKey.has(preset.stageKey)) $("tower-stage-config").value = preset.stageKey;
   if ([...$("tower-gimmick-group").options].some((option) => option.value === preset.gimmickGroupId)) $("tower-gimmick-group").value = preset.gimmickGroupId;
   renderTowerStageSummary();
   updateObservationCount();
-  towerPresetStatus(`${preset.memoryCount}メモリーのドル道セットをインポートしました。`);
+  notifyTowerStageFilter();
+  towerPresetStatus(`ドル道セットをインポートしました。選択階層に合わせて${desiredSlotCount("tower")}メモリー枠を設定しています。`);
 }
 
 $("tower-export-preset").addEventListener("click", exportTowerPreset);
@@ -1658,7 +1647,7 @@ $("tower-run").addEventListener("click", async () => {
       examItemCatalogs,
     );
     const stageConfig = currentTowerStageConfig();
-    if (!stageConfig) throw new Error("ドル道ステージを選択してください。");
+    if (!stageConfig) throw new Error("階層と、それに対応するMainメモリーを選択してください。");
     const effectiveParameters = calculateTowerMemoryParameters(composition.memories);
     const parameterBonus = towerStageCatalog
       ? calculateTowerParameterBonus(stageConfig, towerStageCatalog.scoreRowsById, effectiveParameters)
@@ -2161,7 +2150,15 @@ async function startSeedSearch() {
 }
 
 $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(showError));
-$("tower-stage-config")?.addEventListener("change", renderTowerStageSummary);
+function notifyTowerStageFilter() {
+  const characterId = currentTowerFloorChoice()?.characterId ?? "";
+  $("tower-stage-config").dataset.characterId = characterId;
+  window.dispatchEvent(new CustomEvent("gakumas:tower-stage-filter", { detail: { characterId } }));
+}
+$("tower-stage-config")?.addEventListener("change", () => {
+  renderSimBuilder("tower");
+  notifyTowerStageFilter();
+});
 $("tower-gimmick-group")?.addEventListener("change", renderTowerStageSummary);
 $("tower-seed")?.addEventListener("input", renderTowerStageSummary);
 
@@ -2173,7 +2170,7 @@ renderSimBuilder("contest");
 renderSimBuilder("tower");
 const catalogInitialization = initializeCatalogs();
 const examItemInitialization = initializeExamItemCatalogs();
-initializeTowerStageCatalog();
+const towerStageInitialization = initializeTowerStageCatalog();
 Promise.all([catalogInitialization, examItemInitialization]).then(() => {
   const restored = restoreExamSimulationState();
   const workflow = readExamWorkflowSnapshotForRuntime();
