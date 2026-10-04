@@ -405,7 +405,7 @@ async function initializeExamItemCatalogs() {
     renderPItems("contest");
     renderPItems("tower");
     renderExamDrinkOptions();
-    renderTowerGimmickOptions();
+    renderTowerStageSummary();
     if (towerTurnState) renderTowerTurnState();
     if (examTurnState) renderTurnState("exam", examTurnState);
   } catch (error) {
@@ -420,8 +420,10 @@ async function initializeTowerStageCatalog() {
   if (!select) return;
   try {
     towerStageCatalog = await loadTowerStageCatalog();
+    renderTowerCharacterOptions();
     renderTowerStageOptions();
     renderSimBuilder("tower");
+    notifyTowerStageFilter();
   } catch (error) {
     towerStageCatalog = null;
     towerStageChoicesByKey = new Map();
@@ -924,22 +926,27 @@ function currentTowerFloorChoice() {
 }
 
 function currentTowerGimmicks() {
-  const override = String($("tower-gimmick-group")?.value ?? "");
-  if (override === "__none__") return [];
   const choice = currentTowerStageChoice();
-  const id = override || choice?.produceExamGimmickEffectGroupId;
+  const id = choice?.produceExamGimmickEffectGroupId;
   if (id !== undefined) return resolveExamGimmicks(id, examItemCatalogs);
   return [{ id: "stage-gimmick-mapping:" + (choice?.key ?? "unknown"), unresolved: true }];
 }
-function renderTowerGimmickOptions() {
-  const select = $("tower-gimmick-group");
-  if (!select) return;
-  const previous = select.value;
-  select.replaceChildren(new Option("ステージ情報から自動設定", ""), new Option("ギミックなし", "__none__"));
-  for (const id of [...(examItemCatalogs.gimmickById?.keys() ?? [])].filter((id) => id.startsWith("p_exam_gimmick-tower_")).sort()) select.add(new Option(id, id));
-  if ([...select.options].some((option) => option.value === previous)) select.value = previous;
-  renderTowerStageSummary();
+
+function renderTowerCharacterOptions() {
+  const select = $("tower-character-filter-v5");
+  const previous = select.value || storedTowerFilter().characterId;
+  const floors = buildTowerFloorChoices(towerStageCatalog);
+  towerStageChoicesByKey = new Map(floors.map((choice) => [choice.key, choice]));
+  const characters = new Map();
+  for (const floor of floors) {
+    if (floor.characterId && !characters.has(floor.characterId)) {
+      characters.set(floor.characterId, towerStageCatalog.towerById.get(floor.towerId)?.title ?? floor.characterId);
+    }
+  }
+  select.replaceChildren(new Option("アイドルを選択", ""), ...[...characters].map(([id, name]) => new Option(name, id)));
+  if (characters.has(previous)) select.value = previous;
 }
+
 function currentTowerStageConfig() {
   const choice = currentTowerStageChoice();
   return choice && towerStageCatalog ? towerStageCatalog.configById.get(choice.configId) ?? null : null;
@@ -949,9 +956,10 @@ function renderTowerStageOptions() {
   const select = $("tower-stage-config");
   if (!select || !towerStageCatalog) return;
   const previous = String(select.value ?? "");
-  const choices = buildTowerFloorChoices(towerStageCatalog);
-  towerStageChoicesByKey = new Map(choices.map((choice) => [choice.key, choice]));
-  select.replaceChildren(new Option("階を選択してください", ""));
+  const characterId = $("tower-character-filter-v5").value;
+  const choices = [...towerStageChoicesByKey.values()].filter((choice) => choice.characterId === characterId);
+  select.disabled = !characterId;
+  select.replaceChildren(new Option(characterId ? "階層を選択" : "先にアイドルを選択", ""));
   let lastTower = null;
   let group = null;
   for (const choice of choices) {
@@ -963,12 +971,12 @@ function renderTowerStageOptions() {
     }
     group.append(new Option(choice.label, choice.key));
   }
-  if (towerStageChoicesByKey.has(previous)) select.value = previous;
+  if (choices.some((choice) => choice.key === previous)) select.value = previous;
   select.dataset.characterId = currentTowerFloorChoice()?.characterId ?? "";
   const status = $("tower-stage-source-status");
   if (status) status.textContent = choices.length
     ? `${choices.length}階を選択できます。Mainメモリーの選択後にタイプ別の試験設定を適用します。`
-    : "階層設定を取得できませんでした。";
+    : characterId ? "階層設定を取得できませんでした。" : "アイドルを選択すると、そのアイドルの階層を表示します。";
 }
 
 function towerPercentText(value) {
@@ -990,7 +998,7 @@ function renderTowerStageSummary() {
   const gimmicks = currentTowerGimmicks();
   const gimmickStatus = $("tower-gimmick-status");
   if (gimmickStatus) gimmickStatus.textContent = !config ? (floor ? "この階層に対応するMainメモリーを選択してください。" : "ステージを選択してください。")
-    : gimmicks.some((row) => row.unresolved) ? "このステージのギミック情報が未取得です。実機に対応するギミックを指定してください。"
+    : gimmicks.some((row) => row.unresolved) ? "この階層のギミック情報を取得できませんでした。"
     : gimmicks.length ? gimmicks.length + "件のギミック効果を適用します。" : "ギミックなしで実行します。"
   if (!config) {
     const hint = document.createElement("span");
@@ -1282,7 +1290,7 @@ function exportTowerPreset() {
       baseCards: [],
       filter,
       stageKey: $("tower-stage-config")?.value ?? "",
-      gimmickGroupId: $("tower-gimmick-group")?.value ?? "",
+      gimmickGroupId: "",
     });
     const blob = new Blob([`${JSON.stringify(preset, null, 2)}
 `], { type: "application/json" });
@@ -1320,10 +1328,13 @@ async function importTowerPreset(file) {
   }
   const selected = preset.slots.map((slot) => importedById.get(slot.userMemoryId));
   const filter = effectiveTowerFilter(preset.filter, selected);
+  filter.characterId = towerStageChoicesByKey.get(preset.stageKey).characterId;
 
   cancelSeedSearch();
   memoryList = mergeMemoryLibraries(memoryList, imported);
   persistLibrary();
+  $("tower-character-filter-v5").value = towerStageChoicesByKey.get(preset.stageKey).characterId;
+  renderTowerStageOptions();
   $("tower-stage-config").value = preset.stageKey;
   simState.tower.slots = preset.slots.map((slot) => ({
     memoryId: slot.userMemoryId,
@@ -1335,7 +1346,6 @@ async function importTowerPreset(file) {
   $("tower-seed-results").innerHTML = "";
   renderMemoryList();
   renderSimBuilder("tower");
-  if ([...$("tower-gimmick-group").options].some((option) => option.value === preset.gimmickGroupId)) $("tower-gimmick-group").value = preset.gimmickGroupId;
   renderTowerStageSummary();
   updateObservationCount();
   notifyTowerStageFilter();
@@ -2159,7 +2169,13 @@ $("tower-stage-config")?.addEventListener("change", () => {
   renderSimBuilder("tower");
   notifyTowerStageFilter();
 });
-$("tower-gimmick-group")?.addEventListener("change", renderTowerStageSummary);
+$("tower-character-filter-v5").addEventListener("change", () => {
+  $("tower-stage-config").value = "";
+  simState.tower.slots = [];
+  renderTowerStageOptions();
+  renderSimBuilder("tower");
+  notifyTowerStageFilter();
+});
 $("tower-seed")?.addEventListener("input", renderTowerStageSummary);
 
 const tabParam = new URLSearchParams(location.search).get("tab");
