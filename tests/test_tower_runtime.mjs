@@ -988,6 +988,7 @@ console.log("tower runtime tests: ok");
     calculateTowerMemoryParameters,
     calculateTowerParameterBonus,
     calculateTowerTurnTypes,
+    collectTowerPItemIds,
     parseTowerBattleConfigs,
     parseTowerCatalog,
     parseTowerLayerExams,
@@ -1056,6 +1057,8 @@ console.log("tower runtime tests: ok");
   number: 12
   examEffectType: ProduceExamEffectType_ExamParameterBuff
   produceExamBattleConfigId: p_exam_battle_config-tower_001-test
+  produceItemIds:
+  - pitem-stage-12
 `);
   const liveLayers = parseTowerLiveLayerMap({
     effects: [
@@ -1087,7 +1090,33 @@ console.log("tower runtime tests: ok");
   const choices = buildTowerStageChoices(stageCatalog, "hski", "ProduceExamEffectType_ExamParameterBuff");
   assert.equal(choices.length, 1);
   assert.equal(choices[0].number, 12);
+  assert.deepEqual(choices[0].produceItemIds, ["pitem-stage-12"]);
   assert.match(choices[0].label, /12階/);
+
+  const mainMemory = { examBattleProduceItemIds: ["pitem-main"] };
+  const subMemory = { examBattleProduceItemIds: ["pitem-sub"] };
+  const selectedItems = collectTowerPItemIds(mainMemory, choices[0]);
+  assert.deepEqual(selectedItems, ["pitem-main", "pitem-stage-12"]);
+  assert.deepEqual(collectTowerPItemIds(subMemory, choices[0]), ["pitem-sub", "pitem-stage-12"], "Mainを入れ替えると採用Pアイテムも入れ替わる");
+  assert.deepEqual(collectTowerPItemIds(null, choices[0]), ["pitem-stage-12"], "Main未選択のSubをMainとして扱わない");
+  assert.deepEqual(collectTowerPItemIds(mainMemory, { produceItemIds: [] }), ["pitem-main"], "階を変えると前の限定Pアイテムは残らない");
+  assert.deepEqual(collectTowerPItemIds(mainMemory, { produceItemIds: ["pitem-main", "pitem-main"] }), ["pitem-main"]);
+  assert.deepEqual(collectTowerPItemIds({ raw: { examBattleProduceItemIds: ["pitem-raw"] } }, null), ["pitem-raw"]);
+
+  const trigger = { id: "turn-start", phaseTypes: ["ProduceExamPhaseType_ExamStartTurn"] };
+  const item = (id, value) => ({ id, effects: [{
+    id: `${id}-effect`, effectType: "ProduceItemEffectType_ExamStatusEnchant", effectCount: 1, effectTurn: -1,
+    examStatusEnchant: { id: `${id}-enchant`, trigger, examEffects: [{
+      id: `${id}-review`, effectType: "ProduceExamEffectType_ExamReview", effectValue1: value, effectCount: 1,
+    }] },
+  }] });
+  const byId = new Map([item("pitem-main", 1), item("pitem-sub", 100), item("pitem-stage-12", 10)].map(row => [row.id, row]));
+  const state = createTowerTurnState([{ id: "empty-card" }], 1, new Map(), {
+    stamina: 20, pItems: selectedItems.map(id => byId.get(id)),
+  });
+  drawTowerTurn(state, 1);
+  assert.equal(state.exam.review, 11, "Mainと階層限定だけが発動し、Subの+100は発動しない");
+  assert.deepEqual(state.unsupported, []);
 
   const effectAwareCatalog = {
     ...stageCatalog,

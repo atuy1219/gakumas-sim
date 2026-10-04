@@ -161,7 +161,7 @@ export function parseProduceItemCatalogForExam(text) {
     text,
     ["name", "planType", "rarity", "assetId", "isUpgraded", "libraryHidden", "order"],
     ["produceItemEffectIds"],
-  ).filter((item) => item.libraryHidden !== true);
+  ); // 図鑑非表示の階層限定Pアイテムも、試験で指定されたIDなら実行する。
 }
 
 export function parseProduceItemEffectCatalog(text) {

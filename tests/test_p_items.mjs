@@ -23,7 +23,14 @@ const items = parseProduceItemCatalogForExam(`
   produceItemEffectIds:
   - pitem-effect-test
   libraryHidden: false
+- id: pitem-limited-test
+  name: 階層限定テストPアイテム
+  produceItemEffectIds:
+  - pitem-effect-test
+  libraryHidden: true
 `);
+assert.equal(items.find((item) => item.id === "pitem-limited-test")?.libraryHidden, true,
+  "図鑑非表示のPアイテムも試験マスターに保持する");
 const itemEffects = parseProduceItemEffectCatalog(`
 - id: pitem-effect-test
   effectType: ProduceItemEffectType_ExamStatusEnchant

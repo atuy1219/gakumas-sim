@@ -167,7 +167,7 @@ export function parseIdolCardCatalogYaml(text) {
       continue;
     }
     if (!current) continue;
-    match = line.match(/^  (characterId|name|planType|examEffectType|assetId):\s*(.*?)\s*$/);
+    match = line.match(/^  (characterId|name|planType|examEffectType|assetId|beforeProduceItemId|afterProduceItemId|beforeLevelLimitProduceItemId|afterLevelLimitProduceItemId):\s*(.*?)\s*$/);
     if (!match) continue;
     current[match[1]] = yamlScalar(match[2]);
   }

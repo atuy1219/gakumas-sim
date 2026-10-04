@@ -47,6 +47,7 @@ import {
   calculateTowerMemoryParameters,
   calculateTowerParameterBonus,
   calculateTowerTurnTypes,
+  collectTowerPItemIds,
   loadTowerStageCatalog,
   towerParameterLabel,
 } from "./tower_stage.js";
@@ -994,6 +995,7 @@ function towerPercentText(value) {
 }
 
 function renderTowerStageSummary() {
+  renderPItems("tower");
   const host = $("tower-stage-summary");
   if (!host) return;
   host.replaceChildren();
@@ -1193,7 +1195,13 @@ function renderPItems(mode) {
   if (!container) return;
   container.innerHTML = "";
   const seen = new Set();
-  for (const slot of ensureSlots(mode)) {
+  const stageItemIds = new Set(mode === "tower" ? currentTowerStageChoice()?.produceItemIds ?? [] : []);
+  const slots = ensureSlots(mode);
+  if (mode === "tower") {
+    const main = memoryList.find((memory) => memory.userMemoryId === slots[0]?.memoryId);
+    for (const id of collectTowerPItemIds(main, currentTowerStageChoice(), catalogs.idolCardById)) seen.add(id);
+  }
+  for (const slot of mode === "tower" ? [] : slots) {
     if (!slot) continue;
     const memory = memoryList.find((item) => item.userMemoryId === slot.memoryId);
     const ids = memory?.examBattleProduceItemIds?.length
@@ -1201,11 +1209,12 @@ function renderPItems(mode) {
       : rawArray(memory, "examBattleProduceItemIds");
     for (const id of ids ?? []) seen.add(String(id));
   }
-  const resolved = resolveProduceItems([...seen], examItemCatalogs.itemById, examItemCatalogs.itemEffectById);
+  const resolved = resolveProduceItems([...seen], examItemCatalogs.itemById, examItemCatalogs.itemEffectById, examItemCatalogs);
   for (const item of resolved.items) {
     const chip = document.createElement("span");
     chip.className = "chip";
     chip.textContent = item.name && item.name !== item.id ? item.name : item.id;
+    if (stageItemIds.has(item.id)) chip.textContent += "（階層限定）";
     chip.title = [item.id, ...(item.effects ?? []).map(describeProduceItemEffect)].join("\n");
     container.append(chip);
   }
@@ -1641,9 +1650,7 @@ $("tower-run").addEventListener("click", async () => {
     if (examItemCatalogError) throw new Error("試験効果データを読み込めませんでした: " + examItemCatalogError.message);
     clearError();
     const composition = buildComposition("tower");
-    const pItemIds = [...new Set(composition.memories.flatMap((memory) =>
-      memory.examBattleProduceItemIds?.length ? memory.examBattleProduceItemIds : rawArray(memory, "examBattleProduceItemIds")
-    ).map(String))];
+    const pItemIds = collectTowerPItemIds(composition.memories[0], currentTowerStageChoice(), catalogs.idolCardById);
     const resolvedPItems = resolveProduceItems(
       pItemIds,
       examItemCatalogs.itemById,
