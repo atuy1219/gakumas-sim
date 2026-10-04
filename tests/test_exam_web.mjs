@@ -468,6 +468,9 @@ assert.equal(endEnchantState.exam.lessonBuff, 5);
 
 const upgradeTimer = masterCard("upgrade-timer", ["e_effect-exam_effect_timer-0001-01-e_effect-exam_card_upgrade-p_card_search-hand-all-0_0"]);
 const upgradeState = createState(["upgrade-timer", "a", "b", "c"], [upgradeTimer, ...fillerCards]);
+// Native IsUpgradableRaw also requires the + master to exist.
+for (const card of fillerCards) upgradeState.cardVariantByKey.set(`${card.id}@@1`,
+  { ...card, name: `${card.name ?? card.id}+`, upgradeCount: 1 });
 upgradeState.hand = [upgradeState.deck.splice(upgradeState.deck.findIndex((card) => card.id === "upgrade-timer"), 1)[0]];
 upgradeState.playsRemaining = 1;
 playTowerCard(upgradeState, 0);

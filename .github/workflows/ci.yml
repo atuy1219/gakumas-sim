@@ -34,6 +34,7 @@ jobs:
           node tests/test_memory.mjs
           node tests/test_presets.mjs
           node tests/test_tower_runtime.mjs
+          node tests/test_card_upgrade_limits.mjs
           node tests/test_tower_turn_rng.mjs
           node tests/test_tower_ai.mjs
           node tests/test_exam_web.mjs
