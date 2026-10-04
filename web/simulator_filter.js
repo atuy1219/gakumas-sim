@@ -190,8 +190,11 @@ function ensureFilterControls(mode) {
     characterSelect.id = `${mode}-character-filter-v5`;
     characterLabelElement.append(characterTitle, characterSelect);
 
-    grid.insertBefore(characterLabelElement, grid.firstElementChild);
-    grid.insertBefore(planLabelElement, characterLabelElement);
+    if (mode === "tower") grid.append(planLabelElement, characterLabelElement);
+    else {
+      grid.insertBefore(characterLabelElement, grid.firstElementChild);
+      grid.insertBefore(planLabelElement, characterLabelElement);
+    }
 
     planSelect.addEventListener("change", () => {
       filterState[mode].planType = planSelect.value;
@@ -273,18 +276,21 @@ function populateCharacterSelect(mode, memories) {
   const { character } = ensureFilterControls(mode);
   if (!character) return;
   const planType = filterState[mode].planType;
+  const stageCharacter = mode === "tower" ? document.getElementById("tower-stage-config")?.dataset.characterId ?? "" : "";
   const values = availableCharacterIds(memories, planType)
+    .filter((id) => !stageCharacter || id === stageCharacter)
     .sort((a, b) => characterDisplayName(a).localeCompare(characterDisplayName(b), "ja"));
-  const preserve = filterState[mode].characterId;
+  const preserve = stageCharacter || filterState[mode].characterId;
   const entries = [
     { value: "", text: planType ? "アイドルを選択" : "先にプランを選択" },
     ...values.map((value) => ({ value, text: characterDisplayName(value) })),
   ];
   syncSelectOptions(character, entries);
 
-  const shouldDisable = !planType;
+  const shouldDisable = !planType || Boolean(stageCharacter);
   if (character.disabled !== shouldDisable) character.disabled = shouldDisable;
   if (preserve && values.includes(preserve)) {
+    filterState[mode].characterId = preserve;
     if (character.value !== preserve) character.value = preserve;
   } else {
     filterState[mode].characterId = "";
@@ -457,6 +463,7 @@ async function boot() {
     saveFilterState(filterState);
     scheduleRefresh("tower");
   });
+  window.addEventListener("gakumas:tower-stage-filter", () => scheduleRefresh("tower"));
 }
 
 if (typeof document !== "undefined") {

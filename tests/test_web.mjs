@@ -184,7 +184,8 @@ assert.equal(towerFourComposition.memories.length, 4);
 assert.deepEqual(towerFourComposition.cards.map((card) => card.id), ["A", "B", "C", "D", "E", "F", "I"]);
 
 const towerHtml = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../web/index.html", import.meta.url), "utf8"));
-assert.match(towerHtml, /id="tower-memory-count"[^>]*>[\s\S]*?<option value="4">4枚<\/option>/);
+assert.doesNotMatch(towerHtml, /id="tower-memory-count"/);
+assert.match(towerHtml, /id="tower-memory-count-status"/);
 assert.match(towerHtml, /data-stage="setup">1[^<]*編成[\s\S]*data-stage="order">2[^<]*シャッフル前[\s\S]*data-stage="seed">3[^<]*Seed[\s\S]*data-stage="simulation">4[^<]*シミュレーション/);
 assert.doesNotMatch(towerHtml, /id="exam-progress-file"/);
 assert.doesNotMatch(towerHtml, /id="exam-progress-text"/);

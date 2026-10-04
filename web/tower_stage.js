@@ -7,6 +7,29 @@ export function collectTowerPItemIds(mainMemory, stageChoice, idolById) {
   return [...new Set([...mainIds, ...stageIds].map(String).map((id) => id.trim()).filter(Boolean))];
 }
 
+export function towerFloorMemoryCount(floor) {
+  const subCount = Number(floor?.maxSubMemoryCount);
+  return Number.isInteger(subCount) && subCount >= 1 && subCount <= 3 ? subCount + 1 : 0;
+}
+
+export function buildTowerFloorChoices(catalog) {
+  return buildTowerStageChoices(catalog).filter((choice) => choice.exactLayer).map((choice) => ({
+    key: choice.key, towerId: choice.towerId, number: choice.number,
+    characterId: towerCharacterId(catalog, choice.towerId),
+    maxSubMemoryCount: choice.maxSubMemoryCount,
+    label: `${catalog.towerById.get(choice.towerId)?.title ?? choice.towerId} · ${choice.number}階`,
+  }));
+}
+
+export function resolveTowerFloorStage(catalog, floor, mainMemory, idolById) {
+  if (!floor || !mainMemory) return null;
+  const idol = idolById?.get?.(String(mainMemory.idolCardId ?? ""));
+  const characterId = String(idol?.characterId ?? mainMemory.characterId ?? "");
+  const effectType = String(idol?.examEffectType ?? "");
+  if (!effectType || characterId !== floor.characterId) return null;
+  return buildTowerStageChoices(catalog, characterId, effectType).find((choice) => choice.key === floor.key) ?? null;
+}
+
 export const TOWER_STAGE_MASTER_URLS = Object.freeze({
   battleConfigs: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleConfig.yaml",
   scoreConfigs: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleScoreConfig.yaml",
