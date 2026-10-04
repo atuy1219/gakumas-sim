@@ -319,6 +319,11 @@
       <section class="panel m3e-play-panel" data-sim-stage="simulation" hidden>
         <div class="section-head"><div><p class="step">04</p><h2>試験・オーディション</h2></div><button type="button" class="secondary" data-exam-back="seed">Seed設定へ戻る</button></div>
         <button id="exam-run" type="button" class="primary">シミュレーション開始 / リセット</button>
+        <div class="button-row simulation-progress-actions">
+          <button id="exam-export-progress" type="button" class="secondary" disabled>途中経過をJSON保存</button>
+          <label class="file-button">途中経過を復元<input id="exam-import-progress" type="file" accept="application/json,.json"></label>
+        </div>
+        <p id="exam-progress-status" class="hint" aria-live="polite"></p>
         <div id="exam-turn-result" class="m3e-battle-surface" hidden>
           <div class="m3e-battle-hud">
             <div class="m3e-turn-orb"><small>TURN</small><strong id="exam-turn-number">1</strong></div>
@@ -478,6 +483,11 @@
       <section class="panel m3e-play-panel" data-sim-stage="simulation" hidden>
         <div class="section-head"><div><p class="step">03</p><h2>アイドルへの道</h2></div><button type="button" class="secondary" data-tower-back="seed">Seed設定へ戻る</button></div>
         <button id="tower-run" type="button" class="primary">シミュレーション開始 / リセット</button>
+        <div class="button-row simulation-progress-actions">
+          <button id="tower-export-progress" type="button" class="secondary" disabled>途中経過をJSON保存</button>
+          <label class="file-button">途中経過を復元<input id="tower-import-progress" type="file" accept="application/json,.json"></label>
+        </div>
+        <p id="tower-progress-status" class="hint" aria-live="polite"></p>
         <div id="tower-turn-result" class="m3e-battle-surface" hidden>
           <div class="m3e-battle-hud">
             <div class="m3e-turn-orb"><small>TURN</small><strong id="tower-turn-number">1</strong></div>

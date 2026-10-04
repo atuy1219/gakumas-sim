@@ -1,3 +1,5 @@
+import { createSimulationBackup, parseSimulationBackup, stringifySimulationBackup } from "./simulation_backup.js";
+import { renderSimulationHistory } from "./simulation_history_ui.js";
 import {
   cardDisplayName,
   composeSelectedMemories,
@@ -1543,7 +1545,7 @@ function renderTurnState(mode, state) {
     const use = document.createElement("button");
     eyebrow.textContent = selected.onceOnly ? "レッスン中1回" : "SKILL CARD";
     title.textContent = runtimeCardLabel(selected);
-    detail.textContent = describeCardEffects(selected).join(" · ") || "追加効果なし";
+    detail.textContent = describeCardEffects(selected, state).join(" · ") || "追加効果なし";
     use.type = "button";
     use.className = "primary";
     use.textContent = "このカードを使用";
@@ -1565,7 +1567,7 @@ function renderTurnState(mode, state) {
     title.textContent = runtimeCardLabel(card);
     const detail = document.createElement("small");
     const move = card.onceOnly ? "使用後に除外" : "使用後に捨て札";
-    const effects = describeCardEffects(card);
+    const effects = describeCardEffects(card, state);
     detail.textContent = [move, ...effects].join(" · ");
     article.addEventListener("click", () => {
       if (mode === "tower") towerSelectedCardIndex = index;
@@ -1576,37 +1578,37 @@ function renderTurnState(mode, state) {
     handBox.append(article);
   });
 
-  const history = $(`${mode}-turn-history`);
-  history.innerHTML = "";
-  for (const entry of [...state.history].reverse()) {
-    const li = document.createElement("li");
-    const plays = entry.plays ?? [];
-    const drinks = entry.drinks ?? [];
-    const drinkText = drinks.map((drink) => {
-      const details = (drink.effects ?? []).filter(Boolean).join(" / ");
-      return `ドリンク: ${drink.drink?.name ?? drink.drink?.id ?? "不明"}${details ? `（${details}）` : ""}`;
-    });
-    const playText = plays.map((play) => {
-      const details = [...(play.cost ?? []), ...(play.effects ?? [])].filter(Boolean).join(" / ");
-      return `使用: ${runtimeCardLabel(play.card)}${details ? `（${details}）` : ""}`;
-    });
-    const actions = [...drinkText, ...playText];
-    const action = actions.length ? actions.join(" → ") : "スキップ";
-    const startEffects = (entry.turnStartEffects ?? []).filter(Boolean);
-    const start = startEffects.length ? `ターン開始: ${startEffects.join(" / ")} → ` : "";
-    const supportRolls = (entry.turnStartSupportCardRolls ?? []).map((roll) =>
-      `${roll.supportCardId}: ${roll.result}/${roll.permil}${roll.succeeded ? " 成功" : " 失敗"}`
-    );
-    const support = supportRolls.length ? ` · サポ抽選 ${supportRolls.join(" / ")}` : "";
-    const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
-    const endEffects = (entry.turnEndEffects ?? []).filter(Boolean);
-    const end = endEffects.length ? ` · ターン終了: ${endEffects.join(" / ")}` : "";
-    const attribute = entry.scoreContext?.parameterType ? " " + towerParameterLabel(entry.scoreContext.parameterType) : "";
-    const bonus = Number.isFinite(Number(entry.scoreContext?.battleBonusPermil)) && entry.scoreContext?.battleBonusPermil != null ? "（" + (Number(entry.scoreContext.battleBonusPermil) / 10) + "%）" : "";
-    const score = Number.isFinite(Number(entry.parameterDelta)) ? " · 獲得スコア " + Number(entry.parameterDelta).toLocaleString("ja-JP") : "";
-    li.textContent = `Turn ${entry.turn}${attribute}${bonus}: ${start}${action}${support}${remains}${end}${score}`;
-    history.append(li);
-  }
+  $(`${mode}-export-progress`).disabled = false;
+  renderSimulationHistory($(`${mode}-turn-history`), state);
+}
+
+for (const mode of ["exam", "tower"]) {
+  $(`${mode}-export-progress`).addEventListener("click", () => {
+    try {
+      const backup = createSimulationBackup(simulationState(mode), mode);
+      const blob = new Blob([stringifySimulationBackup(backup)], { type: "application/json" });
+      const url = URL.createObjectURL(blob), link = document.createElement("a");
+      link.href = url; link.download = `gakumas-${mode}-turn-${backup.currentTurn}-progress.json`;
+      document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+      $(`${mode}-progress-status`).textContent = "途中状態と詳細履歴をJSONで保存しました。";
+    } catch (error) { showError(error); }
+  });
+  $(`${mode}-import-progress`).addEventListener("change", async () => {
+    const input = $(`${mode}-import-progress`), file = input.files?.[0];
+    if (!file) return;
+    try {
+      const backup = parseSimulationBackup(await file.text());
+      if (backup.mode !== mode) throw new Error(mode === "tower" ? "ドル道のバックアップを選択してください。" : "試験のバックアップを選択してください。");
+      cancelSeedSearch(); clearError();
+      setSimulationState(mode, backup.state); resetSimulationUndo(mode);
+      if (mode === "tower") towerSelectedCardIndex = 0;
+      else examSelectedCardIndex = 0;
+      renderTurnState(mode, backup.state);
+      if (mode === "exam") persistExamSimulationState();
+      $(`${mode}-progress-status`).textContent = `${backup.state.turn}ターン目の途中状態を復元しました。`;
+    } catch (error) { showError(error); }
+    finally { input.value = ""; }
+  });
 }
 
 function renderTowerTurnState() {
