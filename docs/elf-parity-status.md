@@ -76,3 +76,22 @@ intermediate status and per-hit score; compare the first divergent transition
 before claiming an exact final-score match.
 Global ordering when multiple P-items, enchants, card effects and gimmicks
 interact remains unverified beyond the specific before/after assertions above.
+
+## Tower26 progress regressions
+
+`tests/fixtures/tower26-replay-masters.json` contains only public master records
+from the reported Tower26 configuration, without memory/player data.
+`tests/test_simulation_backup.mjs` checks non-activation of 頂点の輝き before
+the final turn, two final-turn activations after drawing, newest-debuff
+recovery before Turn2 draw, and full/pruned catalog resume parity.
+
+Native references: `IsFieldStatusTriggerStatusEffect` RemainingTurn branch
+`0x6901dd8 -> 0x6901edc` uses signed less-or-equal;
+`DebuffRecoverEffectExecutor.ExecuteEffect @ 0x8006280` orders filtered
+debuffs descending by Uid (`0x8006918`, selector offset `0x1c`, matching
+`ExamStatusEffectBase.get_Uid @ 0x80215d0`).
+
+The reported turn attribute mismatch remains unresolved. A recovered deck
+shuffle RNG state is not proven to be the public initial Seed. The current
+seed search conflates them; reversing only the 13 randomized turn selections
+does not match both observed Visual turns. No speculative offset is applied.

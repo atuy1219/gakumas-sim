@@ -53,7 +53,7 @@ export function renderSimulationHistory(host, state) {
           for (const row of before.filter(row => !after.some(next => next.registrationId === row.registrationId))) paragraph(item, `${named(row)}が解除`);
           continue;
         }
-        if (["randomState", "cardPlayCount", "turnCardPlayCount", "playCardCountSum", "staminaConsumptionSum", "blockConsumptionSum", "reviewConsumptionSum"].includes(change.field)) continue;
+        if (["statusUidSerial", "debuffFieldUids", "randomState", "cardPlayCount", "turnCardPlayCount", "playCardCountSum", "staminaConsumptionSum", "blockConsumptionSum", "reviewConsumptionSum"].includes(change.field)) continue;
         paragraph(item, `${change.label || SIMULATION_FIELD_LABELS[change.field] || change.field} ${valueText(change.before, change.field)} → ${valueText(change.after, change.field)}`);
       }
       for (const move of event.moves ?? []) paragraph(item, `${cardText(move.card)}: ${positions[move.from] ?? move.from} → ${positions[move.to] ?? move.to}`);

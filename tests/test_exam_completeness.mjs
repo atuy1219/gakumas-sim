@@ -107,7 +107,7 @@ function row(id, effectId, extra = {}) {
   addNativeScoreTimedStatus(s.exam, "lessonParameterDown", 100, 2);
   addNativeScoreTimedStatus(s.exam, "lessonParameterDown", 200, 3);
   apply(s, effect("ExamDebuffRecover", 1));
-  assert.equal(s.exam.lessonParameterDown, Math.fround(0.2));
+  assert.equal(s.exam.lessonParameterDown, Math.fround(0.1), "recover the newest debuff first");
   assert.equal(s.exam.lessonParameterMultiple, 1.5);
   apply(s, effect("ExamGimmickSleepy", 2), effect("ExamGimmickSleepy", 3));
   assert.equal(s.exam.blockAddDownFix, 3);
