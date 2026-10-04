@@ -1,3 +1,4 @@
+import { normalizeExamContext } from "./exam_context.js";
 import { normalizeCustomizes } from "./memory_judgement.js";
 
 export const EXAM_WORKFLOW_STORAGE_KEY = "gakumas-sim-exam-workflow-v1";
@@ -128,6 +129,7 @@ export function createExamWorkflowSnapshot(input = {}) {
     preShuffleOrder: serializeExamPreShuffleOrder(input.preShuffleOrder),
     progressCards: Array.isArray(input.progressCards) ? input.progressCards.map((card) => ({ ...card })) : [],
     progressPath: String(input.progressPath ?? ""),
+    examContext: normalizeExamContext(input.examContext),
     observedBatches,
     seed: String(input.seed ?? ""),
   };

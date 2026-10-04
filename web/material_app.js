@@ -150,6 +150,7 @@ let examManualInstances = new Map();
 let examProgressDeck = [];
 let examProgressInstances = [];
 let examProgressPath = "";
+let examContext = {};
 let examProgressSupportCards = [];
 let examPreShuffleDeck = [];
 let examPreShuffleMode = EXAM_PRE_SHUFFLE_MODE.MANUAL;
@@ -363,6 +364,7 @@ function persistExamWorkflow() {
       preShuffleOrder: examPreShuffleDeck,
       progressCards: examProgressDeck.map((card) => ({ ...(card.progressCard ?? card) })),
       progressPath: examProgressPath,
+      examContext,
       observedBatches: examObservedBatches,
       seed: document.getElementById("exam-seed")?.value ?? "",
     });
@@ -407,6 +409,7 @@ function restoreExamWorkflow() {
       examProgressPath = snapshot.progressPath || "localStorage.progressCards";
     }
 
+    examContext = snapshot.examContext;
     renderExamSupportCardInputs(snapshot.supportDrafts);
     if (examTurnStage) {
       const stageValue = examStageSelectValue(snapshot.turnStageId, snapshot.lessonParameterType);
@@ -945,6 +948,7 @@ function exportExamPreset() {
         customizes: normalizeCustomizes(card.customizes),
       })),
       supportCards: examProgressSupportCards,
+      examContext,
       source: "web",
       preShuffleMode: EXAM_PRE_SHUFFLE_MODE.MANUAL,
       preShuffleOrder: serializeExamPreShuffleOrder(ensureExamPreShuffleReady()),
@@ -1046,6 +1050,7 @@ async function importExamPreset(file) {
     examProgressPath = "";
   }
 
+  examContext = preset.examContext;
   if (!fromLsposed || preset.supportCards?.length) {
     examProgressSupportCards = preset.supportCards ?? [];
     renderExamSupportCardInputs(examProgressSupportCards);
@@ -1688,6 +1693,7 @@ document.getElementById("exam-run").addEventListener("click", () => {
   persistExamWorkflow();
   document.dispatchEvent(new CustomEvent("exam-simulation-start", {
     detail: {
+      ...examContext,
       cards: deck.map((card) => ({ ...card })),
       seed: document.getElementById("exam-seed").value,
       stamina: Number(document.getElementById("exam-start-stamina").value || 0),

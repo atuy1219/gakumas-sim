@@ -1,0 +1,27 @@
+{
+  "masterCommit": "75eb2a94eb494a6e74053c0f295cb026e837e32a",
+  "check": "master row execution smoke test",
+  "examEffects": 2098,
+  "cardEnchants": 77,
+  "gimmickRows": 3762,
+  "gimmickGroups": 1118,
+  "towerGimmickRows": 1328,
+  "towerGimmickGroups": 242,
+  "directEffectFailures": [],
+  "gimmickFailures": [],
+  "runtimeBoundEffectIds": [
+    "e_effect-exam_status_enchant",
+    "e_effect-exam_status_enchant-01-inf",
+    "e_effect-exam_status_enchant-03",
+    "e_effect-exam_status_enchant-inf"
+  ],
+  "unsupportedEffects": [],
+  "pItems": 478,
+  "unresolvedPItems": [],
+  "pItemRuntimeUnsupported": [],
+  "pItemExecutionFailures": [],
+  "cardVariants": 1732,
+  "cardVariantsExecuted": 1686,
+  "cardVariantsConditionBlocked": 46,
+  "cardFailures": []
+}

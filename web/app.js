@@ -34,6 +34,7 @@ import {
   loadExamItemCatalogs,
   resolveProduceDrinks,
   resolveProduceItems,
+  resolveExamGimmicks,
 } from "./exam_effects.js";
 import {
   generatedObservationLabel,
@@ -85,6 +86,7 @@ let examItemCatalogs = {
   cardRandomPools: [], cardRandomPoolById: new Map(),
   drinks: [], drinkById: new Map(), drinkEffects: [], drinkEffectById: new Map(),
 };
+let examItemCatalogError = null;
 let towerStageCatalog = null;
 let towerStageChoicesByKey = new Map();
 
@@ -117,6 +119,7 @@ function examWorkflowRuntimeFingerprint(snapshot = readExamWorkflowSnapshotForRu
     counts: Array.isArray(snapshot.counts) ? snapshot.counts : [],
     manualCards: Array.isArray(snapshot.manualCards) ? snapshot.manualCards : [],
     supportDrafts: Array.isArray(snapshot.supportDrafts) ? snapshot.supportDrafts : [],
+    examContext: snapshot.examContext ?? {},
     preShuffleMode: String(snapshot.preShuffleMode ?? ""),
     preShuffleOrder: Array.isArray(snapshot.preShuffleOrder) ? snapshot.preShuffleOrder : [],
     seed: String(snapshot.seed ?? ""),
@@ -134,6 +137,8 @@ function examRuntimeSharedCatalogs() {
     examTriggerById: examItemCatalogs.examTriggerById,
     cardSearchById: examItemCatalogs.cardSearchById,
     cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
+      cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
+      cardPoolById: examItemCatalogs.cardPoolById,
   };
 }
 
@@ -385,12 +390,15 @@ function renderExamDrinkOptions() {
 async function initializeExamItemCatalogs() {
   try {
     examItemCatalogs = await loadExamItemCatalogs();
+    examItemCatalogError = null;
     renderPItems("contest");
     renderPItems("tower");
     renderExamDrinkOptions();
+    renderTowerGimmickOptions();
     if (towerTurnState) renderTowerTurnState();
     if (examTurnState) renderTurnState("exam", examTurnState);
   } catch (error) {
+    examItemCatalogError = error;
     console.warn("P-item / drink effect catalog load failed", error);
   }
 }
@@ -904,6 +912,23 @@ function currentTowerStageChoice() {
   return towerStageChoicesByKey.get(String($("tower-stage-config")?.value ?? "")) ?? null;
 }
 
+function currentTowerGimmicks() {
+  const override = String($("tower-gimmick-group")?.value ?? "");
+  if (override === "__none__") return [];
+  const choice = currentTowerStageChoice();
+  const id = override || choice?.produceExamGimmickEffectGroupId;
+  if (id !== undefined) return resolveExamGimmicks(id, examItemCatalogs);
+  return [{ id: "stage-gimmick-mapping:" + (choice?.key ?? "unknown"), unresolved: true }];
+}
+function renderTowerGimmickOptions() {
+  const select = $("tower-gimmick-group");
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren(new Option("ステージ情報から自動設定", ""), new Option("ギミックなし", "__none__"));
+  for (const id of [...(examItemCatalogs.gimmickById?.keys() ?? [])].filter((id) => id.startsWith("p_exam_gimmick-tower_")).sort()) select.add(new Option(id, id));
+  if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+  renderTowerStageSummary();
+}
 function currentTowerStageConfig() {
   const choice = currentTowerStageChoice();
   return choice && towerStageCatalog ? towerStageCatalog.configById.get(choice.configId) ?? null : null;
@@ -965,6 +990,11 @@ function renderTowerStageSummary() {
   if (!host) return;
   host.replaceChildren();
   const config = currentTowerStageConfig();
+  const gimmicks = currentTowerGimmicks();
+  const gimmickStatus = $("tower-gimmick-status");
+  if (gimmickStatus) gimmickStatus.textContent = !config ? "ステージを選択してください。"
+    : gimmicks.some((row) => row.unresolved) ? "このステージのギミック情報が未取得です。実機に対応するギミックを指定してください。"
+    : gimmicks.length ? gimmicks.length + "件のギミック効果を適用します。" : "ギミックなしで実行します。"
   if (!config) {
     const hint = document.createElement("span");
     hint.className = "hint";
@@ -1252,6 +1282,8 @@ function exportTowerPreset() {
       memories: selected.map(compactStoredMemory),
       baseCards: [],
       filter,
+      stageKey: $("tower-stage-config")?.value ?? "",
+      gimmickGroupId: $("tower-gimmick-group")?.value ?? "",
     });
     const blob = new Blob([`${JSON.stringify(preset, null, 2)}
 `], { type: "application/json" });
@@ -1302,6 +1334,9 @@ async function importTowerPreset(file) {
   $("tower-seed-results").innerHTML = "";
   renderMemoryList();
   renderSimBuilder("tower");
+  if (towerStageChoicesByKey.has(preset.stageKey)) $("tower-stage-config").value = preset.stageKey;
+  if ([...$("tower-gimmick-group").options].some((option) => option.value === preset.gimmickGroupId)) $("tower-gimmick-group").value = preset.gimmickGroupId;
+  renderTowerStageSummary();
   updateObservationCount();
   towerPresetStatus(`${preset.memoryCount}メモリーのドル道セットをインポートしました。`);
 }
@@ -1555,7 +1590,10 @@ function renderTurnState(mode, state) {
     const remains = (entry.hand ?? []).length ? ` · 終了時手札 ${entry.hand.map(runtimeCardLabel).join(" / ")}` : "";
     const endEffects = (entry.turnEndEffects ?? []).filter(Boolean);
     const end = endEffects.length ? ` · ターン終了: ${endEffects.join(" / ")}` : "";
-    li.textContent = `Turn ${entry.turn}: ${start}${action}${support}${remains}${end}`;
+    const attribute = entry.scoreContext?.parameterType ? " " + towerParameterLabel(entry.scoreContext.parameterType) : "";
+    const bonus = Number.isFinite(Number(entry.scoreContext?.battleBonusPermil)) && entry.scoreContext?.battleBonusPermil != null ? "（" + (Number(entry.scoreContext.battleBonusPermil) / 10) + "%）" : "";
+    const score = Number.isFinite(Number(entry.parameterDelta)) ? " · 獲得スコア " + Number(entry.parameterDelta).toLocaleString("ja-JP") : "";
+    li.textContent = `Turn ${entry.turn}${attribute}${bonus}: ${start}${action}${support}${remains}${end}${score}`;
     history.append(li);
   }
 }
@@ -1594,8 +1632,10 @@ function advanceSimulationTurn(mode, action) {
   }
 }
 
-$("tower-run").addEventListener("click", () => {
+$("tower-run").addEventListener("click", async () => {
   try {
+    await Promise.all([catalogInitialization, examItemInitialization]);
+    if (examItemCatalogError) throw new Error("試験効果データを読み込めませんでした: " + examItemCatalogError.message);
     clearError();
     const composition = buildComposition("tower");
     const pItemIds = [...new Set(composition.memories.flatMap((memory) =>
@@ -1625,6 +1665,12 @@ $("tower-run").addEventListener("click", () => {
       examTriggerById: examItemCatalogs.examTriggerById,
       cardSearchById: examItemCatalogs.cardSearchById,
       cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
+      cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
+      cardPoolById: examItemCatalogs.cardPoolById,
+      examSetting: examItemCatalogs.defaultExamSetting,
+      parameterBonus,
+      turnParameterTypes,
+      gimmicks: currentTowerGimmicks(),
       turnLimit: Number(stageConfig.turn),
     });
     towerTurnState.stageConfig = { ...stageConfig };
@@ -1647,8 +1693,10 @@ $("tower-skip-turn").addEventListener("click", () => {
 });
 $("tower-undo-action")?.addEventListener("click", () => undoSimulationAction("tower"));
 
-document.addEventListener("exam-simulation-start", (event) => {
+document.addEventListener("exam-simulation-start", async (event) => {
   try {
+    await Promise.all([catalogInitialization, examItemInitialization]);
+    if (examItemCatalogError) throw new Error("試験効果データを読み込めませんでした: " + examItemCatalogError.message);
     clearError();
     const cards = Array.isArray(event.detail?.cards) ? event.detail.cards : [];
     examTurnState = createTowerTurnState(cards, event.detail?.seed, catalogs.cardById, {
@@ -1662,12 +1710,18 @@ document.addEventListener("exam-simulation-start", (event) => {
       examTriggerById: examItemCatalogs.examTriggerById,
       cardSearchById: examItemCatalogs.cardSearchById,
       cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
+      cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
+      cardPoolById: examItemCatalogs.cardPoolById,
+      examSetting: event.detail?.examSetting ?? examItemCatalogs.defaultExamSetting,
+      parameterBonus: event.detail?.parameterBonus ?? null,
+      gimmicks: event.detail?.gimmicks ?? resolveExamGimmicks(event.detail?.produceExamGimmickEffectGroupId, examItemCatalogs),
+      pItems: event.detail?.pItems ?? resolveProduceItems(event.detail?.produceItemIds ?? [], examItemCatalogs.itemById, examItemCatalogs.itemEffectById, examItemCatalogs).items,
       supportCards: event.detail?.supportCards ?? [],
       turnParameterTypes: event.detail?.turnParameterTypes ?? [],
       preShuffleAdvanceSteps: Number(event.detail?.preShuffleAdvanceSteps ?? 0),
       initialRandomState: event.detail?.initialRandomState,
       initialRandomStateSource: event.detail?.initialRandomStateSource,
-      turnLimit: event.detail?.turnParameterTypes?.length || null,
+      turnLimit: event.detail?.turnLimit ?? (event.detail?.turnParameterTypes?.length || null),
     });
     examSelectedCardIndex = 0;
     drawTowerTurn(examTurnState, 3);
@@ -2098,6 +2152,7 @@ async function startSeedSearch() {
 
 $("tower-find-seed").addEventListener("click", () => startSeedSearch().catch(showError));
 $("tower-stage-config")?.addEventListener("change", renderTowerStageSummary);
+$("tower-gimmick-group")?.addEventListener("change", renderTowerStageSummary);
 $("tower-seed")?.addEventListener("input", renderTowerStageSummary);
 
 const tabParam = new URLSearchParams(location.search).get("tab");

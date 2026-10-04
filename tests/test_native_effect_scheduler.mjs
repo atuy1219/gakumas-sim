@@ -217,7 +217,9 @@ import {
 
   drawTowerTurn(state, 3);
   assert.deepEqual(
-    state.effectScheduler.trace.slice(0, 3).map((event) => event.phase),
+    state.effectScheduler.trace.filter((event) => [
+      NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN, NATIVE_EFFECT_PHASE.START_OF_TURN, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN,
+    ].includes(event.phase)).map((event) => event.phase),
     [
       NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
       NATIVE_EFFECT_PHASE.START_OF_TURN,
@@ -230,8 +232,8 @@ import {
   playTowerCard(state, index);
   assert.equal(state.exam.parameter, 5);
   assert.deepEqual(
-    state.effectScheduler.trace.slice(-2).map((event) => event.phase),
-    [NATIVE_EFFECT_PHASE.CARD_PLAY, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY],
+    state.effectScheduler.trace.slice(-3).map((event) => event.phase),
+    [NATIVE_EFFECT_PHASE.CARD_PLAY, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, NATIVE_EFFECT_PHASE.CARD_MOVE_GRAVE],
   );
 
   finishTowerTurn(state, { type: "end" });

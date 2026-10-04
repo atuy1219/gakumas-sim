@@ -87,6 +87,7 @@ export function parseProduceCardCatalogYaml(text) {
     current.evaluation = Number(current.evaluation ?? 0);
     current.playEffects = Array.isArray(current.playEffects) ? current.playEffects : [];
     current.moveProduceExamEffectIds = Array.isArray(current.moveProduceExamEffectIds) ? current.moveProduceExamEffectIds : [];
+    current.moveProduceExamTriggerIds = Array.isArray(current.moveProduceExamTriggerIds) ? current.moveProduceExamTriggerIds : [];
     current.noDeckDuplication = current.noDeckDuplication === true;
     current.isLimited = current.isLimited === true;
     current.libraryHidden = current.libraryHidden === true;
@@ -119,9 +120,9 @@ export function parseProduceCardCatalogYaml(text) {
       if (field === "playEffects") {
         section = raw === "[]" ? null : "playEffects";
         current.playEffects = [];
-      } else if (field === "moveProduceExamEffectIds") {
-        section = raw === "[]" ? null : "moveProduceExamEffectIds";
-        current.moveProduceExamEffectIds = [];
+      } else if (field === "moveProduceExamEffectIds" || field === "moveProduceExamTriggerIds") {
+        section = raw === "[]" ? null : field;
+        current[field] = [];
       } else {
         section = null;
         if (scalarFields.has(field)) current[field] = yamlScalar(raw);
@@ -143,9 +144,9 @@ export function parseProduceCardCatalogYaml(text) {
       }
     }
 
-    if (section === "moveProduceExamEffectIds") {
+    if (section === "moveProduceExamEffectIds" || section === "moveProduceExamTriggerIds") {
       match = line.match(/^  -\s*(.*?)\s*$/);
-      if (match) current.moveProduceExamEffectIds.push(String(yamlScalar(match[1])));
+      if (match) current[section].push(String(yamlScalar(match[1])));
     }
   }
   flush();

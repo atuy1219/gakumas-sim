@@ -138,7 +138,7 @@ export function enumerateTowerAiActions(state, { includeEnd = true } = {}) {
       }
     }
   }
-  if (includeEnd && ((state.hand?.length ?? 0) || (state.currentTurnPlays?.length ?? 0))) {
+  if (includeEnd && (state.turnOpen || (state.hand?.length ?? 0) || (state.currentTurnPlays?.length ?? 0))) {
     actions.push({ type: "end" });
   }
   return actions;
@@ -170,8 +170,9 @@ export function applyTowerAiAction(state, actionInput, { drawPerTurn = 3 } = {})
 
 export function isTowerAiTerminal(state) {
   return Boolean(state?.ended)
-    || (Number.isFinite(Number(state?.turnLimit))
+    || (state?.turnLimit != null && Number.isFinite(Number(state.turnLimit))
       && Number(state?.turn ?? 0) >= Number(state.turnLimit)
+      && !state?.turnOpen
       && !(state?.hand?.length));
 }
 

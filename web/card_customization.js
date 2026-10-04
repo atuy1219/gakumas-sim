@@ -165,6 +165,28 @@ export function applyCardCustomizations(
   return card;
 }
 
+export function applyRuntimeCardGrowEffects(card, effects) {
+  card.runtimeGrowEffects ??= [];
+  card.customGrowEffects ??= [];
+  for (const effect of effects ?? []) {
+    applyCostGrow(card, effect) || applyEffectGrow(card, effect);
+    const type = growType(effect);
+    if (type === "ProduceCardGrowEffectType_InitialAdd") card.isInitial = true;
+    if (type === "ProduceCardGrowEffectType_PlayMovePositionTypeChange") {
+      card.playMovePositionType = effect.playMovePositionType;
+      card.onceOnly = card.playMovePositionType === "ProduceCardMovePositionType_Lost";
+    }
+    if (type === "ProduceCardGrowEffectType_PlayTriggerChange") {
+      const targets = new Set((effect.targetPlayEffectProduceExamTriggerIds ?? []).map(String));
+      if (!targets.size || targets.has(card.playProduceExamTriggerId)) card.playProduceExamTriggerId = effect.playProduceExamTriggerId;
+    }
+    if (type === "ProduceCardGrowEffectType_CardStatusEnchantChange") card.produceCardStatusEnchantId = effect.produceCardStatusEnchantId;
+    card.runtimeGrowEffects.push({ ...effect });
+    card.customGrowEffects.push({ ...effect });
+  }
+  return card;
+}
+
 function growTotal(card, type) {
   return (card?.customGrowEffects ?? []).reduce(
     (sum, effect) => sum + (growType(effect) === type ? Number(effect?.value ?? 0) || 0 : 0),
@@ -180,6 +202,22 @@ function adjustGain(card, value, addType, reduceType = "") {
   return Math.max(0, next);
 }
 
+// Native IsLessonIconValueEffectType @ 0x6905458 determines which
+// effects have an additive fixed score. IsLessonEffectType @ 0x6905720
+// separately permits hit-count growth on dependent score effects.
+const fixedLessonKinds = new Set(["lesson", "lesson_multiple_lesson_buff", "lesson_add_multiple_parameter_buff"]);
+const fixedLessonTypes = new Set(["ExamLesson", "ExamMultipleLessonBuffLesson", "ExamLessonAddBlock",
+  "ExamLessonFullPowerPoint", "ExamLessonPerSearchCount", "ExamLessonAddMultipleParameterBuff",
+  "ExamLessonDependPlayCardCountSum", "ExamMultipleEnthusiasticLesson",
+  "ExamMultipleConcentrationLesson", "ExamMultipleFullPowerLesson"]);
+const countLessonKinds = new Set(["lesson", "lesson_multiple_lesson_buff", "lesson_add_multiple_parameter_buff",
+  "lesson_depend_exam_review", "lesson_depend_exam_aggressive", "lesson_depend_parameter_buff"]);
+const countLessonTypes = new Set([...fixedLessonTypes, "ExamLessonDependBlock", "ExamLessonFix",
+  "ExamLessonAddMultipleLessonBuff", "ExamLessonDependExamReview", "ExamLessonDependExamCardPlayAggressive",
+  "ExamLessonDependParameterBuff", "ExamLessonDependStamina", "ExamLessonDependStaminaConsumptionSum",
+  "ExamLessonDependBlockAndSearchCount", "ExamLessonDependAggressiveAndSearchCount",
+  "ExamLessonDependReviewAndSearchCount", "ExamLessonDependBlockConsumptionSum", "ExamLessonDependEnthusiasticGetSum"]);
+
 export function applyCardGrowEffectsToParsedEffect(parsedInput, card) {
   if (!parsedInput || typeof parsedInput !== "object") return parsedInput;
   const parsed = { ...parsedInput };
@@ -191,12 +229,6 @@ export function applyCardGrowEffectsToParsedEffect(parsedInput, card) {
         parsed.value,
         "ProduceCardGrowEffectType_LessonAdd",
         "ProduceCardGrowEffectType_LessonReduce",
-      );
-      parsed.count = Math.max(
-        1,
-        Number(parsed.count ?? 1)
-          + growTotal(card, "ProduceCardGrowEffectType_LessonCountAdd")
-          - growTotal(card, "ProduceCardGrowEffectType_LessonCountReduce"),
       );
       break;
     case "block":
@@ -219,6 +251,19 @@ export function applyCardGrowEffectsToParsedEffect(parsedInput, card) {
     case "parameter_buff":
       parsed.value = adjustGain(card, parsed.value, "ProduceCardGrowEffectType_ParameterBuffTurnAdd");
       break;
+    case "parameter_buff_multiple_per_turn":
+      parsed.turn = adjustGain(card, parsed.turn, "ProduceCardGrowEffectType_ParameterBuffMultiplePerTurnAdd");
+      break;
+    case "stamina_consumption_down":
+      parsed.value = adjustGain(card, parsed.value, "ProduceCardGrowEffectType_StaminaConsumptionDownTurnAdd");
+      break;
+    case "master_effect": {
+      const type = String(parsed.masterEffectType ?? "").replace("ProduceExamEffectType_", "");
+      const additions = { ExamFullPowerPoint: "FullPowerPointAdd", ExamEnthusiastic: "EnthusiasticAdd", ExamLessonDependBlock: "LessonDependBlockAdd" };
+      if (additions[type]) parsed.value1 = parsed.value = adjustGain(card, parsed.value1 ?? parsed.value,
+        "ProduceCardGrowEffectType_" + additions[type], type === "ExamFullPowerPoint" ? "ProduceCardGrowEffectType_FullPowerPointReduce" : "");
+      break;
+    }
     case "lesson_depend_exam_review":
       parsed.permil = Math.max(
         0,
@@ -231,6 +276,18 @@ export function applyCardGrowEffectsToParsedEffect(parsedInput, card) {
         Number(parsed.permil ?? 0) + growTotal(card, "ProduceCardGrowEffectType_LessonDependExamCardPlayAggressiveAdd"),
       );
       break;
+  }
+
+  const type = String(parsed.masterEffectType ?? "").replace(/^ProduceExamEffectType_/, "");
+  if (parsed.kind !== "lesson" && (fixedLessonKinds.has(parsed.kind) || fixedLessonTypes.has(type))) {
+    const field = parsed.kind === "master_effect" ? "value1" : "value";
+    parsed[field] = adjustGain(card, parsed[field], "ProduceCardGrowEffectType_LessonAdd", "ProduceCardGrowEffectType_LessonReduce");
+    if (field === "value1") parsed.value = parsed.value1;
+  }
+  if (countLessonKinds.has(parsed.kind) || countLessonTypes.has(type)) {
+    parsed.count = Math.max(1, Number(parsed.count ?? 1)
+      + growTotal(card, "ProduceCardGrowEffectType_LessonCountAdd")
+      - growTotal(card, "ProduceCardGrowEffectType_LessonCountReduce"));
   }
 
   return parsed;

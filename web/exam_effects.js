@@ -23,6 +23,11 @@ export const EXAM_ITEM_URLS = Object.freeze({
   cardRandomPoolsFallback: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardRandomPool.yaml",
   drinksPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrink.yaml",
   drinksFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrink.yaml",
+  gimmicksPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamGimmickEffectGroup.yaml",
+  cardStatusEnchantsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardStatusEnchant.yaml",
+  examSettingsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ExamSetting.yaml",
+  settingsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Setting.yaml",
+  cardPoolsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardPool.yaml",
   drinkEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrinkEffect.yaml",
   drinkEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrinkEffect.yaml",
 });
@@ -53,6 +58,9 @@ export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
   overPreservationReleaseEnthusiastic: 10,
   overPreservationReleaseToFullPowerGrowEffectLessonAdd: 10,
   examTurnEndRecoveryStamina: 2,
+  examBuffConsumptionDownPermil: 500,
+  examBuffConsumptionAddPermil: 1000,
+  produceExamPanicStaminaCandidates: [1,2,3,4,5,6,7,7,8,8,9,9,10,11,12,13,14,15],
   handLimit: 5,
   holdLimit: 2,
 });
@@ -70,6 +78,42 @@ function yamlScalar(raw) {
   }
   if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
   return text;
+}
+
+export function parseProduceExamGimmickCatalog(text) {
+  return parseYamlRecordsWithLists(text, ["priority", "remainingTurnPermil", "startTurn", "remainingTurn", "fieldStatusType", "fieldStatusValue", "fieldStatusCheckType", "fieldStatusProduceCardSearchId", "produceExamEffectId", "isPositive"]);
+}
+export function groupExamGimmicks(rows) {
+  const result = new Map();
+  for (const row of rows ?? []) {
+    if (!result.has(row.id)) result.set(row.id, []);
+    result.get(row.id).push(row);
+  }
+  return result;
+}
+export function resolveExamGimmicks(id, catalogs = {}) {
+  if (!id) return [];
+  return catalogs.gimmickById?.get(String(id))?.map((row) => ({ ...row })) ?? [{ id: String(id), unresolved: true }];
+}
+export function parseProduceCardStatusEnchantCatalog(text) {
+  return parseYamlRecordsWithLists(text, ["produceExamTriggerId", "triggerCount"], ["produceCardGrowEffectIds"]);
+}
+export function parseProduceCardPoolCatalog(text) {
+  const result = new Map();
+  let rows = null, row = null;
+  for (const line of String(text).split(/\r?\n/)) {
+    const head = line.match(/^- id:\s*(.*)$/);
+    if (head) { rows = []; result.set(String(yamlScalar(head[1])), rows); row = null; continue; }
+    const card = line.match(/^\s+- (?:id|produceCardId):\s*(.*)$/);
+    if (card && rows) { row = { produceCardId: String(yamlScalar(card[1])), upgradeCount: 0, ratio: 0 }; rows.push(row); continue; }
+    const field = line.match(/^\s+(upgradeCount|ratio):\s*(.*)$/);
+    if (field && row) row[field[1]] = Number(yamlScalar(field[2])) || 0;
+  }
+  return result;
+}
+export function parseExamSettingCatalog(text) {
+  const fields = [...new Set([...String(text).matchAll(/^\s+([A-Za-z]\w*):/gm)].map((m) => m[1]))];
+  return parseYamlRecordsWithLists(text, fields, ["produceExamPanicStaminaCandidates"]);
 }
 
 export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = []) {
@@ -275,7 +319,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     cardSearchText,
     cardRandomPoolText,
     drinkText,
-    drinkEffectText,
+    drinkEffectText, gimmickText, cardEnchantText, examSettingText, settingText, cardPoolText,
   ] = await Promise.all([
     fetchText(urls.itemsPrimary, urls.itemsFallback, fetchImpl),
     fetchText(urls.itemEffectsPrimary, urls.itemEffectsFallback, fetchImpl),
@@ -286,7 +330,14 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     fetchText(urls.cardRandomPoolsPrimary, urls.cardRandomPoolsFallback, fetchImpl),
     fetchText(urls.drinksPrimary, urls.drinksFallback, fetchImpl),
     fetchText(urls.drinkEffectsPrimary, urls.drinkEffectsFallback, fetchImpl),
+    ...["gimmicksPrimary", "cardStatusEnchantsPrimary", "examSettingsPrimary", "settingsPrimary", "cardPoolsPrimary"].map((key) => urls[key] ? fetchText(urls[key], urls[key], fetchImpl) : Promise.resolve("")),
+
   ]);
+  const gimmicks = parseProduceExamGimmickCatalog(gimmickText);
+  const cardStatusEnchants = parseProduceCardStatusEnchantCatalog(cardEnchantText);
+  const examSettings = parseExamSettingCatalog(examSettingText);
+  const settings = parseYamlRecordsWithLists(settingText, ["towerExamSettingId"]);
+  const defaultExamSetting = examSettings.find((row) => row.id === settings[0]?.towerExamSettingId) ?? examSettings.find((row) => row.id === "p_exam_setting-1") ?? examSettings[0] ?? {};
   const items = parseProduceItemCatalogForExam(itemText);
   const itemEffects = parseProduceItemEffectCatalog(effectText);
   const examStatusEnchants = parseProduceExamStatusEnchantCatalog(enchantText);
@@ -298,6 +349,10 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
   const drinkEffects = parseProduceDrinkEffectCatalog(drinkEffectText);
   return {
     items,
+    gimmicks, gimmickById: groupExamGimmicks(gimmicks),
+    cardStatusEnchants, cardStatusEnchantById: new Map(cardStatusEnchants.map((row) => [row.id, row])),
+    cardPoolById: parseProduceCardPoolCatalog(cardPoolText),
+    examSettings, defaultExamSetting,
     itemById: new Map(items.map((item) => [String(item.id), item])),
     itemEffects,
     itemEffectById: new Map(itemEffects.map((effect) => [String(effect.id), effect])),
@@ -428,7 +483,7 @@ export function parseExamEffectMaster(effectInput) {
   if (!effectInput || typeof effectInput !== "object") return parseExamEffectId(effectInput);
   const id = String(effectInput.id ?? effectInput.produceExamEffectId ?? "");
   const byId = parseExamEffectId(id);
-  if (byId.kind !== "unsupported" && byId.kind !== "none") return byId;
+  if (!effectInput.effectType) return byId;
 
   const value1 = Number(effectInput.effectValue1 ?? 0) || 0;
   const value2 = Number(effectInput.effectValue2 ?? 0) || 0;
@@ -441,6 +496,7 @@ export function parseExamEffectMaster(effectInput) {
     value1,
     value2,
     count,
+    limitCount: Number(effectInput.effectCount ?? 0),
     turn,
     masterEffectType: String(effectInput.effectType ?? ""),
     targetProduceCardId: String(effectInput.targetProduceCardId ?? ""),
@@ -480,7 +536,7 @@ export function parseExamEffectMaster(effectInput) {
     case "ProduceExamEffectType_ExamLessonBuff":
       return { kind: "lesson_buff", id, value: value1 };
     case "ProduceExamEffectType_ExamParameterBuff":
-      return { kind: "parameter_buff", id, value: value1 };
+      return { kind: "parameter_buff", id, value: turn };
     case "ProduceExamEffectType_ExamParameterBuffReduce":
       return { kind: "parameter_buff_reduce", id, value: value1 };
     case "ProduceExamEffectType_ExamLessonAddMultipleParameterBuff":
@@ -491,6 +547,8 @@ export function parseExamEffectMaster(effectInput) {
       return { kind: "lesson_depend_exam_aggressive", id, permil: value1, count };
     case "ProduceExamEffectType_ExamLessonValueMultiple":
       return { kind: "lesson_value_multiple", id, permil: value1, turn };
+    case "ProduceExamEffectType_ExamLessonValueMultipleDown":
+      return { kind: "lesson_value_multiple_down", id, permil: value1, turn };
     case "ProduceExamEffectType_ExamLessonBuffMultiple":
       return { kind: "lesson_buff_multiple", id, permil: value1, turn };
     case "ProduceExamEffectType_ExamReviewMultiple":
@@ -504,14 +562,14 @@ export function parseExamEffectMaster(effectInput) {
     case "ProduceExamEffectType_ExamHandGraveCountCardDraw":
       return { kind: "hand_grave_count_card_draw", id };
     case "ProduceExamEffectType_ExamParameterBuffMultiplePerTurn":
-      return { kind: "parameter_buff_multiple_per_turn", id, turn: value1 };
+      return { kind: "parameter_buff_multiple_per_turn", id, turn };
     case "ProduceExamEffectType_ExamCardCreateId":
       return {
         kind: "card_create_id",
         id,
         cardId: String(effectInput.targetProduceCardId ?? ""),
         upgradeCount: Number(effectInput.targetUpgradeCount ?? 0) || 0,
-        movePosition: String(effectInput.movePositionType ?? ""),
+        movePosition: String(effectInput.movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "").replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(),
         pickCountMin: Math.max(1, Number(effectInput.pickCountMin ?? 0) || 1),
         pickCountMax: Math.max(1, Number(effectInput.pickCountMax ?? 0) || 1),
       };
@@ -537,14 +595,10 @@ export function parseExamEffectMaster(effectInput) {
       const costAdd = growEffectIds
         .map((growId) => growId.match(/^g_effect-cost_add-(\d+)$/))
         .find(Boolean);
-      return {
-        kind: "add_grow_effect",
-        id,
-        searchId: String(effectInput.produceCardSearchId ?? ""),
-        growEffectIds,
+      return master("add_grow_effect", {
         blockAdd: blockAdd ? integer(blockAdd[1]) : 0,
         costAdd: costAdd ? integer(costAdd[1]) : 0,
-      };
+      });
     }
     case "ProduceExamEffectType_ExamStaminaRecoverFix":
       return { kind: "stamina_recover", id, value: value1 };
@@ -555,9 +609,9 @@ export function parseExamEffectMaster(effectInput) {
     case "ProduceExamEffectType_ExamExtraTurn":
       return { kind: "extra_turn", id, value: Math.max(1, value1 || 1) };
     case "ProduceExamEffectType_ExamStaminaConsumptionDown":
-      return { kind: "stamina_consumption_down", id, value: value1 };
+      return { kind: "stamina_consumption_down", id, value: turn };
     case "ProduceExamEffectType_ExamStaminaConsumptionAdd":
-      return { kind: "stamina_consumption_add", id, value: value1 };
+      return { kind: "stamina_consumption_add", id, value: turn };
     case "ProduceExamEffectType_ExamStaminaConsumptionDownFix":
       return { kind: "stamina_consumption_down_fix", id, value: value1 };
     case "ProduceExamEffectType_ExamStaminaConsumptionAddFix":
@@ -868,7 +922,7 @@ export function checkCardEffectTrigger(triggerId, exam) {
   return { triggered: checks.every(Boolean), supported: true, triggerId: id };
 }
 
-export function createExamState({ stamina = 0 } = {}) {
+export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettings = null } = {}) {
   const maxStamina = Math.max(0, Number(stamina) || 0);
   return {
     // Native JudgeParameter and its battle-attribute subtotals.
@@ -940,10 +994,12 @@ export function createExamState({ stamina = 0 } = {}) {
     reviewValueMultiple: 1,
     staminaRecoverRestriction: false,
     buffConsumptionAdd: 0,
+    buffConsumptionDown: 0,
     itemFireLimitAdd: 0,
     gimmickPlayCardLimit: null,
     startTurnCardDrawDown: 0,
     cardPlayCount: 0,
+    turnCardPlayCount: 0,
     playCardCountSum: 0,
     blockConsumptionSum: 0,
     staminaConsumptionSum: 0,
@@ -953,7 +1009,8 @@ export function createExamState({ stamina = 0 } = {}) {
     fullPowerChangeCount: 0,
     stanceChangeCount: 0,
     extraTurns: 0,
-    runtimeSettings: { ...EXAM_RUNTIME_DEFAULT_SETTING },
+    runtimeSettings: { ...EXAM_RUNTIME_DEFAULT_SETTING, ...runtimeSettings },
+    scoreSettings: scoreSettings ? { ...scoreSettings } : null,
 
     // Native timed score-related status effects. Value statuses with the same
     // remaining turn are merged, matching TryAdd*Status predicates.
@@ -1098,6 +1155,15 @@ export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnIn
   const turn = Math.trunc(Number(turnInput));
   if (!field || !Number.isFinite(turn) || turn === 0) return false;
   if (!Array.isArray(exam.genericTimedStatuses)) exam.genericTimedStatuses = [];
+  if (mode === "replace") exam.genericTimedStatuses = exam.genericTimedStatuses.filter((row) => row.field !== field);
+  if (mode === "duration") {
+    const prior = exam.genericTimedStatuses.find((row) => row.field === field);
+    if (prior) {
+      prior.turn = prior.turn < 0 || turn < 0 ? -1 : prior.turn + turn;
+      syncNativeGenericTimedStatuses(exam);
+      return true;
+    }
+  }
   exam.genericTimedStatuses.push({ field, value: Number(valueInput) || 0, turn, mode });
   syncNativeGenericTimedStatuses(exam);
   return true;
@@ -1106,20 +1172,23 @@ export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnIn
 export function syncNativeGenericTimedStatuses(exam) {
   const additive = new Map();
   const flags = new Set();
+  const multiples = new Map();
   for (const status of exam?.genericTimedStatuses ?? []) {
-    if (status.mode === "flag") flags.add(status.field);
+    if (status.mode === "multiple") multiples.set(status.field, Math.fround(Math.fround(multiples.get(status.field) ?? 1) + Math.fround(status.value / 1000)));
+    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown"].includes(status.field))) flags.add(status.field);
     else additive.set(status.field, Number(additive.get(status.field) ?? 0) + Number(status.value ?? 0));
   }
   const additiveFields = [
     "reviewAdditivePermil", "aggressiveAdditivePermil", "aggressiveAdditiveFix",
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
     "enthusiasticAdditivePermil", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
-    "blockAddDownFix", "startTurnCardDrawDown",
+    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
-  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic"]) {
+  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown"]) {
     exam[field] = flags.has(field);
   }
+  for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive"]) exam[field] = multiples.get(field) ?? 1;
   return exam;
 }
 
@@ -1222,15 +1291,15 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
 }
 
 export function tickNativeScoreTimedStatuses(exam) {
-  if (!Array.isArray(exam?.scoreTimedStatuses) || !exam.scoreTimedStatuses.length) return exam;
-  exam.scoreTimedStatuses = exam.scoreTimedStatuses
+  const hasScoreStatuses = Boolean(exam.scoreTimedStatuses?.length);
+  exam.scoreTimedStatuses = (exam.scoreTimedStatuses ?? [])
     .map((status) => ({
       ...status,
       turn: Number(status.turn) < 0 ? -1 : Number(status.turn) - 1,
     }))
     .filter((status) => Number(status.turn) !== 0);
-  syncNativeScoreTimedStatuses(exam);
-  if (Array.isArray(exam?.genericTimedStatuses)) {
+  if (hasScoreStatuses) syncNativeScoreTimedStatuses(exam);
+  if (exam.genericTimedStatuses?.length) {
     exam.genericTimedStatuses = exam.genericTimedStatuses
       .map((status) => ({
         ...status,
@@ -1359,8 +1428,12 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
 
 export function payCardCost(exam, card) {
   const events = [];
+  const costValue = calculateNativeBuffCost(exam, card.costValue);
+  const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
+  const field = statusCosts[card.costType];
+  if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");
   const direct = Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
-  const normalBase = Math.max(0, Math.trunc(Number(card.stamina ?? 0) || 0));
+  const normalBase = Math.max(0, Math.trunc(Number(card.temporaryStaminaConsumptionFix ?? card.stamina ?? 0) || 0));
 
   if (normalBase > 0) {
     const resolved = calculateNativeStaminaDamage(exam, normalBase, {
@@ -1386,7 +1459,7 @@ export function payCardCost(exam, card) {
     events.push(`直接体力消費 ${direct}`);
   }
 
-  const costValue = Math.max(0, Number(card.costValue ?? 0) || 0);
+
   switch (String(card.costType ?? "")) {
     case "ExamCostType_ExamReview":
       consumeStatus(exam, "review", costValue, "好印象");
@@ -1419,6 +1492,13 @@ export function payCardCost(exam, card) {
       if (costValue) throw new Error(`未対応の追加コストです: ${card.costType}`);
   }
   return events;
+}
+
+export function calculateNativeBuffCost(exam, valueInput) {
+  let value = runtimeF32(Math.max(0, Math.trunc(Number(valueInput) || 0)));
+  if (exam.buffConsumptionDown) value = runtimeF32(value * runtimeFromPermil(1000 - getExamRuntimeSetting(exam, "examBuffConsumptionDownPermil")));
+  if (exam.buffConsumptionAdd) value = runtimeF32(value * runtimeFromPermil(1000 + getExamRuntimeSetting(exam, "examBuffConsumptionAddPermil")));
+  return Math.max(0, Math.ceil(value));
 }
 
 export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
