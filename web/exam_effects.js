@@ -1157,6 +1157,11 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
   return result;
 }
 
+export function nextNativeStatusUid(exam) {
+  exam.statusUidSerial = Number(exam.statusUidSerial ?? 0) + 1;
+  return exam.statusUidSerial;
+}
+
 export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnInput, mode = "add") {
   const field = String(fieldInput ?? "");
   const turn = Math.trunc(Number(turnInput));
@@ -1171,7 +1176,7 @@ export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnIn
       return true;
     }
   }
-  exam.genericTimedStatuses.push({ field, value: Number(valueInput) || 0, turn, mode });
+  exam.genericTimedStatuses.push({ field, value: Number(valueInput) || 0, turn, mode, uid: nextNativeStatusUid(exam) });
   syncNativeGenericTimedStatuses(exam);
   return true;
 }
@@ -1274,7 +1279,7 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
     const value = Math.trunc(Number(valueInput) || 0);
     const index = statuses.findIndex((status) => status.kind === kind && Number(status.turn) === turn);
     if (index >= 0) statuses[index] = { ...statuses[index], value: Number(statuses[index].value || 0) + value };
-    else statuses.push({ kind, value, turn });
+    else statuses.push({ kind, value, turn, uid: nextNativeStatusUid(exam) });
   } else if (SINGLE_TURN_SCORE_STATUS_KINDS.has(kind)) {
     const index = statuses.findIndex((status) => status.kind === kind);
     if (index >= 0) {
@@ -1286,7 +1291,7 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
         turn: previous < 0 || turn < 0 ? -1 : previous + turn,
       };
     } else {
-      statuses.push({ kind, value: 0, turn });
+      statuses.push({ kind, value: 0, turn, uid: nextNativeStatusUid(exam) });
     }
   } else {
     return false;
@@ -1684,9 +1689,15 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       return { applied: true, label: `体力 +${exam.stamina - before}` };
     }
     case "stamina_consumption_down": exam.staminaConsumptionDown += parsed.value; return { applied: true, label: `体力消費減少 +${parsed.value}ターン` };
-    case "stamina_consumption_add": exam.staminaConsumptionAdd += parsed.value; return { applied: true, label: `体力消費増加 +${parsed.value}ターン` };
+    case "stamina_consumption_add":
+      exam.debuffFieldUids ??= {};
+      if (!exam.staminaConsumptionAdd) exam.debuffFieldUids.staminaConsumptionAdd = nextNativeStatusUid(exam);
+      exam.staminaConsumptionAdd += parsed.value; return { applied: true, label: `体力消費増加 +${parsed.value}ターン` };
     case "stamina_consumption_down_fix": exam.staminaConsumptionDownFix += parsed.value; return { applied: true, label: `体力消費固定軽減 +${parsed.value}` };
-    case "stamina_consumption_add_fix": exam.staminaConsumptionAddFix += parsed.value; return { applied: true, label: `体力消費固定追加 +${parsed.value}` };
+    case "stamina_consumption_add_fix":
+      exam.debuffFieldUids ??= {};
+      if (!exam.staminaConsumptionAddFix) exam.debuffFieldUids.staminaConsumptionAddFix = nextNativeStatusUid(exam);
+      exam.staminaConsumptionAddFix += parsed.value; return { applied: true, label: `体力消費固定追加 +${parsed.value}` };
     case "extra_turn":
       exam.extraTurns += Math.max(1, Number(parsed.value) || 1);
       return { applied: true, command: "extra_turn", value: Math.max(1, Number(parsed.value) || 1), label: "追加ターン +1" };

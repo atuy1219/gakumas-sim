@@ -39,4 +39,6 @@ jobs:
           node tests/test_native_effect_scheduler.mjs
           node tests/test_p_items.mjs
           node tests/test_exam_trigger_regressions.mjs
+          node tests/test_simulation_backup.mjs
+          node tests/test_exam_completeness.mjs
           node tests/test_engine_comparison.mjs

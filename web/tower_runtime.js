@@ -2,6 +2,7 @@ import { beginSimulationTurn, currentSimulationSource, endSimulationTurn, histor
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
 import {
   addNativeGenericTimedStatus,
+  nextNativeStatusUid,
   applyParsedExamEffect,
   calculateNativeBlockAdd,
   calculateNativeStaminaDamage,
@@ -912,7 +913,7 @@ function schedulerPhaseForLegacyEnchant(trigger = {}) {
 
 
 const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
-  ProduceExamPhaseType_StartPlay: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
+  ProduceExamPhaseType_StartPlay: NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN,
   ProduceExamPhaseType_StartExamPlay: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamStartExam: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamStartTurn: NATIVE_EFFECT_PHASE.START_OF_TURN,
@@ -999,7 +1000,8 @@ function masterFieldStatusValue(state, fieldStatusType) {
     case "idolStatusFullPower":
       return Number(state.exam.idolStatusType ?? 0) === 3 ? Number(state.exam.idolStatusStep ?? 1) : 0;
     case "remainingTurn":
-      return Math.max(0, Number(state.turnLimit ?? state.turn ?? 0) - Number(state.turn ?? 0));
+      return state.turnLimit == null ? Infinity
+        : Math.max(0, Number(state.turnLimit) - Number(state.turn ?? 0) + (state.turnOpen ? 1 : 0));
     case "turnProgress":
       return Number(state.turn ?? 0);
     case "conditionThresholdMultipleDown": {
@@ -1019,7 +1021,7 @@ function masterFieldStatusValue(state, fieldStatusType) {
   }
 }
 
-function cardMatchesMasterSearch(card, search) {
+export function cardMatchesMasterSearch(card, search) {
   if (!search) return true;
   if (!card) return false;
   const ids = new Set((search.produceCardIds ?? []).map(String));
@@ -1153,6 +1155,8 @@ function lessonTypeMatches(expectedInput, actualInput) {
 
 function masterPhaseValue(state, phaseType, context) {
   switch (String(phaseType ?? "")) {
+    case "ProduceExamPhaseType_StartPlay":
+      return 0; // Phase count is not the current turn number.
     case "ProduceExamPhaseType_ExamStartExam":
       return Number(state.turn ?? 0) === 0 ? 1 : 0;
     case "ProduceExamPhaseType_ExamTurnCheck":
@@ -1188,6 +1192,7 @@ function triggerFieldStatusesMatch(state, trigger, context = {}) {
     const expected = Number(values[index] ?? 1);
     const check = String(checks[index] ?? "ProduceExamTriggerCheckType_Unknown");
     const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple"
+      || type === "ProduceExamFieldStatusType_RemainingTurn"
       || type.endsWith("MultipleDown");
     const categoryCondition = type === "ProduceExamFieldStatusType_PlayCardSkill"
       || type === "ProduceExamFieldStatusType_PlayCardLesson";
@@ -1302,7 +1307,10 @@ function nativeDebuffEntries(state) {
   ];
 }
 function recoverNativeDebuffs(state, limit) {
-  const entries = nativeDebuffEntries(state);
+  // DebuffRecoverEffectExecutor orders by descending status Uid (newest first).
+  const entries = nativeDebuffEntries(state).sort((a, b) =>
+    Number(b.row?.uid ?? state.exam.debuffFieldUids?.[b.field] ?? 0)
+    - Number(a.row?.uid ?? state.exam.debuffFieldUids?.[a.field] ?? 0));
   for (const entry of limit > 0 ? entries.slice(0, Math.trunc(limit)) : entries) {
     if (entry.field) state.exam[entry.field] = 0;
     else entry.pool.splice(entry.pool.indexOf(entry.row), 1);
@@ -2569,7 +2577,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamGimmickPlayCardLimit": {
       const prior = state.searchPlayCardLimits.find((row) => row.searchId === parsed.searchId);
       if (prior) prior.turn = prior.turn < 0 || turn < 0 ? -1 : prior.turn + turn;
-      else state.searchPlayCardLimits.push({ searchId: parsed.searchId, turn });
+      else state.searchPlayCardLimits.push({ searchId: parsed.searchId, turn, uid: nextNativeStatusUid(exam) });
       event.effects.push("対象カード使用不可"); return;
     }
     case "ExamGimmickStartTurnCardDrawDown": timedAdd("startTurnCardDrawDown", Math.max(1, v1), `ターン開始ドロー -${Math.max(1, v1)}`); return;
@@ -3296,7 +3304,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
     state,
     NATIVE_EFFECT_PHASE.END_TURN,
     turnEndEvent,
-    { action: recoverStaminaAtTurnEnd ? "skip" : type, used },
+    { action: recoverStaminaAtTurnEnd ? "skip" : "end", used },
   );
   if (turnEndEvent.effects.length) entry.turnEndEffects = turnEndEvent.effects;
 

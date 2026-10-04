@@ -339,7 +339,8 @@ console.log("exam trigger regressions: 3 real P-items, 10 Tower groups, 83 categ
   const restored = parseSimulationBackup(text).state;
   const normalized = state => JSON.parse(JSON.stringify(serializeTowerTurnState(state)));
   assert.deepEqual(normalized(restored), normalized(s));
-  assert.deepEqual([...restored.examEffectById], [...s.examEffectById]);
+  for (const [id, row] of restored.examEffectById) assert.deepEqual(row, s.examEffectById.get(id));
+  assert.ok(restored.examEffectById.size < s.examEffectById.size, "unrelated master rows are omitted");
   finishTowerTurn(s); finishTowerTurn(restored);
   drawTowerTurn(s, 3); drawTowerTurn(restored, 3);
   playTowerCard(s, 0); playTowerCard(restored, 0);
