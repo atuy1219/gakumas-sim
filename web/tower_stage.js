@@ -1,4 +1,11 @@
 import { calculateWeightedTurnParameterTypes } from "./turn_parameters.js";
+import { resolveMemoryPItemIds } from "./memory_pitems.js";
+
+export function collectTowerPItemIds(mainMemory, stageChoice, idolById) {
+  const mainIds = resolveMemoryPItemIds(mainMemory, idolById).ids;
+  const stageIds = Array.isArray(stageChoice?.produceItemIds) ? stageChoice.produceItemIds : [];
+  return [...new Set([...mainIds, ...stageIds].map(String).map((id) => id.trim()).filter(Boolean))];
+}
 
 export const TOWER_STAGE_MASTER_URLS = Object.freeze({
   battleConfigs: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleConfig.yaml",
@@ -26,6 +33,7 @@ function scalar(raw) {
 function yamlRecords(text) {
   const records = [];
   let current = null;
+  let list = null;
   const flush = () => {
     if (current) records.push(current);
   };
@@ -34,11 +42,21 @@ function yamlRecords(text) {
     if (match) {
       flush();
       current = { [match[1]]: scalar(match[2]) };
+      list = null;
       continue;
     }
     if (!current) continue;
     match = line.match(/^  ([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/);
-    if (match) current[match[1]] = scalar(match[2]);
+    if (match) {
+      list = null;
+      if (match[1] === "produceItemIds") {
+        current.produceItemIds = [];
+        if (!match[2]) list = "produceItemIds";
+      } else current[match[1]] = scalar(match[2]);
+      continue;
+    }
+    match = line.match(/^  -\s*(.*?)\s*$/);
+    if (match && list) current[list].push(String(scalar(match[1])));
   }
   flush();
   return records;
@@ -110,6 +128,7 @@ export function parseTowerLayerExams(text) {
       parameterBaseLine: Number(row.parameterBaseLine ?? 0),
       baseScore: Number(row.baseScore ?? 0),
       produceExamGimmickEffectGroupId: String(row.produceExamGimmickEffectGroupId ?? ""),
+      produceItemIds: Array.isArray(row.produceItemIds) ? row.produceItemIds : [],
       produceExamBattleConfigId: String(row.produceExamBattleConfigId ?? ""),
       produceExamBattleNpcGroupId: String(row.produceExamBattleNpcGroupId ?? ""),
     }))

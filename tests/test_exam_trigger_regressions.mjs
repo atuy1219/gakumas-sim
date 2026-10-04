@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { buildTowerStageChoices, parseTowerLiveLayerMap } from "../web/tower_stage.js";
+import { buildTowerStageChoices, collectTowerPItemIds, parseTowerLiveLayerMap } from "../web/tower_stage.js";
 import {
   createTowerTurnState, drawTowerTurn, finishTowerTurn, playTowerCard,
   restoreTowerTurnState, serializeTowerTurnState, useTowerDrink,
@@ -218,6 +218,9 @@ for (const row of categoryRows) for (const previous of [active, mental, "skip", 
   for (const row of rows) {
     assert.ok(Object.hasOwn(row, "produceExamGimmickEffectGroupId"));
     assert.ok(!row.produceExamGimmickEffectGroupId || groups.has(row.produceExamGimmickEffectGroupId));
+    assert.ok(Array.isArray(row.produceItemIds));
+    assert.deepEqual(collectTowerPItemIds({ examBattleProduceItemIds: ["main-only"] }, row),
+      [...new Set(["main-only", ...row.produceItemIds])]);
   }
   const catalog = { layerExams: rows, configById: new Map(rows.map((row) =>
     [row.produceExamBattleConfigId, { id: row.produceExamBattleConfigId, turn: 20 }])), towerById: new Map() };
@@ -226,6 +229,7 @@ for (const row of categoryRows) for (const previous of [active, mental, "skip", 
     for (const choice of choices) {
       const source = rows.find((row) => row.towerId === choice.towerId && row.number === choice.number && row.examEffectType === type);
       assert.equal(choice.produceExamGimmickEffectGroupId, source.produceExamGimmickEffectGroupId);
+      assert.deepEqual(choice.produceItemIds, source.produceItemIds);
     }
   }
 }
