@@ -1,7 +1,7 @@
 # ELF parity status (2026-10-04)
 
 Target: `gakumas_analysis_fullcfg.elf.zst`, ARM64 IL2CPP. The attached ELF is
-used for the native executor checks below. `surisuririsu/gakumas-tools` is a
+used for the native executor checks below. `gakumas-tools/gakumas-tools` at `58c7148cb1d097b78f66faa4a9ab6d5212f083b7` is a
 secondary behavioral reference; the ELF determines rounding and execution
 order where they disagree.
 
@@ -41,6 +41,18 @@ effect-specific exam records. It includes all six common exam types plus 20
 additional preservation-type records. The extraction tool excludes user,
 common-response and ranking data. Tests verify ID presence, reference validity
 and effect-specific stage selection; this is a dated snapshot, not a live fetch.
+
+## Reference-engine comparison
+
+The follow-up comparison with `packages/gakumas-engine` found missing card-own
+move effects, Hold capacity/Full Power return, growth on dependent score effects,
+per-card draw/Hand/Grave result phases, and source/transition scope for result
+triggers. Those paths now have regression assertions, including the original
+five card types / eight variants and Expert forcing a grown Grand Finale.
+Native Hold returns FIFO (at most two cards, constrained by Hand capacity),
+whereas the reference engine uses LIFO. See
+[gakumas-engine-comparison.md](gakumas-engine-comparison.md) for the comparison,
+RVA evidence, intentional differences, and remaining gaps such as Link Contest.
 
 ## Verification boundary
 

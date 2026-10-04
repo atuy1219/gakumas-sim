@@ -256,6 +256,9 @@ function runtimeInstances(
       costType: String(master.costType ?? "ExamCostType_Unknown"),
       costValue: Number(master.costValue ?? 0) || 0,
       playProduceExamTriggerId: String(master.playProduceExamTriggerId ?? ""),
+      moveEffectTriggerType: String(master.moveEffectTriggerType ?? ""),
+      moveProduceExamEffectIds: [...(master.moveProduceExamEffectIds ?? [])],
+      moveProduceExamTriggerIds: [...(master.moveProduceExamTriggerIds ?? [])],
       playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
       produceCardStatusEnchantId: String(master.produceCardStatusEnchantId ?? ""),
       isInitial: Boolean(master.isInitial ?? card.isInitial),
@@ -335,6 +338,9 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
     costType: String(master.costType ?? "ExamCostType_Unknown"),
     costValue: Number(master.costValue ?? 0) || 0,
     playProduceExamTriggerId: String(master.playProduceExamTriggerId ?? ""),
+    moveEffectTriggerType: String(master.moveEffectTriggerType ?? ""),
+    moveProduceExamEffectIds: [...(master.moveProduceExamEffectIds ?? [])],
+    moveProduceExamTriggerIds: [...(master.moveProduceExamTriggerIds ?? [])],
     playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
     produceCardStatusEnchantId: String(master.produceCardStatusEnchantId ?? ""),
     isInitial: Boolean(master.isInitial),
@@ -406,43 +412,16 @@ function addGeneratedCard(state, parsed, event) {
       randomStateAfter: state.randomState >>> 0,
     };
 
-    switch (String(parsed.movePosition ?? "")) {
-      case "deck_first":
-        state.deck.unshift(card);
-        created.insertIndex = 0;
-        break;
-      case "deck_last":
-        created.insertIndex = state.deck.length;
-        state.deck.push(card);
-        break;
-      case "deck_random": {
-        // Native AddCardImpl (0x823A49C) calls GetRandomInt(0, Deck.Count)
-        // through <AddCardImpl>b__0 (0x823BAD4). The upper bound is exclusive.
-        // Count == 0 still consumes one XorShift state and resolves to index 0.
-        const insertIndex = consumeNativeRandomInt(state, 0, state.deck.length);
-        state.deck.splice(insertIndex, 0, card);
-        created.insertIndex = insertIndex;
-        created.randomStateAfter = state.randomState >>> 0;
-        break;
-      }
-      case "grave":
-        state.discard.push(card);
-        break;
-      case "lost":
-        state.lost.push(card);
-        break;
-      case "hold":
-        state.hold.push(card);
-        break;
-      case "hand":
-        if (state.hand.length < normalizeHandLimit(state.handLimit)) state.hand.push(card);
-        else state.deck.unshift(card);
-        break;
-      default:
-        rememberUnsupported(state, `card-create-position:${parsed.movePosition}`);
-        event.effects.push(`未対応の生成位置: ${parsed.movePosition}`);
-        return;
+    const destinations = { deck_first: "DeckFirst", deck_last: "DeckLast", deck_random: "DeckRandom",
+      grave: "Grave", lost: "Lost", hold: "Hold", hand: "Hand" };
+    const destination = destinations[String(parsed.movePosition ?? "")];
+    if (!destination) {
+      rememberUnsupported(state, `card-create-position:${parsed.movePosition}`);
+      event.effects.push(`未対応の生成位置: ${parsed.movePosition}`);
+      return;
     }
+    created.movePosition = addRuntimeCardAt(state, card, destination, event);
+    if (created.movePosition.startsWith("deck")) created.insertIndex = state.deck.indexOf(card);
     created.randomStateAfter = state.randomState >>> 0;
     event.created.push(created);
   }
@@ -750,6 +729,16 @@ function gimmickRowConditionMatches(state, row = {}) {
   return check === "ProduceExamTriggerCheckType_Not" ? !positiveMatch : positiveMatch;
 }
 
+function withNativeEffectSource(state, source, execute) {
+  const previous = state.effectSource;
+  state.effectSource = source;
+  try { return execute(); }
+  finally {
+    if (previous === undefined) delete state.effectSource;
+    else state.effectSource = previous;
+  }
+}
+
 function nativeSchedulerHooks(state, runtimeEvent) {
   return {
     evaluateCondition(condition, context, registration) {
@@ -766,34 +755,37 @@ function nativeSchedulerHooks(state, runtimeEvent) {
       return undefined;
     },
     executeEffect(effect, context, registration) {
-      if (effect?.kind === "cardEnchantGrow") {
-        const card = findRuntimeCard(state, effect.token);
-        if (!card) return;
-        const grows = effect.growEffectIds.map((id) => state.growEffectById.get(id)).filter(Boolean);
-        for (const id of effect.growEffectIds) if (!state.growEffectById.has(id)) rememberUnsupported(state, "grow-effect:" + id);
-        applyPersistentRuntimeCardGrowEffects(card, grows);
-        runtimeEvent.grown ??= [];
-        runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1 });
-        runtimeEvent.effects.push((card.name ?? card.id) + "を成長");
-        return;
-      }
-      if (effect?.kind === "nativeGimmickRow") {
-        if (!gimmickRowConditionMatches(state, effect.row)) return;
-        executeParsedTowerEffect(state, schedulerParsedEffect(effect.effect), runtimeEvent);
-        return;
-      }
-      const previousOwner = state.effectOwnerCard;
-      state.effectOwnerCard = findRuntimeCard(state, registration.metadata?.originCardToken) ?? null;
-      try { executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent); }
-      finally { state.effectOwnerCard = previousOwner; }
+      return withNativeEffectSource(state, registration.sourceType, () => {
+        if (effect?.kind === "cardEnchantGrow") {
+          const card = findRuntimeCard(state, effect.token);
+          if (!card) return;
+          const grows = effect.growEffectIds.map((id) => state.growEffectById.get(id)).filter(Boolean);
+          for (const id of effect.growEffectIds) if (!state.growEffectById.has(id)) rememberUnsupported(state, "grow-effect:" + id);
+          applyPersistentRuntimeCardGrowEffects(card, grows);
+          runtimeEvent.grown ??= [];
+          runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1 });
+          runtimeEvent.effects.push((card.name ?? card.id) + "を成長");
+          return;
+        }
+        if (effect?.kind === "nativeGimmickRow") {
+          if (!gimmickRowConditionMatches(state, effect.row)) return;
+          executeParsedTowerEffect(state, schedulerParsedEffect(effect.effect), runtimeEvent);
+          return;
+        }
+        const previousOwner = state.effectOwnerCard;
+        state.effectOwnerCard = findRuntimeCard(state, registration.metadata?.originCardToken) ?? null;
+        try { executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent); }
+        finally { state.effectOwnerCard = previousOwner; }
+      });
     },
-    afterRegistration(registration) {
+    beforeRegistration(registration) {
       const activationKey = String(registration.metadata?.activationKey ?? "");
       if (activationKey) {
         if (!runtimeEvent.__nativeEffectFired) runtimeEvent.__nativeEffectFired = new Set();
         runtimeEvent.__nativeEffectFired.add(activationKey);
       }
-
+    },
+    afterRegistration(registration) {
       const cardEnchantKey = registration.metadata?.cardEnchantKey;
       const cardEnchant = state.cardEnchantRegistrations.get(cardEnchantKey);
       if (cardEnchant?.remainingCount != null) {
@@ -845,12 +837,22 @@ function currentNativeLessonType(state) {
   return parameterType ? `ProduceStepLessonType_${parameterType}Lesson` : "ProduceStepLessonType_Unknown";
 }
 
+function withNativeTransition(runtimeEvent, dispatch) {
+  const previous = runtimeEvent.__nativeEffectFired;
+  runtimeEvent.__nativeEffectFired = new Set();
+  try { return dispatch(); }
+  finally {
+    if (previous === undefined) delete runtimeEvent.__nativeEffectFired;
+    else runtimeEvent.__nativeEffectFired = previous;
+  }
+}
+
 function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
   registerRuntimeCardEnchants(state);
   if (phase === NATIVE_EFFECT_PHASE.CARD_PLAY) {
     incrementMasterCardPhaseCounts(state, phase, runtimeEvent, extra);
   }
-  return dispatchNativeEffectPhase(
+  return withNativeTransition(runtimeEvent, () => dispatchNativeEffectPhase(
     state.effectScheduler,
     phase,
     {
@@ -861,12 +863,19 @@ function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
       ...extra,
     },
     nativeSchedulerHooks(state, runtimeEvent),
-  );
+  ));
+}
+
+function nativeResultTriggersAllowed(state) {
+  // ExamEffectCalculateContext.IsEnchantTriggerActive @ 0x7FE4EDC:
+  // item-owned and gimmick-owned commands cannot trigger result enchants.
+  return state.effectSource !== "pItem" && state.effectSource !== "gimmick";
 }
 
 function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
+  if (!nativeResultTriggersAllowed(state)) return [];
   registerRuntimeCardEnchants(state);
-  return dispatchNativeStatusDiff(
+  return withNativeTransition(runtimeEvent, () => dispatchNativeStatusDiff(
     state.effectScheduler,
     before,
     captureNativeStatusSnapshot(state.exam),
@@ -875,10 +884,11 @@ function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
       exam: state.exam,
       event: runtimeEvent,
       lessonType: currentNativeLessonType(state),
+      card: state.effectOwnerCard ?? state.playingCard ?? null,
       ...extra,
     },
     nativeSchedulerHooks(state, runtimeEvent),
-  );
+  ));
 }
 
 function schedulerPhaseForLegacyEnchant(trigger = {}) {
@@ -899,7 +909,7 @@ const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
   ProduceExamPhaseType_StartExamPlay: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamStartExam: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
   ProduceExamPhaseType_ExamStartTurn: NATIVE_EFFECT_PHASE.START_OF_TURN,
-  ProduceExamPhaseType_ExamCardDraw: NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN,
+  ProduceExamPhaseType_ExamCardDraw: NATIVE_EFFECT_PHASE.CARD_DRAW,
   ProduceExamPhaseType_ExamCardPlay: NATIVE_EFFECT_PHASE.CARD_PLAY,
   ProduceExamPhaseType_ExamCardPlayAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamEndTurn: NATIVE_EFFECT_PHASE.END_TURN,
@@ -919,7 +929,10 @@ const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
   ProduceExamPhaseType_ExamStanceChangePreservation: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
   ProduceExamPhaseType_ExamStanceChangeCountInterval: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
   ProduceExamPhaseType_ExamStanceChangeFullPower: NATIVE_EFFECT_PHASE.STATUS_INCREASED,
-  ProduceExamPhaseType_ExamStanceChangeFromFullPower: NATIVE_EFFECT_PHASE.STATUS_DECREASED,
+  ProduceExamPhaseType_ExamStanceChangeFromConcentration: "statusChange",
+  ProduceExamPhaseType_ExamStanceChangeFromFullPower: "statusChange",
+  ProduceExamPhaseType_ExamCardMoveHand: NATIVE_EFFECT_PHASE.CARD_MOVE_HAND,
+  ProduceExamPhaseType_ExamCardMoveGrave: NATIVE_EFFECT_PHASE.CARD_MOVE_GRAVE,
   ProduceExamPhaseType_ExamCardMoveLost: NATIVE_EFFECT_PHASE.CARD_MOVE_LOST,
   ProduceExamPhaseType_ExamStatusChange: "statusChange",
 });
@@ -1146,7 +1159,7 @@ function masterPhaseValue(state, phaseType, context) {
     case "ProduceExamPhaseType_ExamStanceChangeCountInterval":
       return Number(state.exam.stanceChangeCount ?? 0);
     case "ProduceExamPhaseType_ExamCardDraw":
-      return Number(context.event?.drawn?.length ?? 0);
+      return 1; // IsDrawCardTrigger evaluates each individual draw result.
     default:
       return Number(state.turn ?? 0);
   }
@@ -1239,6 +1252,8 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
     && context.cause !== "effect") return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamStaminaReduceCard"
     && context.cause !== "cardCost") return false;
+  if (condition.phaseType === "ProduceExamPhaseType_ExamStanceChangeFromConcentration"
+    && (statusField !== "idolStatusType" || context.statusChange?.before !== 1)) return false;
   if (condition.phaseType === "ProduceExamPhaseType_ExamStanceChangeFromFullPower"
     && (statusField !== "idolStatusType" || context.statusChange?.before !== 3)) return false;
   if (condition.ownerToken) {
@@ -1813,7 +1828,7 @@ function applyExamSupportCardUpgrades(state, drawnCards, runtimeEvent = null) {
   return rolls;
 }
 
-function drawCardsIntoHand(state, count) {
+function drawCardsIntoHand(state, count, runtimeEvent = nativeRuntimeEvent(), notify = true) {
   const recycleEvents = [];
   const drawn = [];
   const capacity = normalizeHandLimit(state.handLimit);
@@ -1828,10 +1843,11 @@ function drawCardsIntoHand(state, count) {
     state.hand.push(card);
     drawn.push(card);
   }
+  if (notify) for (const card of drawn) notifyRuntimeCardMove(state, card, "deck", "hand", runtimeEvent, { drawn: true });
   return { drawn, recycleEvents };
 }
 
-function setNativeInitialCard(state, drawCount) {
+function setNativeInitialCard(state, drawCount, runtimeEvent) {
   const capacity = normalizeHandLimit(state.handLimit);
   const moved = [];
   for (let index = state.deck.length - 1; index >= 0; index -= 1) {
@@ -1843,9 +1859,11 @@ function setNativeInitialCard(state, drawCount) {
 
   const remaining = Math.max(0, Number(drawCount) - state.hand.length);
   const ordinary = remaining > 0
-    ? drawCardsIntoHand(state, Math.min(remaining, Math.max(0, capacity - state.hand.length)))
+    ? drawCardsIntoHand(state, Math.min(remaining, Math.max(0, capacity - state.hand.length)), runtimeEvent, false)
     : { drawn: [], recycleEvents: [] };
   state.openingResolved = true;
+  for (const card of moved) notifyRuntimeCardMove(state, card, "deck", "hand", runtimeEvent);
+  for (const card of ordinary.drawn) notifyRuntimeCardMove(state, card, "deck", "hand", runtimeEvent, { drawn: true });
   return {
     drawn: [...moved, ...ordinary.drawn],
     recycleEvents: ordinary.recycleEvents,
@@ -1903,8 +1921,8 @@ export function drawTowerTurn(state, drawCount = 3) {
   state.pendingDraw = 0;
   const requested = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
   const result = isOpeningTurn
-    ? setNativeInitialCard(state, requested)
-    : drawCardsIntoHand(state, requested);
+    ? setNativeInitialCard(state, requested, phaseEvent)
+    : drawCardsIntoHand(state, requested, phaseEvent);
   if (!isOpeningTurn && result.drawn.length && state.exam.panic) {
     const candidates = state.exam.runtimeSettings.produceExamPanicStaminaCandidates;
     if (!Array.isArray(candidates) || !candidates.length) rememberUnsupported(state, "panic-stamina-candidates");
@@ -1920,6 +1938,14 @@ export function drawTowerTurn(state, drawCount = 3) {
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
+  }
+  if (Number(state.exam.idolStatusType) === EXAM_IDOL_STATUS_TYPE.FullPower) {
+    const returned = state.hold.splice(0, Math.max(0, Math.min(2, normalizeHandLimit(state.handLimit) - state.hand.length)));
+    state.hand.push(...returned);
+    for (const card of returned) {
+      phaseEvent.moved.push({ card: { ...card }, from: "hold", to: "hand" });
+      notifyRuntimeCardMove(state, card, "hold", "hand", phaseEvent);
+    }
   }
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
   state.turnStartEffects = [...phaseEvent.effects];
@@ -2139,25 +2165,70 @@ function removeRuntimeCard(state, card) {
   return "";
 }
 
-function addRuntimeCardAt(state, card, movePositionType) {
+function notifyRuntimeCardMove(state, card, from, to, event, { drawn = false } = {}) {
+  if (drawn && nativeResultTriggersAllowed(state)) runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_DRAW, event, { card });
+  const phase = { hand: NATIVE_EFFECT_PHASE.CARD_MOVE_HAND,
+    grave: NATIVE_EFFECT_PHASE.CARD_MOVE_GRAVE, lost: NATIVE_EFFECT_PHASE.CARD_MOVE_LOST }[to];
+  if (phase && nativeResultTriggersAllowed(state)) runNativeEffectPhase(state, phase, event, { card, from, to });
+
+  const triggerType = String(card.moveEffectTriggerType ?? "").replace(/^ProduceCardMoveEffectTriggerType_/, "");
+  const matches = { Hand: to === "hand", Hold: to === "hold", Grave: to === "grave", Lost: to === "lost",
+    }[triggerType];
+  if (!matches || card.moveEffectUsedTurn === state.turn) return;
+  const entries = (card.moveProduceExamEffectIds ?? []).map((id, index) => ({
+    produceExamEffectId: id, produceExamTriggerId: card.moveProduceExamTriggerIds?.[index] ?? "",
+  })).filter((entry) => {
+    const result = checkRuntimeCardTrigger(state, entry.produceExamTriggerId, card, event);
+    if (!result.supported) rememberUnsupported(state, `move-trigger:${entry.produceExamTriggerId}`);
+    return result.supported && result.triggered;
+  });
+  if (!entries.length) return;
+  // InsertMoveEffect marks the card when it queues the eligible effects,
+  // before any of those effects execute (including a nested draw/move).
+  card.moveEffectUsedTurn = state.turn;
+  const previousOwner = state.effectOwnerCard;
+  state.effectOwnerCard = card;
+  try {
+    withNativeEffectSource(state, "card", () => {
+      for (const entry of entries) applyCardEffectEntry(state, { ...entry, produceExamTriggerId: "" }, event, card);
+    });
+  } finally { state.effectOwnerCard = previousOwner; }
+}
+
+function addRuntimeCardAt(state, card, movePositionType, event = nativeRuntimeEvent(), from = "", notifications = null) {
   const move = String(movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "");
+  let to;
   switch (move) {
     case "Hand":
-      if (state.hand.length < normalizeHandLimit(state.handLimit)) state.hand.push(card);
-      else state.deck.unshift(card);
-      return "hand";
-    case "DeckFirst": state.deck.unshift(card); return "deck_first";
-    case "DeckLast": state.deck.push(card); return "deck_last";
+      if (state.hand.length < normalizeHandLimit(state.handLimit)) { state.hand.push(card); to = "hand"; }
+      else { state.deck.unshift(card); to = "deck_first"; }
+      break;
+    case "DeckFirst": state.deck.unshift(card); to = "deck_first"; break;
+    case "DeckLast": state.deck.push(card); to = "deck_last"; break;
     case "DeckRandom": {
       const index = consumeNativeRandomInt(state, 0, state.deck.length);
-      state.deck.splice(index, 0, card);
-      return "deck_random";
+      state.deck.splice(index, 0, card); to = "deck_random"; break;
     }
-    case "Grave": state.discard.push(card); return "grave";
-    case "Lost": state.lost.push(card); return "lost";
-    case "Hold": state.hold.push(card); return "hold";
-    default: state.discard.push(card); return "grave";
+    case "Grave": state.discard.push(card); to = "grave"; break;
+    case "Lost": state.lost.push(card); to = "lost"; break;
+    case "Hold": {
+      const limit = normalizeHandLimit(state.holdLimit);
+      if (!limit) { state.discard.push(card); to = "grave"; break; }
+      while (state.hold.length >= limit) {
+        const evicted = state.hold.shift();
+        state.discard.push(evicted);
+        event.moved ??= [];
+        event.moved.push({ card: { ...evicted }, from: "hold", to: "grave" });
+        if (notifications) notifications.push({ card: evicted, from: "hold", to: "grave" });
+        else notifyRuntimeCardMove(state, evicted, "hold", "grave", event);
+      }
+      state.hold.push(card); to = "hold"; break;
+    }
+    default: state.discard.push(card); to = "grave";
   }
+  if (notifications) notifications.push({ card, from, to });
+  else notifyRuntimeCardMove(state, card, from, to, event);
+  return to;
 }
 
 function resolveRuntimeMasterEnchant(state, enchantIdInput) {
@@ -2190,7 +2261,9 @@ function registerMasterStatusEnchant(state, parsed) {
   const statusEnchantKey = "statusEnchant:" + (++state.statusEnchantSerial);
   const rawCount = Number(parsed.limitCount ?? parsed.count);
   state.statusEnchantRemainingCounts.set(statusEnchantKey, rawCount > 0 ? rawCount : null);
-  const originCardToken = state.playingCard?.token ?? state.effectOwnerCard?.token ?? "";
+  const originCardToken = nativeResultTriggersAllowed(state)
+    ? state.effectOwnerCard?.token ?? state.playingCard?.token ?? ""
+    : "";
   for (const phaseType of enchant.trigger.phaseTypes ?? []) {
     const issue = masterTriggerSupportIssue(enchant.trigger, phaseType);
     if (issue) {
@@ -2318,7 +2391,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
   const v1 = Number(parsed.value1 ?? parsed.value ?? 0) || 0;
   const v2 = Number(parsed.value2 ?? 0) || 0;
   const turn = Number(parsed.turn ?? 0) || 0;
-  const searchCount = () => masterSearchMatchCount(state, resolvedMasterSearch(state, parsed.searchId));
+  const searchCount = () => masterSearchMatchCount(state, resolvedMasterSearch(state, parsed.searchId),
+    { card: state.effectOwnerCard ?? state.playingCard });
   const status = (field, value, label, additive = "", fixed = "") => {
     const added = addScaledStatus(exam, field, value, additive, fixed);
     event.effects.push(`${label} +${added}`);
@@ -2512,11 +2586,39 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "StanceLock": exam.stanceLock = turn || 1; event.effects.push(`指針固定 ${exam.stanceLock}ターン`); return;
     case "ExamCardMove": {
-      for (const card of pickedMasterCards(state, parsed)) {
-        const from = removeRuntimeCard(state, card); const to = addRuntimeCardAt(state, card, parsed.movePositionType);
-        event.moved.push({ card: { ...card }, from, to });
-        if (to === "lost") runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_MOVE_LOST, event, { card });
+      const cards = pickedMasterCards(state, parsed);
+      const moves = cards.map((card) => ({ card, from: removeRuntimeCard(state, card) || "playing" }));
+      const destination = String(parsed.movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "");
+      const notifications = [];
+      if (destination === "Hold") {
+        // MoveCard @ 0x8231510: evict the oldest existing held cards first.
+        // If the incoming batch itself exceeds HoldLimit, its prefix goes
+        // straight to Grave; only the suffix actually enters Hold.
+        const limit = normalizeHandLimit(state.holdLimit);
+        const evicted = state.hold.splice(0, Math.max(0, state.hold.length + moves.length - limit));
+        state.discard.push(...evicted);
+        for (const card of evicted) {
+          event.moved.push({ card: { ...card }, from: "hold", to: "grave" });
+          notifications.push({ card, from: "hold", to: "grave" });
+        }
+        const excess = Math.max(0, moves.length - limit);
+        for (const [index, move] of moves.entries()) {
+          move.to = index < excess ? "grave" : "hold";
+          (move.to === "grave" ? state.discard : state.hold).push(move.card);
+          notifications.push(move);
+        }
+      } else if (destination === "Hand") {
+        const capacity = Math.max(0, normalizeHandLimit(state.handLimit) - state.hand.length);
+        const accepted = moves.slice(0, capacity), overflow = moves.slice(capacity);
+        state.hand.push(...accepted.map(({ card }) => card));
+        state.deck.unshift(...overflow.map(({ card }) => card));
+        for (const move of accepted) { move.to = "hand"; notifications.push(move); }
+        for (const move of overflow) { move.to = "deck_first"; notifications.push(move); }
+      } else {
+        for (const move of moves) move.to = addRuntimeCardAt(state, move.card, parsed.movePositionType, event, move.from, notifications);
       }
+      for (const move of moves) event.moved.push({ card: { ...move.card }, from: move.from, to: move.to });
+      for (const move of notifications) notifyRuntimeCardMove(state, move.card, move.from, move.to, event);
       event.effects.push("対象カードを移動"); return;
     }
     case "ExamCardUpgrade": {
@@ -2528,7 +2630,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamCardDuplicate": {
       for (const source of pickedMasterCards(state, parsed)) {
         const clone = { ...source, token: `generated:${++state.generatedCardSerial}:${source.id}`, generated: true };
-        addRuntimeCardAt(state, clone, parsed.movePositionType); event.created.push({ card: { ...clone } });
+        addRuntimeCardAt(state, clone, parsed.movePositionType, event); event.created.push({ card: { ...clone } });
       }
       event.effects.push("対象カードを複製"); return;
     }
@@ -2576,7 +2678,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
             );
             continue;
           }
-          const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+          const to = addRuntimeCardAt(state, card, parsed.movePositionType, event);
           event.created.push({
             card: { ...card },
             to,
@@ -2601,7 +2703,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
         for (const master of selected) {
           const card = generatedRuntimeCard(state, master.id, Number(master.upgradeCount ?? 0));
           if (card) {
-            const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+            const to = addRuntimeCardAt(state, card, parsed.movePositionType, event);
             event.created.push({ card: { ...card }, to });
           }
         }
@@ -2622,7 +2724,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       for (const master of picked) {
         const card = generatedRuntimeCard(state, master.id, Number(master.upgradeCount ?? 0));
         if (!card) continue;
-        const to = addRuntimeCardAt(state, card, parsed.movePositionType);
+        const to = addRuntimeCardAt(state, card, parsed.movePositionType, event);
         event.created.push({ card: { ...card }, to });
       }
       event.effects.push("検索条件からカード生成");
@@ -2651,8 +2753,34 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
   }
 }
 
-function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) {
-  const beforeStatus = captureNativeStatusSnapshot(state.exam);
+const nativeEffectFrames = new WeakMap();
+
+function withNativeEffectFrame(state, execute) {
+  let frames = nativeEffectFrames.get(state);
+  if (!frames) { frames = []; nativeEffectFrames.set(state, frames); }
+  const initial = captureNativeStatusSnapshot(state.exam);
+  const frame = { before: { ...initial } };
+  frames.push(frame);
+  try { return execute(frame); }
+  finally {
+    frames.pop();
+    const parent = frames.at(-1);
+    if (parent) {
+      const after = captureNativeStatusSnapshot(state.exam);
+      for (const field of Object.keys(after)) {
+        parent.before[field] = Number(parent.before[field] ?? 0) + after[field] - Number(initial[field] ?? 0);
+      }
+    }
+    if (!frames.length) nativeEffectFrames.delete(state);
+  }
+}
+
+function executeParsedTowerEffect(state, parsed, event, options = {}) {
+  return withNativeEffectFrame(state, (frame) => executeParsedTowerEffectImpl(state, parsed, event, options, frame));
+}
+
+function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = {}, frame) {
+  const beforeStatus = frame.before;
   const debuffKinds = ["lesson_value_multiple_down", "stamina_consumption_add", "stamina_consumption_add_fix"];
   const debuffTypes = ["ExamBlockRestriction", "ExamBlockAddDown", "ExamStaminaRecoverRestriction", "ExamPanic", "ExamBuffConsumptionAdd", "ExamGimmickLessonDebuff", "ExamGimmickParameterDebuff", "ExamGimmickSlump", "ExamGimmickSleepy", "ExamGimmickPlayCardLimit", "ExamGimmickStartTurnCardDrawDown"];
   if (state.exam.antiDebuffCount > 0 && (debuffKinds.includes(parsed.kind) || debuffTypes.includes(String(parsed.masterEffectType).replace("ProduceExamEffectType_", "")))) {
@@ -2670,7 +2798,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       if (timed) {
         state.pendingDraw += Number(applied.value) || 0;
       } else {
-        const draw = drawCardsIntoHand(state, Number(applied.value) || 0);
+        const draw = drawCardsIntoHand(state, Number(applied.value) || 0, event);
         applyExamSupportCardUpgrades(state, draw.drawn, event);
         event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
         event.recycleEvents.push(...draw.recycleEvents);
@@ -2713,9 +2841,10 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
       break;
     case "hand_swap": {
       const count = state.hand.length;
-      state.discard.push(...state.hand);
-      state.hand = [];
-      const draw = drawCardsIntoHand(state, count);
+      const discarded = state.hand.splice(0);
+      state.discard.push(...discarded);
+      for (const card of discarded) notifyRuntimeCardMove(state, card, "hand", "grave", event);
+      const draw = drawCardsIntoHand(state, count, event);
       applyExamSupportCardUpgrades(state, draw.drawn, event);
       event.drawn.push(...draw.drawn.map((card) => ({ ...card })));
       event.recycleEvents.push(...draw.recycleEvents);
@@ -2738,7 +2867,7 @@ function executeParsedTowerEffect(state, parsed, event, { timed = false } = {}) 
   if (applied.label) event.effects.push(applied.label);
   emitNativeStatusDiff(
     state,
-    beforeStatus,
+    { ...beforeStatus },
     event,
     {
       cause: "effect",
@@ -2898,7 +3027,11 @@ export function useTowerDrink(state, drinkInput) {
   return record;
 }
 
-export function playTowerCard(state, indexInput, { ignoreCost = false, forced = false } = {}) {
+export function playTowerCard(state, indexInput, options = {}) {
+  return withNativeEffectFrame(state, () => playTowerCardImpl(state, indexInput, options));
+}
+
+function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = false } = {}) {
   if (!state.hand.length) throw new Error("使用する手札がありません。");
   if (!forced && Number(state.playsRemaining ?? 0) <= 0) throw new Error("このターンのカード使用回数が残っていません。");
   const index = Number(indexInput);
@@ -2940,56 +3073,62 @@ export function playTowerCard(state, indexInput, { ignoreCost = false, forced = 
   if (!ignoreCost && costChange) costChange.count -= 1;
   const previousPlayingCard = state.playingCard ?? null;
   const previousEffectOwnerCard = state.effectOwnerCard;
+  const previousEffectSource = state.effectSource;
+  state.effectSource = "card";
   state.effectOwnerCard = null;
   state.playingCard = card;
-  state.exam.blockConsumptionSum += Math.max(0, beforeCost.block - Number(state.exam.block ?? 0));
-  state.exam.staminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(state.exam.stamina ?? 0));
-  state.exam.reviewConsumptionSum += Math.max(0, beforeCost.review - Number(state.exam.review ?? 0));
-  emitNativeStatusDiff(
-    state,
-    beforeCostStatus,
-    event,
-    { cause: "cardCost", card },
-  );
+  try {
+    state.exam.blockConsumptionSum += Math.max(0, beforeCost.block - Number(state.exam.block ?? 0));
+    state.exam.staminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(state.exam.stamina ?? 0));
+    state.exam.reviewConsumptionSum += Math.max(0, beforeCost.review - Number(state.exam.review ?? 0));
+    emitNativeStatusDiff(
+      state,
+      beforeCostStatus,
+      event,
+      { cause: "cardCost", card },
+    );
 
-  state.hand.splice(index, 1);
-  if (!forced) state.playsRemaining -= 1;
-  state.exam.cardPlayCount += 1;
-  state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
-  state.exam.playCardCountSum += 1;
-  state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
-  const cardPlayCount = state.exam.cardPlayCount;
-  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
-  const repeatBuff = state.cardEffectPlayCountBuff;
-  const repeatMatches = Boolean(
-    repeatBuff
-    && Number(repeatBuff.count ?? 0) > 0
-    && (resolvedMasterSearch(state, repeatBuff.searchId)
-      ? cardMatchesMasterSearch(card, resolvedMasterSearch(state, repeatBuff.searchId))
-      : cardMatchesSearchId(card, repeatBuff.searchId)),
-  );
-  const repeat = repeatMatches
-    ? Math.max(0, Math.trunc(Number(repeatBuff.value ?? 0)))
-    : 0;
-  if (repeatMatches) {
-    repeatBuff.count -= 1;
-    if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
-  }
-  for (let n = 0; n <= repeat; n += 1) {
-    for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event, card);
-  }
-  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
-  resolveFullPowerAfterCard(state, event);
+    state.hand.splice(index, 1);
+    if (!forced) state.playsRemaining -= 1;
+    state.exam.cardPlayCount += 1;
+    state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
+    state.exam.playCardCountSum += 1;
+    state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
+    const cardPlayCount = state.exam.cardPlayCount;
+    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
+    const repeatBuff = state.cardEffectPlayCountBuff;
+    const repeatMatches = Boolean(
+      repeatBuff
+      && Number(repeatBuff.count ?? 0) > 0
+      && (resolvedMasterSearch(state, repeatBuff.searchId)
+        ? cardMatchesMasterSearch(card, resolvedMasterSearch(state, repeatBuff.searchId))
+        : cardMatchesSearchId(card, repeatBuff.searchId)),
+    );
+    const repeat = repeatMatches
+      ? Math.max(0, Math.trunc(Number(repeatBuff.value ?? 0)))
+      : 0;
+    if (repeatMatches) {
+      repeatBuff.count -= 1;
+      if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
+    }
+    for (let n = 0; n <= repeat; n += 1) {
+      for (const entry of card.playEffects ?? []) applyCardEffectEntry(state, entry, event, card);
+    }
+    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
+    resolveFullPowerAfterCard(state, event);
 
-  if (card.onceOnly) {
-    state.lost.push(card);
-    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_MOVE_LOST, event, { card });
-  } else state.discard.push(card);
-  state.currentTurnPlays.push(event);
-  state.lastPlayedCard = { id: card.id, token: card.token, category: card.category };
-  state.playingCard = previousPlayingCard;
-  state.effectOwnerCard = previousEffectOwnerCard;
-  return event;
+    if (![state.hand, state.deck, state.discard, state.lost, state.hold].some((pool) => pool.includes(card))) {
+      addRuntimeCardAt(state, card, card.onceOnly ? "Lost" : "Grave", event, "playing");
+    }
+    state.currentTurnPlays.push(event);
+    state.lastPlayedCard = { id: card.id, token: card.token, category: card.category };
+    return event;
+  } finally {
+    state.playingCard = previousPlayingCard;
+    state.effectOwnerCard = previousEffectOwnerCard;
+    if (previousEffectSource === undefined) delete state.effectSource;
+    else state.effectSource = previousEffectSource;
+  }
 }
 
 function tickTurnDurations(exam) {
@@ -3052,11 +3191,13 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
   // IsEndTurnLost cards are batched to Lost; all other remaining cards are
   // batched to Grave. Each destination preserves the original Hand order.
-  for (const card of state.hand) {
+  const resetCards = state.hand.splice(0);
+  const resetEvent = nativeRuntimeEvent();
+  for (const card of resetCards) {
     if (card.isEndTurnLost) state.lost.push(card);
     else state.discard.push(card);
   }
-  state.hand = [];
+  for (const card of resetCards) notifyRuntimeCardMove(state, card, "hand", card.isEndTurnLost ? "lost" : "grave", resetEvent);
 
   const drinks = (state.currentTurnDrinks ?? []).map((drink) => ({
     ...drink,
@@ -3100,7 +3241,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
     exam: { ...state.exam },
   };
   state.history.push(entry);
-  const turnEndEvent = { effects: [], drawn: [], recycleEvents: [] };
+  const turnEndEvent = resetEvent;
 
   if (recoverStaminaAtTurnEnd && !state.exam.staminaRecoverRestriction) {
     const recovery = Math.max(0, Math.trunc(getExamRuntimeSetting(state.exam, "examTurnEndRecoveryStamina")));
