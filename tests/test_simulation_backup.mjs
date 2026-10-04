@@ -28,6 +28,18 @@ const norm=s=>JSON.parse(JSON.stringify(serializeTowerTurnState(s)));
  }
  assert.equal(s.turnLimit,18);
 }
+// RemainingTurn uses the upcoming turn before the counter advances; an
+// unbounded simulation does not have a final turn.
+{
+ const gain={id:'boundary-review',effectType:'ProduceExamEffectType_ExamReview',effectValue1:1};
+ const trigger={id:'boundary-trigger',phaseTypes:['ProduceExamPhaseType_ExamTurnCheck'],
+  fieldStatusTypes:['ProduceExamFieldStatusType_RemainingTurn'],fieldStatusValues:[1]};
+ const item={id:'boundary-item',effects:[{id:'boundary-effect',effectType:'ProduceItemEffectType_ExamStatusEnchant',effectCount:1,effectTurn:-1,
+  examStatusEnchant:{id:'boundary-enchant',trigger,examEffects:[gain]}}]};
+ const bounded=setup({pItems:[item],turnLimit:2});drawTowerTurn(bounded);assert.equal(bounded.exam.review,0);
+ finishTowerTurn(bounded);drawTowerTurn(bounded);assert.equal(bounded.exam.review,1);
+ const unbounded=setup({pItems:[item],turnLimit:null});drawTowerTurn(unbounded);assert.equal(unbounded.exam.review,0);
+}
 // Real Tower26 purple debuffs, with the two observed skill cards. Recover
 // the newest debuff before drawing turn 2; leave the other debuffs intact.
 {

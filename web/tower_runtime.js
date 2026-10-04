@@ -1000,7 +1000,8 @@ function masterFieldStatusValue(state, fieldStatusType) {
     case "idolStatusFullPower":
       return Number(state.exam.idolStatusType ?? 0) === 3 ? Number(state.exam.idolStatusStep ?? 1) : 0;
     case "remainingTurn":
-      return Math.max(0, Number(state.turnLimit ?? state.turn ?? 0) - Number(state.turn ?? 0) + 1);
+      return state.turnLimit == null ? Infinity
+        : Math.max(0, Number(state.turnLimit) - Number(state.turn ?? 0) + (state.turnOpen ? 1 : 0));
     case "turnProgress":
       return Number(state.turn ?? 0);
     case "conditionThresholdMultipleDown": {
