@@ -116,9 +116,10 @@ export function parseExamSettingCatalog(text) {
   return parseYamlRecordsWithLists(text, fields, ["produceExamPanicStaminaCandidates"]);
 }
 
-export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = []) {
+export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = [], descriptionFields = []) {
   const wantedScalars = new Set(["id", ...scalarFields]);
   const wantedLists = new Set(listFields);
+  const wantedDescriptions = new Set(descriptionFields);
   const records = [];
   let current = null;
   let activeList = null;
@@ -139,7 +140,7 @@ export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = 
     match = line.match(/^  ([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/);
     if (match) {
       const [_, field, raw] = match;
-      if (wantedLists.has(field)) {
+      if (wantedLists.has(field) || wantedDescriptions.has(field)) {
         current[field] = raw === "[]" ? [] : [];
         activeList = field;
       } else {
@@ -149,6 +150,11 @@ export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = 
       continue;
     }
 
+    if (wantedDescriptions.has(activeList)) {
+      match = line.match(/^(?:    |  - )text:\s*(.*?)\s*$/);
+      if (match) current[activeList].push(String(yamlScalar(match[1])));
+      continue;
+    }
     match = line.match(/^  -\s*(.*?)\s*$/);
     if (match && activeList) current[activeList].push(yamlScalar(match[1]));
   }
@@ -179,6 +185,7 @@ export function parseProduceExamStatusEnchantCatalog(text) {
     text,
     ["assetId", "produceExamTriggerId"],
     ["produceExamEffectIds"],
+    ["produceDescriptions"],
   );
 }
 
@@ -605,7 +612,7 @@ export function parseExamEffectMaster(effectInput) {
     case "ProduceExamEffectType_ExamCardDraw":
       return { kind: "card_draw", id, value: value1 };
     case "ProduceExamEffectType_ExamPlayableValueAdd":
-      return { kind: "playable_add", id, value: value1 };
+      return { kind: "playable_add", id, value: Math.max(0, Number(effectInput.effectCount ?? 0) || 0) };
     case "ProduceExamEffectType_ExamExtraTurn":
       return { kind: "extra_turn", id, value: Math.max(1, value1 || 1) };
     case "ProduceExamEffectType_ExamStaminaConsumptionDown":
@@ -1744,13 +1751,19 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
     default: return { applied: false, unsupported: true, label: `未対応: ${parsed.id}` };
   }
 }
-export function describeParsedEffect(parsed) {
+export function describeParsedEffect(parsed, catalogs = {}) {
+  if (parsed.kind === "master_effect" && /ExamStatusEnchant(?:Encore)?$/.test(parsed.masterEffectType)) {
+    const enchant = catalogs.examStatusEnchantById?.get?.(parsed.enchantId);
+    if (!enchant) return `未解決の継続効果: ${parsed.enchantId}`;
+    const description = (enchant.produceDescriptions ?? []).join("").replace(/<[^>]*>/g, "").trim();
+    return description ? `継続効果: ${description}` : `継続効果を追加: ${parsed.enchantId}`;
+  }
   const clone = createExamState();
   const result = applyParsedExamEffect(clone, parsed);
   return result.label || parsed.id;
 }
 
-export function describeCardEffects(card) {
+export function describeCardEffects(card, catalogs = {}) {
   const rows = [];
   const stamina = Number(card?.stamina ?? 0) || 0;
   const direct = Number(card?.forceStamina ?? 0) || 0;
@@ -1759,8 +1772,9 @@ export function describeCardEffects(card) {
   const costValue = Number(card?.costValue ?? 0) || 0;
   if (costValue) rows.push(`${String(card.costType ?? "追加コスト").replace("ExamCostType_Exam", "")} ${costValue}`);
   for (const entry of card?.playEffects ?? []) {
-    const parsed = parseExamEffectId(entry?.produceExamEffectId);
-    const label = describeParsedEffect(parsed);
+    const master = catalogs.examEffectById?.get?.(String(entry?.produceExamEffectId ?? ""));
+    const parsed = master ? parseExamEffectMaster(master) : parseExamEffectId(entry?.produceExamEffectId);
+    const label = describeParsedEffect(parsed, catalogs);
     rows.push(entry?.produceExamTriggerId ? `${label} [条件]` : label);
   }
   return rows;

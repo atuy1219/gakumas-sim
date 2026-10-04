@@ -254,3 +254,102 @@ for (const row of categoryRows) for (const previous of [active, mental, "skip", 
 }
 
 console.log("exam trigger regressions: 3 real P-items, 10 Tower groups, 83 category rows, 351 floors: ok");
+
+// Real YAML rows for 私を超えて: count fields, effect-group searches, and
+// generated 私を超えて（翔） must pass through the same loaders as the UI.
+{
+  const { parseProduceCardCatalogYaml } = await import("../web/engine.js");
+  const { describeCardEffects, parseExamEffectMaster, parseProduceExamEffectCatalog,
+    parseProduceExamStatusEnchantCatalog, parseProduceExamTriggerCatalog,
+    parseProduceCardSearchCatalog } = await import("../web/exam_effects.js");
+  const source = JSON.parse(fs.readFileSync(new URL("./fixtures/watashi-koete-masters.json", import.meta.url)));
+  const masters = parseProduceCardCatalogYaml(source.cardYaml);
+  const realCatalogs = {
+    examEffectById: entries(parseProduceExamEffectCatalog(source.effectYaml)),
+    examStatusEnchantById: entries(parseProduceExamStatusEnchantCatalog(source.enchantYaml)),
+    examTriggerById: entries(parseProduceExamTriggerCatalog(source.triggerYaml)),
+    cardSearchById: entries(parseProduceCardSearchCatalog(source.searchYaml)),
+    cardVariantByKey: new Map(masters.map((row) => [row.id + "@@" + row.upgradeCount, row])),
+  };
+  const cardById = entries(masters.filter((row) => row.upgradeCount === 0));
+  const koete = "p_card-02-ido-3_169", wing = "p_card-02-ido-3_190", block = "p_card-00-men-0_003";
+  assert.deepEqual(cardById.get(block).effectGroupIds, ["effect_group-visible-exam_block-000"]);
+  for (const count of [1, 2, 3]) {
+    const master = realCatalogs.examEffectById.get(`e_effect-exam_playable_value_add-0${count}`);
+    assert.equal(master.effectValue1, 0);
+    assert.equal(parseExamEffectMaster(master).value, count);
+  }
+  for (const upgradeCount of [0, 1, 2, 3]) {
+    const inputs = [{ id: koete, upgradeCount }, ...Array.from({ length: 8 }, () => ({ id: block }))];
+    const s = createTowerTurnState(inputs, 123, cardById, { ...realCatalogs, stamina: 100, handLimit: 99, turnLimit: 20 });
+    drawTowerTurn(s, 9);
+    const played = playTowerCard(s, s.hand.findIndex((card) => card.id === koete));
+    assert.equal(s.playsRemaining, 1, "+1 replaces the play spent by 私を超えて");
+    assert.equal(s.exam.stamina, 100 - masters.find((row) => row.id === koete && row.upgradeCount === upgradeCount).stamina);
+    const labels = describeCardEffects(played.card, realCatalogs).join(" / ");
+    assert.match(labels, /カード使用回数 \+1/);
+    assert.match(labels, /元気効果のスキルカードを2回使用するごとに、私を超えて（翔）/);
+    assert.doesNotMatch(labels, /未対応|未解決/);
+    assert.equal(s.lost.some((card) => card.id === koete), true);
+    const first = playTowerCard(s, 0); // extra play is available normally
+    assert.equal(first.created.length, 0);
+    finishTowerTurn(s, { type: "end" });
+    drawTowerTurn(s, 3);
+    const second = playTowerCard(s, 0);
+    assert.equal(second.created[0].card.id, wing, "second genki card across turns generates 翔");
+    assert.equal(s.deck[0].id, wing, "generated card goes to DeckFirst");
+    finishTowerTurn(s, { type: "end" });
+    drawTowerTurn(s, 3);
+    s.exam.block = 20;
+    const generated = playTowerCard(s, s.hand.findIndex((card) => card.id === wing));
+    assert.equal(s.playsRemaining, 1, "generated 翔 also grants its extra play");
+    assert.equal(generated.drawn.length, 1);
+    assert.deepEqual(s.unsupported, []);
+  }
+  console.log("私を超えて real-master regression: all 4 variants, extra plays, genki counter, DeckFirst generation and generated 翔: ok");
+}
+
+// Progress backups preserve the open turn and exact, source-attributed deltas
+// through nested P-item activation, later card generation, and JSON reload.
+{
+  const { createSimulationBackup, stringifySimulationBackup, parseSimulationBackup } = await import("../web/simulation_backup.js");
+  const item = fixture.pItems.find(row => row.id === "pitem_02-1-013-0");
+  const s = state({ pItems: [item], turnParameterTypes: ["Visual", "Vocal"],
+    parameterBonus: { visual: { bonusPermil: 36940 }, vocal: { bonusPermil: 1200 } } });
+  drawTowerTurn(s, 12);
+  const firstTurn = s.simulationLog.turns[0];
+  assert.equal(firstTurn.handAdded.length, 12);
+  const before = s.simulationLog.events.length;
+  apply(s, effect("ExamStaminaReduceFix", 1));
+  const changes = s.simulationLog.events.slice(before).filter(row => row.kind === "effect");
+  const direct = changes.find(row => row.source.type === "drink" && row.changes.some(change => change.field === "stamina"));
+  const reaction = changes.find(row => row.source.type === "pItem" && row.changes.some(change => change.field === "review"));
+  assert.ok(direct.sequence < reaction.sequence, "direct damage is recorded before the nested P-item reaction");
+  assert.equal(reaction.source.id, item.id);
+  assert.deepEqual(reaction.changes.find(change => change.field === "review"), { field: "review", label: "好印象", before: 0, after: 2, delta: 2 });
+  assert.equal(changes.filter(row => row.changes.some(change => change.field === "review")).length, 1,
+    "parent scope must not duplicate the child's review change");
+  playTowerCard(s, 0);
+  assert.equal(firstTurn.usedCards.length, 1);
+  const backup = createSimulationBackup(s, "tower", new Date("2026-10-04T00:00:00Z"));
+  assert.equal(backup.turns[0].attribute, "Visual");
+  assert.equal(backup.turns[0].multiplierPercent, 3694);
+  assert.equal(backup.turns[0].complete, false);
+  const text = stringifySimulationBackup(backup);
+  const restored = parseSimulationBackup(text).state;
+  const normalized = state => JSON.parse(JSON.stringify(serializeTowerTurnState(state)));
+  assert.deepEqual(normalized(restored), normalized(s));
+  assert.deepEqual([...restored.examEffectById], [...s.examEffectById]);
+  finishTowerTurn(s); finishTowerTurn(restored);
+  drawTowerTurn(s, 3); drawTowerTurn(restored, 3);
+  playTowerCard(s, 0); playTowerCard(restored, 0);
+  assert.deepEqual(normalized(restored), normalized(s), "resumed turn must have identical values, cards, RNG and log");
+  assert.equal(s.simulationLog.turns[0].complete, true);
+  assert.equal(s.simulationLog.turns[1].handAdded.length, 3);
+  assert.throws(() => parseSimulationBackup("{}"), /バックアップ/);
+  assert.throws(() => parseSimulationBackup({ ...backup, catalogs: {} }), /データが不正/);
+  const infinityState = state({ handLimit: Infinity }); drawTowerTurn(infinityState, 3);
+  const infinityRestore = parseSimulationBackup(stringifySimulationBackup(createSimulationBackup(infinityState, "exam"))).state;
+  assert.equal(infinityRestore.handLimit, Infinity);
+  console.log("simulation progress: turn attributes/multiplier, drawn/used cards, nested P-item deltas, open-turn JSON reload and deterministic resume: ok");
+}

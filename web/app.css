@@ -1343,3 +1343,9 @@ body { padding-top: 72px; background: radial-gradient(circle at 88% 4%, #eee4ff 
 .global-notification[hidden] {
   display: none !important;
 }
+
+.simulation-effect-log { padding-left: 1.4rem; }
+.simulation-effect-log li { margin: .75rem 0; padding: .6rem; background: var(--md-sys-color-surface-container, #f4f4f4); border-radius: .75rem; overflow-wrap: anywhere; }
+.simulation-effect-log p { margin: .25rem 0; }
+.m3e-history details > p { overflow-wrap: anywhere; }
+.simulation-progress-actions { flex-wrap: wrap; margin-top: .75rem; }

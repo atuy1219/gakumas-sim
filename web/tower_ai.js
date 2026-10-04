@@ -21,7 +21,7 @@ const SHARED_STATE_KEYS = new Set([
 
 const OMIT_FROM_STATE_KEY = new Set([
   ...SHARED_STATE_KEYS,
-  "history", "initialDeck", "shuffledInitialDeck", "turnStartEffects",
+  "history", "simulationLog", "historyTraceEnabled", "initialDeck", "shuffledInitialDeck", "turnStartEffects",
 ]);
 
 function cloneValue(value, seen = new Map()) {
@@ -54,9 +54,12 @@ function cloneValue(value, seen = new Map()) {
 export function cloneTowerStateForAi(state) {
   const clone = {};
   for (const [key, value] of Object.entries(state ?? {})) {
-    if (key === "history") clone[key] = [...(value ?? [])];
+    if (key === "simulationLog") clone[key] = { version: 1, events: [], turns: [] };
+    else if (key === "historyTraceEnabled") clone[key] = false;
+    else if (key === "history") clone[key] = [...(value ?? [])];
     else clone[key] = SHARED_STATE_KEYS.has(key) ? value : cloneValue(value);
   }
+  clone.historyTraceEnabled = false;
   return clone;
 }
 

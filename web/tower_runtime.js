@@ -1,3 +1,4 @@
+import { beginSimulationTurn, currentSimulationSource, endSimulationTurn, historyCard, recordSimulationEvent, traceSimulation } from "./simulation_history.js";
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
 import {
   addNativeGenericTimedStatus,
@@ -324,6 +325,7 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
   return {
     ...card,
     token: `generated:${state.generatedCardSerial}:${id}`,
+    name: String(master.name ?? id),
     originalIndex: -1,
     generated: true,
     playMovePositionType,
@@ -608,6 +610,8 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     turn: 0,
     recycleCount: 0,
     history: [],
+    historyTraceEnabled: options.historyTraceEnabled !== false,
+    simulationLog: { version: 1, events: [], turns: [] },
     lastRecycle: null,
     openingResolved: false,
     openingDrawCount,
@@ -755,7 +759,10 @@ function nativeSchedulerHooks(state, runtimeEvent) {
       return undefined;
     },
     executeEffect(effect, context, registration) {
-      return withNativeEffectSource(state, registration.sourceType, () => {
+      const source = { type: registration.sourceType, id: registration.sourceId,
+        name: registration.sourceType === "pItem" ? state.pItems.find(item => item.id === registration.sourceId)?.name ?? registration.sourceId
+          : registration.sourceType === "enchant" ? runtimeEnchantName(state, registration.sourceId) : registration.sourceId };
+      return traceSimulation(state, source, () => withNativeEffectSource(state, registration.sourceType, () => {
         if (effect?.kind === "cardEnchantGrow") {
           const card = findRuntimeCard(state, effect.token);
           if (!card) return;
@@ -776,7 +783,7 @@ function nativeSchedulerHooks(state, runtimeEvent) {
         state.effectOwnerCard = findRuntimeCard(state, registration.metadata?.originCardToken) ?? null;
         try { executeParsedTowerEffect(state, schedulerParsedEffect(effect), runtimeEvent); }
         finally { state.effectOwnerCard = previousOwner; }
-      });
+      }), { phase: registration.phase, registrationId: registration.registrationId, recordIfUnchanged: true });
     },
     beforeRegistration(registration) {
       const activationKey = String(registration.metadata?.activationKey ?? "");
@@ -1871,6 +1878,12 @@ function setNativeInitialCard(state, drawCount, runtimeEvent) {
 }
 
 export function drawTowerTurn(state, drawCount = 3) {
+  state.traceTurn = Number(state.turn) + 1;
+  try {
+    return traceSimulation(state, { type: "system", id: "turnStart", name: "ターン開始" }, () => drawTowerTurnImpl(state, drawCount));
+  } finally { delete state.traceTurn; }
+}
+function drawTowerTurnImpl(state, drawCount = 3) {
   const count = Number(drawCount);
   if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
   if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
@@ -1892,6 +1905,7 @@ export function drawTowerTurn(state, drawCount = 3) {
     };
   }
 
+  beginSimulationTurn(state, state.turn + 1, currentTowerScoreContext({ ...state, turn: state.turn + 1 }));
   state.ended = false;
   state.turnStartParameter = Number(state.exam.parameter ?? 0);
   const phaseEvent = nativeRuntimeEvent();
@@ -2166,6 +2180,7 @@ function removeRuntimeCard(state, card) {
 }
 
 function notifyRuntimeCardMove(state, card, from, to, event, { drawn = false } = {}) {
+  if (to === "hand") recordSimulationEvent(state, { kind: "handAdded", cards: [historyCard(card)], from, drawn });
   if (drawn && nativeResultTriggersAllowed(state)) runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_DRAW, event, { card });
   const phase = { hand: NATIVE_EFFECT_PHASE.CARD_MOVE_HAND,
     grave: NATIVE_EFFECT_PHASE.CARD_MOVE_GRAVE, lost: NATIVE_EFFECT_PHASE.CARD_MOVE_LOST }[to];
@@ -2776,7 +2791,9 @@ function withNativeEffectFrame(state, execute) {
 }
 
 function executeParsedTowerEffect(state, parsed, event, options = {}) {
-  return withNativeEffectFrame(state, (frame) => executeParsedTowerEffectImpl(state, parsed, event, options, frame));
+  return traceSimulation(state, currentSimulationSource(state),
+    () => withNativeEffectFrame(state, (frame) => executeParsedTowerEffectImpl(state, parsed, event, options, frame)),
+    { effectId: parsed.id, recordIfUnchanged: true });
 }
 
 function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = {}, frame) {
@@ -2977,6 +2994,9 @@ function addGrowEffectsToDeckAll(state, parsed, event) {
 }
 
 export function useTowerDrink(state, drinkInput) {
+  return traceSimulation(state, { type: "drink", id: drinkInput?.id ?? "", name: drinkInput?.name ?? drinkInput?.id ?? "" }, () => useTowerDrinkImpl(state, drinkInput));
+}
+function useTowerDrinkImpl(state, drinkInput) {
   if (!state || state.ended) throw new Error("試験が終了しています。");
   if (Number(state.turn ?? 0) <= 0) throw new Error("ターン開始後にドリンクを使用してください。");
 
@@ -3028,7 +3048,9 @@ export function useTowerDrink(state, drinkInput) {
 }
 
 export function playTowerCard(state, indexInput, options = {}) {
-  return withNativeEffectFrame(state, () => playTowerCardImpl(state, indexInput, options));
+  const card = state.hand[Number(indexInput)];
+  return traceSimulation(state, { type: "card", id: card?.id ?? "", name: card?.name ?? card?.id ?? "", card: historyCard(card) },
+    () => withNativeEffectFrame(state, () => playTowerCardImpl(state, indexInput, options)));
 }
 
 function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = false } = {}) {
@@ -3088,6 +3110,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       { cause: "cardCost", card },
     );
 
+    recordSimulationEvent(state, { kind: "cardUse", card: historyCard(card), forced });
     state.hand.splice(index, 1);
     if (!forced) state.playsRemaining -= 1;
     state.exam.cardPlayCount += 1;
@@ -3180,6 +3203,11 @@ function tickTimers(state, event) {
 }
 
 export function finishTowerTurn(state, action = { type: "skip" }) {
+  const result = traceSimulation(state, { type: "system", id: "turnEnd", name: "ターン終了" }, () => finishTowerTurnImpl(state, action));
+  endSimulationTurn(state);
+  return result;
+}
+function finishTowerTurnImpl(state, action = { type: "skip" }) {
   const type = String(action?.type ?? "skip");
   let compatibilityUse = null;
   if (type === "use") compatibilityUse = playTowerCard(state, action?.index);
@@ -3256,7 +3284,7 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
 
   // ExamSequence turn-end path (native state machine around 0x8096850)
   // materializes Review as a Lesson effect before Review spends one turn.
-  const reviewScore = applyNativeReviewTurnEnd(state.exam, currentTowerScoreContext(state));
+  const reviewScore = traceSimulation(state, { type: "enchant", id: "review", name: "好印象" }, () => applyNativeReviewTurnEnd(state.exam, currentTowerScoreContext(state)));
   if (reviewScore.added > 0) {
     turnEndEvent.effects.push(
       `好印象ターン終了スコア +${reviewScore.added}`
