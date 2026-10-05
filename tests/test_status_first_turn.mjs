@@ -82,7 +82,13 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
   }
 
   const two = setup(); drawTowerTurn(two); playTowerCard(two, 0);
-  grant(two, 'ExamPlayableValueAdd', 2);
+  useTowerDrink(two, {id: 'ExamPlayableValueAdd2', effects: [{examEffect: {
+    id: 'ExamPlayableValueAdd2',
+    effectType: 'ProduceExamEffectType_ExamPlayableValueAdd',
+    effectValue1: 0,
+    effectTurn: 0,
+    effectCount: 2,
+  }}]});
   assert.equal(two.playsRemaining, 2);
   assert.equal(two.playableAddStatus.count, 1, 'one of +2 is consumed immediately to reopen the turn');
 }
