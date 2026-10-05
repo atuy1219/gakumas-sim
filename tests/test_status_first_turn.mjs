@@ -50,20 +50,41 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
     assert.equal(s.exam.review, expected, phase);
   }
 }
-// Unused extra plays persist to the next turn, where they expire. The normal
-// play and automatic replay do not spend the additional-play status.
+// Native PlayableValueAdd consumption:
+// - CardPlayCountAdd consumes an existing additional-play count before ending
+//   the ordinary play.
+// - If an additional play is granted after card play has already ended,
+//   AddPlayableValueAdd immediately consumes one count to reopen the turn.
 {
-  const s = setup(); drawTowerTurn(s); playTowerCard(s, 0); grant(s, 'ExamPlayableValueAdd', 1);
-  finishTowerTurn(s); drawTowerTurn(s); assert.equal(s.playsRemaining, 2);
-  playTowerCard(s, 0); assert.equal(s.playableAddStatus.count, 1);
-  const restored = resume(s);
-  for (const branch of [s, restored]) {
-    playTowerCard(branch, 0); assert.equal(branch.playableAddStatus, null);
-    finishTowerTurn(branch); drawTowerTurn(branch); assert.equal(branch.playsRemaining, 1);
+  const reopened = setup(); drawTowerTurn(reopened);
+  playTowerCard(reopened, 0);
+  assert.equal(reopened.playsRemaining, 0);
+  grant(reopened, 'ExamPlayableValueAdd', 1);
+  assert.equal(reopened.playsRemaining, 1);
+  assert.equal(reopened.playableAddStatus, null, 'the +1 is immediately consumed to reopen card play');
+  finishTowerTurn(reopened, { type: 'skip' });
+  drawTowerTurn(reopened);
+  assert.equal(reopened.playsRemaining, 1, 'skipping the reopened play must not carry +1 into the next turn');
+
+  const existing = setup(); drawTowerTurn(existing);
+  grant(existing, 'ExamPlayableValueAdd', 1);
+  assert.equal(existing.playsRemaining, 2);
+  assert.equal(existing.playableAddStatus.count, 1);
+  playTowerCard(existing, 0);
+  assert.equal(existing.playsRemaining, 1);
+  assert.equal(existing.playableAddStatus, null, 'the first card consumes the existing additional-play count');
+  const restored = resume(existing);
+  for (const branch of [existing, restored]) {
+    playTowerCard(branch, 0);
+    finishTowerTurn(branch);
+    drawTowerTurn(branch);
+    assert.equal(branch.playsRemaining, 1);
   }
-  const expiry = setup(); drawTowerTurn(expiry); grant(expiry, 'ExamPlayableValueAdd', 1);
-  finishTowerTurn(expiry); drawTowerTurn(expiry); assert.equal(expiry.playsRemaining, 2);
-  finishTowerTurn(expiry); drawTowerTurn(expiry); assert.equal(expiry.playsRemaining, 1);
+
+  const two = setup(); drawTowerTurn(two); playTowerCard(two, 0);
+  grant(two, 'ExamPlayableValueAdd', 2);
+  assert.equal(two.playsRemaining, 2);
+  assert.equal(two.playableAddStatus.count, 1, 'one of +2 is consumed immediately to reopen the turn');
 }
 
 // Direct-effect Review triggers cannot chain from an ordinary enchant.
