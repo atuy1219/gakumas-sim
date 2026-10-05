@@ -2,6 +2,8 @@ import { beginSimulationTurn, currentSimulationSource, endSimulationTurn, histor
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
 import {
   addNativeGenericTimedStatus,
+  markNativeStatusTurnStart,
+  NATIVE_SCALAR_TURN_STATUSES,
   nextNativeStatusUid,
   applyParsedExamEffect,
   calculateNativeBlockAdd,
@@ -24,6 +26,7 @@ import {
 } from "./exam_score.js";
 import {
   applyCardCustomizations,
+  restoreLegacySpecificCostGrow,
   applyCardGrowEffectsToParsedEffect,
   applyRuntimeCardGrowEffects,
 } from "./card_customization.js";
@@ -216,6 +219,13 @@ export function restoreTowerTurnState(input, shared = {}) {
   for (const key of TOWER_STATE_SHARED_KEYS) {
     state[key] = shared?.[key] ?? new Map();
   }
+  state.exam.turnLifetimeEnabled = true;
+  state.exam.passingTurnStartFields ??= {};
+  const turnCardUses = (state.simulationLog?.events ?? []).filter(event => event.turn === state.turn && event.kind === "cardUse");
+  state.normalPlayUsed ??= turnCardUses.length
+    ? turnCardUses.some(event => !event.forced)
+    : (state.currentTurnPlays ?? []).some(play => !play.forced);
+  for (const card of [...(state.initialDeck ?? []), ...(state.shuffledInitialDeck ?? [])]) restoreLegacySpecificCostGrow(card);
   state.searchPlayCardLimits ??= [];
   state.searchCardCostChanges ??= [];
   state.cardEnchantRegistrations ??= new Map();
@@ -232,6 +242,7 @@ export function restoreTowerTurnState(input, shared = {}) {
   }
   for (const pool of [state.deck, state.discard, state.lost, state.hold, state.hand]) {
     for (const card of pool ?? []) {
+      restoreLegacySpecificCostGrow(card);
       card.playCount ??= playedCounts.get(card.token) ?? 0;
       if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
     }
@@ -606,6 +617,8 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
   const exam = {
     ...createExamState({ stamina: options.stamina, runtimeSettings: options.examRuntimeSettings ?? options.examSetting, scoreSettings: options.examScoreSettings ?? options.examSetting }),
     targetScore: Math.max(0, Number(options.targetScore ?? 0)),
+    turnLifetimeEnabled: true,
+    passingTurnStartFields: {},
   };
   const openingDrawCount = Math.max(1, Math.trunc(Number(options.drawPerTurn ?? options.openingDrawCount ?? 3)));
   const handLimit = normalizeHandLimit(options.handLimit ?? getExamRuntimeSetting(exam, "handLimit"));
@@ -895,11 +908,18 @@ function runNativeEffectPhase(state, phase, runtimeEvent, extra = {}) {
 
 function nativeResultTriggersAllowed(state) {
   // ExamEffectCalculateContext.IsEnchantTriggerActive @ 0x7FE4EDC:
-  // item-owned and gimmick-owned commands cannot trigger result enchants.
-  return state.effectSource !== "pItem" && state.effectSource !== "gimmick";
+  // Item/gimmick and ordinary enchant commands cannot trigger result
+  // enchants. Forced card playback creates a fresh direct card context.
+  return !["pItem", "gimmick", "enchant"].includes(state.effectSource);
 }
 
 function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
+  for (const field of NATIVE_SCALAR_TURN_STATUSES) {
+    if (Number(before[field] ?? 0) <= 0 && Number(state.exam[field] ?? 0) > 0) {
+      state.exam.passingTurnStartFields ??= {};
+      state.exam.passingTurnStartFields[field] = false;
+    }
+  }
   if (!nativeResultTriggersAllowed(state)) return [];
   registerRuntimeCardEnchants(state);
   return withNativeTransition(runtimeEvent, () => dispatchNativeStatusDiff(
@@ -1305,7 +1325,10 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
 
   const effectTypes = new Set((trigger.effectTypes ?? []).map(String).filter(Boolean));
   if (effectTypes.size) {
-    const actualEffectType = String(
+    // Native status differences describe the resulting Review increase,
+    // including dependent Review effects (0x801A100), rather than its formula.
+    const actualEffectType = statusField === "review" && Number(context.statusChange?.delta) > 0
+      ? "ProduceExamEffectType_ExamReview" : String(
       context.effectType
       ?? parsedMasterEffectType(context.parsedEffect)
       ?? "",
@@ -1953,7 +1976,8 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   const isOpeningTurn = state.turn === 0 && !state.openingResolved;
   state.turn += 1;
   state.turnOpen = true;
-  state.playsRemaining = 1;
+  state.playsRemaining = 1 + Number(state.playableAddStatus?.count ?? 0);
+  state.normalPlayUsed = false;
   state.currentTurnPlays = [];
   state.exam.turnCardPlayCount = 0;
   state.currentTurnDrinks = [];
@@ -1995,6 +2019,12 @@ function drawTowerTurnImpl(state, drawCount = 3) {
       notifyRuntimeCardMove(state, card, "hold", "hand", phaseEvent);
     }
   }
+  // ExamLoopTaskAsync 0x8070394 marks statuses after draw/StartOfTurn
+  // and before StartPlay. Additions during card play have not passed it.
+  markNativeStatusTurnStart(state.exam);
+  for (const registration of state.effectScheduler.registrations) registration.metadata.isPassingTurnStart = true;
+  if (state.cardEffectPlayCountBuff) state.cardEffectPlayCountBuff.isPassingTurnStart = true;
+  if (state.playableAddStatus) state.playableAddStatus.isPassingTurnStart = true;
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
   state.turnStartEffects = [...phaseEvent.effects];
   return {
@@ -2384,10 +2414,20 @@ function applyMasterLesson(state, parsed, source, event, label) {
   event.effects.push(`${label}: ${result.label}`);
 }
 
+function addPlayableStatus(state, value) {
+  const count = Math.max(0, Math.trunc(value));
+  if (!count) return;
+  // PlayableValueAddStatusEffect has one turn; merging retains the passing
+  // flag, and using the normal play does not consume its additional count.
+  state.playableAddStatus ??= { count: 0, isPassingTurnStart: false };
+  state.playableAddStatus.count += count;
+  state.playsRemaining += count;
+}
+
 function applyStanceRuntimeRewards(state, stance, event) {
   const playable = Math.max(0, Math.trunc(Number(stance?.playableValueAdd) || 0));
   if (playable > 0) {
-    state.playsRemaining += playable;
+    addPlayableStatus(state, playable);
     event.effects.push(`カード使用回数 +${playable}`);
   }
   const lessonAdd = Math.max(0, Math.trunc(Number(stance?.growLessonAdd) || 0));
@@ -2871,7 +2911,7 @@ function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = 
       break;
     }
     case "playable_add":
-      state.playsRemaining += Number(applied.value) || 0;
+      addPlayableStatus(state, Number(applied.value) || 0);
       break;
     case "stance_change":
       applyStanceRuntimeRewards(state, applied.stance, event);
@@ -2889,7 +2929,7 @@ function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = 
       state.timers.push({ turn: parsed.turn, count: parsed.count, child: parsed.child, id: parsed.id });
       break;
     case "effect_repeat":
-      state.cardEffectPlayCountBuff = { value: parsed.value, count: parsed.count, turn: parsed.turn, searchId: parsed.searchId };
+      state.cardEffectPlayCountBuff = { value: parsed.value, count: parsed.count, turn: parsed.turn, searchId: parsed.searchId, isPassingTurnStart: false };
       break;
     case "hand_swap": {
       const count = state.hand.length;
@@ -3111,6 +3151,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     moved: [],
     recycleEvents: [],
     onceOnly: Boolean(card.onceOnly),
+    forced,
   };
   const cardTrigger = checkRuntimeCardTrigger(state, card.playProduceExamTriggerId, card, event);
   if (!cardTrigger.supported) {
@@ -3148,7 +3189,14 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
 
     recordSimulationEvent(state, { kind: "cardUse", card: historyCard(card), forced });
     state.hand.splice(index, 1);
-    if (!forced) state.playsRemaining -= 1;
+    if (!forced) {
+      state.playsRemaining -= 1;
+      if (state.normalPlayUsed && state.playableAddStatus) {
+        state.playableAddStatus.count -= 1;
+        if (state.playableAddStatus.count <= 0) state.playableAddStatus = null;
+      }
+      state.normalPlayUsed = true;
+    }
     state.exam.cardPlayCount += 1;
     state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
     state.exam.playCardCountSum += 1;
@@ -3204,11 +3252,16 @@ function tickTurnDurations(exam) {
   const reviewLocked = Number(exam.reviewTurnEndReduceLock ?? 0) !== 0;
   const parameterBuffLocked = Number(exam.parameterBuffTurnEndReduceLock ?? 0) !== 0;
 
-  if (!reviewLocked && Number(exam.review ?? 0) > 0) exam.review -= 1;
-  if (!parameterBuffLocked && Number(exam.parameterBuff ?? 0) > 0) exam.parameterBuff -= 1;
+  const passed = field => exam.passingTurnStartFields?.[field] !== false;
+  if (!reviewLocked && passed("review") && Number(exam.review ?? 0) > 0) {
+    exam.review -= 1;
+    // ReviewStatusEffect.SpendTurn (0x803C158) counts natural reduction too.
+    exam.reviewConsumptionSum = Number(exam.reviewConsumptionSum ?? 0) + 1;
+  }
+  if (!parameterBuffLocked && passed("parameterBuff") && Number(exam.parameterBuff ?? 0) > 0) exam.parameterBuff -= 1;
 
   for (const field of ["parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
-    if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
+    if (passed(field) && Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
   for (const field of [
     "stanceLock",
@@ -3216,7 +3269,7 @@ function tickTurnDurations(exam) {
     "stanceLockFullPower",
     "stanceLockPreservation",
   ]) {
-    if (Number(exam[field] ?? 0) > 0) exam[field] -= 1;
+    if (passed(field) && Number(exam[field] ?? 0) > 0) exam[field] -= 1;
   }
 
   // LessonParameterMultiple/Down, ReviewMultiple/CountAdd, Pride, and the
@@ -3226,7 +3279,7 @@ function tickTurnDurations(exam) {
 
 function tickCardEffectPlayCountBuff(state) {
   const buff = state.cardEffectPlayCountBuff;
-  if (!buff || Number(buff.turn) < 0) return;
+  if (!buff || Number(buff.turn) < 0 || buff.isPassingTurnStart === false) return;
   buff.turn = Math.max(0, Number(buff.turn ?? 0) - 1);
   if (buff.turn <= 0) state.cardEffectPlayCountBuff = null;
 }
@@ -3310,7 +3363,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
     discardCount: state.discard.length,
     lostCount: state.lost.length,
     recycleCount: state.recycleCount,
-    exam: { ...state.exam },
+    exam: cloneTowerStateValue(state.exam),
   };
   state.history.push(entry);
   const turnEndEvent = resetEvent;
@@ -3353,10 +3406,11 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
     { cause: "turnEndSpend", action: type, used },
   );
   tickCardEffectPlayCountBuff(state);
+  if (state.playableAddStatus?.isPassingTurnStart) state.playableAddStatus = null;
   state.searchPlayCardLimits = state.searchPlayCardLimits.map((row) => ({ ...row, turn: row.turn < 0 ? -1 : row.turn - 1 })).filter((row) => row.turn !== 0);
   state.searchCardCostChanges = state.searchCardCostChanges.map((row) => ({ ...row, turn: row.turn < 0 ? -1 : row.turn - 1 })).filter((row) => row.turn !== 0 && row.count > 0);
-  tickNativeEffectSchedulerTurn(state.effectScheduler, { turn: state.turn });
-  entry.examAfterTurnEnd = { ...state.exam };
+  tickNativeEffectSchedulerTurn(state.effectScheduler, { turn: state.turn, respectTurnStart: true });
+  entry.examAfterTurnEnd = cloneTowerStateValue(state.exam);
   entry.parameterAfter = Number(state.exam.parameter);
   entry.parameterDelta = entry.parameterAfter - entry.parameterBefore;
   state.currentTurnPlays = [];

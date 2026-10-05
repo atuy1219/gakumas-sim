@@ -451,6 +451,7 @@ export function tickNativeEffectSchedulerTurn(scheduler, options = {}) {
   const expired = [];
   for (const registration of scheduler.registrations) {
     if (!registration.active || registration.remainingTurns === null) continue;
+    if (options.respectTurnStart && !registration.metadata.isPassingTurnStart) continue;
     registration.remainingTurns = Math.max(0, Number(registration.remainingTurns) - 1);
     if (registration.remainingTurns === 0) {
       registration.active = false;

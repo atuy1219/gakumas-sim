@@ -36,7 +36,8 @@ for (const upgrade of [0, 1]) for (const withItem of [false, true]) {
       assert.equal(used.length, finalPhase ? 1 : 0, `+${upgrade}, item=${withItem}, turn=${turn}`);
       if (finalPhase) {
         assert.deepEqual(used[0].cost, [], 'Encore pays neither Review nor stamina');
-        assert.equal(s.playsRemaining, 2, 'Encore adds a play without consuming the normal one');
+        // The unused extra play from the first Encore survives to the next turn.
+        assert.equal(s.playsRemaining, withItem && turn === 5 ? 3 : 2, 'Encore preserves the normal play and first-turn carryover');
         assert.equal(s.exam.review, upgrade ? 4 : 3);
       }
       assert.equal(s.statusEnchantSerial, 1, 'the initial-only Encore effect cannot reinstall itself');

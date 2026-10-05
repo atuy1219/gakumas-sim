@@ -49,7 +49,7 @@ function requiredCatalogs(state, checkpoint) {
         }
       }
     }
-    queue.push(...Object.values(value));
+    queue.push(...(value instanceof Map ? [...value.values()] : Object.values(value)));
   }
   return Object.fromEntries(CATALOG_KEYS.map(key => [key,
     [...(state[key] ?? [])].filter(([id]) => wanted[key].has(id))]));
@@ -77,13 +77,15 @@ export function createSimulationBackup(state, mode, now = new Date()) {
   };
 }
 export function stringifySimulationBackup(backup) {
-  return JSON.stringify(backup, (_, value) => typeof value === "number" && !Number.isFinite(value)
+  return JSON.stringify(backup, (_, value) => value instanceof Map
+    ? { __gakumasSimMap: [...value] } : typeof value === "number" && !Number.isFinite(value)
     ? { __gakumasSimNumber: String(value) } : value) + "\n";
 }
 export function parseSimulationBackup(input) {
   let value;
   try {
     value = typeof input === "string" ? JSON.parse(input, (_, item) => {
+      if (Array.isArray(item?.__gakumasSimMap)) return new Map(item.__gakumasSimMap);
       if (item?.__gakumasSimNumber === "Infinity") return Infinity;
       if (item?.__gakumasSimNumber === "-Infinity") return -Infinity;
       return item;

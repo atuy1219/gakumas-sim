@@ -81,8 +81,8 @@ function row(id, effectId, extra = {}) {
   drawTowerTurn(s); assert.equal(s.exam.parameter, 20);
   apply(s, effect("ExamReview", 1)); finishTowerTurn(s); drawTowerTurn(s);
   assert.equal(s.exam.parameter, 41);
-  finishTowerTurn(s); drawTowerTurn(s); assert.equal(s.exam.parameter, 41);
-  finishTowerTurn(s); drawTowerTurn(s); assert.equal(s.exam.parameter, 61);
+  finishTowerTurn(s); drawTowerTurn(s); assert.equal(s.exam.parameter, 42);
+  finishTowerTurn(s); drawTowerTurn(s); assert.equal(s.exam.parameter, 62);
   assert.deepEqual(s.unsupported, []);
 }
 
@@ -259,7 +259,7 @@ function row(id, effectId, extra = {}) {
   drawTowerTurn(s); apply(s, effect("ExamLesson", 5), effect("ExamReview", 2));
   assert.equal(finishTowerTurn(s).parameterDelta, 11); assert.equal(s.exam.parameterVocal, 11);
   drawTowerTurn(s); apply(s, effect("ExamLesson", 5));
-  assert.equal(finishTowerTurn(s).parameterDelta, 12); assert.equal(s.exam.parameterDance, 12);
+  assert.equal(finishTowerTurn(s).parameterDelta, 14); assert.equal(s.exam.parameterDance, 14);
   drawTowerTurn(s); assert.equal(currentTowerScoreContext(s).parameterType, "Dance");
   assert.equal(currentTowerScoreContext(s).battleBonusPermil, 2000);
 }
