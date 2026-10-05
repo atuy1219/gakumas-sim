@@ -2417,11 +2417,20 @@ function applyMasterLesson(state, parsed, source, event, label) {
 function addPlayableStatus(state, value) {
   const count = Math.max(0, Math.trunc(value));
   if (!count) return;
-  // PlayableValueAddStatusEffect has one turn; merging retains the passing
-  // flag, and using the normal play does not consume its additional count.
+
+  // Native AddPlayableValueAdd (0x7ff195c) first adds the status count. When
+  // the ordinary play has already ended the turn (our playsRemaining === 0),
+  // it reopens card play and immediately consumes one added count via
+  // UsePlayableValueAddCount. The reopened play itself is represented by
+  // playsRemaining, so only the still-unallocated extra count stays here.
+  const wasCardPlayEnded = Number(state.playsRemaining ?? 0) <= 0;
   state.playableAddStatus ??= { count: 0, isPassingTurnStart: false };
   state.playableAddStatus.count += count;
   state.playsRemaining += count;
+  if (wasCardPlayEnded) {
+    state.playableAddStatus.count -= 1;
+    if (state.playableAddStatus.count <= 0) state.playableAddStatus = null;
+  }
 }
 
 function applyStanceRuntimeRewards(state, stance, event) {
@@ -3191,7 +3200,10 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     state.hand.splice(index, 1);
     if (!forced) {
       state.playsRemaining -= 1;
-      if (state.normalPlayUsed && state.playableAddStatus) {
+      // Native CardPlayCountAdd (0x7ff0638) consumes PlayableValueAdd first.
+      // Only when no additional-play status exists does the card use end the
+      // ordinary play. This timing matters for skip/turn-end carry-over.
+      if (state.playableAddStatus) {
         state.playableAddStatus.count -= 1;
         if (state.playableAddStatus.count <= 0) state.playableAddStatus = null;
       }
