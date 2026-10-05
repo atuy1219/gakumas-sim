@@ -28,7 +28,10 @@ function applyCostGrow(card, effect) {
     return true;
   }
 
-  const targetCostType = String(effect?.costType ?? "");
+  const specificCost = type.match(/^ProduceCardGrowEffectType_Cost(Review|Aggressive|LessonBuff|ParameterBuff|ParameterBuffMultiplePerTurn|FullPowerPoint)(Add|Reduce)$/)?.[1];
+  const targetCostType = specificCost
+    ? `ExamCostType_Exam${specificCost === "Aggressive" ? "CardPlayAggressive" : specificCost}`
+    : String(effect?.costType ?? "");
   if (!type.startsWith("ProduceCardGrowEffectType_Cost") || !targetCostType || targetCostType === "ExamCostType_Unknown") {
     return false;
   }
@@ -159,9 +162,21 @@ export function applyCardCustomizations(
     }
   }
 
+  card.specificCostGrowApplied = true;
   card.customGrowEffects = resolved.growEffects.map((effect) => ({ ...effect }));
   card.customGrowEffectIds = resolved.growEffects.map((effect) => String(effect.id));
   card.customizationUnresolved = [...resolved.unresolved];
+  return card;
+}
+
+export function restoreLegacySpecificCostGrow(card) {
+  if (card.specificCostGrowApplied) return card;
+  for (const effect of card.customGrowEffects ?? []) {
+    if (/^ProduceCardGrowEffectType_Cost(Review|Aggressive|LessonBuff|ParameterBuff|ParameterBuffMultiplePerTurn|FullPowerPoint)(Add|Reduce)$/.test(growType(effect))
+      && (!effect.costType || effect.costType === "ExamCostType_Unknown")) applyCostGrow(card, effect);
+  }
+  if (card._supportBaseSnapshot) restoreLegacySpecificCostGrow(card._supportBaseSnapshot);
+  card.specificCostGrowApplied = true;
   return card;
 }
 

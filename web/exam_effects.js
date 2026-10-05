@@ -1176,7 +1176,16 @@ export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnIn
       return true;
     }
   }
-  exam.genericTimedStatuses.push({ field, value: Number(valueInput) || 0, turn, mode, uid: nextNativeStatusUid(exam) });
+  if (mode === "add" || mode === "multiple") {
+    const prior = exam.genericTimedStatuses.find(row => row.field === field && row.mode === mode && row.turn === turn);
+    if (prior) {
+      prior.value += Number(valueInput) || 0;
+      syncNativeGenericTimedStatuses(exam);
+      return true;
+    }
+  }
+  exam.genericTimedStatuses.push({ field, value: Number(valueInput) || 0, turn, mode, uid: nextNativeStatusUid(exam),
+    isPassingTurnStart: !exam.turnLifetimeEnabled });
   syncNativeGenericTimedStatuses(exam);
   return true;
 }
@@ -1279,7 +1288,7 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
     const value = Math.trunc(Number(valueInput) || 0);
     const index = statuses.findIndex((status) => status.kind === kind && Number(status.turn) === turn);
     if (index >= 0) statuses[index] = { ...statuses[index], value: Number(statuses[index].value || 0) + value };
-    else statuses.push({ kind, value, turn, uid: nextNativeStatusUid(exam) });
+    else statuses.push({ kind, value, turn, uid: nextNativeStatusUid(exam), isPassingTurnStart: !exam.turnLifetimeEnabled });
   } else if (SINGLE_TURN_SCORE_STATUS_KINDS.has(kind)) {
     const index = statuses.findIndex((status) => status.kind === kind);
     if (index >= 0) {
@@ -1291,7 +1300,7 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
         turn: previous < 0 || turn < 0 ? -1 : previous + turn,
       };
     } else {
-      statuses.push({ kind, value: 0, turn, uid: nextNativeStatusUid(exam) });
+      statuses.push({ kind, value: 0, turn, uid: nextNativeStatusUid(exam), isPassingTurnStart: !exam.turnLifetimeEnabled });
     }
   } else {
     return false;
@@ -1307,7 +1316,7 @@ export function tickNativeScoreTimedStatuses(exam) {
   exam.scoreTimedStatuses = (exam.scoreTimedStatuses ?? [])
     .map((status) => ({
       ...status,
-      turn: Number(status.turn) < 0 ? -1 : Number(status.turn) - 1,
+      turn: Number(status.turn) < 0 ? -1 : status.isPassingTurnStart === false ? Number(status.turn) : Number(status.turn) - 1,
     }))
     .filter((status) => Number(status.turn) !== 0);
   if (hasScoreStatuses) syncNativeScoreTimedStatuses(exam);
@@ -1315,12 +1324,23 @@ export function tickNativeScoreTimedStatuses(exam) {
     exam.genericTimedStatuses = exam.genericTimedStatuses
       .map((status) => ({
         ...status,
-        turn: Number(status.turn) < 0 ? -1 : Number(status.turn) - 1,
+        turn: Number(status.turn) < 0 ? -1 : status.isPassingTurnStart === false ? Number(status.turn) : Number(status.turn) - 1,
       }))
       .filter((status) => Number(status.turn) !== 0);
     syncNativeGenericTimedStatuses(exam);
   }
   return exam;
+}
+
+export const NATIVE_SCALAR_TURN_STATUSES = Object.freeze([
+  "review", "parameterBuff", "parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd",
+  "stanceLock", "stanceLockConcentration", "stanceLockFullPower", "stanceLockPreservation",
+]);
+
+export function markNativeStatusTurnStart(exam) {
+  exam.turnLifetimeEnabled = true;
+  exam.passingTurnStartFields = Object.fromEntries(NATIVE_SCALAR_TURN_STATUSES.map(field => [field, Number(exam[field] ?? 0) > 0]));
+  for (const status of [...(exam.scoreTimedStatuses ?? []), ...(exam.genericTimedStatuses ?? [])]) status.isPassingTurnStart = true;
 }
 
 function consumeStatus(exam, field, value, label) {
