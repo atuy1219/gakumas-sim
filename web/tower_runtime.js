@@ -3146,6 +3146,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     throw new Error("使用するカード位置が不正です。");
   }
   const card = state.hand[index];
+  if (!forced && card.isRestrict) throw new Error(`${card.id}: このカードは使用できません。`);
   if (!forced && state.searchPlayCardLimits.some((row) => row.turn !== 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)))) throw new Error(card.id + ": ギミックによりカードを使用できません。");
   if (!isSupportedSimpleMove(card.playMovePositionType)) {
     throw new Error(`${card.id}: 使用後移動先 ${card.playMovePositionType} は未対応です。`);
@@ -3217,10 +3218,15 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     const previouslyPlayed = Number(card.playCount ?? 0) > 0;
     card.playCount = Number(card.playCount ?? 0) + 1;
     if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
+    // A forced use still records playback and moves the card, but an
+    // unplayable card does not execute its main effects or spend repeat buffs.
+    // Reuse the eligibility snapshot taken before costs and play triggers.
+    const canExecuteCardEffects = !card.isRestrict && cardTrigger.supported && cardTrigger.triggered;
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
     const repeatBuff = state.cardEffectPlayCountBuff;
     const repeatMatches = Boolean(
-      repeatBuff
+      canExecuteCardEffects
+      && repeatBuff
       && Number(repeatBuff.count ?? 0) > 0
       && (resolvedMasterSearch(state, repeatBuff.searchId)
         ? cardMatchesMasterSearch(card, resolvedMasterSearch(state, repeatBuff.searchId))
@@ -3233,7 +3239,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       repeatBuff.count -= 1;
       if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
     }
-    for (let n = 0; n <= repeat; n += 1) {
+    for (let n = 0; canExecuteCardEffects && n <= repeat; n += 1) {
       for (const entry of card.playEffects ?? []) {
         // ExecuteCardCommandImpl tests the card's prior play count for the
         // first execution; repeat-buff executions keep native effect behavior.

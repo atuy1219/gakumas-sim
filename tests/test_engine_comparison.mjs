@@ -199,3 +199,75 @@ for (const chained of [false, true]) {
   drawTowerTurn(g, 1); assert.equal(g.exam.stamina, 99); assert.equal(g.exam.review, 0);
 }
 console.log("engine comparison regressions: 8 move variants, Hold, Full Power, result phases, nested deltas and source gating: ok");
+
+// Forced playback retains costs, trigger events, counters and movement even
+// when its main effects are blocked. Blocked playback must not spend repeat.
+for (const forcedType of ["ExamForcePlayCardSearch", "ExamForcePlayCardSearchWithCost"]) {
+  for (const restricted of [false, true]) {
+    for (const review of [0, 1]) {
+      const trigger = { id: "play-needs-review", phaseTypes: ["ProduceExamPhaseType_None"],
+        fieldStatusTypes: ["ProduceExamFieldStatusType_ReviewUp"], fieldStatusValues: [1],
+        fieldStatusCheckTypes: ["ProduceExamTriggerCheckType_Unknown"] };
+      const payload = effect("ExamLessonFix", 7);
+      const c = { ...filler[0], id: "forced-conditional", stamina: 3, isRestrict: restricted,
+        playProduceExamTriggerId: trigger.id, playMovePositionType: "ProduceCardMovePositionType_Lost",
+        playEffects: [{ produceExamEffectId: payload.id }] };
+      const s = state([c], { examTriggerById: entries([trigger]), examEffectById: entries([payload]),
+        pItems: [phaseItem("before", ["ProduceExamPhaseType_ExamCardPlay"], [effect("ExamLessonFix", 3)]),
+          phaseItem("after", ["ProduceExamPhaseType_ExamCardPlayAfter"], [effect("ExamLessonFix", 5)])] });
+      drawTowerTurn(s, 1); s.exam.review = review;
+      s.cardEffectPlayCountBuff = { value: 1, count: 2, turn: -1 };
+      const token = s.hand[0].token;
+      s.cardSearchById.set("forced-target", { id: "forced-target", cardPositionType: "ProduceCardPositionType_Hand", produceCardIds: [c.id] });
+      apply(s, effect(forcedType, 0, { produceCardSearchId: "forced-target", pickRangeType: "ProducePickRangeType_All" }));
+      const eligible = !restricted && review > 0;
+      assert.equal(s.exam.parameter, 8 + (eligible ? 14 : 0), forcedType + ": main effects versus trigger effects");
+      assert.equal(s.exam.stamina, forcedType.endsWith("WithCost") ? 97 : 100);
+      assert.equal(s.cardEffectPlayCountBuff.count, eligible ? 1 : 2, "blocked playback preserves repeat count");
+      assert.equal(s.playsRemaining, 1, "forced playback does not consume an ordinary play");
+      assert.equal(s.exam.cardPlayCount, 1); assert.equal(s.exam.turnCardPlayCount, 1);
+      assert.equal(s.currentTurnPlays.length, 1); assert.equal(s.currentTurnPlays[0].forced, true);
+      assert.equal(s.lost.filter(row => row.token === token).length, 1);
+      assert.equal(s.lost.find(row => row.token === token).playCount, 1);
+      assert.deepEqual(s.unsupported, []);
+    }
+  }
+}
+// Ordinary use rejects restrictions before paying costs or consuming a play.
+{
+  const c = { ...filler[0], id: "restricted", stamina: 3, isRestrict: true,
+    playEffects: [{ produceExamEffectId: "e_effect-exam_block-0005" }] };
+  const s = state([c]); drawTowerTurn(s, 1);
+  assert.throws(() => playTowerCard(s, 0), /このカードは使用できません/);
+  assert.equal(s.exam.stamina, 100); assert.equal(s.playsRemaining, 1);
+  assert.equal(s.exam.cardPlayCount, 0); assert.equal(s.hand[0].id, c.id);
+  assert.equal(s.exam.block, 0); assert.equal(s.currentTurnPlays.length, 0);
+}
+// Supernova's real play condition (Strength 2) still applies to forced use;
+// its already-resolved Hand move effect remains independent of that gate.
+for (const eligible of [false, true]) {
+  const c = master("p_card-03-act-100_013");
+  const s = state([c]); drawTowerTurn(s, 1);
+  if (eligible) { s.exam.idolStatusType = 1; s.exam.idolStatusStep = 2; }
+  s.cardSearchById.set("supernova-target", { id: "supernova-target", cardPositionType: "ProduceCardPositionType_Hand", produceCardIds: [c.id] });
+  apply(s, effect("ExamForcePlayCardSearch", 0, { produceCardSearchId: "supernova-target", pickRangeType: "ProducePickRangeType_All" }));
+  assert.equal(s.exam.parameter > 0, eligible, "real Supernova eligibility");
+  assert.equal(s.lost.filter(row => row.id === c.id).length, 1);
+  assert.equal(s.currentTurnPlays.length, 1); assert.equal(s.playsRemaining, 1);
+  assert.deepEqual(s.unsupported, []);
+}
+console.log("Card playability gates: forced conditions, restrictions, costs, repeat preservation and real Supernova: ok");
+// Paying a Review cost must not retrospectively invalidate the eligibility
+// snapshot or suppress effects of an otherwise eligible card.
+{
+  const trigger = { id: "review-before-cost", phaseTypes: ["ProduceExamPhaseType_None"],
+    fieldStatusTypes: ["ProduceExamFieldStatusType_ReviewUp"], fieldStatusValues: [1],
+    fieldStatusCheckTypes: ["ProduceExamTriggerCheckType_Unknown"] };
+  const payload = effect("ExamLessonFix", 7);
+  const c = { ...filler[0], id: "review-cost", costType: "ExamCostType_ExamReview", costValue: 1,
+    playProduceExamTriggerId: trigger.id, playEffects: [{ produceExamEffectId: payload.id }] };
+  const s = state([c], { examTriggerById: entries([trigger]), examEffectById: entries([payload]) });
+  drawTowerTurn(s, 1); s.exam.review = 1;
+  playTowerCard(s, 0);
+  assert.equal(s.exam.review, 0); assert.equal(s.exam.parameter, 7);
+}
