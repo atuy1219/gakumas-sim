@@ -56,7 +56,7 @@ ELFから確認した修正：
 
 `ExamStatusEffectBase.IsPassingTurnStart` (0x80215A0) は、新規ステータスがターン開始を通過したかを保持する。`ExamLoopTaskAsync` の 0x8070394 はドロー後・StartPlay 前にステータスをマークする。`SpendTurn` 共通処理 (0x90FC418) は未通過のステータスを減らさない。好印象・好調・絶好調、有限ターンの強化、継続効果にもこの期間管理を適用する。既存ステータスへの追加付与はフラグを維持する (`AddTurn`: 0x8021774)。
 
-使用数追加 (`PlayableValueAddStatusEffect`, 0x802C858) は1ターンの状態。通常の1回を使っても追加数を消費せず、追加分を使った時点で消費する。付与したターンに使わなかった追加分は次ターンに持ち越す。
+使用数追加 (`PlayableValueAddStatusEffect`, 0x802C858) は `CardPlayCountAdd` (0x7FF0638) で既存の追加数を先に1消費する。追加数が無い場合だけ `IsTurnCardPlayEnd` を立てる。さらに `AddPlayableValueAdd` (0x7FF195C) は、すでに `IsTurnCardPlayEnd` の状態で追加数を付与した場合、ターンを再開して `UsePlayableValueAddCount` (0x802C99C) を即1回実行する。したがって通常の1回を使い切った後に得た `+1` は、そのターンを再開するために即消費され、スキップしても次ターンへ `+1` は持ち越さない。
 
 通常の継続効果による好印象増加は、「直接効果で好印象が増加後」の条件を満たさない。`IsEnchantTriggerActive` (0x7FE4EDC) と `IsEnchantTriggerActiveEffectType` (0x6905888) に従い、通常の継続効果から結果トリガーを連鎖させない。強制カード使用はカードの直接効果として処理する。
 
