@@ -1,10 +1,9 @@
 """Preserve public battle inputs from a TowerGetLayer API dump.
 
-Usage: python tools/build_tower_layer_snapshot.py TowerLayerExam_live.json OUTPUT.gz
+Usage: python tools/build_tower_layer_snapshot.py TowerLayerExam_live.json OUTPUT.json
 The snapshot deliberately excludes commonResponse and player/ranking data.
 """
 
-import gzip
 import json
 import sys
 
@@ -42,6 +41,6 @@ def build_snapshot(payload):
 if __name__ == "__main__":
     with open(sys.argv[1], encoding="utf-8") as source:
         result = build_snapshot(json.load(source))
-    with open(sys.argv[2], "wb") as target:
-        target.write(gzip.compress(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode(), mtime=0))
+    with open(sys.argv[2], "w", encoding="utf-8") as target:
+        json.dump(result, target, ensure_ascii=False, separators=(",", ":"))
     print(f"saved {len(result['layerExams'])} layer exams")

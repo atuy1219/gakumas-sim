@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { gunzipSync } from "node:zlib";
 import { buildTowerStageChoices, buildTowerFloorChoices, collectTowerPItemIds, parseTowerLiveLayerMap, resolveTowerFloorStage, towerFloorMemoryCount } from "../web/tower_stage.js";
 import {
   createTowerTurnState, drawTowerTurn, finishTowerTurn, playTowerCard,
@@ -209,7 +208,7 @@ for (const row of categoryRows) for (const previous of [active, mental, "skip", 
 // Source-backed automatic mapping: all saved floors carry exact gimmick IDs;
 // choices retain the effect-specific group instead of deriving it from names.
 {
-  const payload = JSON.parse(gunzipSync(fs.readFileSync(new URL("../web/data/tower_layer_config.json.gz", import.meta.url))));
+  const payload = JSON.parse(fs.readFileSync(new URL("../web/data/tower_layer_config.json", import.meta.url), "utf8"));
   const rows = parseTowerLiveLayerMap(payload);
   assert.equal(new Set(rows.map((row) => row.towerId + "#" + row.number)).size, 351);
   assert.equal(rows.length, 2126);

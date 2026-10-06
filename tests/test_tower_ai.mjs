@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import {
   JUOU_SENA_TOWER26,
@@ -18,7 +17,7 @@ import {
 } from "../web/tower_ai.js";
 import { createTowerTurnState, drawTowerTurn } from "../web/tower_runtime.js";
 
-const livePayload = JSON.parse(gunzipSync(readFileSync(new URL("../web/data/tower_layer_config.json.gz", import.meta.url))));
+const livePayload = JSON.parse(readFileSync(new URL("../web/data/tower_layer_config.json", import.meta.url), "utf8"));
 const layers = parseTowerLiveLayerMap(livePayload).filter((row) => (
   row.towerId === JUOU_SENA_TOWER26.towerId && row.number === JUOU_SENA_TOWER26.floor
 ));
