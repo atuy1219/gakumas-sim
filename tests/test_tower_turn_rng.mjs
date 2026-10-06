@@ -66,7 +66,7 @@ const layer = { towerId: 'tower_001-jsna', number: 26, maxSubMemoryCount: 3,
   produceExamBattleNpcGroupId: groupId };
 const catalog = await loadTowerStageCatalog(async url => {
   if (url === TOWER_STAGE_MASTER_URLS.liveLayers) return {
-    ok: true, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ layerExams: [layer] })).buffer,
+    ok: true, text: async () => JSON.stringify({ layerExams: [layer] }),
   };
   return { ok: contents.has(url), text: async () => contents.get(url) ?? '', status: 404 };
 });

@@ -38,7 +38,7 @@ export const TOWER_STAGE_MASTER_URLS = Object.freeze({
   towers: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Tower.yaml",
   layerExams: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/TowerLayerExam.yaml",
   npcGroups: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceExamBattleNpcGroup.yaml",
-  liveLayers: "./data/tower_layer_config.json.gz",
+  liveLayers: "./data/tower_layer_config.json",
 });
 
 function scalar(raw) {
@@ -234,19 +234,9 @@ async function fetchOptional(url, fetchImpl) {
   }
 }
 
-async function fetchOptionalCompressedJson(url, fetchImpl) {
+async function fetchOptionalJson(url, fetchImpl) {
   try {
-    const response = await fetchImpl(url);
-    if (!response?.ok || typeof response.arrayBuffer !== "function") return null;
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    let text = "";
-    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-      if (typeof DecompressionStream !== "function") return null;
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-      text = await new Response(stream).text();
-    } else {
-      text = new TextDecoder().decode(bytes);
-    }
+    const text = await fetchOptional(url, fetchImpl);
     return text.trim() ? JSON.parse(text) : null;
   } catch {
     return null;
@@ -260,7 +250,7 @@ export async function loadTowerStageCatalog(fetchImpl = globalThis.fetch) {
     fetchRequired(TOWER_STAGE_MASTER_URLS.scoreConfigs, fetchImpl),
     fetchOptional(TOWER_STAGE_MASTER_URLS.towers, fetchImpl),
     fetchOptional(TOWER_STAGE_MASTER_URLS.layerExams, fetchImpl),
-    fetchOptionalCompressedJson(TOWER_STAGE_MASTER_URLS.liveLayers, fetchImpl),
+    fetchOptionalJson(TOWER_STAGE_MASTER_URLS.liveLayers, fetchImpl),
     fetchRequired(TOWER_STAGE_MASTER_URLS.npcGroups, fetchImpl),
   ]);
   const configs = parseTowerBattleConfigs(battleText);
