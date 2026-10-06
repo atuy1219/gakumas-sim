@@ -1,3 +1,4 @@
+import { officialDescriptionText } from "./official_description.js";
 import { createSimulationBackup, parseSimulationBackup, stringifySimulationBackup } from "./simulation_backup.js";
 import { renderSimulationHistory } from "./simulation_history_ui.js";
 import {
@@ -393,10 +394,12 @@ function renderExamDrinkOptions() {
     || String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), "ja")
   ));
   for (const drink of drinks) {
-    select.add(new Option(
+    const option = new Option(
       `${drink.name ?? drink.id}${drink.rarity ? ` · ${String(drink.rarity).replace("ProduceDrinkRarity_", "")}` : ""}`,
       String(drink.id),
-    ));
+    );
+    option.title = officialDescriptionText(drink.produceDescriptionParts);
+    select.add(option);
   }
   if ([...select.options].some((option) => option.value === selected)) select.value = selected;
 }
@@ -1213,7 +1216,8 @@ function renderPItems(mode) {
     chip.className = "chip";
     chip.textContent = item.name && item.name !== item.id ? item.name : item.id;
     if (stageItemIds.has(item.id)) chip.textContent += "（階層限定）";
-    chip.title = [item.id, ...(item.effects ?? []).map(describeProduceItemEffect)].join("\n");
+    chip.title = officialDescriptionText(item.produceDescriptionParts)
+      || (item.effects ?? []).map(describeProduceItemEffect).join("\n");
     container.append(chip);
   }
   if (!seen.size) container.textContent = "Pアイテムなし / 未取得";
@@ -1507,7 +1511,7 @@ function renderTurnState(mode, state) {
   const seedMeta = mode === "exam" && state.initialRandomState !== undefined
     ? `Seed ${state.seed} · 初期Shuffle ${asHex(state.initialRandomState)}${state.initialRandomStateSource ? ` [${state.initialRandomStateSource}]` : ""} · `
     : "";
-  $(`${mode}-turn-meta`).textContent = `${turnAttribute}${seedMeta}${state.ended ? "試験終了 · " : ""}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨て札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
+  $(`${mode}-turn-meta`).textContent = `${turnAttribute}${seedMeta}${state.ended ? "試験終了 · " : ""}使用可能 ${state.playsRemaining}回 · 山札 ${state.deck.length} · 捨札 ${state.discard.length} · 除外 ${state.lost.length} · 再シャッフル ${state.recycleCount}回 · RNG ${asHex(state.randomState)}`;
   const statusGrid = $(`${mode}-status-grid`);
   statusGrid.replaceChildren(...examStateTiles(state.exam).map(([label, value]) => {
     const tile = document.createElement("div");
@@ -1544,7 +1548,7 @@ function renderTurnState(mode, state) {
     const title = document.createElement("strong");
     const detail = document.createElement("p");
     const use = document.createElement("button");
-    eyebrow.textContent = selected.onceOnly ? "レッスン中1回" : "SKILL CARD";
+    eyebrow.textContent = "スキルカード";
     title.textContent = runtimeCardLabel(selected);
     detail.textContent = describeCardEffects(selected, state).join(" · ") || "追加効果なし";
     use.type = "button";
@@ -1567,9 +1571,9 @@ function renderTurnState(mode, state) {
     const title = document.createElement("strong");
     title.textContent = runtimeCardLabel(card);
     const detail = document.createElement("small");
-    const move = card.onceOnly ? "使用後に除外" : "使用後に捨て札";
+    const move = card.onceOnly ? "使用後に除外" : "使用後に捨札";
     const effects = describeCardEffects(card, state);
-    detail.textContent = [move, ...effects].join(" · ");
+    detail.textContent = (card.produceDescriptionParts?.length ? effects : [move, ...effects]).join(" · ");
     article.addEventListener("click", () => {
       if (mode === "tower") towerSelectedCardIndex = index;
       else examSelectedCardIndex = index;

@@ -1,3 +1,5 @@
+import { parseOfficialDescriptionParts, officialDescriptionText } from "./official_description.js";
+import { applyCardGrowEffectsToParsedEffect } from "./card_customization.js";
 import {
   EXAM_IDOL_STATUS_TYPE,
   NATIVE_LESSON_MODIFIER_KIND,
@@ -117,6 +119,7 @@ export function parseExamSettingCatalog(text) {
 }
 
 export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = [], descriptionFields = []) {
+  const officialParts = parseOfficialDescriptionParts(text);
   const wantedScalars = new Set(["id", ...scalarFields]);
   const wantedLists = new Set(listFields);
   const wantedDescriptions = new Set(descriptionFields);
@@ -124,7 +127,10 @@ export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = 
   let current = null;
   let activeList = null;
   const flush = () => {
-    if (current?.id) records.push(current);
+    if (current?.id) {
+      current.produceDescriptionParts = officialParts.get(`${current.id}@@${Number(current.upgradeCount ?? 0)}`) ?? [];
+      records.push(current);
+    }
   };
 
   for (const line of String(text ?? "").split(/\r?\n/)) {
@@ -1754,7 +1760,7 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
         effect: parsed,
         label: `対象カードに元気値 +${parsed.blockAdd} / コスト +${parsed.costAdd}`,
       };
-    case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
+    case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `スキルカード使用数追加 +${parsed.value}` };
     case "effect_timer": {
       const childLabel = parsed.child ? describeParsedEffect(parsed.child) : "";
       return {
@@ -1786,7 +1792,8 @@ export function describeParsedEffect(parsed, catalogs = {}) {
   if (parsed.kind === "master_effect" && /ExamStatusEnchant(?:Encore)?$/.test(parsed.masterEffectType)) {
     const enchant = catalogs.examStatusEnchantById?.get?.(parsed.enchantId);
     if (!enchant) return `未解決の継続効果: ${parsed.enchantId}`;
-    const description = (enchant.produceDescriptions ?? []).join("").replace(/<[^>]*>/g, "").trim();
+    const description = officialDescriptionText(enchant.produceDescriptionParts)
+      || (enchant.produceDescriptions ?? []).join("").replace(/<[^>]*>/g, "").trim();
     return description ? `継続効果: ${description}` : `継続効果を追加: ${parsed.enchantId}`;
   }
   const clone = createExamState();
@@ -1794,17 +1801,59 @@ export function describeParsedEffect(parsed, catalogs = {}) {
   return result.label || parsed.id;
 }
 
+export function describeOfficialCard(card, catalogs = {}) {
+  const parts = card?.produceDescriptionParts;
+  if (!parts?.length) return "";
+  // A changed/added effect needs its own official fragments. Until those are
+  // available, use the current runtime effect instead of a stale master text.
+  const structural = new Set(["EffectAdd", "EffectChange", "PlayEffectTriggerChange", "PlayTriggerChange", "CardStatusEnchantChange", "PlayMovePositionTypeChange"]);
+  if ((card.customGrowEffects ?? []).some(effect => structural.has(String(effect.effectType).replace("ProduceCardGrowEffectType_", "")))) return "";
+  return officialDescriptionText(parts, part => {
+    const type = String(part.examDescriptionType ?? "").replace("ExamDescriptionType_", "");
+    if (type === "CustomizeCostValue") return Number(card.costValue ?? 0);
+    if (type === "CustomizeInitialAdd" && !part.text && card.isInitial && !parts.some(row => row.text === "開始時手札に入る")) return "レッスン開始時手札に入る\n";
+    if (type === "CustomizePlayMovePositionLost" && !part.text && /_Lost$/.test(card.playMovePositionType ?? "") && !parts.some(row => row.text === "レッスン中1回")) return "\nレッスン中1回";
+    const master = catalogs.examEffectById?.get?.(String(part.originProduceExamEffectId ?? ""));
+    if (!master || !/^Customize(?:EffectValue|EffectCount|LessonCount|Turn)/.test(type)) return undefined;
+    const before = parseExamEffectMaster(master);
+    const after = applyCardGrowEffectsToParsedEffect(before, card);
+    let field = "value";
+    let divisor = 1;
+    if (/Percent/.test(type)) { field = before.permil !== undefined ? "permil" : /2$/.test(type) ? "value2" : "value1"; divisor = 10; }
+    else if (/Value2$/.test(type)) field = "value2";
+    else if (/Count/.test(type)) field = before.kind === "playable_add" ? "value" : "count";
+    else if (type === "CustomizeTurn") field = before.turn !== undefined ? "turn" : "value";
+    else if (before.value1 !== undefined) field = "value1";
+    const delta = Number(after[field] ?? 0) - Number(before[field] ?? 0);
+    if (!delta) return undefined;
+    if (!part.text && type === "CustomizeLessonCountAdd") return `（${Number(after.count)}回）`;
+    // Preserve the official units, punctuation and percent formatting.
+    return String(part.text ?? "").replace(/-?\d+(?:\.\d+)?/, number => String(Number(number) + delta / divisor));
+  });
+}
+
 export function describeCardEffects(card, catalogs = {}) {
+  const official = describeOfficialCard(card, catalogs);
+  if (official) return [
+    ...(Number(card.stamina) > 0 ? [`消費体力${Number(card.stamina) + Number(card.growCostAdd ?? 0)}`] : []),
+    ...(Number(card.forceStamina) > 0 ? [`体力消費${card.forceStamina}`] : []),
+    ...official.split(/\n+/).filter(Boolean),
+  ];
   const rows = [];
   const stamina = Number(card?.stamina ?? 0) || 0;
   const direct = Number(card?.forceStamina ?? 0) || 0;
   if (stamina) rows.push(`体力${stamina}`);
   if (direct) rows.push(`直接体力${direct}`);
   const costValue = Number(card?.costValue ?? 0) || 0;
-  if (costValue) rows.push(`${String(card.costType ?? "追加コスト").replace("ExamCostType_Exam", "")} ${costValue}`);
+  if (costValue) {
+    const costNames = { ExamReview: "好印象", ExamCardPlayAggressive: "やる気", ExamLessonBuff: "集中",
+      ExamParameterBuff: "好調", ExamFullPowerPoint: "全力値", ExamParameterBuffMultiplePerTurn: "絶好調" };
+    const type = String(card.costType ?? "").replace("ExamCostType_", "");
+    rows.push(`${costNames[type] ?? "追加コスト"}消費${costValue}`);
+  }
   for (const entry of card?.playEffects ?? []) {
     const master = catalogs.examEffectById?.get?.(String(entry?.produceExamEffectId ?? ""));
-    const parsed = master ? parseExamEffectMaster(master) : parseExamEffectId(entry?.produceExamEffectId);
+    const parsed = applyCardGrowEffectsToParsedEffect(master ? parseExamEffectMaster(master) : parseExamEffectId(entry?.produceExamEffectId), card);
     const label = describeParsedEffect(parsed, catalogs);
     rows.push(entry?.produceExamTriggerId ? `${label} [条件]` : label);
   }

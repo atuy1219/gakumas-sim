@@ -286,6 +286,7 @@ function runtimeInstances(
       moveEffectTriggerType: String(master.moveEffectTriggerType ?? ""),
       moveProduceExamEffectIds: [...(master.moveProduceExamEffectIds ?? [])],
       moveProduceExamTriggerIds: [...(master.moveProduceExamTriggerIds ?? [])],
+      produceDescriptionParts: master.produceDescriptionParts ?? [],
       playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
       produceCardStatusEnchantId: String(master.produceCardStatusEnchantId ?? ""),
       isInitial: Boolean(master.isInitial ?? card.isInitial),
@@ -370,6 +371,7 @@ function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
     moveEffectTriggerType: String(master.moveEffectTriggerType ?? ""),
     moveProduceExamEffectIds: [...(master.moveProduceExamEffectIds ?? [])],
     moveProduceExamTriggerIds: [...(master.moveProduceExamTriggerIds ?? [])],
+    produceDescriptionParts: master.produceDescriptionParts ?? [],
     playEffects: Array.isArray(master.playEffects) ? master.playEffects.map((effect) => ({ ...effect })) : [],
     produceCardStatusEnchantId: String(master.produceCardStatusEnchantId ?? ""),
     isInitial: Boolean(master.isInitial),
@@ -394,8 +396,8 @@ function runtimeCardName(state, cardIdInput, upgradeCountInput = null) {
 function runtimeCardPositionName(positionInput) {
   switch (String(positionInput ?? "")) {
     case "deck": return "山札";
-    case "grave": return "捨て札";
-    case "deck_grave": return "山札・捨て札";
+    case "grave": return "捨札";
+    case "deck_grave": return "山札・捨札";
     case "deck_first": return "山札の先頭";
     case "deck_last": return "山札の末尾";
     case "deck_random": return "山札のランダム位置";
@@ -2437,7 +2439,7 @@ function applyStanceRuntimeRewards(state, stance, event) {
   const playable = Math.max(0, Math.trunc(Number(stance?.playableValueAdd) || 0));
   if (playable > 0) {
     addPlayableStatus(state, playable);
-    event.effects.push(`カード使用回数 +${playable}`);
+    event.effects.push(`スキルカード使用数追加 +${playable}`);
   }
   const lessonAdd = Math.max(0, Math.trunc(Number(stance?.growLessonAdd) || 0));
   if (lessonAdd <= 0) return;
