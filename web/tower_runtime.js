@@ -682,6 +682,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     cardSearchById: options.cardSearchById ?? new Map(),
     cardRandomPoolById: options.cardRandomPoolById ?? new Map(),
     cardStatusEnchantById: options.cardStatusEnchantById ?? new Map(),
+    descriptionLabelById: options.descriptionLabelById ?? new Map(),
     cardPoolById: options.cardPoolById ?? new Map(),
     searchPlayCardLimits: [],
     searchCardCostChanges: [],

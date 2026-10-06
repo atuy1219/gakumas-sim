@@ -1,4 +1,4 @@
-import { parseOfficialDescriptionParts, officialDescriptionText } from "./official_description.js";
+import { parseOfficialDescriptionParts, officialDescriptionText, customizeOfficialCardParts } from "./official_description.js";
 import { applyCardGrowEffectsToParsedEffect } from "./card_customization.js";
 import {
   EXAM_IDOL_STATUS_TYPE,
@@ -29,6 +29,7 @@ export const EXAM_ITEM_URLS = Object.freeze({
   cardStatusEnchantsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardStatusEnchant.yaml",
   examSettingsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ExamSetting.yaml",
   settingsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Setting.yaml",
+  descriptionLabelsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDescriptionLabel.yaml",
   cardPoolsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardPool.yaml",
   drinkEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrinkEffect.yaml",
   drinkEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrinkEffect.yaml",
@@ -120,6 +121,9 @@ export function parseExamSettingCatalog(text) {
 
 export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = [], descriptionFields = []) {
   const officialParts = parseOfficialDescriptionParts(text);
+  const extraParts = ["customizeProduceDescriptions", "playProduceDescriptions", "playEffectProduceDescriptions"]
+    .filter(section => String(text).includes(`\n  ${section}:`))
+    .map(section => [section.replace(/Descriptions$/, "DescriptionParts"), parseOfficialDescriptionParts(text, section)]);
   const wantedScalars = new Set(["id", ...scalarFields]);
   const wantedLists = new Set(listFields);
   const wantedDescriptions = new Set(descriptionFields);
@@ -129,6 +133,7 @@ export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = 
   const flush = () => {
     if (current?.id) {
       current.produceDescriptionParts = officialParts.get(`${current.id}@@${Number(current.upgradeCount ?? 0)}`) ?? [];
+      for (const [field, parts] of extraParts) current[field] = parts.get(`${current.id}@@${Number(current.upgradeCount ?? 0)}`) ?? [];
       records.push(current);
     }
   };
@@ -332,7 +337,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     cardSearchText,
     cardRandomPoolText,
     drinkText,
-    drinkEffectText, gimmickText, cardEnchantText, examSettingText, settingText, cardPoolText,
+    drinkEffectText, gimmickText, cardEnchantText, examSettingText, settingText, cardPoolText, descriptionLabelText,
   ] = await Promise.all([
     fetchText(urls.itemsPrimary, urls.itemsFallback, fetchImpl),
     fetchText(urls.itemEffectsPrimary, urls.itemEffectsFallback, fetchImpl),
@@ -343,7 +348,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     fetchText(urls.cardRandomPoolsPrimary, urls.cardRandomPoolsFallback, fetchImpl),
     fetchText(urls.drinksPrimary, urls.drinksFallback, fetchImpl),
     fetchText(urls.drinkEffectsPrimary, urls.drinkEffectsFallback, fetchImpl),
-    ...["gimmicksPrimary", "cardStatusEnchantsPrimary", "examSettingsPrimary", "settingsPrimary", "cardPoolsPrimary"].map((key) => urls[key] ? fetchText(urls[key], urls[key], fetchImpl) : Promise.resolve("")),
+    ...["gimmicksPrimary", "cardStatusEnchantsPrimary", "examSettingsPrimary", "settingsPrimary", "cardPoolsPrimary", "descriptionLabelsPrimary"].map((key) => urls[key] ? fetchText(urls[key], urls[key], fetchImpl) : Promise.resolve("")),
 
   ]);
   const gimmicks = parseProduceExamGimmickCatalog(gimmickText);
@@ -362,6 +367,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
   const drinkEffects = parseProduceDrinkEffectCatalog(drinkEffectText);
   return {
     items,
+    descriptionLabelById: new Map(parseYamlRecordsWithLists(descriptionLabelText, ["name"]).map(row => [row.id, row])),
     gimmicks, gimmickById: groupExamGimmicks(gimmicks),
     cardStatusEnchants, cardStatusEnchantById: new Map(cardStatusEnchants.map((row) => [row.id, row])),
     cardPoolById: parseProduceCardPoolCatalog(cardPoolText),
@@ -1802,12 +1808,10 @@ export function describeParsedEffect(parsed, catalogs = {}) {
 }
 
 export function describeOfficialCard(card, catalogs = {}) {
-  const parts = card?.produceDescriptionParts;
-  if (!parts?.length) return "";
-  // A changed/added effect needs its own official fragments. Until those are
-  // available, use the current runtime effect instead of a stale master text.
-  const structural = new Set(["EffectAdd", "EffectChange", "PlayEffectTriggerChange", "PlayTriggerChange", "CardStatusEnchantChange", "PlayMovePositionTypeChange"]);
-  if ((card.customGrowEffects ?? []).some(effect => structural.has(String(effect.effectType).replace("ProduceCardGrowEffectType_", "")))) return "";
+  const composition = customizeOfficialCardParts(card, catalogs);
+  if (composition.unresolved.length) return "";
+  const parts = composition.parts;
+  if (!parts.length) return "";
   return officialDescriptionText(parts, part => {
     const type = String(part.examDescriptionType ?? "").replace("ExamDescriptionType_", "");
     if (type === "CustomizeCostValue") return Number(card.costValue ?? 0);

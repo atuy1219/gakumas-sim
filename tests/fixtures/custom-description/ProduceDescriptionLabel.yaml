@@ -1,0 +1,106 @@
+- id: Description_ProduceCardIsInitial
+  name: ""
+  produceDescriptionSwapId: ""
+  iconAssetId: ""
+  produceDescriptions:
+  - produceDescriptionType: ProduceDescriptionType_ProduceDescriptionName
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: レッスン
+    targetId: Convert_002
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+  - produceDescriptionType: ProduceDescriptionType_PlainText
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: 開始時手札に入る
+    targetId: ""
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+- id: Label_ProduceCardMovePositionType_Lost
+  name: レッスン中1回
+  produceDescriptionSwapId: Swap_Label_ProduceCardMovePositionType_Lost
+  iconAssetId: ""
+  produceDescriptions:
+  - produceDescriptionType: ProduceDescriptionType_ProduceDescriptionName
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: レッスン中1回
+    targetId: Convert_002
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+  - produceDescriptionType: ProduceDescriptionType_PlainText
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: 中に1回使用すると、その
+    targetId: ""
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+  - produceDescriptionType: ProduceDescriptionType_ProduceDescriptionName
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: レッスン
+    targetId: Convert_002
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+  - produceDescriptionType: ProduceDescriptionType_PlainText
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: が終了するまで、除外に移動する
+    targetId: ""
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+- id: Label_ProduceCardPositionType_Hold
+  name: 保留
+  produceDescriptionSwapId: ""
+  iconAssetId: ""
+  produceDescriptions:
+  - produceDescriptionType: ProduceDescriptionType_ProduceExamEffectType
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: 全力
+    targetId: ""
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+  - produceDescriptionType: ProduceDescriptionType_PlainText
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: |
+      に変更時、手札に移動する
+    targetId: ""
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false
+  - produceDescriptionType: ProduceDescriptionType_PlainText
+    examDescriptionType: ExamDescriptionType_Unknown
+    produceCardMovePositionType: ProduceCardMovePositionType_Unknown
+    text: スキルカードを2枚まで保存でき、2枚を超えると古い順に捨札に送る
+    targetId: ""
+    originProduceExamTriggerId: ""
+    originProduceExamEffectId: ""
+    originProduceCardStatusEnchantId: ""
+    isCost: false
+    isOnlyOutGame: false

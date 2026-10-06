@@ -145,8 +145,9 @@ function examRuntimeSharedCatalogs() {
     examTriggerById: examItemCatalogs.examTriggerById,
     cardSearchById: examItemCatalogs.cardSearchById,
     cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
-      cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
-      cardPoolById: examItemCatalogs.cardPoolById,
+    cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
+    descriptionLabelById: examItemCatalogs.descriptionLabelById,
+    cardPoolById: examItemCatalogs.cardPoolById,
   };
 }
 
@@ -1682,6 +1683,7 @@ $("tower-run").addEventListener("click", async () => {
       cardSearchById: examItemCatalogs.cardSearchById,
       cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
       cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
+      descriptionLabelById: examItemCatalogs.descriptionLabelById,
       cardPoolById: examItemCatalogs.cardPoolById,
       examSetting: examItemCatalogs.defaultExamSetting,
       parameterBonus,
@@ -1728,6 +1730,7 @@ document.addEventListener("exam-simulation-start", async (event) => {
       cardSearchById: examItemCatalogs.cardSearchById,
       cardRandomPoolById: examItemCatalogs.cardRandomPoolById,
       cardStatusEnchantById: examItemCatalogs.cardStatusEnchantById,
+      descriptionLabelById: examItemCatalogs.descriptionLabelById,
       cardPoolById: examItemCatalogs.cardPoolById,
       examSetting: event.detail?.examSetting ?? examItemCatalogs.defaultExamSetting,
       parameterBonus: event.detail?.parameterBonus ?? null,
