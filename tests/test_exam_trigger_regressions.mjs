@@ -286,7 +286,7 @@ console.log("exam trigger regressions: 3 real P-items, 10 Tower groups, 83 categ
     assert.equal(s.playsRemaining, 1, "+1 replaces the play spent by 私を超えて");
     assert.equal(s.exam.stamina, 100 - masters.find((row) => row.id === koete && row.upgradeCount === upgradeCount).stamina);
     const labels = describeCardEffects(played.card, realCatalogs).join(" / ");
-    assert.match(labels, /カード使用回数 \+1/);
+    assert.match(labels, /スキルカード使用数追加 \+1/);
     assert.match(labels, /元気効果のスキルカードを2回使用するごとに、私を超えて（翔）/);
     assert.doesNotMatch(labels, /未対応|未解決/);
     assert.equal(s.lost.some((card) => card.id === koete), true);

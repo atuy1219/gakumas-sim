@@ -1,3 +1,5 @@
+import { parseOfficialDescriptionParts, officialDescriptionText, customizeOfficialCardParts } from "./official_description.js";
+import { applyCardGrowEffectsToParsedEffect } from "./card_customization.js";
 import {
   EXAM_IDOL_STATUS_TYPE,
   NATIVE_LESSON_MODIFIER_KIND,
@@ -27,6 +29,7 @@ export const EXAM_ITEM_URLS = Object.freeze({
   cardStatusEnchantsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardStatusEnchant.yaml",
   examSettingsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ExamSetting.yaml",
   settingsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/Setting.yaml",
+  descriptionLabelsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDescriptionLabel.yaml",
   cardPoolsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceCardPool.yaml",
   drinkEffectsPrimary: "https://raw.githubusercontent.com/vertesan/gakumasu-diff/main/ProduceDrinkEffect.yaml",
   drinkEffectsFallback: "https://raw.githubusercontent.com/zliu-aki/simple_gakuen_idolmaster/main/yaml/ProduceDrinkEffect.yaml",
@@ -117,6 +120,10 @@ export function parseExamSettingCatalog(text) {
 }
 
 export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = [], descriptionFields = []) {
+  const officialParts = parseOfficialDescriptionParts(text);
+  const extraParts = ["customizeProduceDescriptions", "playProduceDescriptions", "playEffectProduceDescriptions"]
+    .filter(section => String(text).includes(`\n  ${section}:`))
+    .map(section => [section.replace(/Descriptions$/, "DescriptionParts"), parseOfficialDescriptionParts(text, section)]);
   const wantedScalars = new Set(["id", ...scalarFields]);
   const wantedLists = new Set(listFields);
   const wantedDescriptions = new Set(descriptionFields);
@@ -124,7 +131,11 @@ export function parseYamlRecordsWithLists(text, scalarFields = [], listFields = 
   let current = null;
   let activeList = null;
   const flush = () => {
-    if (current?.id) records.push(current);
+    if (current?.id) {
+      current.produceDescriptionParts = officialParts.get(`${current.id}@@${Number(current.upgradeCount ?? 0)}`) ?? [];
+      for (const [field, parts] of extraParts) current[field] = parts.get(`${current.id}@@${Number(current.upgradeCount ?? 0)}`) ?? [];
+      records.push(current);
+    }
   };
 
   for (const line of String(text ?? "").split(/\r?\n/)) {
@@ -326,7 +337,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     cardSearchText,
     cardRandomPoolText,
     drinkText,
-    drinkEffectText, gimmickText, cardEnchantText, examSettingText, settingText, cardPoolText,
+    drinkEffectText, gimmickText, cardEnchantText, examSettingText, settingText, cardPoolText, descriptionLabelText,
   ] = await Promise.all([
     fetchText(urls.itemsPrimary, urls.itemsFallback, fetchImpl),
     fetchText(urls.itemEffectsPrimary, urls.itemEffectsFallback, fetchImpl),
@@ -337,7 +348,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
     fetchText(urls.cardRandomPoolsPrimary, urls.cardRandomPoolsFallback, fetchImpl),
     fetchText(urls.drinksPrimary, urls.drinksFallback, fetchImpl),
     fetchText(urls.drinkEffectsPrimary, urls.drinkEffectsFallback, fetchImpl),
-    ...["gimmicksPrimary", "cardStatusEnchantsPrimary", "examSettingsPrimary", "settingsPrimary", "cardPoolsPrimary"].map((key) => urls[key] ? fetchText(urls[key], urls[key], fetchImpl) : Promise.resolve("")),
+    ...["gimmicksPrimary", "cardStatusEnchantsPrimary", "examSettingsPrimary", "settingsPrimary", "cardPoolsPrimary", "descriptionLabelsPrimary"].map((key) => urls[key] ? fetchText(urls[key], urls[key], fetchImpl) : Promise.resolve("")),
 
   ]);
   const gimmicks = parseProduceExamGimmickCatalog(gimmickText);
@@ -356,6 +367,7 @@ export async function loadExamItemCatalogs(fetchImpl = globalThis.fetch, urls = 
   const drinkEffects = parseProduceDrinkEffectCatalog(drinkEffectText);
   return {
     items,
+    descriptionLabelById: new Map(parseYamlRecordsWithLists(descriptionLabelText, ["name"]).map(row => [row.id, row])),
     gimmicks, gimmickById: groupExamGimmicks(gimmicks),
     cardStatusEnchants, cardStatusEnchantById: new Map(cardStatusEnchants.map((row) => [row.id, row])),
     cardPoolById: parseProduceCardPoolCatalog(cardPoolText),
@@ -1754,7 +1766,7 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
         effect: parsed,
         label: `対象カードに元気値 +${parsed.blockAdd} / コスト +${parsed.costAdd}`,
       };
-    case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `カード使用回数 +${parsed.value}` };
+    case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `スキルカード使用数追加 +${parsed.value}` };
     case "effect_timer": {
       const childLabel = parsed.child ? describeParsedEffect(parsed.child) : "";
       return {
@@ -1786,7 +1798,8 @@ export function describeParsedEffect(parsed, catalogs = {}) {
   if (parsed.kind === "master_effect" && /ExamStatusEnchant(?:Encore)?$/.test(parsed.masterEffectType)) {
     const enchant = catalogs.examStatusEnchantById?.get?.(parsed.enchantId);
     if (!enchant) return `未解決の継続効果: ${parsed.enchantId}`;
-    const description = (enchant.produceDescriptions ?? []).join("").replace(/<[^>]*>/g, "").trim();
+    const description = officialDescriptionText(enchant.produceDescriptionParts)
+      || (enchant.produceDescriptions ?? []).join("").replace(/<[^>]*>/g, "").trim();
     return description ? `継続効果: ${description}` : `継続効果を追加: ${parsed.enchantId}`;
   }
   const clone = createExamState();
@@ -1794,17 +1807,57 @@ export function describeParsedEffect(parsed, catalogs = {}) {
   return result.label || parsed.id;
 }
 
+export function describeOfficialCard(card, catalogs = {}) {
+  const composition = customizeOfficialCardParts(card, catalogs);
+  if (composition.unresolved.length) return "";
+  const parts = composition.parts;
+  if (!parts.length) return "";
+  return officialDescriptionText(parts, part => {
+    const type = String(part.examDescriptionType ?? "").replace("ExamDescriptionType_", "");
+    if (type === "CustomizeCostValue") return Number(card.costValue ?? 0);
+    if (type === "CustomizeInitialAdd" && !part.text && card.isInitial && !parts.some(row => row.text === "開始時手札に入る")) return "レッスン開始時手札に入る\n";
+    if (type === "CustomizePlayMovePositionLost" && !part.text && /_Lost$/.test(card.playMovePositionType ?? "") && !parts.some(row => row.text === "レッスン中1回")) return "\nレッスン中1回";
+    const master = catalogs.examEffectById?.get?.(String(part.originProduceExamEffectId ?? ""));
+    if (!master || !/^Customize(?:EffectValue|EffectCount|LessonCount|Turn)/.test(type)) return undefined;
+    const before = parseExamEffectMaster(master);
+    const after = applyCardGrowEffectsToParsedEffect(before, card);
+    let field = "value";
+    let divisor = 1;
+    if (/Percent/.test(type)) { field = before.permil !== undefined ? "permil" : /2$/.test(type) ? "value2" : "value1"; divisor = 10; }
+    else if (/Value2$/.test(type)) field = "value2";
+    else if (/Count/.test(type)) field = before.kind === "playable_add" ? "value" : "count";
+    else if (type === "CustomizeTurn") field = before.turn !== undefined ? "turn" : "value";
+    else if (before.value1 !== undefined) field = "value1";
+    const delta = Number(after[field] ?? 0) - Number(before[field] ?? 0);
+    if (!delta) return undefined;
+    if (!part.text && type === "CustomizeLessonCountAdd") return `（${Number(after.count)}回）`;
+    // Preserve the official units, punctuation and percent formatting.
+    return String(part.text ?? "").replace(/-?\d+(?:\.\d+)?/, number => String(Number(number) + delta / divisor));
+  });
+}
+
 export function describeCardEffects(card, catalogs = {}) {
+  const official = describeOfficialCard(card, catalogs);
+  if (official) return [
+    ...(Number(card.stamina) > 0 ? [`消費体力${Number(card.stamina) + Number(card.growCostAdd ?? 0)}`] : []),
+    ...(Number(card.forceStamina) > 0 ? [`体力消費${card.forceStamina}`] : []),
+    ...official.split(/\n+/).filter(Boolean),
+  ];
   const rows = [];
   const stamina = Number(card?.stamina ?? 0) || 0;
   const direct = Number(card?.forceStamina ?? 0) || 0;
   if (stamina) rows.push(`体力${stamina}`);
   if (direct) rows.push(`直接体力${direct}`);
   const costValue = Number(card?.costValue ?? 0) || 0;
-  if (costValue) rows.push(`${String(card.costType ?? "追加コスト").replace("ExamCostType_Exam", "")} ${costValue}`);
+  if (costValue) {
+    const costNames = { ExamReview: "好印象", ExamCardPlayAggressive: "やる気", ExamLessonBuff: "集中",
+      ExamParameterBuff: "好調", ExamFullPowerPoint: "全力値", ExamParameterBuffMultiplePerTurn: "絶好調" };
+    const type = String(card.costType ?? "").replace("ExamCostType_", "");
+    rows.push(`${costNames[type] ?? "追加コスト"}消費${costValue}`);
+  }
   for (const entry of card?.playEffects ?? []) {
     const master = catalogs.examEffectById?.get?.(String(entry?.produceExamEffectId ?? ""));
-    const parsed = master ? parseExamEffectMaster(master) : parseExamEffectId(entry?.produceExamEffectId);
+    const parsed = applyCardGrowEffectsToParsedEffect(master ? parseExamEffectMaster(master) : parseExamEffectId(entry?.produceExamEffectId), card);
     const label = describeParsedEffect(parsed, catalogs);
     rows.push(entry?.produceExamTriggerId ? `${label} [条件]` : label);
   }

@@ -3,7 +3,7 @@ import { cardMatchesMasterSearch, restoreTowerTurnState, serializeTowerTurnState
 import { parseExamEffectId, parseExamEffectMaster } from "./exam_effects.js";
 
 const CATALOG_KEYS = ["cardById", "cardVariantByKey", "customizeById", "growEffectById", "examEffectById",
-  "examStatusEnchantById", "examTriggerById", "cardSearchById", "cardRandomPoolById", "cardStatusEnchantById", "cardPoolById"];
+  "examStatusEnchantById", "examTriggerById", "cardSearchById", "cardRandomPoolById", "cardStatusEnchantById", "cardPoolById", "descriptionLabelById"];
 // Follow references from the actual checkpoint, including future generated
 // cards, upgrades, random pools and chained effects. Keep catalog iteration
 // order: generation can consume RNG once per candidate in that order.
@@ -40,6 +40,14 @@ function requiredCatalogs(state, checkpoint) {
     if (typeof value === "string") { reference(value); continue; }
     if (!value || typeof value !== "object" || seen.has(value)) continue;
     seen.add(value);
+    // These labels are selected by a customization enum, rather than an ID
+    // reference in the card master. Preserve them for offline rendering.
+    if (value.effectType === "ProduceCardGrowEffectType_InitialAdd") reference("Description_ProduceCardIsInitial");
+    if (value.effectType === "ProduceCardGrowEffectType_PlayMovePositionTypeChange") {
+      const position = value.playMovePositionType ?? value.movePositionType ?? "";
+      if (position.endsWith("_Lost")) reference("Label_ProduceCardMovePositionType_Lost");
+      if (position.endsWith("_Hold")) reference("Label_ProduceCardPositionType_Hold");
+    }
     if (value.effectType?.startsWith("ProduceExamEffectType_")) queue.push(parseExamEffectMaster(value));
     if (value.masterEffectType === "ProduceExamEffectType_ExamCardCreateSearch") {
       const search = state.cardSearchById?.get(value.searchId);

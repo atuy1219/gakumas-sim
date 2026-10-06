@@ -1,3 +1,4 @@
+import { parseOfficialDescriptionParts } from "./official_description.js";
 import { parseCustomizeCatalog, parseGrowEffectCatalog } from "./memory_judgement.js";
 
 export const UINT32_MASK = 0xffffffffn;
@@ -65,6 +66,7 @@ function yamlScalar(value) {
 }
 
 export function parseProduceCardCatalogYaml(text) {
+  const descriptions = parseOfficialDescriptionParts(text);
   const cards = [];
   let current = null;
   let section = null;
@@ -99,6 +101,7 @@ export function parseProduceCardCatalogYaml(text) {
     current.isInitial = current.isInitial === true;
     current.isInitialDeckProduceCard = current.isInitialDeckProduceCard === true;
     current.isRestrict = current.isRestrict === true;
+    current.produceDescriptionParts = descriptions.get(`${current.id}@@${current.upgradeCount}`) ?? [];
     cards.push(current);
   };
 

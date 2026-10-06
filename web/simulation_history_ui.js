@@ -1,6 +1,6 @@
 import { SIMULATION_FIELD_LABELS } from "./simulation_history.js";
 const sourceNames = { card: "スキルカード", pItem: "Pアイテム", enchant: "継続効果", gimmick: "ギミック", drink: "ドリンク", system: "応援・進行" };
-const positions = { deck: "山札", hand: "手札", discard: "捨て札", lost: "除外", hold: "保留", playing: "使用中", created: "生成" };
+const positions = { deck: "山札", hand: "手札", discard: "捨札", lost: "除外", hold: "保留", playing: "使用中", created: "生成" };
 const attributes = { Vocal: "ボーカル", Dance: "ダンス", Visual: "ビジュアル" };
 function valueText(value, field = "") {
   if (["panic", "slump", "blockRestriction", "staminaRecoverRestriction"].includes(field)) return value ? "∞" : "0";

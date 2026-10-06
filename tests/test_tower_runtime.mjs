@@ -840,7 +840,7 @@ assert.equal(summerPlay.moved[0].to, "lost");
 assert.equal(state.deck.some((card) => card.id === sleepyId), false);
 assert.equal(state.discard.some((card) => card.id === sleepyId), false);
 assert.equal(state.lost.some((card) => card.id === sleepyId), true);
-assert.match(summerPlay.effects.join(" / "), /山札・捨て札の眠気を除外へ移動/);
+assert.match(summerPlay.effects.join(" / "), /山札・捨札の眠気を除外へ移動/);
 assert.doesNotMatch(summerPlay.effects.join(" / "), /p_card-00-acc-0_002/);
 const summerRandomStep = new XorShift32(summerRandomBefore);
 // Native PickCardPositionListImpl consumes one RNG word for the fixed 1_1
