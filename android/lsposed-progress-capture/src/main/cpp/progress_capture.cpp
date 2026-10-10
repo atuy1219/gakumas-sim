@@ -799,6 +799,7 @@ void trace_snapshot(
     out << "{"
         << "\"seq\":" << seq << ","
         << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"captureSchemaVersion\":2,"
         << "\"event\":\"" << json_escape(event ? event : "") << "\","
         << "\"seed\":" << seed << ","
         << "\"turn\":" << turn << ","
@@ -848,6 +849,7 @@ void trace_random_event(
     out << "{"
         << "\"seq\":" << seq << ","
         << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"captureSchemaVersion\":2,"
         << "\"event\":\"GetRandomInt\","
         << "\"overload\":\"" << json_escape(overload ? overload : "") << "\","
         << "\"seed\":" << seed << ","
@@ -1056,8 +1058,11 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
         << "\"seq\":" << (g_trace_sequence.fetch_add(1) + 1) << ","
         << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
         << "\"event\":\"trace-start\","
-        << "\"targetSeed\":2696513658,"
+        << "\"captureSchemaVersion\":2,"
+        << "\"processId\":" << getpid() << ","
         << "\"libil2cppBuildId\":\"" << json_escape(image.build_id) << "\","
+        << "\"capabilities\":{\"randomState\":true,\"cardPools\":true,\"cardMove\":true,"
+        << "\"examStatus\":false,\"scoreEvents\":false,\"playerChoice\":false},"
         << "\"hooksInstalled\":" << (ok ? "true" : "false")
         << "}";
     append_trace_line(out.str());
