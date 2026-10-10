@@ -220,3 +220,35 @@ The restored IL2CPP v31 metadata confirms `Campus.InGame.Exam.ExamSequence.Start
 A native `il2cpp_init` completion hook retries method resolution after the managed domain is ready. The resolved mode enum is Lesson=0, Audition=1, Contest=2, Seminar=3, SeminarAudition=4, Tower=5, Angya=6, TourManual=7, TourAuto=8 and Competition=9, as recovered from field default values, with no guessing.
 
 Note: the old 3.4.1 card-state layout gate will generally remain unverified because the actual source class uses `_random` (not `randomstate`) and the `_cardList` field is inherited from the generic card pool base. Session lifecycle capture therefore may succeed even while full score/card/RNG capture remains unavailable. See `docs/gakumas-v3.4.1-lifecycle-analysis.md` and `tools/inspect_gakumas_metadata.py`.
+
+
+## v1.4.0: exact-build native exam/contest lifecycle hooks
+
+For libil2cpp.so Build ID **77fda4e2a21f23954e2349b83fc113ede408f70b**
+(Gakumas 3.4.1), deobfuscated metadata v31 method tokens have now been
+mapped through Assembly-CSharp.dll's Il2CppCodeGenModule and its ELF
+R_AARCH64_RELATIVE relocations. The reproducible token/RVA map is
+tools/gakumas_v341_lifecycle_rvas.json.
+
+The new exact-build-only lifecycle hooks:
+- ExamSequence.StartExam() RVA 0x80A5354 opens a recording session using
+  ExamSequence.get_Parameter() RVA 0x80A15B4.
+- ExamParameterModel.SetExamEndComplete() RVA 0x809305C closes the session.
+- ExamSequence.Dispose() RVA 0x80B0DC0 closes aborted/cleared sessions.
+- ContestProgressData.StartExamBattle() RVA 0x6CEC3CC and
+  EndExamBattle(...) RVA 0x6CEC3D8 additionally mark contest boundaries
+  and close the active session at contest battle end.
+- All hook-installation outcomes are recorded in exam_lifecycle_status.json.
+  The file is now included in the Android diagnostic app's source list/export.
+
+This lifecycle-only path is installed before runtime metadata resolution and
+works separately from card-pool trace hooks. It DOES NOT imply complete
+card/effect/score capture: those hooks may still be unavailable on the updated
+build until field layouts and argument conventions are verified. Exact-build
+RVA mapping is a static result, and interception/lifecycle ordering has NOT
+been verified through real gameplay. A newer libil2cpp.so Build ID will
+never use these static offsets. On this build, completion/dispose are preferred
+over the previous end-of-turn zero heuristic.
+
+Build APK and test using the repo's GitHub Actions. Always re-enable the
+LSPosed scope after uninstalling an older debug-signed build.
