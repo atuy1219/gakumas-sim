@@ -61,6 +61,7 @@ public final class DiagnosticActivity extends Activity {
     };
     // Accessed only on the single-thread worker.
     private final Map<String, SourceFile> sourceCache = new LinkedHashMap<>();
+    private final Map<String, String> lastPreflight = new LinkedHashMap<>();
     private final Set<String> previouslyObtained = new LinkedHashSet<>();
     private volatile String lastScreenState = "";
 
@@ -216,24 +217,39 @@ public final class DiagnosticActivity extends Activity {
         return result.toString("UTF-8");
     }
 
-    private static Map<String, SourceFile> scanRootFiles() throws Exception {
+    private Map<String, SourceFile> scanRootFiles() throws Exception {
         // One root shell probes ALL paths. Missing files are not errors.
         // The script contains only fixed, predefined names.
         StringBuilder command = new StringBuilder("id -u; for name in");
         for (String name : SOURCE_FILES) command.append(" ").append(name);
         command.append("; do f='").append(TRACE_DIR).append("'\"$name\"; ");
         command.append("if [ -f \"$f\" ]; then stat -c \"$name|%s|%Y\" \"$f\" ");
-        command.append("|| echo \"$name|ERROR\"; else echo \"$name|MISSING\"; fi; done");
+        command.append("|| echo \"$name|ERROR\"; else echo \"$name|MISSING\"; fi; done; ");
+        command.append("echo '@gamePid|'$(pidof ").append(GAME).append(" 2>/dev/null || echo none); ");
+        command.append("if [ -d '/data/user/0/").append(GAME).append("' ]; ");
+        command.append("then echo '@targetDataDir|exists'; else echo '@targetDataDir|missing'; fi; ");
+        command.append("for d in /data/user/*/").append(GAME).append("; do ");
+        command.append("[ -d \"$d\" ] && echo \"@candidateDataDir|$d\"; done");
         String[] lines = runRoot(command.toString()).split("\\r?\\n");
         if (lines.length == 0 || !"0".equals(lines[0].trim())) {
             throw new SecurityException("KernelSUのsu権限が必要です: " +
                 (lines.length > 0 ? lines[0] : "no root output"));
         }
+        lastPreflight.clear();
+        lastPreflight.put("rootUid", lines[0].trim());
         Map<String, SourceFile> files = new LinkedHashMap<>();
         for (String name : SOURCE_FILES) files.put(name, new SourceFile(name));
         for (int i = 1; i < lines.length; i++) {
             String[] parts = lines[i].trim().split("\\|", 3);
             if (parts.length < 2) continue;
+            if (parts[0].startsWith("@")) {
+                String key = parts[0].substring(1);
+                if ("candidateDataDir".equals(key)) {
+                    String previous = lastPreflight.get(key);
+                    lastPreflight.put(key, previous == null ? parts[1] : previous + "; " + parts[1]);
+                } else lastPreflight.put(key, parts[1]);
+                continue;
+            }
             SourceFile info = files.get(parts[0]);
             if (info == null) continue;
             if ("MISSING".equals(parts[1])) continue;
@@ -314,7 +330,7 @@ public final class DiagnosticActivity extends Activity {
     }
 
     private static JSONObject makeReport(String trace, String cards, String sessionJson, String metadataJson,
-        Map<String, SourceFile> sources) throws Exception {
+        Map<String, SourceFile> sources, Map<String, String> preflight) throws Exception {
         JSONArray events = new JSONArray();
         JSONArray warnings = new JSONArray();
         JSONObject traceStart = null;
@@ -419,9 +435,14 @@ public final class DiagnosticActivity extends Activity {
             }
         }
         report.put("sources", fileStatuses(sources));
+        report.put("preflight", new JSONObject(preflight));
         for (SourceFile info : sources.values()) {
             if (!"obtained".equals(info.status))
                 warnings.put("source-" + info.status + ":" + info.name);
+        }
+        if (!"obtained".equals(sources.get("bootstrap_status.json").status)
+            && !"obtained".equals(sources.get("capture_status.json").status)) {
+            warnings.put("module-injection-or-capture-bootstrap-not-observed");
         }
         report.put("environment", environment);
 
@@ -464,6 +485,15 @@ public final class DiagnosticActivity extends Activity {
                 ArrayList<String> acquired = new ArrayList<>();
                 Set<String> liveFiles = new LinkedHashSet<>();
                 StringBuilder fileSummary = new StringBuilder("ファイル取得状況\n");
+                fileSummary.append("Root UID: ").append(lastPreflight.get("rootUid")).append("\n");
+                fileSummary.append("ゲームPID: ").append(lastPreflight.get("gamePid")).append("\n");
+                fileSummary.append("user 0のゲームデータ: ").append(lastPreflight.get("targetDataDir"))
+                    .append("\n");
+                if (lastPreflight.containsKey("candidateDataDir")) {
+                    fileSummary.append("検出したユーザー領域: ")
+                        .append(lastPreflight.get("candidateDataDir")).append("\n");
+                }
+                fileSummary.append("\n");
                 for (SourceFile info : sources.values()) {
                     if ("obtained".equals(info.status)) {
                         liveFiles.add(info.name);
@@ -482,18 +512,25 @@ public final class DiagnosticActivity extends Activity {
                 previouslyObtained.clear();
                 previouslyObtained.addAll(liveFiles);
                 if (!acquired.isEmpty()) main.post(() -> notifyNewFiles(acquired));
+                if (liveFiles.isEmpty()) {
+                    fileSummary.append("\n診断: 全ファイル未生成です。");
+                    fileSummary.append("Rootは使用できていますが、LSPosedが学マスに注入された証拠がありません。");
+                    fileSummary.append("LSPosedの有効化・スコープ設定と学マスの再起動を確認してください。\n");
+                }
                 StringBuilder key = new StringBuilder();
                 for (SourceFile source : sources.values()) {
                     key.append(source.name).append('|').append(source.status)
                         .append('|').append(source.fingerprint).append('|').append(source.detail).append(';');
                 }
+                key.append(lastPreflight.toString());
                 String digest = sha256(key.toString());
                 if (!digest.equals(lastDigest)) {
                     JSONObject report = makeReport(
                         content(sources, "exam_seed_trace.jsonl"),
                         content(sources, "produce_cards.json"),
                         content(sources, "exam_session_status.json"),
-                        content(sources, "exam_runtime_inventory.json"), sources);
+                        content(sources, "exam_runtime_inventory.json"), sources,
+                        new LinkedHashMap<>(lastPreflight));
                     String serialized = report.toString(2);
                     File saved = new File(getFilesDir(), "gakumas-diagnostic-latest.json");
                     try (FileOutputStream out = new FileOutputStream(saved)) {
