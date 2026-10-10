@@ -141,6 +141,13 @@ std::atomic<int32_t> g_exam_type{-1};
 std::string g_exam_mode = "exam-unknown";
 std::atomic<bool> g_full_exam_hooks{false};
 std::atomic<bool> g_lifecycle_hook_attempted{false};
+// The generic StartExam hook is UNSAFE for capture: it also runs in
+// forecast/fixed-action/play-log simulators. Bit 128 enables a separate,
+// context-only SetUpExam probe whose caller RVAs were confirmed from BL
+// instructions against the matching libil2cpp.so Build ID.
+std::atomic<bool> g_entry_probe_installed{false};
+std::atomic<unsigned> g_entry_probe_events{0};
+std::mutex g_entry_probe_mutex;
 // Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
 // Enable one group at a time to isolate fatal native object corruption.
 // 1 StartExam, 2 completion, 4 Dispose, 8 ContestStart, 16 ContestEnd,
@@ -153,7 +160,7 @@ unsigned load_hook_mask() {
     std::ifstream config(path);
     unsigned mask = 0;
     if (!(config >> mask)) return 0;
-    if (mask > 127) return 0;
+    if (mask > 255) return 0;
     return mask;
 }
 bool hook_enabled(unsigned bit) {
@@ -1293,6 +1300,77 @@ ContestEndFn g_original_contest_end = nullptr;
 using GetSequenceParameterFn = void* (*)(void*, const void*);
 GetSequenceParameterFn g_get_sequence_parameter = nullptr;
 
+// From metadata token 0x060050A4: instance void SetUpExam(ExamData data).
+// Unlike StartExam, the CALLSITE distinguishes contest auto calculations,
+// replay log execution, interactive exam setup and internal forecast clones.
+using SetupExamFn = void (*)(void*, void*, const void*);
+SetupExamFn g_original_sequence_setup = nullptr;
+
+const char* verified_setup_origin(uintptr_t return_rva) {
+    switch (return_rva) {
+        case 0x07EFD3B4: return "contest-auto-calculation";
+        case 0x08132110: return "replay-play-log";
+        case 0x0811E834: return "internal-fixed-action-simulator";
+        case 0x0815F4D8: case 0x0815FC68: case 0x0815FD84:
+        case 0x0815FEA0: case 0x081627F4: case 0x08162A60:
+        case 0x08162C1C: case 0x08162FA0: case 0x08163064:
+        case 0x081630A8: case 0x081632A8:
+            return "interactive-exam-screen";
+        default: return nullptr;
+    }
+}
+
+__attribute__((noinline))
+void hooked_sequence_setup(void* sequence, void* data, const void* method) {
+    void* return_address = __builtin_extract_return_addr(__builtin_return_address(0));
+    const uintptr_t returned = reinterpret_cast<uintptr_t>(return_address);
+    const uintptr_t base = g_il2cpp_base.load(std::memory_order_acquire);
+    // ALWAYS execute original without touching managed objects. No getter,
+    // memory walk, replay state reset or global session pointer here.
+    g_original_sequence_setup(sequence, data, method);
+    if (!base || returned < base) return;
+    const uintptr_t return_rva = returned - base;
+    const char* lane = verified_setup_origin(return_rva);
+    if (!lane) return; // Unknown callsites are not guessed as a real exam.
+    if (std::strcmp(lane, "internal-fixed-action-simulator") == 0) return;
+    const unsigned sample = g_entry_probe_events.fetch_add(1);
+    if (sample >= 128) return; // Explicit cap prevents background trace storms.
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probes.jsonl";
+    std::ostringstream line;
+    line << "{\"schemaVersion\":1,\"event\":\"exam-setup-origin\","
+         << "\"source\":\"native-code-callsite\","
+         << "\"callerReturnRva\":\"" << hex_value(return_rva) << "\","
+         << "\"lane\":\"" << lane << "\","
+         << "\"modeVerified\":false,\"managedObjectsRead\":false,"
+         << "\"libil2cppBuildId\":\"" << kV341BuildId << "\"}\n";
+    std::lock_guard<std::mutex> guard(g_entry_probe_mutex);
+    ensure_parent_dir(path);
+    std::ofstream out(path, std::ios::app | std::ios::binary);
+    if (out) out << line.str();
+}
+
+void install_scoped_exam_probe(const ImageInfo& image) {
+    if (image.build_id != kV341BuildId || !hook_enabled(128)) return;
+    if (g_entry_probe_installed.exchange(true)) return;
+    // Scoped research probe, not a complete capture. Exact RVA only.
+    const bool installed = install_hook(image.base + 0x080A1E90,
+        reinterpret_cast<void*>(hooked_sequence_setup),
+        reinterpret_cast<void**>(&g_original_sequence_setup));
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probe_status.json";
+    std::ostringstream result;
+    result << "{\"schemaVersion\":1,\"hook\":\"ExamSequence.SetUpExam\","
+           << "\"token\":\"0x060050A4\",\"rva\":\"0x080A1E90\","
+           << "\"installed\":" << (installed ? "true" : "false")
+           << ",\"scope\":\"exact-build-observation-only\","
+           << "\"modeVerification\":\"requires-live-state-confirmation\"}\n";
+    atomic_write(path, result.str());
+    if (!installed) g_entry_probe_installed.store(false);
+}
+
 void* sequence_parameter(void* sequence) {
     if (!sequence || !g_get_sequence_parameter) return nullptr;
     return g_get_sequence_parameter(sequence, nullptr);
@@ -1631,6 +1709,8 @@ void install_il2cpp_hooks() {
     }
     if (image.build_id == kV341BuildId && (g_hook_mask.load() & 31))
         install_v341_exam_lifecycle(image);
+    if (image.build_id == kV341BuildId && hook_enabled(128))
+        install_scoped_exam_probe(image);
     if (!hook_enabled(32)) {
         write_status("lifecycle-only-no-detailed-hooks", image.build_id);
         return;
