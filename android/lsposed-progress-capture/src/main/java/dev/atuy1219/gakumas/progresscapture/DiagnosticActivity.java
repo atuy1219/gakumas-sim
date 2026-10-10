@@ -56,6 +56,7 @@ public final class DiagnosticActivity extends Activity {
         "capture_status.json",
         "exam_session_status.json",
         "exam_runtime_inventory.json",
+        "exam_hook_resolution.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
     };
@@ -414,6 +415,11 @@ public final class DiagnosticActivity extends Activity {
         report.put("createdAtUnixMs", System.currentTimeMillis());
         JSONObject environment = new JSONObject();
         environment.put("origin", "android-module");
+        String hookResolution = content(sources, "exam_hook_resolution.json");
+        if (!hookResolution.isEmpty()) {
+            try { environment.put("hookResolution", new JSONObject(hookResolution)); }
+            catch (JSONException error) { warnings.put("invalid-hook-resolution"); }
+        }
         environment.put("nativeBuildId",
             traceStart == null ? JSONObject.NULL : traceStart.optString("libil2cppBuildId", ""));
         environment.put("nativeSessionStarted",
@@ -548,6 +554,19 @@ public final class DiagnosticActivity extends Activity {
                         message.append("試験記録: ").append(sessionStatus.optString("phase", "unknown"))
                             .append(" / ").append(sessionStatus.optString("mode", "unknown"))
                             .append(" / ExamType=").append(sessionStatus.optInt("examType", -1)).append("\n");
+                    }
+                    JSONObject hooks = report.getJSONObject("environment")
+                        .optJSONObject("hookResolution");
+                    if (hooks != null) {
+                        message.append("試験開始・終了フック: ")
+                            .append(hooks.optString("captureStatus", "unknown"))
+                            .append("\n");
+                        JSONObject start = hooks.optJSONObject("ExamSequence.StartExam");
+                        JSONObject finish = hooks.optJSONObject("ExamSequence.Dispose");
+                        if (start != null)
+                            message.append("StartExam RVA: ").append(start.opt("rva")).append("\n");
+                        if (finish != null)
+                            message.append("Dispose RVA: ").append(finish.opt("rva")).append("\n");
                     }
                     JSONObject metadata = report.getJSONObject("environment")
                         .optJSONObject("runtimeMetadataInventory");
