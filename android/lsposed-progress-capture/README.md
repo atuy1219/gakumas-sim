@@ -80,7 +80,7 @@ platform 35, NDK r27c or newer, JDK, `zip`, and `keytool`.
 ```
 
 
-## v1.2.0: native diagnostic and single-file export
+## v1.3.0: native diagnostic and single-file export
 
 A launcher activity, **学マス実機診断**, is now included in the same LSPosed APK.
 Open it after enabling the module for the game's process. It requests read-only
@@ -145,10 +145,14 @@ signed with different keys cannot be installed as upgrades over one another;
 uninstall a previously signed variant if required, then re-enable the LSPosed
 scope. This is a diagnostic build, not a signed production release.
 
-## v1.2.0 event-driven capture
+## v1.3.0 event-driven capture
 
 The native hooks now stay installed but suppress high-frequency RNG/card-pool writes while idle. The first exam deck shuffle, initial-card setup or draw starts a capture session. This applies to the Tower, Contest and audition/exam paths through the same ExamCardMoveController; the numeric native ExamType is always retained. Tower=5 is validated against the reference ELF; contest and audition labels are only used when runtime IsContest/IsAudition getters confirm them, otherwise the mode is exam-unknown.
 
 The session switches to stopped when native ExamParameterModel.Dispose is available or an observed remaining-turn-zero reset is detected. The latter is explicitly heuristic; premature exits may remain recording until a new exam supersedes the old session. Every stop emits trace-stop and archives the completed raw JSONL as exam_session_<start_ms>.jsonl, while exam_seed_trace.jsonl remains the latest session. exam_session_status.json contains recording/stopped and mode/ExamType for the activity UI.
 
 For new game Build IDs, the module searches IL2CPP runtime metadata for required exam methods and derives native field offsets by semantic managed field names. If layout, classes or methods cannot be confirmed it refuses to install unsafe trace hooks and reports this in capture_status.json. The new user-supplied ELF is stripped (Build ID 77fda4e2a21f23954e2349b83fc113ede408f70b) so actual runtime metadata/hook success must still be tested on device; compatibility is NOT guaranteed by a successful APK build.
+
+## v1.3.0: encrypted metadata runtime inventory
+
+Game client 3.4.1 ships a global-metadata.dat without the standard IL2CPP header. The updated module records names/parameter counts and field offsets of relevant Exam/Contest/Audition/Tower classes from the decrypted live IL2CPP runtime in exam_runtime_inventory.json, not from the on-disk file. This is included in the Android diagnostic JSON export. Runtime reflection and actual native hook behavior still require on-device verification.
