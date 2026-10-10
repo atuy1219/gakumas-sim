@@ -145,10 +145,12 @@ std::atomic<bool> g_lifecycle_hook_attempted{false};
 // Enable one group at a time to isolate fatal native object corruption.
 // 1 StartExam, 2 completion, 4 Dispose, 8 ContestStart, 16 ContestEnd,
 // 32 detailed card/RNG capture, 64 il2cpp_init trigger.
-constexpr const char* kHookMaskPath = "/data/local/tmp/gakumas_capture_hookmask";
+// Per-game private file, not /data/local/tmp, which can be blocked by SELinux.
 std::atomic<unsigned> g_hook_mask{0};
 unsigned load_hook_mask() {
-    std::ifstream config(kHookMaskPath);
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/native_hookmask.txt";
+    std::ifstream config(path);
     unsigned mask = 0;
     if (!(config >> mask)) return 0;
     if (mask > 127) return 0;
