@@ -80,7 +80,7 @@ platform 35, NDK r27c or newer, JDK, `zip`, and `keytool`.
 ```
 
 
-## v1.4.1: native diagnostic and single-file export
+## v1.4.2: native diagnostic and single-file export
 
 A launcher activity, **学マス実機診断**, is now included in the same LSPosed APK.
 Open it after enabling the module for the game's process. It requests read-only
@@ -145,7 +145,7 @@ signed with different keys cannot be installed as upgrades over one another;
 uninstall a previously signed variant if required, then re-enable the LSPosed
 scope. This is a diagnostic build, not a signed production release.
 
-## v1.4.1 event-driven capture
+## v1.4.2 event-driven capture
 
 The native hooks now stay installed but suppress high-frequency RNG/card-pool writes while idle. The first exam deck shuffle, initial-card setup or draw starts a capture session. This applies to the Tower, Contest and audition/exam paths through the same ExamCardMoveController; the numeric native ExamType is always retained. Tower=5 is validated against the reference ELF; contest and audition labels are only used when runtime IsContest/IsAudition getters confirm them, otherwise the mode is exam-unknown.
 
@@ -153,11 +153,11 @@ The session switches to stopped when native ExamParameterModel.Dispose is availa
 
 For new game Build IDs, the module searches IL2CPP runtime metadata for required exam methods and derives native field offsets by semantic managed field names. If layout, classes or methods cannot be confirmed it refuses to install unsafe trace hooks and reports this in capture_status.json. The new user-supplied ELF is stripped (Build ID 77fda4e2a21f23954e2349b83fc113ede408f70b) so actual runtime metadata/hook success must still be tested on device; compatibility is NOT guaranteed by a successful APK build.
 
-## v1.4.1: encrypted metadata runtime inventory
+## v1.4.2: encrypted metadata runtime inventory
 
 Game client 3.4.1 ships a global-metadata.dat without the standard IL2CPP header. The updated module records names/parameter counts and field offsets of relevant Exam/Contest/Audition/Tower classes from the decrypted live IL2CPP runtime in exam_runtime_inventory.json, not from the on-disk file. This is included in the Android diagnostic JSON export. Runtime reflection and actual native hook behavior still require on-device verification.
 
-## v1.4.1: capture-file availability notifications
+## v1.4.2: capture-file availability notifications
 
 The Android diagnostic activity no longer treats a missing `exam_seed_trace.jsonl` as a root permission failure. A single `su` scan checks each fixed source (`bootstrap_status.json`, `capture_status.json`, `exam_session_status.json`, `exam_runtime_inventory.json`, `produce_cards.json`, `exam_seed_trace.jsonl`) and reports obtained, empty, not yet created, or read-error separately. Existing files are read only when their size/mtime changes, reducing repeated shell operations.
 
@@ -165,7 +165,7 @@ While the diagnostic activity is open, newly obtainable files produce one aggreg
 
 The exported diagnostic JSON contains a `sources` object with each file's read status and size, and includes capture/bootstrap status content when readable, allowing failed hook setup to be investigated even if no native trace exists.
 
-## v1.4.1: all-files-missing forensic preflight
+## v1.4.2: all-files-missing forensic preflight
 
 When all six capture files are missing, the diagnostic view now shows root UID, PID of the target game process, whether /data/user/0 contains the target game app data directory, and any matching /data/user/* directory (secondary Android user/profile). The same information appears in exported diagnostic JSON under preflight. This distinguishes unavailable injection/bootstrap from a wrong Android profile and a game that is not running. All missing source files remain explicitly unverified.
 
@@ -208,12 +208,12 @@ transformation script, reproducible tests and findings are committed. Future
 game releases require independent validation of their Build ID, XOR key and
 decoded metadata, even if the file name is identical.
 
-The existing v1.4.1 runtime metadata reflection is still a fallback. However,
+The existing v1.4.2 runtime metadata reflection is still a fallback. However,
 for this matching Gakumas build offline metadata parsing should be favored for
 research and native hook signature discovery; it avoids relying on a successful
 LSPosed injection merely to list metadata.
 
-## v1.4.1: exact-build native exam/contest lifecycle hooks
+## v1.4.2: exact-build native exam/contest lifecycle hooks
 
 For libil2cpp.so Build ID **77fda4e2a21f23954e2349b83fc113ede408f70b**
 (Gakumas 3.4.1), deobfuscated metadata v31 method tokens have now been
@@ -244,7 +244,7 @@ over the previous end-of-turn zero heuristic.
 Build APK and test using the repo's GitHub Actions. Always re-enable the
 LSPosed scope after uninstalling an older debug-signed build.
 
-## v1.4.1: game SIGSEGV and controlled hook bisect
+## v1.4.2: game SIGSEGV and controlled hook bisect
 
 Reported tombstone (2026-10-11 02:39:46 JST, libil2cpp Build ID 77fda4e2...): SIGSEGV at ELF PC 0x06397D8C, instruction ldrb w8,[x23,#0x132] with x23=0x203D2000 (unmapped). Native stack contains ExamSequence.StartExam descendants. This proves an invalid runtime type/class pointer, not a conclusive link to one particular hook. Treat previous always-on v1.4.0 hooks as unsafe until narrowed down.
 
@@ -255,3 +255,7 @@ Supported bitmask values: 1=StartExam, 2=SetExamEndComplete, 4=ExamSequence.Disp
 The diagnostic JSON's preflight reports the chosen file's mask, and exam_lifecycle_status.json records which individual native lifecycle hooks installed. If crash occurs with mask 0, suspect another plugin, the game, or native module initialization rather than these game-function interceptors. Check logcat/tombstone against the same Build ID and PC.
 
 **Fresh debug key per CI build:** Uninstall previous APK if Android rejects the different signature; after reinstall, re-enable the LSPosed scope and force-stop/restart the game.
+
+## v1.4.2: restored native hook option list
+
+Fixes Android AlertDialog where simultaneously specifying a warning message and list items can hide all seven mode options. The main dialog now displays the complete options list (0, 1, 3, 7, 31, 63, 127) without a message. Choosing a nonzero mask triggers a *separate* explicit crash-risk confirmation before the root-assisted config write; zero/safe mode applies directly. This UI bug is separate from the v1.4.0 native crash. Existing v1.4.1 safe-by-default behavior remains.
