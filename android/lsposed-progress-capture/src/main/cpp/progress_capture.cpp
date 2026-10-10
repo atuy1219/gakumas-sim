@@ -1165,6 +1165,90 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
 }
 
 
+
+/**
+ * Resolve supported exam hook methods from IL2CPP metadata on the running
+ * client, rather than applying offsets taken from a different Build ID.
+ * The supplied 77fda4e2... ELF exposes the required IL2CPP exports, but
+ * method/class availability is confirmed only after the game loads metadata.
+ */
+void* find_runtime_class(const ImageInfo& image, const void* assembly, const char* wanted) {
+    using ImageCountFn = size_t (*)(const void*);
+    using ImageClassFn = void* (*)(const void*, size_t);
+    using ClassNameFn = const char* (*)(void*);
+    const auto image_count = reinterpret_cast<ImageCountFn>(
+        resolve_export(image, "il2cpp_image_get_class_count"));
+    const auto image_class = reinterpret_cast<ImageClassFn>(
+        resolve_export(image, "il2cpp_image_get_class"));
+    const auto class_name = reinterpret_cast<ClassNameFn>(
+        resolve_export(image, "il2cpp_class_get_name"));
+    if (!image_count || !image_class || !class_name || !assembly) return nullptr;
+    const size_t count = image_count(assembly);
+    if (count > 500000) return nullptr;
+    for (size_t index = 0; index < count; ++index) {
+        void* klass = image_class(assembly, index);
+        const char* name = klass ? class_name(klass) : nullptr;
+        if (name && std::strcmp(name, wanted) == 0) return klass;
+    }
+    return nullptr;
+}
+
+uintptr_t exam_method(void* klass, const char* method, int argument_count) {
+    if (!klass || !g_runtime_class_get_method_from_name) return 0;
+    const void* info = g_runtime_class_get_method_from_name(klass, method, argument_count);
+    return info ? reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(info)) : 0;
+}
+
+using DisposeFn = void (*)(void*, const void*);
+DisposeFn g_orig_exam_dispose = nullptr;
+
+void hooked_exam_dispose(void* parameter, const void* method) {
+    // End BEFORE native disposal invalidates the model and its getters.
+    finish_exam_session(parameter, "ExamParameterModel.Dispose");
+    g_orig_exam_dispose(parameter, method);
+}
+
+bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
+    g_il2cpp_base.store(image.base);
+    void* model = find_runtime_class(image, assembly, "ExamParameterModel");
+    void* controller = find_runtime_class(image, assembly, "ExamCardMoveController");
+    if (!model || !controller) {
+        write_status("native-exam-classes-unresolved", image.build_id);
+        return false;
+    }
+    const auto hook_method = [](uintptr_t address, void* replacement, void** original) -> bool {
+        return address && install_hook(address, replacement, original);
+    };
+    // GetRandomInt overloads are distinguished by managed argument count.
+    const bool random_a = hook_method(exam_method(model, "GetRandomInt", 0),
+        reinterpret_cast<void*>(hooked_random_no_arg), reinterpret_cast<void**>(&g_orig_random_no_arg));
+    const bool random_b = hook_method(exam_method(model, "GetRandomInt", 2),
+        reinterpret_cast<void*>(hooked_random_range), reinterpret_cast<void**>(&g_orig_random_range));
+    const bool shuffle = hook_method(exam_method(controller, "ShuffleDeck", 1),
+        reinterpret_cast<void*>(hooked_shuffle_deck), reinterpret_cast<void**>(&g_orig_shuffle_deck));
+    const bool initial = hook_method(exam_method(controller, "SetInitialCard", 2),
+        reinterpret_cast<void*>(hooked_set_initial_card), reinterpret_cast<void**>(&g_orig_set_initial_card));
+    const bool draw = hook_method(exam_method(controller, "DrawCard", 3),
+        reinterpret_cast<void*>(hooked_draw_card), reinterpret_cast<void**>(&g_orig_draw_card));
+    const bool reset = hook_method(exam_method(controller, "ResetHand", 1),
+        reinterpret_cast<void*>(hooked_reset_hand), reinterpret_cast<void**>(&g_orig_reset_hand));
+    const bool recycle = hook_method(exam_method(controller, "ReplaceGraveToDeck", 2),
+        reinterpret_cast<void*>(hooked_replace_grave_to_deck),
+        reinterpret_cast<void**>(&g_orig_replace_grave_to_deck));
+    const bool grave_shuffle = hook_method(exam_method(controller, "ShuffleDeckGrave", 1),
+        reinterpret_cast<void*>(hooked_shuffle_deck_grave),
+        reinterpret_cast<void**>(&g_orig_shuffle_deck_grave));
+    const bool play = hook_method(exam_method(controller, "MovePlayCard", 2),
+        reinterpret_cast<void*>(hooked_move_play_card), reinterpret_cast<void**>(&g_orig_move_play_card));
+    // Optional cleanup; not every game build has this model method.
+    hook_method(exam_method(model, "Dispose", 0), reinterpret_cast<void*>(hooked_exam_dispose),
+        reinterpret_cast<void**>(&g_orig_exam_dispose));
+    const bool complete = random_a && random_b && shuffle && initial && draw
+        && reset && recycle && grave_shuffle && play;
+    write_status(complete ? "dynamic-exam-hooks-installed" : "dynamic-exam-hooks-partial", image.build_id);
+    return complete;
+}
+
 void* hooked_get_card_data(void* self, void* method) {
     const CardRecord card = read_card(self);
     remember_card(card);
@@ -1274,6 +1358,7 @@ void install_il2cpp_hooks() {
             return;
         }
         g_use_runtime_getters = true;
+        seed_trace_ok = install_runtime_trace_hooks(image, assembly_image);
 
         // InternalMergeFrom is diagnostic-only and intentionally not hooked on
         // unknown builds; deck capture only requires GetProduceCardData + CreateDeck.
