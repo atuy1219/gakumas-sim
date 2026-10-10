@@ -115,6 +115,8 @@ std::atomic<uintptr_t> g_il2cpp_base{0};
 std::atomic<uint64_t> g_trace_sequence{0};
 std::atomic<bool> g_exam_recording{false};
 std::atomic<void*> g_exam_parameter{nullptr};
+std::atomic<int32_t> g_exam_type{-1};
+std::atomic<bool> g_full_exam_hooks{false};
 std::atomic<int64_t> g_exam_started_ms{0};
 std::mutex g_exam_session_mutex;
 std::mutex g_trace_mutex;
@@ -885,10 +887,11 @@ int32_t native_exam_type(void* parameter) {
 }
 
 void write_session_status(const char* phase, const char* reason, void* parameter) {
+    (void)parameter;
     const int uid = static_cast<int>(getuid() / 100000);
     const std::string path = "/data/user/" + std::to_string(uid) + "/" + kTargetPackage +
         "/files/gakumas-sim/exam_session_status.json";
-    const int32_t exam_type = native_exam_type(parameter);
+    const int32_t exam_type = g_exam_type.load();
     std::ostringstream out;
     out << "{"
         << "\"phase\":\"" << json_escape(phase ? phase : "") << "\","
@@ -942,6 +945,7 @@ void begin_exam_session(void* parameter, const char* trigger) {
     g_exam_started_ms.store(unix_time_ms());
     g_exam_parameter.store(parameter);
     const int32_t exam_type = native_exam_type(parameter);
+    g_exam_type.store(exam_type);
     // Record all exam types, including currently unmapped contest/audition
     // enum values. A missing getter must not silently suppress a real exam.
     g_exam_recording.store(true, std::memory_order_release);
@@ -954,8 +958,9 @@ void begin_exam_session(void* parameter, const char* trigger) {
         << ",\"mode\":\"" << (exam_type == 5 ? "tower" : "exam-unknown") << "\""
         << ",\"startTrigger\":\"" << json_escape(trigger ? trigger : "") << "\""
         << ",\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
-        << ",\"hooksInstalled\":true,"
-        << "\"capabilities\":{\"cardPools\":true,\"randomState\":true,"
+        << ",\"hooksInstalled\":" << (g_full_exam_hooks.load() ? "true" : "false") << ","
+        << "\"capabilities\":{\"cardPools\":" << (g_full_exam_hooks.load() ? "true" : "false")
+        << ",\"randomState\":" << (g_full_exam_hooks.load() ? "true" : "false") << ","
         << "\"cardMove\":true,\"playerChoice\":false,\"examStatus\":false,"
         << "\"scoreEvents\":false},\"startBeforeAllRng\":false}";
     append_trace_line(out.str());
@@ -1161,6 +1166,7 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
         reinterpret_cast<void*>(hooked_move_play_card),
         reinterpret_cast<void**>(&g_orig_move_play_card));
 
+    g_full_exam_hooks.store(ok);
     return ok;
 }
 
@@ -1245,6 +1251,7 @@ bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
         reinterpret_cast<void**>(&g_orig_exam_dispose));
     const bool complete = random_a && random_b && shuffle && initial && draw
         && reset && recycle && grave_shuffle && play;
+    g_full_exam_hooks.store(complete);
     write_status(complete ? "dynamic-exam-hooks-installed" : "dynamic-exam-hooks-partial", image.build_id);
     return complete;
 }
