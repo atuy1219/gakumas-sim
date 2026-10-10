@@ -57,6 +57,8 @@ public final class DiagnosticActivity extends Activity {
         "capture_status.json",
         "exam_session_status.json",
         "exam_lifecycle_status.json",
+        "exam_entry_probe_status.json",
+        "exam_entry_probes.jsonl",
         "exam_runtime_inventory.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
@@ -171,15 +173,16 @@ public final class DiagnosticActivity extends Activity {
 
     private void chooseHookMode() {
         final String[] options = {
-            "安全モード：ゲーム関数をフックしない（0）",
-            "StartExamのみ（1）",
-            "開始＋完了（3）",
-            "開始＋完了＋Dispose（7）",
-            "コンテストを含むライフサイクル全体（31）",
-            "詳細なカード・乱数フックも追加（63）",
-            "詳細フック＋IL2CPP初期化フック（127）"
+            "安全モード（0）：フックなし",
+            "検証用（128）：SetUpExam呼出元だけ記録",
+            "旧方式（1）：StartExamをフック（非推奨）",
+            "旧方式（3）：開始＋完了（非推奨）",
+            "旧方式（7）：開始＋完了＋Dispose（非推奨）",
+            "旧方式（31）：コンテスト境界まで（非推奨）",
+            "旧方式（63）：カード・乱数まで（非推奨）",
+            "旧方式（127）：初期化フックまで（非推奨）"
         };
-        final int[] flags = {0, 1, 3, 7, 31, 63, 127};
+        final int[] flags = {0, 128, 1, 3, 7, 31, 63, 127};
         // Android AlertDialog may suppress setItems when setMessage is also
         // present. The selection dialog must use a list without a message.
         new AlertDialog.Builder(this)
@@ -195,7 +198,10 @@ public final class DiagnosticActivity extends Activity {
                 new AlertDialog.Builder(this)
                     .setTitle("実験フックを有効化しますか？")
                     .setMessage("v1.4.0では試験中にSIGSEGVが発生しています。"
-                        + "選択したフックは学マスをクラッシュさせる可能性があります。"
+                        + "実験フックは学マスをクラッシュさせる可能性があります。"
+                        + "128はSetUpExamの呼出元RVAだけを記録し、"
+                        + "予測処理や未確認の呼出元は除外します。"
+                        + "1〜127は旧式フックであり非推奨です。"
                         + "設定変更後は学マスを完全に終了して再起動してください。")
                     .setPositiveButton("有効化する", (confirm, which) -> saveHookMode(mask))
                     .setNegativeButton("キャンセル", null)
@@ -527,6 +533,11 @@ public final class DiagnosticActivity extends Activity {
         report.put("createdAtUnixMs", System.currentTimeMillis());
         JSONObject environment = new JSONObject();
         environment.put("origin", "android-module");
+        String entryProbeJson = content(sources, "exam_entry_probe_status.json");
+        if (!entryProbeJson.isEmpty()) {
+            try { environment.put("entryProbe", new JSONObject(entryProbeJson)); }
+            catch (JSONException error) { warnings.put("invalid-entry-probe-status"); }
+        }
         String hookResolution = content(sources, "exam_lifecycle_status.json");
         if (!hookResolution.isEmpty()) {
             try { environment.put("hookResolution", new JSONObject(hookResolution)); }
@@ -670,6 +681,20 @@ public final class DiagnosticActivity extends Activity {
                         new LinkedHashMap<>(lastPreflight));
                     if (!lastInjectionLog.isEmpty())
                         report.put("injectionLogcat", lastInjectionLog);
+                    String entryProbes = content(sources, "exam_entry_probes.jsonl");
+                    if (!entryProbes.isEmpty()) {
+                        JSONArray probeEvents = new JSONArray();
+                        for (String line : entryProbes.split("\\r?\\n")) {
+                            if (line.trim().isEmpty()) continue;
+                            try { probeEvents.put(new JSONObject(line)); }
+                            catch (JSONException malformed) {
+                                probeEvents.put(new JSONObject()
+                                    .put("event", "invalid-probe-record"));
+                            }
+                            if (probeEvents.length() >= 128) break;
+                        }
+                        report.put("entryProbeEvents", probeEvents);
+                    }
                     String serialized = report.toString(2);
                     File saved = new File(getFilesDir(), "gakumas-diagnostic-latest.json");
                     try (FileOutputStream out = new FileOutputStream(saved)) {
@@ -690,6 +715,13 @@ public final class DiagnosticActivity extends Activity {
                     }
                     JSONObject hooks = report.getJSONObject("environment")
                         .optJSONObject("hookResolution");
+                    JSONObject probe = report.getJSONObject("environment")
+                        .optJSONObject("entryProbe");
+                    if (probe != null) {
+                        message.append("SetUpExam呼出元プローブ: ")
+                            .append(probe.optBoolean("installed", false) ? "installed" : "unverified")
+                            .append("\n");
+                    }
                     if (hooks != null) {
                         message.append("ExamSequence.StartExam: ")
                             .append(hooks.optBoolean("startInstalled", false) ? "installed" : "unverified")
