@@ -213,15 +213,6 @@ for this matching Gakumas build offline metadata parsing should be favored for
 research and native hook signature discovery; it avoids relying on a successful
 LSPosed injection merely to list metadata.
 
-## v1.4.0: token-verified ExamSequence lifecycle hooks
-
-The restored IL2CPP v31 metadata confirms `Campus.InGame.Exam.ExamSequence.StartExam` (token 0x060050A9) and `Dispose` (0x060050D7), with zero managed parameters, and `get_Parameter` (0x06005080). Native method-pointer resolution validates the token, argument count, void return kind and library membership before hooking; no guessed RVAs are used. New `exam_hook_resolution.json` contains the actual RVA when resolved on-device, whether each hook installed, and the exact Build ID. The Android diagnostic view/export also reads this file.
-
-A native `il2cpp_init` completion hook retries method resolution after the managed domain is ready. The resolved mode enum is Lesson=0, Audition=1, Contest=2, Seminar=3, SeminarAudition=4, Tower=5, Angya=6, TourManual=7, TourAuto=8 and Competition=9, as recovered from field default values, with no guessing.
-
-Note: the old 3.4.1 card-state layout gate will generally remain unverified because the actual source class uses `_random` (not `randomstate`) and the `_cardList` field is inherited from the generic card pool base. Session lifecycle capture therefore may succeed even while full score/card/RNG capture remains unavailable. See `docs/gakumas-v3.4.1-lifecycle-analysis.md` and `tools/inspect_gakumas_metadata.py`.
-
-
 ## v1.4.0: exact-build native exam/contest lifecycle hooks
 
 For libil2cpp.so Build ID **77fda4e2a21f23954e2349b83fc113ede408f70b**
