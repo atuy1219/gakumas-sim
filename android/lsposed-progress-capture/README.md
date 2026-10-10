@@ -80,7 +80,7 @@ platform 35, NDK r27c or newer, JDK, `zip`, and `keytool`.
 ```
 
 
-## v1.3.0: native diagnostic and single-file export
+## v1.3.1: native diagnostic and single-file export
 
 A launcher activity, **学マス実機診断**, is now included in the same LSPosed APK.
 Open it after enabling the module for the game's process. It requests read-only
@@ -145,7 +145,7 @@ signed with different keys cannot be installed as upgrades over one another;
 uninstall a previously signed variant if required, then re-enable the LSPosed
 scope. This is a diagnostic build, not a signed production release.
 
-## v1.3.0 event-driven capture
+## v1.3.1 event-driven capture
 
 The native hooks now stay installed but suppress high-frequency RNG/card-pool writes while idle. The first exam deck shuffle, initial-card setup or draw starts a capture session. This applies to the Tower, Contest and audition/exam paths through the same ExamCardMoveController; the numeric native ExamType is always retained. Tower=5 is validated against the reference ELF; contest and audition labels are only used when runtime IsContest/IsAudition getters confirm them, otherwise the mode is exam-unknown.
 
@@ -153,6 +153,14 @@ The session switches to stopped when native ExamParameterModel.Dispose is availa
 
 For new game Build IDs, the module searches IL2CPP runtime metadata for required exam methods and derives native field offsets by semantic managed field names. If layout, classes or methods cannot be confirmed it refuses to install unsafe trace hooks and reports this in capture_status.json. The new user-supplied ELF is stripped (Build ID 77fda4e2a21f23954e2349b83fc113ede408f70b) so actual runtime metadata/hook success must still be tested on device; compatibility is NOT guaranteed by a successful APK build.
 
-## v1.3.0: encrypted metadata runtime inventory
+## v1.3.1: encrypted metadata runtime inventory
 
 Game client 3.4.1 ships a global-metadata.dat without the standard IL2CPP header. The updated module records names/parameter counts and field offsets of relevant Exam/Contest/Audition/Tower classes from the decrypted live IL2CPP runtime in exam_runtime_inventory.json, not from the on-disk file. This is included in the Android diagnostic JSON export. Runtime reflection and actual native hook behavior still require on-device verification.
+
+## v1.3.1: capture-file availability notifications
+
+The Android diagnostic activity no longer treats a missing `exam_seed_trace.jsonl` as a root permission failure. A single `su` scan checks each fixed source (`bootstrap_status.json`, `capture_status.json`, `exam_session_status.json`, `exam_runtime_inventory.json`, `produce_cards.json`, `exam_seed_trace.jsonl`) and reports obtained, empty, not yet created, or read-error separately. Existing files are read only when their size/mtime changes, reducing repeated shell operations.
+
+While the diagnostic activity is open, newly obtainable files produce one aggregated Android notification showing exact filenames (Android 13+ requires notification permission). The screen always shows the current statuses even if notification permission is denied. This polling is limited to when the activity is visible; it does not schedule background file scans when the user is playing.
+
+The exported diagnostic JSON contains a `sources` object with each file's read status and size, and includes capture/bootstrap status content when readable, allowing failed hook setup to be investigated even if no native trace exists.
