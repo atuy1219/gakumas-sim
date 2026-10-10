@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "gameVersion": "3.4.1",
+  "libil2cppBuildId": "77fda4e2a21f23954e2349b83fc113ede408f70b",
+  "encryptedMetadataSha256": "aaff4137984cbfbc58aeabe48c0d3abf4d586923c2355e43c5908dd890ca29dc",
+  "evidence": "IL2CPP v31 method token -> codegen methodPointers -> ARM64 BL direct xrefs; latest provided APK base.apk metadata SHA-256 identical to earlier sample. Native shared object from archive not yet independently hash-matched.",
+  "userModes": {
+    "audition": {
+      "modeType": 1,
+      "methods": [
+        [
+          "Campus.InGame.AuditionBattleStartScreenPresenter.MoveExamBattleAsync",
+          "0x06002282",
+          "0x071B5E78"
+        ],
+        [
+          "Campus.OutGame.ProducerRankingRecommendReplayScreenPresenter.OnReplayClicked",
+          "0x0600FBA2",
+          "0x06BBCA50"
+        ],
+        [
+          "Campus.InGame.Exam.ExamReplayUtility.StartAuditionReplayFromProduceHistoryAsync",
+          "0x06005707",
+          "0x08135128"
+        ],
+        [
+          "Campus.InGame.Exam.ExamReplayUtility.StartReplayAsync",
+          "0x06005705",
+          "0x08134F54"
+        ],
+        [
+          "Campus.InGame.Exam.ExamParameterModel.get_IsReplay",
+          "0x06004EB7",
+          "0x0808DE38"
+        ]
+      ],
+      "directCalls": [
+        [
+          "0x06BBCBAC",
+          "0x08135128",
+          "ranking replay selected"
+        ],
+        [
+          "0x06ACA264",
+          "0x08135128",
+          "produce history replay"
+        ]
+      ],
+      "notes": "Use ranking replay selection context plus IsReplay, not a generic StartExam call."
+    },
+    "contest": {
+      "modeType": 2,
+      "methods": [
+        [
+          "Campus.InGame.ContestProgressData.get_IsRehearsal",
+          "0x06001CFE",
+          "0x06CE44A0"
+        ],
+        [
+          "Campus.InGame.ContestProgressData.get_IsHistory",
+          "0x06001CFD",
+          "0x06CEB3C8"
+        ],
+        [
+          "Campus.InGame.ContestProgressData.get_PlayType",
+          "0x06001CFC",
+          "0x06CEB3C0"
+        ],
+        [
+          "Campus.InGame.ContestProgressData.StartExamBattle",
+          "0x06001D09",
+          "0x06CEC3CC"
+        ],
+        [
+          "Campus.InGame.ContestProgressData.EndExamBattle",
+          "0x06001D0A",
+          "0x06CEC3D8"
+        ],
+        [
+          "Campus.InGame.Contest.ContestUtility.ExecuteContestExamBattleAsync",
+          "0x06003B41",
+          "0x07F09074"
+        ],
+        [
+          "Campus.InGame.Contest.ExamBattleAutoPlaySimulator.ExecuteAsync",
+          "0x06003A64",
+          "0x07EFCB6C"
+        ],
+        [
+          "Campus.InGame.ContestPreparationScreenPresenter.DoRehearsalEndAsync",
+          "0x06001C9B",
+          "0x06CE1F90"
+        ]
+      ],
+      "directCalls": [
+        [
+          "0x07F0BEEC",
+          "0x07F09074",
+          "result calculation calls auto battle"
+        ],
+        [
+          "0x07F0B14C",
+          "0x07EFCB6C",
+          "per-player auto battle"
+        ]
+      ],
+      "notes": "ContestUtility is also used by Angya. Rehearsal distinction requires ContestProgressData.IsRehearsal and screen context. Tour/Competition rehearsal are separate."
+    },
+    "tower": {
+      "modeType": 5,
+      "methods": [
+        [
+          "Campus.OutGame.TowerBattleConfirmScreenPresenter.BattleStartAsync",
+          "0x06012BED",
+          "0x06EAF768"
+        ],
+        [
+          "Campus.OutGame.TowerUtility.StartTowerExamAsync",
+          "0x060130AE",
+          "0x06EF94D8"
+        ],
+        [
+          "Campus.InGame.Exam.ExamData.CreateTowerExamData",
+          "0x06004DD1",
+          "0x08087E50"
+        ]
+      ],
+      "directCalls": [
+        [
+          "0x06EB258C",
+          "0x06EF94D8",
+          "tower battle confirmation -> start"
+        ],
+        [
+          "0x081B2980",
+          "0x08087E50",
+          "tower transition parameter -> data construction"
+        ]
+      ],
+      "notes": "ExamType.Tower=5 confirmed; startup and data factory calls are distinct."
+    }
+  },
+  "shared": {
+    "unsafeGenericStartExam": {
+      "token": "0x060050A9",
+      "rva": "0x080A5354",
+      "reason": "Called by forecast, gimmick validation, play-log and fixed action simulators, not exclusively real exam starts."
+    },
+    "scopedSetupProbe": {
+      "token": "0x060050A4",
+      "rva": "0x080A1E90",
+      "observedReturnRva": [
+        [
+          "0x07EFD3B4",
+          "contest-auto-calculation"
+        ],
+        [
+          "0x0811E834",
+          "internal-fixed-action-simulator/exclude"
+        ],
+        [
+          "0x08132110",
+          "replay-play-log"
+        ],
+        [
+          "0x0815F4D8",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x0815FC68",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x0815FD84",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x0815FEA0",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x081627F4",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x08162A60",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x08162C1C",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x08162FA0",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x08163064",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x081630A8",
+          "interactive-exam-screen"
+        ],
+        [
+          "0x081632A8",
+          "interactive-exam-screen"
+        ]
+      ]
+    }
+  }
+}

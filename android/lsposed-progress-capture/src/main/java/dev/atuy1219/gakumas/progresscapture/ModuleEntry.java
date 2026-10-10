@@ -1,6 +1,7 @@
 package dev.atuy1219.gakumas.progresscapture;
 
 import android.os.Process;
+import android.util.Log;
 import io.github.libxposed.api.XposedModule;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -8,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class ModuleEntry extends XposedModule {
     private static final String TARGET = "com.bandainamcoent.idolmaster_gakuen";
+    private static final String TAG = "GakumasCapture";
     private static volatile boolean nativeLoaded;
     private static volatile boolean nativeLoadScheduled;
 
@@ -42,7 +44,8 @@ public final class ModuleEntry extends XposedModule {
                 stream.write(json.getBytes(StandardCharsets.UTF_8));
                 stream.flush();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable writeError) {
+            Log.e(TAG, "Unable to write bootstrap_status.json phase=" + phase, writeError);
         }
     }
 
@@ -61,8 +64,10 @@ public final class ModuleEntry extends XposedModule {
                 Thread.sleep(1000L);
                 System.loadLibrary("gakumas_progress_capture");
                 nativeLoaded = true;
+                Log.i(TAG, "native-library-loaded");
                 writeBootstrapStatus("native-library-loaded", null);
             } catch (Throwable error) {
+                Log.e(TAG, "native-load-failed", error);
                 writeBootstrapStatus("native-load-failed", error);
             }
         }, "GakumasProgressCaptureLoader");
@@ -72,6 +77,7 @@ public final class ModuleEntry extends XposedModule {
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
+        Log.i(TAG, "LSPosed ModuleEntry loaded; processUid=" + Process.myUid());
         writeBootstrapStatus("module-loaded", null);
         loadNativeDelayed();
     }
