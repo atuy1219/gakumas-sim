@@ -183,9 +183,16 @@ public final class DiagnosticActivity extends Activity {
                 int mask = flags[choice];
                 worker.execute(() -> {
                     try {
-                        runRoot("printf '%s\\n' " + mask
-                            + " > /data/local/tmp/gakumas_capture_hookmask"
-                            + " && chmod 0600 /data/local/tmp/gakumas_capture_hookmask");
+                        String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
+                        String gameFiles = "/data/user/0/" + GAME + "/files";
+                        String cmd = "mkdir -p '" + dir + "'"
+                            + " && uid=$(stat -c %u '" + gameFiles + "')"
+                            + " && gid=$(stat -c %g '" + gameFiles + "')"
+                            + " && chown \"$uid:$gid\" '" + dir + "'"
+                            + " && printf '%s\\n' " + mask + " > '" + dir + "/native_hookmask.txt'"
+                            + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
+                            + " && chmod 0600 '" + dir + "/native_hookmask.txt'";
+                        runRoot(cmd);
                         main.post(() -> display.append(
                             "\\n\\nフック設定を " + mask +
                             " に変更しました。学マスの強制終了・再起動後に有効になります。"));
@@ -269,7 +276,7 @@ public final class DiagnosticActivity extends Activity {
         command.append("echo '@gamePid|'$(pidof ").append(GAME).append(" 2>/dev/null || echo none); ");
         command.append("if [ -d '/data/user/0/").append(GAME).append("' ]; ");
         command.append("then echo '@targetDataDir|exists'; else echo '@targetDataDir|missing'; fi; ");
-        command.append("echo \"@hookMask|$(cat /data/local/tmp/gakumas_capture_hookmask 2>/dev/null || echo 0)\"; ");
+        command.append("echo \"@hookMask|$(cat '" + TRACE_DIR + "'native_hookmask.txt 2>/dev/null || echo 0)\"; ");
         command.append("for d in /data/user/*/").append(GAME).append("; do ");
         command.append("[ -d \"$d\" ] && echo \"@candidateDataDir|$d\"; done");
         String[] lines = runRoot(command.toString()).split("\\r?\\n");
