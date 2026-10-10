@@ -57,7 +57,7 @@ public final class DiagnosticActivity extends Activity {
         "exam_session_status.json",
         "exam_lifecycle_status.json",
         "exam_runtime_inventory.json",
-        "exam_hook_resolution.json",
+        "exam_lifecycle_status.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
     };
@@ -416,7 +416,7 @@ public final class DiagnosticActivity extends Activity {
         report.put("createdAtUnixMs", System.currentTimeMillis());
         JSONObject environment = new JSONObject();
         environment.put("origin", "android-module");
-        String hookResolution = content(sources, "exam_hook_resolution.json");
+        String hookResolution = content(sources, "exam_lifecycle_status.json");
         if (!hookResolution.isEmpty()) {
             try { environment.put("hookResolution", new JSONObject(hookResolution)); }
             catch (JSONException error) { warnings.put("invalid-hook-resolution"); }
@@ -559,15 +559,15 @@ public final class DiagnosticActivity extends Activity {
                     JSONObject hooks = report.getJSONObject("environment")
                         .optJSONObject("hookResolution");
                     if (hooks != null) {
-                        message.append("試験開始・終了フック: ")
-                            .append(hooks.optString("captureStatus", "unknown"))
+                        message.append("ExamSequence.StartExam: ")
+                            .append(hooks.optBoolean("startInstalled", false) ? "installed" : "unverified")
                             .append("\n");
-                        JSONObject start = hooks.optJSONObject("ExamSequence.StartExam");
-                        JSONObject finish = hooks.optJSONObject("ExamSequence.Dispose");
-                        if (start != null)
-                            message.append("StartExam RVA: ").append(start.opt("rva")).append("\n");
-                        if (finish != null)
-                            message.append("Dispose RVA: ").append(finish.opt("rva")).append("\n");
+                        message.append("ExamSequence.Dispose: ")
+                            .append(hooks.optBoolean("disposeInstalled", false) ? "installed" : "unverified")
+                            .append("\n");
+                        message.append("ExamParameterModel.SetExamEndComplete: ")
+                            .append(hooks.optBoolean("endInstalled", false) ? "installed" : "unverified")
+                            .append("\n");
                     }
                     JSONObject metadata = report.getJSONObject("environment")
                         .optJSONObject("runtimeMetadataInventory");
