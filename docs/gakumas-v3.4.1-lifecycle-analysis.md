@@ -34,33 +34,38 @@ values: `Lesson=0`, `Audition=1`, `Contest=2`, `Seminar=3`,
 data (compressed signed integers), not inferred from order alone. Tower=5
 also agrees with previous ELF analysis.
 
-## Implementation, verification, and limits
 
-In v1.4.0 the LSPosed module resolves `ExamSequence.StartExam` and
-`ExamSequence.Dispose` through *live* IL2CPP metadata; verifies the method
-tokens, that both methods have no managed arguments and a `void` return
-type, and confirms the method pointer belongs to `libil2cpp.so`.
-Only then does it install lifecycle hooks. The `get_Parameter` getter
-is also identified by exact token. A per-device `exam_hook_resolution.json`
-reports the **actual Native RVAs** only when method pointers can be resolved
-on the device. Native addresses in that file have not been verified yet.
+## Native RVA mapping in the supplied ELF
 
-Using these specific events avoids maintaining log-write hooks during idle
-gameplay. The original deck event detection remains a fallback. The
-`il2cpp_init` completion hook retries setup when the module was injected
-before IL2CPP domain initialization.
+Verified ARM64 code locations within the executable il2cpp ELF section
+(Build ID 77fda4e2a21f23954e2349b83fc113ede408f70b):
 
-**Important:** metadata tokens such as `0x060050A9` are NOT RVAs. No
-static address for the supplied 3.4.1 ELF has been established from
-CodeRegistration/MetadataRegistration, and even valid C# tokens do not prove
-that a method is called in all variants of the game.
+| Method | RVA | Disassembly evidence |
+| --- | --- | --- |
+| ExamSequence.StartExam | 0x080A5354 | Function prologue |
+| ExamSequence.get_Parameter | 0x080A15B4 | ldr x0,[x0,#0x10]; ret |
+| ExamSequence.Dispose | 0x080B0DC0 | Function prologue |
+| ExamParameterModel.SetExamEndComplete | 0x0809305C | Sets an argument to 1 before branching |
+| ContestProgressData.StartExamBattle | 0x06CEC3CC | Stores 1 into an object field |
+| ContestProgressData.EndExamBattle | 0x06CEC3D8 | Function prologue |
 
-The current raw state capture is still fail-closed on unknown field layouts:
-metadata proves the actual `ExamParameterModel` has a `_random` field and
-that `ExamCardPoolModel` inherits its `_cardList` from a generic base.
-The older raw offset resolver assumed names `randomstate` and a pool-local
-`cardlist`; it must be updated before claiming complete card-pool/RNG capture
-for 3.4.1.
+These are ELFs virtual addresses for this exact build, not metadata tokens.
+The existing pinned-build LSPosed lifecycle hooks already refer to these
+addresses. The new implementation preserves them rather than double-hooking
+the same entry points. The Android viewer reads exam_lifecycle_status.json,
+which describes per-hook installation status.
 
-This analysis is reproducible without uploading or committing copyrighted
-full game metadata. See `tools/inspect_gakumas_metadata.py`.
+Early native module injection can occur before the managed IL2CPP domain
+is initialized. An il2cpp_init post-call retry now avoids that race without
+periodic polling. The game process is still not confirmed to call every
+lifecycle method in all game modes, and full RNG/card/score/effect capture is
+not established.
+
+The current raw field resolver expects a direct randomstate field and a pool
+cardlist field. Actual version-31 metadata instead records ExamParameterModel
+with _random and ExamCardPoolModel inheriting _cardList from the generic
+CardPoolModel type. Native detailed trace therefore remains fail-closed
+until the new layouts can be validated.
+
+Offline parser: tools/inspect_gakumas_metadata.py. Supplied ELF addresses are
+not portable to different game Build IDs.
