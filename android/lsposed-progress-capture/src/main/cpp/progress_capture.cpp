@@ -141,6 +141,22 @@ std::atomic<int32_t> g_exam_type{-1};
 std::string g_exam_mode = "exam-unknown";
 std::atomic<bool> g_full_exam_hooks{false};
 std::atomic<bool> g_lifecycle_hook_attempted{false};
+// Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
+// Enable one group at a time to isolate fatal native object corruption.
+// 1 StartExam, 2 completion, 4 Dispose, 8 ContestStart, 16 ContestEnd,
+// 32 detailed card/RNG capture, 64 il2cpp_init trigger.
+constexpr const char* kHookMaskPath = "/data/local/tmp/gakumas_capture_hookmask";
+std::atomic<unsigned> g_hook_mask{0};
+unsigned load_hook_mask() {
+    std::ifstream config(kHookMaskPath);
+    unsigned mask = 0;
+    if (!(config >> mask)) return 0;
+    if (mask > 127) return 0;
+    return mask;
+}
+bool hook_enabled(unsigned bit) {
+    return (g_hook_mask.load(std::memory_order_acquire) & bit) != 0;
+}
 std::atomic<int64_t> g_exam_started_ms{0};
 std::mutex g_exam_session_mutex;
 std::mutex g_trace_mutex;
@@ -1321,19 +1337,19 @@ bool install_v341_exam_lifecycle(const ImageInfo& image) {
     };
     g_get_sequence_parameter = reinterpret_cast<GetSequenceParameterFn>(
         image.base + kV341ExamSequenceGetParameter);
-    const bool start = hook(kV341ExamSequenceStart,
+    const bool start = hook_enabled(1) && hook(kV341ExamSequenceStart,
         reinterpret_cast<void*>(hooked_sequence_start),
         reinterpret_cast<void**>(&g_original_sequence_start));
-    const bool end = hook(kV341ExamParameterEndComplete,
+    const bool end = hook_enabled(2) && hook(kV341ExamParameterEndComplete,
         reinterpret_cast<void*>(hooked_exam_end_complete),
         reinterpret_cast<void**>(&g_original_exam_end_complete));
-    const bool dispose = hook(kV341ExamSequenceDispose,
+    const bool dispose = hook_enabled(4) && hook(kV341ExamSequenceDispose,
         reinterpret_cast<void*>(hooked_sequence_dispose),
         reinterpret_cast<void**>(&g_original_sequence_dispose));
-    const bool contest_start = hook(kV341ContestStartBattle,
+    const bool contest_start = hook_enabled(8) && hook(kV341ContestStartBattle,
         reinterpret_cast<void*>(hooked_contest_start),
         reinterpret_cast<void**>(&g_original_contest_start));
-    const bool contest_end = hook(kV341ContestEndBattle,
+    const bool contest_end = hook_enabled(16) && hook(kV341ContestEndBattle,
         reinterpret_cast<void*>(hooked_contest_end),
         reinterpret_cast<void**>(&g_original_contest_end));
     const int uid = static_cast<int>(getuid() / 100000);
@@ -1605,9 +1621,18 @@ void install_il2cpp_hooks() {
         return;
     }
 
-    // Lifecycle hooks use verified static addresses and are independent of
-    // runtime metadata decryption/readiness or detailed card layout.
-    if (image.build_id == kV341BuildId) install_v341_exam_lifecycle(image);
+    // Only install native game hooks when explicitly enabled. A tombstone
+    // during ExamSequence.StartExam requires isolating hooks individually.
+    if (g_hook_mask.load() == 0) {
+        write_status("safe-mode-no-native-hooks", image.build_id);
+        return;
+    }
+    if (image.build_id == kV341BuildId && (g_hook_mask.load() & 31))
+        install_v341_exam_lifecycle(image);
+    if (!hook_enabled(32)) {
+        write_status("lifecycle-only-no-detailed-hooks", image.build_id);
+        return;
+    }
 
     // Decode UserProduceProgressProduceCard.Customizes through the live IL2CPP
     // object model. This is read-only and works independently of the known
@@ -1723,7 +1748,7 @@ void* hooked_il2cpp_init(const char* domain_name) {
 }
 
 void install_init_trigger() {
-    if (g_init_hook_installed.load()) return;
+    if (!hook_enabled(64) || g_init_hook_installed.load()) return;
     const ImageInfo image = find_il2cpp_image();
     if (!image.base) return;
     const uintptr_t init = reinterpret_cast<uintptr_t>(resolve_export(image, "il2cpp_init"));
@@ -1750,6 +1775,7 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     if (!entries || !entries->hookFunc || entries->version < 1) return nullptr;
     if (!target_process()) return nullptr;
     g_hook = entries->hookFunc;
+    g_hook_mask.store(load_hook_mask());
     write_status("native-init");
 
     // The library may already be mapped before module injection.
