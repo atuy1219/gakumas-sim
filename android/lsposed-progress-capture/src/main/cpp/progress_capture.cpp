@@ -1308,6 +1308,111 @@ bool resolve_exam_layout(const ImageInfo& image, const void* assembly,
     return true;
 }
 
+
+// Collect a bounded class/method inventory from the *decrypted live IL2CPP
+// metadata*. The packaged global-metadata.dat of v3.4.1 lacks the stock
+// AF 1B B1 FA signature; it cannot serve as the source for offline resolution.
+// All operations occur once during module bootstrap, outside exam hot paths.
+void write_exam_runtime_inventory(const ImageInfo& image, const void* assembly) {
+    using ImageCount = size_t (*)(const void*);
+    using ImageClass = void* (*)(const void*, size_t);
+    using ClassName = const char* (*)(void*);
+    using ClassNamespace = const char* (*)(void*);
+    using ClassMethods = const void* (*)(void*, void**);
+    using MethodName = const char* (*)(const void*);
+    using MethodParams = uint32_t (*)(const void*);
+    using ClassFields = void* (*)(void*, void**);
+    using FieldName = const char* (*)(void*);
+    using FieldOffset = size_t (*)(void*);
+    const auto count_classes = reinterpret_cast<ImageCount>(
+        resolve_export(image, "il2cpp_image_get_class_count"));
+    const auto get_class = reinterpret_cast<ImageClass>(
+        resolve_export(image, "il2cpp_image_get_class"));
+    const auto get_name = reinterpret_cast<ClassName>(
+        resolve_export(image, "il2cpp_class_get_name"));
+    const auto get_namespace = reinterpret_cast<ClassNamespace>(
+        resolve_export(image, "il2cpp_class_get_namespace"));
+    const auto get_methods = reinterpret_cast<ClassMethods>(
+        resolve_export(image, "il2cpp_class_get_methods"));
+    const auto get_method_name = reinterpret_cast<MethodName>(
+        resolve_export(image, "il2cpp_method_get_name"));
+    const auto get_method_param_count = reinterpret_cast<MethodParams>(
+        resolve_export(image, "il2cpp_method_get_param_count"));
+    const auto get_fields = reinterpret_cast<ClassFields>(
+        resolve_export(image, "il2cpp_class_get_fields"));
+    const auto get_field_name = reinterpret_cast<FieldName>(
+        resolve_export(image, "il2cpp_field_get_name"));
+    const auto get_field_offset = reinterpret_cast<FieldOffset>(
+        resolve_export(image, "il2cpp_field_get_offset"));
+    if (!assembly || !count_classes || !get_class || !get_name || !get_namespace
+        || !get_methods || !get_method_name || !get_method_param_count
+        || !get_fields || !get_field_name || !get_field_offset) return;
+
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"libil2cppBuildId\":\""
+        << json_escape(image.build_id) << "\",\"classes\":[";
+    bool first_class = true;
+    size_t found = 0;
+    const size_t count = count_classes(assembly);
+    if (count > 500000) return;
+    for (size_t index = 0; index < count && found < 160; ++index) {
+        void* klass = get_class(assembly, index);
+        const char* raw_name = klass ? get_name(klass) : nullptr;
+        if (!raw_name) continue;
+        std::string name(raw_name);
+        std::string lower(name);
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // Narrow to game exam internals; don't dump user/app-account classes.
+        if (lower.find("exam") == std::string::npos
+            && lower.find("contest") == std::string::npos
+            && lower.find("audition") == std::string::npos
+            && lower.find("tower") == std::string::npos) continue;
+        if (lower.find("model") == std::string::npos
+            && lower.find("controller") == std::string::npos
+            && lower.find("manager") == std::string::npos
+            && lower.find("service") == std::string::npos
+            && lower.find("utility") == std::string::npos) continue;
+        if (!first_class) out << ",";
+        first_class = false;
+        ++found;
+        const char* ns = get_namespace(klass);
+        out << "{\"name\":\"" << json_escape(name)
+            << "\",\"namespace\":\"" << json_escape(ns ? ns : "") << "\",\"methods\":[";
+        bool first_method = true;
+        void* iterator = nullptr;
+        for (size_t i = 0; i < 128; ++i) {
+            const void* method = get_methods(klass, &iterator);
+            if (!method) break;
+            const char* mname = get_method_name(method);
+            if (!mname) continue;
+            if (!first_method) out << ",";
+            first_method = false;
+            out << "{\"name\":\"" << json_escape(mname)
+                << "\",\"parameterCount\":" << get_method_param_count(method) << "}";
+        }
+        out << "],\"fields\":[";
+        iterator = nullptr;
+        bool first_field = true;
+        for (size_t i = 0; i < 128; ++i) {
+            void* field = get_fields(klass, &iterator);
+            if (!field) break;
+            const char* fname = get_field_name(field);
+            if (!fname) continue;
+            if (!first_field) out << ",";
+            first_field = false;
+            out << "{\"name\":\"" << json_escape(fname)
+                << "\",\"offset\":" << get_field_offset(field) << "}";
+        }
+        out << "]}";
+    }
+    out << "],\"selectedClassCount\":" << found << "}\n";
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string filepath = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_runtime_inventory.json";
+    atomic_write(filepath, out.str());
+}
+
 bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
     g_il2cpp_base.store(image.base);
     void* model = find_runtime_class(image, assembly, "ExamParameterModel");
@@ -1432,6 +1537,7 @@ void install_il2cpp_hooks() {
             g_hooks_installed.store(false);
             return;
         }
+        write_exam_runtime_inventory(image, assembly_image);
         get_card_address = resolve_managed_method(
             api,
             assembly_image,
