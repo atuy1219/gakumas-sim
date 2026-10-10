@@ -1723,11 +1723,37 @@ void install_il2cpp_hooks() {
     if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
 }
 
+// A library-loaded callback may run BEFORE il2cpp_init creates the managed
+// domain. Avoid polling and retry exactly when initialization completes.
+using Il2CppInitFn = void* (*)(const char*);
+Il2CppInitFn g_original_il2cpp_init = nullptr;
+std::atomic<bool> g_init_hook_installed{false};
+
+void* hooked_il2cpp_init(const char* domain_name) {
+    void* domain = g_original_il2cpp_init(domain_name);
+    if (domain) install_il2cpp_hooks();
+    return domain;
+}
+
+void install_init_trigger() {
+    if (g_init_hook_installed.load()) return;
+    const ImageInfo image = find_il2cpp_image();
+    if (!image.base) return;
+    const uintptr_t init = resolve_export(image, "il2cpp_init");
+    if (!init) return;
+    if (install_hook(init, reinterpret_cast<void*>(hooked_il2cpp_init),
+          reinterpret_cast<void**>(&g_original_il2cpp_init)))
+        g_init_hook_installed.store(true);
+}
+
 void on_library_loaded(const char* name, void*) {
     if (!name) return;
     const char* base = std::strrchr(name, '/');
     base = base ? base + 1 : name;
-    if (std::strcmp(base, "libil2cpp.so") == 0) install_il2cpp_hooks();
+    if (std::strcmp(base, "libil2cpp.so") == 0) {
+        install_init_trigger();
+        install_il2cpp_hooks();
+    }
 }
 
 }  // namespace
@@ -1739,9 +1765,9 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     g_hook = entries->hookFunc;
     write_status("native-init");
 
-    // LSPosed may load this module after libil2cpp.so is already mapped.
-    // Install immediately when possible, and also keep the load callback for
-    // the normal early-module/late-il2cpp case.
+    // The library may already be mapped before module injection.
+    // If the domain does not exist yet, il2cpp_init will retry without polling.
+    install_init_trigger();
     install_il2cpp_hooks();
     return on_library_loaded;
 }
