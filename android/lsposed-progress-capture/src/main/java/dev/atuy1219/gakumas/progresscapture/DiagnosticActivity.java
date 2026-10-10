@@ -55,6 +55,7 @@ public final class DiagnosticActivity extends Activity {
         "bootstrap_status.json",
         "capture_status.json",
         "exam_session_status.json",
+        "exam_lifecycle_status.json",
         "exam_runtime_inventory.json",
         "exam_hook_resolution.json",
         "produce_cards.json",
