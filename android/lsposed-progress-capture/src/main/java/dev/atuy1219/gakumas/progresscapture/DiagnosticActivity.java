@@ -114,7 +114,8 @@ public final class DiagnosticActivity extends Activity {
     private static String readRootFile(String basename, boolean required) throws Exception {
         // Only fixed, hardcoded filenames enter the privileged shell.
         if (!"exam_seed_trace.jsonl".equals(basename) && !"produce_cards.json".equals(basename)
-            && !"exam_session_status.json".equals(basename)) {
+            && !"exam_session_status.json".equals(basename)
+            && !"exam_runtime_inventory.json".equals(basename)) {
             throw new SecurityException("Unexpected filename");
         }
         Process process = new ProcessBuilder("su", "-c", "cat " + TRACE_DIR + basename)
@@ -154,7 +155,7 @@ public final class DiagnosticActivity extends Activity {
         return x;
     }
 
-    private static JSONObject makeReport(String trace, String cards, String sessionJson) throws Exception {
+    private static JSONObject makeReport(String trace, String cards, String sessionJson, String metadataJson) throws Exception {
         JSONArray events = new JSONArray();
         JSONArray warnings = new JSONArray();
         JSONObject traceStart = null;
@@ -247,6 +248,10 @@ public final class DiagnosticActivity extends Activity {
             try { environment.put("session", new JSONObject(sessionJson)); }
             catch (JSONException error) { warnings.put("invalid-session-status"); }
         }
+        if (!metadataJson.trim().isEmpty()) {
+            try { environment.put("runtimeMetadataInventory", new JSONObject(metadataJson)); }
+            catch (JSONException error) { warnings.put("invalid-runtime-metadata-inventory"); }
+        }
         report.put("environment", environment);
 
         JSONObject input = new JSONObject();
@@ -287,9 +292,10 @@ public final class DiagnosticActivity extends Activity {
                 String trace = readRootFile("exam_seed_trace.jsonl", true);
                 String cards = readRootFile("produce_cards.json", false);
                 String session = readRootFile("exam_session_status.json", false);
-                String digest = sha256(trace + "\0" + cards + "\0" + session);
+                String inventory = readRootFile("exam_runtime_inventory.json", false);
+                String digest = sha256(trace + "\0" + cards + "\0" + session + "\0" + inventory);
                 if (!digest.equals(lastDigest)) {
-                    JSONObject report = makeReport(trace, cards, session);
+                    JSONObject report = makeReport(trace, cards, session, inventory);
                     String serialized = report.toString(2);
                     File saved = new File(getFilesDir(), "gakumas-diagnostic-latest.json");
                     try (FileOutputStream out = new FileOutputStream(saved)) {
@@ -309,6 +315,10 @@ public final class DiagnosticActivity extends Activity {
                     message.append("RNG比較件数: ").append(comparison.getInt("comparedRandomCalls")).append("\n");
                     message.append("差分件数: ").append(comparison.getJSONArray("differences").length()).append("\n");
                     message.append("実機イベント: ").append(report.getJSONObject("realDevice").getJSONArray("events").length()).append("\n");
+                    JSONObject metadata = report.getJSONObject("environment").optJSONObject("runtimeMetadataInventory");
+                    if (metadata != null) {
+                        message.append("IL2CPP検出クラス: ").append(metadata.optInt("selectedClassCount", 0)).append("\n");
+                    }
                     message.append("ゲームのスコア・効果・手札の完全一致: 未検証\n\n");
                     JSONObject first = comparison.optJSONObject("firstDivergence");
                     if (first != null) message.append("最初の差分:\n").append(first.toString(2)).append("\n\n");
