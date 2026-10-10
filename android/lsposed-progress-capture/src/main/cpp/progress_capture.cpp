@@ -901,17 +901,22 @@ int32_t native_exam_type(void* parameter) {
 }
 
 std::string resolve_exam_mode(void* parameter, int32_t type) {
-    // Tower=5 is verified in the reference ELF. For other modes consult
-    // managed semantic getters, never guess enum numeric assignments.
-    if (type == 5) return "tower";
-    for (const auto& candidate : std::vector<std::pair<const char*, const char*>>{
-             {"get_IsContest", "contest"}, {"get_IsAudition", "audition"}}) {
-        const RuntimeMethod method = resolve_object_method(parameter, candidate.first, 0);
-        if (!method.address) continue;
-        if (reinterpret_cast<GetterBoolFn>(method.address)(parameter, method.method))
-            return candidate.second;
+    (void)parameter;
+    // Verified from Campus.InGame.Exam.ExamType fields and their v31 default
+    // values (compressed signed integer representation), game build 77fda4...
+    switch (type) {
+        case 0: return "lesson";
+        case 1: return "audition";
+        case 2: return "contest";
+        case 3: return "seminar";
+        case 4: return "seminar-audition";
+        case 5: return "tower";
+        case 6: return "angya";
+        case 7: return "tour-manual";
+        case 8: return "tour-auto";
+        case 9: return "competition";
+        default: return "exam-unknown";
     }
-    return "exam-unknown";
 }
 
 void write_session_status(const char* phase, const char* reason, void* parameter) {
@@ -1654,6 +1659,11 @@ void install_il2cpp_hooks() {
             return;
         }
         write_exam_runtime_inventory(image, assembly_image);
+        // Lifecycle and card-pool hooks must be independent of optional
+        // produce-card protobuf metadata resolution.
+        const bool lifecycle_ok = install_sequence_lifecycle_hooks(image, assembly_image);
+        seed_trace_ok = install_runtime_trace_hooks(image, assembly_image);
+        (void)lifecycle_ok;
         get_card_address = resolve_managed_method(
             api,
             assembly_image,
@@ -1685,9 +1695,6 @@ void install_il2cpp_hooks() {
             return;
         }
         g_use_runtime_getters = true;
-        const bool lifecycle_ok = install_sequence_lifecycle_hooks(image, assembly_image);
-        seed_trace_ok = install_runtime_trace_hooks(image, assembly_image);
-        (void)lifecycle_ok;
 
         // InternalMergeFrom is diagnostic-only and intentionally not hooked on
         // unknown builds; deck capture only requires GetProduceCardData + CreateDeck.
