@@ -47,6 +47,18 @@ constexpr size_t kOffsetControllerHold = 0x30;
 constexpr size_t kOffsetPoolCardList = 0x10;
 constexpr size_t kOffsetRandomState = 0x77C;
 
+// Dynamic IL2CPP field resolution for builds with changed memory layouts.
+// For the pinned reference ELF these remain at the ELF-verified values.
+size_t g_live_context_parameter = 0x10;
+size_t g_live_random_state = kOffsetRandomState;
+size_t g_live_controller_hand = kOffsetControllerHand;
+size_t g_live_controller_deck = kOffsetControllerDeck;
+size_t g_live_controller_grave = kOffsetControllerGrave;
+size_t g_live_controller_lost = kOffsetControllerLost;
+size_t g_live_controller_hold = kOffsetControllerHold;
+size_t g_live_pool_cards = kOffsetPoolCardList;
+
+
 constexpr size_t kOffsetNumber = 0x18;
 constexpr size_t kOffsetProduceCardId = 0x20;
 constexpr size_t kOffsetUpgradeCount = 0x28;
@@ -720,7 +732,7 @@ std::string read_string_property(void* object, const char* name) {
 
 void* parameter_from_context(void* context) {
     if (!context) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + 0x10);
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + g_live_context_parameter);
 }
 
 void remember_parameter(void* parameter) {
@@ -734,7 +746,7 @@ void* controller_pool(void* controller, size_t offset) {
 
 void* pool_card_list(void* pool) {
     if (!pool) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + kOffsetPoolCardList);
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + g_live_pool_cards);
 }
 
 std::string live_card_json(void* card) {
@@ -794,7 +806,7 @@ void trace_snapshot(
 
     const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
     const uint32_t random_state = parameter
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + g_live_random_state)
         : 0;
     const uint32_t seed = parameter
         ? static_cast<uint32_t>(read_int_property(parameter, "get_Seed", 0))
@@ -815,15 +827,15 @@ void trace_snapshot(
         << "\"randomStateHex\":\"" << hex_value(random_state) << "\","
         << "\"controller\":\"" << hex_value(reinterpret_cast<uintptr_t>(controller)) << "\","
         << "\"parameter\":\"" << hex_value(reinterpret_cast<uintptr_t>(parameter)) << "\",";
-    append_controller_pool_json(out, "hand", controller, kOffsetControllerHand);
+    append_controller_pool_json(out, "hand", controller, g_live_controller_hand);
     out << ",";
-    append_controller_pool_json(out, "deck", controller, kOffsetControllerDeck);
+    append_controller_pool_json(out, "deck", controller, g_live_controller_deck);
     out << ",";
-    append_controller_pool_json(out, "grave", controller, kOffsetControllerGrave);
+    append_controller_pool_json(out, "grave", controller, g_live_controller_grave);
     out << ",";
-    append_controller_pool_json(out, "lost", controller, kOffsetControllerLost);
+    append_controller_pool_json(out, "lost", controller, g_live_controller_lost);
     out << ",";
-    append_controller_pool_json(out, "hold", controller, kOffsetControllerHold);
+    append_controller_pool_json(out, "hold", controller, g_live_controller_hold);
     if (!extra_json.empty()) out << "," << extra_json;
     out << "}";
     append_trace_line(out.str());
@@ -983,7 +995,7 @@ int32_t hooked_random_no_arg(void* self, const void* method) {
     if (!g_exam_recording.load(std::memory_order_relaxed) || g_trace_depth != 0) return g_orig_random_no_arg(self, method);
     remember_parameter(self);
     const uint32_t before = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_no_arg(self, method);
@@ -1216,43 +1228,65 @@ void hooked_exam_dispose(void* parameter, const void* method) {
 }
 
 
-bool validated_exam_layout(const ImageInfo& image, void* model, void* controller) {
+// Resolve offsets by verified managed FIELD NAMES. Never use the old
+// build's raw object offsets on an unknown Build ID.
+bool resolve_exam_layout(const ImageInfo& image, const void* assembly,
+    void* model, void* controller) {
     using SizeFn = int32_t (*)(void*);
     using ClassFieldsFn = void* (*)(void*, void**);
     using FieldOffsetFn = size_t (*)(void*);
     using FieldNameFn = const char* (*)(void*);
-    const auto instance_size = reinterpret_cast<SizeFn>(
+    const auto size_of = reinterpret_cast<SizeFn>(
         resolve_export(image, "il2cpp_class_instance_size"));
     const auto fields = reinterpret_cast<ClassFieldsFn>(
         resolve_export(image, "il2cpp_class_get_fields"));
     const auto offset = reinterpret_cast<FieldOffsetFn>(
         resolve_export(image, "il2cpp_field_get_offset"));
-    const auto field_name = reinterpret_cast<FieldNameFn>(
+    const auto name = reinterpret_cast<FieldNameFn>(
         resolve_export(image, "il2cpp_field_get_name"));
-    if (!instance_size || !fields || !offset || !field_name) return false;
-    const auto field_matches = [&](void* klass, size_t position, const char* keyword) {
-        void* iterator = nullptr;
+    void* pool = find_runtime_class(image, assembly, "ExamCardPoolModel");
+    void* context = find_runtime_class(image, assembly, "ExamEffectCalculateContext");
+    if (!size_of || !fields || !offset || !name || !model || !controller || !pool || !context) return false;
+
+    const auto get_field = [&](void* klass, const char* keyword) -> size_t {
+        void* iter = nullptr;
         for (size_t guard = 0; guard < 10000; ++guard) {
-            void* field = fields(klass, &iterator);
+            void* field = fields(klass, &iter);
             if (!field) break;
-            if (offset(field) != position) continue;
-            const char* name = field_name(field);
-            if (!name) return false;
-            std::string normalized(name);
-            std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            if (normalized.find(keyword) != std::string::npos) return true;
+            const char* original = name(field);
+            if (!original) continue;
+            std::string value(original);
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (value.find(keyword) != std::string::npos) {
+                const size_t pos = offset(field);
+                if (pos > 0 && pos < static_cast<size_t>(size_of(klass))) return pos;
+            }
         }
-        return false;
+        return SIZE_MAX;
     };
-    if (instance_size(model) < static_cast<int>(kOffsetRandomState + sizeof(uint32_t)) ||
-        instance_size(controller) < static_cast<int>(kOffsetControllerHold + sizeof(void*))) return false;
-    return field_matches(model, kOffsetRandomState, "random")
-        && field_matches(controller, kOffsetControllerHand, "hand")
-        && field_matches(controller, kOffsetControllerDeck, "deck")
-        && field_matches(controller, kOffsetControllerGrave, "grave")
-        && field_matches(controller, kOffsetControllerLost, "lost")
-        && field_matches(controller, kOffsetControllerHold, "hold");
+    const size_t values[] = {
+        get_field(context, "parameter"),
+        get_field(model, "randomstate"),
+        get_field(controller, "hand"), get_field(controller, "deck"),
+        get_field(controller, "grave"), get_field(controller, "lost"),
+        get_field(controller, "hold"), get_field(pool, "cardlist"),
+    };
+    for (const auto value : values) if (value == SIZE_MAX || value % 4 != 0) return false;
+    // Instance fields used as pointers must be 8-byte aligned on arm64.
+    for (size_t i : {size_t(0),size_t(2),size_t(3),size_t(4),size_t(5),size_t(6),size_t(7)})
+        if (values[i] % 8 != 0) return false;
+    if (values[1] + sizeof(uint32_t) > static_cast<size_t>(size_of(model))) return false;
+    g_live_context_parameter = values[0];
+    g_live_random_state = values[1];
+    g_live_controller_hand = values[2];
+    g_live_controller_deck = values[3];
+    g_live_controller_grave = values[4];
+    g_live_controller_lost = values[5];
+    g_live_controller_hold = values[6];
+    g_live_pool_cards = values[7];
+    return true;
 }
 
 bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
@@ -1263,7 +1297,7 @@ bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
         write_status("native-exam-classes-unresolved", image.build_id);
         return false;
     }
-    if (!validated_exam_layout(image, model, controller)) {
+    if (!resolve_exam_layout(image, assembly, model, controller)) {
         write_status("native-exam-layout-unverified", image.build_id);
         return false;
     }
