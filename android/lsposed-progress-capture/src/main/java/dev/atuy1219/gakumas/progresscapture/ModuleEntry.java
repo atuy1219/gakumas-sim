@@ -44,8 +44,8 @@ public final class ModuleEntry extends XposedModule {
                 stream.write(json.getBytes(StandardCharsets.UTF_8));
                 stream.flush();
             }
-        } catch (Throwable error) {
-            Log.e(TAG, "Unable to write bootstrap_status.json phase=" + phase, error);
+        } catch (Throwable writeError) {
+            Log.e(TAG, "Unable to write bootstrap_status.json phase=" + phase, writeError);
         }
     }
 
