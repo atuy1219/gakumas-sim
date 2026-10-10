@@ -1231,10 +1231,108 @@ void* find_runtime_class(const ImageInfo& image, const void* assembly, const cha
     return nullptr;
 }
 
-uintptr_t exam_method(void* klass, const char* method, int argument_count) {
+// The v31 metadata defines exact method tokens. A name/arity match is NOT
+// enough: require the 3.4.1 metadata token before installing lifecycle hooks.
+using MethodTokenFn = uint32_t (*)(const void*);
+MethodTokenFn g_method_get_token = nullptr;
+
+uintptr_t exam_method(void* klass, const char* method, int argument_count,
+                      uint32_t expected_token = 0) {
     if (!klass || !g_runtime_class_get_method_from_name) return 0;
     const void* info = g_runtime_class_get_method_from_name(klass, method, argument_count);
-    return info ? reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(info)) : 0;
+    if (!info) return 0;
+    if (expected_token && (!g_method_get_token ||
+         g_method_get_token(info) != expected_token)) return 0;
+    const uintptr_t address = reinterpret_cast<uintptr_t>(
+        *reinterpret_cast<void* const*>(info));
+    // The MethodInfo contains the pointer in its first word for this Unity
+    // build. Verify that it actually belongs to libil2cpp.so.
+    if (!address || (address & 3)) return 0;
+    Dl_info symbol{};
+    if (!dladdr(reinterpret_cast<void*>(address), &symbol) || !symbol.dli_fname
+        || !std::strstr(symbol.dli_fname, "libil2cpp.so")) return 0;
+    return address;
+}
+
+using ExamSequenceFn = void (*)(void*, const void*);
+ExamSequenceFn g_orig_sequence_start = nullptr;
+ExamSequenceFn g_orig_sequence_dispose = nullptr;
+RuntimeGetter g_sequence_parameter_getter;
+std::atomic<bool> g_sequence_lifecycle_hooks{false};
+
+void* sequence_parameter(void* sequence) {
+    if (!sequence || !g_sequence_parameter_getter.address) return nullptr;
+    return reinterpret_cast<GetterObjectFn>(g_sequence_parameter_getter.address)(
+        sequence, g_sequence_parameter_getter.method);
+}
+
+void hooked_sequence_start(void* sequence, const void* method) {
+    void* parameter = sequence_parameter(sequence);
+    // Start before any initial-turn events executed by StartExam.
+    if (parameter) begin_exam_session(parameter, "ExamSequence.StartExam");
+    g_orig_sequence_start(sequence, method);
+}
+
+void hooked_sequence_dispose(void* sequence, const void* method) {
+    void* parameter = sequence_parameter(sequence);
+    if (parameter) finish_exam_session(parameter, "ExamSequence.Dispose");
+    g_orig_sequence_dispose(sequence, method);
+}
+
+void write_hook_resolution(const ImageInfo& image,
+    uintptr_t start_address, uintptr_t dispose_address,
+    bool start_hook, bool dispose_hook) {
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" + kTargetPackage +
+        "/files/gakumas-sim/exam_hook_resolution.json";
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"libil2cppBuildId\":\""
+        << json_escape(image.build_id) << "\",\"metadataVersion\":31,"
+        << "\"ExamSequence.StartExam\":{\"token\":\"0x060050a9\",\"rva\":"
+        << (start_address && start_address >= image.base
+            ? std::to_string(start_address - image.base) : "null")
+        << ",\"installed\":" << (start_hook ? "true" : "false")
+        << "},\"ExamSequence.Dispose\":{\"token\":\"0x060050d7\",\"rva\":"
+        << (dispose_address && dispose_address >= image.base
+            ? std::to_string(dispose_address - image.base) : "null")
+        << ",\"installed\":" << (dispose_hook ? "true" : "false")
+        << "},\"captureStatus\":\"" <<
+            (start_hook && dispose_hook ? "lifecycle-hooks-installed" : "lifecycle-hooks-unverified")
+        << "\"}\n";
+    atomic_write(path, out.str());
+}
+
+bool install_sequence_lifecycle_hooks(const ImageInfo& image, const void* assembly) {
+    // Requires build-specific tokens: never assume 3.4.1 tokens on another APK.
+    constexpr const char* kV341Build = "77fda4e2a21f23954e2349b83fc113ede408f70b";
+    if (image.build_id != kV341Build) return false;
+    using ClassFromNameFn = void* (*)(const void*, const char*, const char*);
+    auto class_from_name = reinterpret_cast<ClassFromNameFn>(
+        resolve_export(image, "il2cpp_class_from_name"));
+    g_method_get_token = reinterpret_cast<MethodTokenFn>(
+        resolve_export(image, "il2cpp_method_get_token"));
+    if (!class_from_name || !g_method_get_token) return false;
+    void* klass = class_from_name(assembly, "Campus.InGame.Exam", "ExamSequence");
+    if (!klass) return false;
+    const auto get_parameter = g_runtime_class_get_method_from_name(klass, "get_Parameter", 0);
+    if (!get_parameter || g_method_get_token(get_parameter) != 0x06005080) return false;
+    g_sequence_parameter_getter.method = get_parameter;
+    g_sequence_parameter_getter.address = reinterpret_cast<uintptr_t>(
+        *reinterpret_cast<void* const*>(get_parameter));
+    const uintptr_t start = exam_method(klass, "StartExam", 0, 0x060050a9);
+    const uintptr_t dispose = exam_method(klass, "Dispose", 0, 0x060050d7);
+    bool hooked_start = false, hooked_dispose = false;
+    if (start && dispose && g_sequence_parameter_getter.address) {
+        hooked_start = install_hook(start,
+            reinterpret_cast<void*>(hooked_sequence_start),
+            reinterpret_cast<void**>(&g_orig_sequence_start));
+        if (hooked_start) hooked_dispose = install_hook(dispose,
+            reinterpret_cast<void*>(hooked_sequence_dispose),
+            reinterpret_cast<void**>(&g_orig_sequence_dispose));
+    }
+    g_sequence_lifecycle_hooks.store(hooked_start && hooked_dispose);
+    write_hook_resolution(image, start, dispose, hooked_start, hooked_dispose);
+    return hooked_start && hooked_dispose;
 }
 
 using DisposeFn = void (*)(void*, const void*);
@@ -1569,7 +1667,9 @@ void install_il2cpp_hooks() {
             return;
         }
         g_use_runtime_getters = true;
+        const bool lifecycle_ok = install_sequence_lifecycle_hooks(image, assembly_image);
         seed_trace_ok = install_runtime_trace_hooks(image, assembly_image);
+        (void)lifecycle_ok;
 
         // InternalMergeFrom is diagnostic-only and intentionally not hooked on
         // unknown builds; deck capture only requires GetProduceCardData + CreateDeck.
