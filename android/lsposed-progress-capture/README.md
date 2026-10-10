@@ -174,3 +174,41 @@ The Java LSPosed entry emits logcat messages tagged GakumasCapture for successfu
     su -c 'logcat -d -s GakumasCapture:I GakumasCapture:E'
 
 If the game PID and data directory are correct but both bootstrap_status.json and capture_status.json are missing, inspect LSPosed module enablement/scope and the LSPosed framework log. The diagnostic APK does not infer confirmed injection from the absence of a file.
+
+
+## Gakumas v3.4.1: recovered on-disk IL2CPP metadata
+
+The supplied Gakumas 3.4.1 global-metadata.dat is not AES-encrypted. It is
+obfuscated by XOR against a static **128-byte repeating key**. This was
+confirmed by decoding the canonical IL2CPP magic AF 1B B1 FA, metadata version
+31, 31 sane section range pairs ending precisely at EOF, and valid UTF-8 text
+in the 4,761,508-byte metadata string section. Method names are intact after
+decoding. The key and a portable Python decoder live in
+tools/decrypt_gakumas_metadata.py.
+
+Verified input SHA-256:
+aaff4137984cbfbc58aeabe48c0d3abf4d586923c2355e43c5908dd890ca29dc
+
+Verified decoded SHA-256:
+4370094ac9c8949eeb8a2b57c17424fe85d0e7a29ab2de0a71510b2458740a38
+
+Usage:
+
+    python3 tools/decrypt_gakumas_metadata.py ./global-metadata.dat -o ./global-metadata.decrypted.dat
+
+Recovered names of direct interest include ExamParameterModel,
+ExamCardMoveController, CreateContestExamData, CreateTowerExamData,
+IsExamEnd, OnExamEnd, and GetRandomInt. These names alone do **not**
+establish declaring types, calling conventions, method RVA or correct
+hook lifecycle. Match the decoded method/type tables against the matching
+libil2cpp.so CodeRegistration/MetadataRegistration before enabling hooks.
+
+Do not commit the proprietary full metadata blob to this repository. Only the
+transformation script, reproducible tests and findings are committed. Future
+game releases require independent validation of their Build ID, XOR key and
+decoded metadata, even if the file name is identical.
+
+The existing v1.3.2 runtime metadata reflection is still a fallback. However,
+for this matching Gakumas build offline metadata parsing should be favored for
+research and native hook signature discovery; it avoids relying on a successful
+LSPosed injection merely to list metadata.
