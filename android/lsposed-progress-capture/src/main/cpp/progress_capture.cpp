@@ -1321,8 +1321,26 @@ bool install_sequence_lifecycle_hooks(const ImageInfo& image, const void* assemb
         *reinterpret_cast<void* const*>(get_parameter));
     const uintptr_t start = exam_method(klass, "StartExam", 0, 0x060050a9);
     const uintptr_t dispose = exam_method(klass, "Dispose", 0, 0x060050d7);
+    using ReturnTypeFn = const void* (*)(const void*);
+    using TypeKindFn = int (*)(const void*);
+    using ParamCountFn = uint32_t (*)(const void*);
+    const auto return_type = reinterpret_cast<ReturnTypeFn>(
+        resolve_export(image, "il2cpp_method_get_return_type"));
+    const auto type_kind = reinterpret_cast<TypeKindFn>(
+        resolve_export(image, "il2cpp_type_get_type"));
+    const auto count_params = reinterpret_cast<ParamCountFn>(
+        resolve_export(image, "il2cpp_method_get_param_count"));
+    const void* start_info = g_runtime_class_get_method_from_name(klass, "StartExam", 0);
+    const void* dispose_info = g_runtime_class_get_method_from_name(klass, "Dispose", 0);
+    // IL2CPP_TYPE_VOID=1. No speculative reinterpretation of return values.
+    const auto is_void_zero_arg = [&](const void* info) {
+        if (!info || !return_type || !type_kind || !count_params) return false;
+        const void* kind = return_type(info);
+        return kind && type_kind(kind) == 1 && count_params(info) == 0;
+    };
     bool hooked_start = false, hooked_dispose = false;
-    if (start && dispose && g_sequence_parameter_getter.address) {
+    if (start && dispose && is_void_zero_arg(start_info) &&
+        is_void_zero_arg(dispose_info) && g_sequence_parameter_getter.address) {
         hooked_start = install_hook(start,
             reinterpret_cast<void*>(hooked_sequence_start),
             reinterpret_cast<void**>(&g_orig_sequence_start));
