@@ -76,21 +76,21 @@ test -s "$LIBXPOSED_API"
 javac -source 8 -target 8 \
   -cp "$LIBXPOSED_API:$ANDROID_JAR" \
   -d "$OUT/app-classes" \
-  "$ROOT/src/main/java/dev/atuy1219/gakumas/progresscapture/ModuleEntry.java"
+  "$ROOT/src/main/java/dev/atuy1219/gakumas/progresscapture/"*.java
 
 "$D8" \
   --lib "$ANDROID_JAR" \
   --classpath "$LIBXPOSED_API" \
   --min-api "$MIN_API" \
   --output "$OUT/dex" \
-  "$OUT/app-classes/dev/atuy1219/gakumas/progresscapture/ModuleEntry.class"
+  "$OUT"/app-classes/dev/atuy1219/gakumas/progresscapture/*.class
 
 cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.0.12.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.1.0.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
