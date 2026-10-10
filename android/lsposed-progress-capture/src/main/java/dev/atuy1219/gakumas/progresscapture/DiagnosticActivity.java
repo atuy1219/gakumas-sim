@@ -174,35 +174,52 @@ public final class DiagnosticActivity extends Activity {
             "詳細フック＋IL2CPP初期化フック（127）"
         };
         final int[] flags = {0, 1, 3, 7, 31, 63, 127};
+        // Android AlertDialog may suppress setItems when setMessage is also
+        // present. The selection dialog must use a list without a message.
         new AlertDialog.Builder(this)
-            .setTitle("実機クラッシュ調査")
-            .setMessage("v1.4.0でSIGSEGVが発生しました。既定は安全モードです。"
-                + "実験フックは学マスをクラッシュさせる可能性があります。"
-                + "設定変更後、学マスを完全終了して再起動してください。")
+            .setTitle("Nativeフック設定（学マス再起動で反映）")
             .setItems(options, (dialog, choice) -> {
-                int mask = flags[choice];
-                worker.execute(() -> {
-                    try {
-                        String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
-                        String gameFiles = "/data/user/0/" + GAME + "/files";
-                        String cmd = "mkdir -p '" + dir + "'"
-                            + " && uid=$(stat -c %u '" + gameFiles + "')"
-                            + " && gid=$(stat -c %g '" + gameFiles + "')"
-                            + " && chown \"$uid:$gid\" '" + dir + "'"
-                            + " && printf '%s\\n' " + mask + " > '" + dir + "/native_hookmask.txt'"
-                            + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
-                            + " && chmod 0600 '" + dir + "/native_hookmask.txt'";
-                        runRoot(cmd);
-                        main.post(() -> display.append(
-                            "\\n\\nフック設定を " + mask +
-                            " に変更しました。学マスの強制終了・再起動後に有効になります。"));
-                    } catch (Exception error) {
-                        main.post(() -> display.append("\\n設定に失敗: " + error.getMessage()));
-                    }
-                });
+                final int mask = flags[choice];
+                if (mask == 0) {
+                    saveHookMode(mask);
+                    return;
+                }
+                // Show the safety warning AFTER selection, not in the list
+                // dialog itself, so all seven modes remain visible.
+                new AlertDialog.Builder(this)
+                    .setTitle("実験フックを有効化しますか？")
+                    .setMessage("v1.4.0では試験中にSIGSEGVが発生しています。"
+                        + "選択したフックは学マスをクラッシュさせる可能性があります。"
+                        + "設定変更後は学マスを完全に終了して再起動してください。")
+                    .setPositiveButton("有効化する", (confirm, which) -> saveHookMode(mask))
+                    .setNegativeButton("キャンセル", null)
+                    .show();
             })
             .setNegativeButton("キャンセル", null)
             .show();
+    }
+
+    private void saveHookMode(int mask) {
+        worker.execute(() -> {
+            try {
+                String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
+                String gameFiles = "/data/user/0/" + GAME + "/files";
+                String cmd = "mkdir -p '" + dir + "'"
+                    + " && uid=$(stat -c %u '" + gameFiles + "')"
+                    + " && gid=$(stat -c %g '" + gameFiles + "')"
+                    + " && chown \"$uid:$gid\" '" + dir + "'"
+                    + " && printf '%s\\n' " + mask + " > '" + dir + "/native_hookmask.txt'"
+                    + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
+                    + " && chmod 0600 '" + dir + "/native_hookmask.txt'";
+                runRoot(cmd);
+                main.post(() -> display.append(
+                    "\\n\\nフック設定を " + mask
+                    + " に変更しました。学マスの完全終了・再起動後に有効になります。"));
+            } catch (Exception error) {
+                main.post(() -> display.append("\\n設定に失敗: " + error.getMessage()));
+            }
+        });
+    }
     }
 
     private void setupNotifications() {
