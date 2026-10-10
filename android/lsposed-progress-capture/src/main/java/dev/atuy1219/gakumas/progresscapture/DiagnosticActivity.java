@@ -641,8 +641,18 @@ public final class DiagnosticActivity extends Activity {
                 if (!acquired.isEmpty()) main.post(() -> notifyNewFiles(acquired));
                 if (liveFiles.isEmpty()) {
                     fileSummary.append("\n診断: 全ファイル未生成です。");
-                    fileSummary.append("Rootは使用できていますが、LSPosedが学マスに注入された証拠がありません。");
-                    fileSummary.append("LSPosedの有効化・スコープ設定と学マスの再起動を確認してください。\n");
+                    if ("none".equals(lastPreflight.get("gamePid"))) {
+                        fileSummary.append("学マスが起動していません。起動後に再確認してください。");
+                    } else if ("no".equals(lastPreflight.get("moduleLibraryMapped"))) {
+                        fileSummary.append("ゲームプロセス内にNativeモジュールが確認できません。");
+                        fileSummary.append("LSPosedの有効化・学マスのスコープを確認してください。");
+                    } else if ("yes".equals(lastPreflight.get("moduleLibraryMapped"))) {
+                        fileSummary.append("Nativeライブラリはロード済みですが診断ファイルがありません。");
+                        fileSummary.append("初期化失敗またはファイル書込権限を確認してください。");
+                    } else {
+                        fileSummary.append("Rootは使えますが、Nativeモジュールのロード状態を判定できません。");
+                    }
+                    fileSummary.append("\n「LSPosed初期化ログを取得」で詳細を調べられます。\n");
                 }
                 StringBuilder key = new StringBuilder();
                 for (SourceFile source : sources.values()) {
@@ -705,6 +715,9 @@ public final class DiagnosticActivity extends Activity {
                             + "学マス側のフック状態はcapture_status.jsonを確認してください。"
                             + "ファイル未生成とRoot権限不足は別の状態です。\n");
                     }
+                    if (!lastInjectionLog.isEmpty())
+                        message.append("\n--- GakumasCapture初期化ログ ---\n")
+                            .append(lastInjectionLog).append("\n");
                     message.append("\n診断JSONには各ファイルの取得状態も含まれます。");
                     String shown = message.toString();
                     lastScreenState = shown;
