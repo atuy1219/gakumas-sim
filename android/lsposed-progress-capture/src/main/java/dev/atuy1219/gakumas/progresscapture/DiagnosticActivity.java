@@ -113,7 +113,8 @@ public final class DiagnosticActivity extends Activity {
 
     private static String readRootFile(String basename, boolean required) throws Exception {
         // Only fixed, hardcoded filenames enter the privileged shell.
-        if (!"exam_seed_trace.jsonl".equals(basename) && !"produce_cards.json".equals(basename)) {
+        if (!"exam_seed_trace.jsonl".equals(basename) && !"produce_cards.json".equals(basename)
+            && !"exam_session_status.json".equals(basename)) {
             throw new SecurityException("Unexpected filename");
         }
         Process process = new ProcessBuilder("su", "-c", "cat " + TRACE_DIR + basename)
@@ -153,7 +154,7 @@ public final class DiagnosticActivity extends Activity {
         return x;
     }
 
-    private static JSONObject makeReport(String trace, String cards) throws Exception {
+    private static JSONObject makeReport(String trace, String cards, String sessionJson) throws Exception {
         JSONArray events = new JSONArray();
         JSONArray warnings = new JSONArray();
         JSONObject traceStart = null;
@@ -242,6 +243,10 @@ public final class DiagnosticActivity extends Activity {
         environment.put("nativeSessionStarted",
             traceStart == null ? JSONObject.NULL : traceStart.optLong("capturedAtUnixMs"));
         environment.put("captureSha256", sha256(trace));
+        if (!sessionJson.trim().isEmpty()) {
+            try { environment.put("session", new JSONObject(sessionJson)); }
+            catch (JSONException error) { warnings.put("invalid-session-status"); }
+        }
         report.put("environment", environment);
 
         JSONObject input = new JSONObject();
@@ -281,9 +286,10 @@ public final class DiagnosticActivity extends Activity {
             try {
                 String trace = readRootFile("exam_seed_trace.jsonl", true);
                 String cards = readRootFile("produce_cards.json", false);
-                String digest = sha256(trace + "\0" + cards);
+                String session = readRootFile("exam_session_status.json", false);
+                String digest = sha256(trace + "\0" + cards + "\0" + session);
                 if (!digest.equals(lastDigest)) {
-                    JSONObject report = makeReport(trace, cards);
+                    JSONObject report = makeReport(trace, cards, session);
                     String serialized = report.toString(2);
                     File saved = new File(getFilesDir(), "gakumas-diagnostic-latest.json");
                     try (FileOutputStream out = new FileOutputStream(saved)) {
@@ -293,6 +299,12 @@ public final class DiagnosticActivity extends Activity {
                     lastDigest = digest;
                     JSONObject comparison = report.getJSONObject("comparison");
                     StringBuilder message = new StringBuilder();
+                    JSONObject sessionStatus = report.getJSONObject("environment").optJSONObject("session");
+                    if (sessionStatus != null) {
+                        message.append("試験記録: ").append(sessionStatus.optString("phase", "unknown"))
+                            .append(" / ").append(sessionStatus.optString("mode", "unknown"))
+                            .append(" / ExamType=").append(sessionStatus.optInt("examType", -1)).append("\n");
+                    }
                     message.append("診断ステータス: ").append(comparison.getString("status")).append("\n");
                     message.append("RNG比較件数: ").append(comparison.getInt("comparedRandomCalls")).append("\n");
                     message.append("差分件数: ").append(comparison.getJSONArray("differences").length()).append("\n");
