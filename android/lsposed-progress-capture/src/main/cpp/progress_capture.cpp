@@ -23,6 +23,15 @@ namespace {
 
 constexpr const char* kTargetPackage = "com.bandainamcoent.idolmaster_gakuen";
 constexpr const char* kExpectedBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
+constexpr const char* kV341BuildId = "77fda4e2a21f23954e2349b83fc113ede408f70b";
+// Verified by global-metadata.dat v31 token -> Assembly-CSharp.dll
+// Il2CppCodeGenModule.methodPointers -> ELF R_AARCH64_RELATIVE.
+constexpr uintptr_t kV341ExamSequenceStart = 0x080A5354;
+constexpr uintptr_t kV341ExamSequenceGetParameter = 0x080A15B4;
+constexpr uintptr_t kV341ExamSequenceDispose = 0x080B0DC0;
+constexpr uintptr_t kV341ExamParameterEndComplete = 0x0809305C;
+constexpr uintptr_t kV341ContestStartBattle = 0x06CEC3CC;
+constexpr uintptr_t kV341ContestEndBattle = 0x06CEC3D8;
 constexpr uintptr_t kRvaCreateDeckProduceCardMasters = 0x077C7018;
 constexpr uintptr_t kRvaGetProduceCardData = 0x074DBEE0;
 constexpr uintptr_t kRvaInternalMergeFrom = 0x074DBAB0;
@@ -131,6 +140,7 @@ std::atomic<void*> g_exam_parameter{nullptr};
 std::atomic<int32_t> g_exam_type{-1};
 std::string g_exam_mode = "exam-unknown";
 std::atomic<bool> g_full_exam_hooks{false};
+std::atomic<bool> g_lifecycle_hook_attempted{false};
 std::atomic<int64_t> g_exam_started_ms{0};
 std::mutex g_exam_session_mutex;
 std::mutex g_trace_mutex;
@@ -1024,7 +1034,7 @@ int32_t hooked_random_no_arg(void* self, const void* method) {
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_no_arg(self, method);
     const uint32_t after = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     trace_random_event("state", self, before, after, result, false, 0, 0, caller);
     return result;
@@ -1034,12 +1044,12 @@ int32_t hooked_random_range(void* self, int32_t minimum, int32_t maximum, const 
     if (!g_exam_recording.load(std::memory_order_relaxed) || g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
     remember_parameter(self);
     const uint32_t before = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_range(self, minimum, maximum, method);
     const uint32_t after = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     trace_random_event("range", self, before, after, result, true, minimum, maximum, caller);
     return result;
@@ -1368,6 +1378,95 @@ void hooked_exam_dispose(void* parameter, const void* method) {
 }
 
 
+
+using ExamSequenceFn = void (*)(void*, const void*);
+using ContestEndFn = void (*)(void*, uintptr_t, uintptr_t, const void*);
+ExamSequenceFn g_original_sequence_start = nullptr;
+ExamSequenceFn g_original_sequence_dispose = nullptr;
+ExamSequenceFn g_original_exam_end_complete = nullptr;
+ExamSequenceFn g_original_contest_start = nullptr;
+ContestEndFn g_original_contest_end = nullptr;
+using GetSequenceParameterFn = void* (*)(void*, const void*);
+GetSequenceParameterFn g_get_sequence_parameter = nullptr;
+
+void* sequence_parameter(void* sequence) {
+    if (!sequence || !g_get_sequence_parameter) return nullptr;
+    return g_get_sequence_parameter(sequence, nullptr);
+}
+
+void hooked_sequence_start(void* sequence, const void* method) {
+    // Verified method flags indicate an instance method with 0 managed args.
+    // The getter disassembles to ldr x0,[x0,#0x10]; ret in the pinned build.
+    void* model = sequence_parameter(sequence);
+    if (model) begin_exam_session(model, "ExamSequence.StartExam");
+    g_original_sequence_start(sequence, method);
+}
+
+void hooked_sequence_dispose(void* sequence, const void* method) {
+    void* model = sequence_parameter(sequence);
+    if (model) finish_exam_session(model, "ExamSequence.Dispose");
+    g_original_sequence_dispose(sequence, method);
+}
+
+void hooked_exam_end_complete(void* model, const void* method) {
+    g_original_exam_end_complete(model, method);
+    // Exact common exam completion method, not a remaining-turn heuristic.
+    finish_exam_session(model, "ExamParameterModel.SetExamEndComplete");
+}
+
+void hooked_contest_start(void* contest, const void* method) {
+    g_original_contest_start(contest, method);
+    // A contest battle may create the ExamSequence AFTER StartExamBattle.
+    // Do not create an unbound session: wait for the verified common StartExam.
+}
+
+void hooked_contest_end(void* contest, uintptr_t a1, uintptr_t a2, const void* method) {
+    g_original_contest_end(contest, a1, a2, method);
+    void* current = g_exam_parameter.load(std::memory_order_acquire);
+    if (current) finish_exam_session(current, "ContestProgressData.EndExamBattle");
+}
+
+bool install_v341_exam_lifecycle(const ImageInfo& image) {
+    if (image.build_id != kV341BuildId || !g_hook) return false;
+    bool expected = false;
+    if (!g_lifecycle_hook_attempted.compare_exchange_strong(expected, true)) return false;
+    const auto hook = [&](uintptr_t rva, void* replacement, void** original) {
+        return install_hook(image.base + rva, replacement, original);
+    };
+    g_get_sequence_parameter = reinterpret_cast<GetSequenceParameterFn>(
+        image.base + kV341ExamSequenceGetParameter);
+    const bool start = hook(kV341ExamSequenceStart,
+        reinterpret_cast<void*>(hooked_sequence_start),
+        reinterpret_cast<void**>(&g_original_sequence_start));
+    const bool end = hook(kV341ExamParameterEndComplete,
+        reinterpret_cast<void*>(hooked_exam_end_complete),
+        reinterpret_cast<void**>(&g_original_exam_end_complete));
+    const bool dispose = hook(kV341ExamSequenceDispose,
+        reinterpret_cast<void*>(hooked_sequence_dispose),
+        reinterpret_cast<void**>(&g_original_sequence_dispose));
+    const bool contest_start = hook(kV341ContestStartBattle,
+        reinterpret_cast<void*>(hooked_contest_start),
+        reinterpret_cast<void**>(&g_original_contest_start));
+    const bool contest_end = hook(kV341ContestEndBattle,
+        reinterpret_cast<void*>(hooked_contest_end),
+        reinterpret_cast<void**>(&g_original_contest_end));
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_lifecycle_status.json";
+    std::ostringstream out;
+    out << "{\"buildId\":\"" << kV341BuildId
+        << "\",\"methodAddressSource\":\"metadata-v31+elf-codegen-relocations\","
+        << "\"startInstalled\":" << (start ? "true" : "false")
+        << ",\"endInstalled\":" << (end ? "true" : "false")
+        << ",\"disposeInstalled\":" << (dispose ? "true" : "false")
+        << ",\"contestStartInstalled\":" << (contest_start ? "true" : "false")
+        << ",\"contestEndInstalled\":" << (contest_end ? "true" : "false")
+        << ",\"fullEffectTrace\":false"
+        << ",\"scope\":\"exact-build-only\"}";
+    atomic_write(path, out.str());
+    return start && end;
+}
+
 // Resolve offsets by verified managed FIELD NAMES. Never use the old
 // build's raw object offsets on an unknown Build ID.
 bool resolve_exam_layout(const ImageInfo& image, const void* assembly,
@@ -1619,6 +1718,10 @@ void install_il2cpp_hooks() {
         g_hooks_installed.store(false);
         return;
     }
+
+    // Lifecycle hooks use verified static addresses and are independent of
+    // runtime metadata decryption/readiness or detailed card layout.
+    if (image.build_id == kV341BuildId) install_v341_exam_lifecycle(image);
 
     // Decode UserProduceProgressProduceCard.Customizes through the live IL2CPP
     // object model. This is read-only and works independently of the known
