@@ -113,6 +113,10 @@ RandomRangeFn g_orig_random_range = nullptr;
 std::atomic<void*> g_last_parameter_model{nullptr};
 std::atomic<uintptr_t> g_il2cpp_base{0};
 std::atomic<uint64_t> g_trace_sequence{0};
+std::atomic<bool> g_exam_recording{false};
+std::atomic<void*> g_exam_parameter{nullptr};
+std::atomic<int64_t> g_exam_started_ms{0};
+std::mutex g_exam_session_mutex;
 std::mutex g_trace_mutex;
 thread_local int g_trace_depth = 0;
 
@@ -691,6 +695,7 @@ void append_trace_line(const std::string& line) {
 }
 
 void reset_trace_files() {
+    std::lock_guard<std::mutex> lock(g_trace_mutex);
     g_trace_sequence.store(0);
     for (const auto& path : trace_output_paths()) atomic_write(path, "");
 }
@@ -779,7 +784,7 @@ void trace_snapshot(
     void* controller,
     void* parameter_override = nullptr,
     const std::string& extra_json = "") {
-    if (g_trace_depth != 0) return;
+    if (!g_exam_recording.load(std::memory_order_acquire) || g_trace_depth != 0) return;
     ++g_trace_depth;
     void* parameter = parameter_override ? parameter_override : g_last_parameter_model.load();
     remember_parameter(parameter);
@@ -832,7 +837,7 @@ void trace_random_event(
     int32_t minimum,
     int32_t maximum,
     uintptr_t caller) {
-    if (g_trace_depth != 0) return;
+    if (!g_exam_recording.load(std::memory_order_acquire) || g_trace_depth != 0) return;
     ++g_trace_depth;
     remember_parameter(parameter);
     const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
@@ -868,9 +873,109 @@ void trace_random_event(
     --g_trace_depth;
 }
 
+
+// Session recording is activated by native card-pool events, not by an
+// always-running timer or per-frame check. The mode value is preserved as the
+// native enum number; only ExamType=5 (Tower) has been ELF-verified so far.
+int32_t native_exam_type(void* parameter) {
+    if (!parameter) return -1;
+    const RuntimeMethod getter = resolve_object_method(parameter, "get_ExamType", 0);
+    if (!getter.address) return -1;
+    return reinterpret_cast<GetterInt32Fn>(getter.address)(parameter, getter.method);
+}
+
+void write_session_status(const char* phase, const char* reason, void* parameter) {
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" + kTargetPackage +
+        "/files/gakumas-sim/exam_session_status.json";
+    const int32_t exam_type = native_exam_type(parameter);
+    std::ostringstream out;
+    out << "{"
+        << "\"phase\":\"" << json_escape(phase ? phase : "") << "\","
+        << "\"reason\":\"" << json_escape(reason ? reason : "") << "\","
+        << "\"examType\":" << exam_type << ","
+        << "\"mode\":\"" << (exam_type == 5 ? "tower" : "exam-unknown") << "\","
+        << "\"sessionStartedAtUnixMs\":" << g_exam_started_ms.load() << ","
+        << "\"updatedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
+        << "}\n";
+    atomic_write(path, out.str());
+}
+
+void finish_exam_session(void* parameter, const char* reason) {
+    if (!parameter) return;
+    std::lock_guard<std::mutex> guard(g_exam_session_mutex);
+    if (!g_exam_recording.load() || g_exam_parameter.load() != parameter) return;
+    const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
+    std::ostringstream out;
+    out << "{\"seq\":" << seq
+        << ",\"capturedAtUnixMs\":" << unix_time_ms()
+        << ",\"event\":\"trace-stop\",\"reason\":\"" << json_escape(reason ? reason : "") << "\""
+        << ",\"terminalVerified\":false}";
+    append_trace_line(out.str());
+    g_exam_recording.store(false, std::memory_order_release);
+    write_session_status("stopped", reason, parameter);
+    // Keep completed sessions for regression tests. The conventional latest
+    // JSONL path remains unchanged for the on-device diagnostic activity.
+    const auto paths = trace_output_paths();
+    if (!paths.empty()) {
+        std::ifstream in(paths.front(), std::ios::binary);
+        const std::string dst = paths.front().substr(0, paths.front().find_last_of('/') + 1)
+            + "exam_session_" + std::to_string(g_exam_started_ms.load()) + ".jsonl";
+        std::ofstream archived(dst, std::ios::binary | std::ios::trunc);
+        if (in && archived) archived << in.rdbuf();
+    }
+    g_exam_parameter.store(nullptr);
+}
+
+void begin_exam_session(void* parameter, const char* trigger) {
+    if (!parameter) return;
+    // A new ExamParameterModel means a new exam; discard neither session.
+    void* previous = g_exam_parameter.load(std::memory_order_acquire);
+    if (g_exam_recording.load(std::memory_order_acquire) && previous == parameter) return;
+    if (g_exam_recording.load(std::memory_order_acquire) && previous != parameter) {
+        finish_exam_session(previous, "superseded-by-new-exam");
+    }
+    std::lock_guard<std::mutex> guard(g_exam_session_mutex);
+    if (g_exam_recording.load()) return;
+    reset_trace_files();
+    g_exam_started_ms.store(unix_time_ms());
+    g_exam_parameter.store(parameter);
+    const int32_t exam_type = native_exam_type(parameter);
+    // Record all exam types, including currently unmapped contest/audition
+    // enum values. A missing getter must not silently suppress a real exam.
+    g_exam_recording.store(true, std::memory_order_release);
+    std::ostringstream out;
+    out << "{\"seq\":" << (g_trace_sequence.fetch_add(1) + 1)
+        << ",\"capturedAtUnixMs\":" << unix_time_ms()
+        << ",\"event\":\"trace-start\",\"captureSchemaVersion\":3,"
+        << "\"sessionStartedAtUnixMs\":" << g_exam_started_ms.load()
+        << ",\"examType\":" << exam_type
+        << ",\"mode\":\"" << (exam_type == 5 ? "tower" : "exam-unknown") << "\""
+        << ",\"startTrigger\":\"" << json_escape(trigger ? trigger : "") << "\""
+        << ",\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
+        << ",\"hooksInstalled\":true,"
+        << "\"capabilities\":{\"cardPools\":true,\"randomState\":true,"
+        << "\"cardMove\":true,\"playerChoice\":false,\"examStatus\":false,"
+        << "\"scoreEvents\":false},\"startBeforeAllRng\":false}";
+    append_trace_line(out.str());
+    write_session_status("recording", trigger, parameter);
+}
+
+// A terminal turn counter is a provisional stop condition, not proof that the
+// result UI has appeared. Early leaves/retries are handled by new-session
+// supersession and optional native Dispose hooks where available.
+void maybe_finish_last_turn(void* parameter) {
+    if (!parameter || !g_exam_recording.load()) return;
+    const RuntimeMethod remaining = resolve_object_method(parameter, "get_RemainTurn", 0);
+    if (!remaining.address) return;
+    const int32_t turns = reinterpret_cast<GetterInt32Fn>(remaining.address)(parameter, remaining.method);
+    if (turns == 0) finish_exam_session(parameter, "remain-turn-zero-after-reset");
+}
+
 int32_t hooked_random_no_arg(void* self, const void* method) {
+    if (!g_exam_recording.load(std::memory_order_relaxed) || g_trace_depth != 0) return g_orig_random_no_arg(self, method);
     remember_parameter(self);
-    if (g_trace_depth != 0) return g_orig_random_no_arg(self, method);
     const uint32_t before = self
         ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
         : 0;
@@ -884,8 +989,8 @@ int32_t hooked_random_no_arg(void* self, const void* method) {
 }
 
 int32_t hooked_random_range(void* self, int32_t minimum, int32_t maximum, const void* method) {
+    if (!g_exam_recording.load(std::memory_order_relaxed) || g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
     remember_parameter(self);
-    if (g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
     const uint32_t before = self
         ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
         : 0;
@@ -903,6 +1008,7 @@ uintptr_t hooked_draw_card(
     uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
     void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
     remember_parameter(parameter);
+    begin_exam_session(parameter, "DrawCard");
     trace_snapshot(
         "DrawCard.before",
         reinterpret_cast<void*>(a0),
@@ -927,6 +1033,7 @@ uintptr_t hooked_reset_hand(
     trace_snapshot("ResetHand.before", reinterpret_cast<void*>(a0), parameter);
     const uintptr_t result = g_orig_reset_hand(a0,a1,a2,a3,a4,a5,a6,a7);
     trace_snapshot("ResetHand.after", reinterpret_cast<void*>(a0), parameter);
+    maybe_finish_last_turn(parameter);
     return result;
 }
 
@@ -954,6 +1061,7 @@ uintptr_t hooked_shuffle_deck(
     uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
     void* parameter = parameter_from_context(reinterpret_cast<void*>(a1));
     remember_parameter(parameter);
+    begin_exam_session(parameter, "ShuffleDeck");
     trace_snapshot("ShuffleDeck.before", reinterpret_cast<void*>(a0), parameter);
     const uintptr_t result = g_orig_shuffle_deck(a0,a1,a2,a3,a4,a5,a6,a7);
     trace_snapshot("ShuffleDeck.after", reinterpret_cast<void*>(a0), parameter);
@@ -976,6 +1084,7 @@ uintptr_t hooked_set_initial_card(
     uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
     void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
     remember_parameter(parameter);
+    begin_exam_session(parameter, "SetInitialCard");
     trace_snapshot(
         "SetInitialCard.before",
         reinterpret_cast<void*>(a0),
@@ -1013,7 +1122,6 @@ uintptr_t hooked_move_play_card(
 bool install_seed_trace_hooks(const ImageInfo& image) {
     if (!image.base || image.build_id != kExpectedBuildId) return false;
     g_il2cpp_base.store(image.base);
-    reset_trace_files();
 
     bool ok = true;
     ok &= install_hook(
@@ -1053,19 +1161,6 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
         reinterpret_cast<void*>(hooked_move_play_card),
         reinterpret_cast<void**>(&g_orig_move_play_card));
 
-    std::ostringstream out;
-    out << "{"
-        << "\"seq\":" << (g_trace_sequence.fetch_add(1) + 1) << ","
-        << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
-        << "\"event\":\"trace-start\","
-        << "\"captureSchemaVersion\":2,"
-        << "\"processId\":" << getpid() << ","
-        << "\"libil2cppBuildId\":\"" << json_escape(image.build_id) << "\","
-        << "\"capabilities\":{\"randomState\":true,\"cardPools\":true,\"cardMove\":true,"
-        << "\"examStatus\":false,\"scoreEvents\":false,\"playerChoice\":false},"
-        << "\"hooksInstalled\":" << (ok ? "true" : "false")
-        << "}";
-    append_trace_line(out.str());
     return ok;
 }
 
