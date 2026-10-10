@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -1214,12 +1215,56 @@ void hooked_exam_dispose(void* parameter, const void* method) {
     g_orig_exam_dispose(parameter, method);
 }
 
+
+bool validated_exam_layout(const ImageInfo& image, void* model, void* controller) {
+    using SizeFn = int32_t (*)(void*);
+    using ClassFieldsFn = void* (*)(void*, void**);
+    using FieldOffsetFn = size_t (*)(void*);
+    using FieldNameFn = const char* (*)(void*);
+    const auto instance_size = reinterpret_cast<SizeFn>(
+        resolve_export(image, "il2cpp_class_instance_size"));
+    const auto fields = reinterpret_cast<ClassFieldsFn>(
+        resolve_export(image, "il2cpp_class_get_fields"));
+    const auto offset = reinterpret_cast<FieldOffsetFn>(
+        resolve_export(image, "il2cpp_field_get_offset"));
+    const auto field_name = reinterpret_cast<FieldNameFn>(
+        resolve_export(image, "il2cpp_field_get_name"));
+    if (!instance_size || !fields || !offset || !field_name) return false;
+    const auto field_matches = [&](void* klass, size_t position, const char* keyword) {
+        void* iterator = nullptr;
+        for (size_t guard = 0; guard < 10000; ++guard) {
+            void* field = fields(klass, &iterator);
+            if (!field) break;
+            if (offset(field) != position) continue;
+            const char* name = field_name(field);
+            if (!name) return false;
+            std::string normalized(name);
+            std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if (normalized.find(keyword) != std::string::npos) return true;
+        }
+        return false;
+    };
+    if (instance_size(model) < static_cast<int>(kOffsetRandomState + sizeof(uint32_t)) ||
+        instance_size(controller) < static_cast<int>(kOffsetControllerHold + sizeof(void*))) return false;
+    return field_matches(model, kOffsetRandomState, "random")
+        && field_matches(controller, kOffsetControllerHand, "hand")
+        && field_matches(controller, kOffsetControllerDeck, "deck")
+        && field_matches(controller, kOffsetControllerGrave, "grave")
+        && field_matches(controller, kOffsetControllerLost, "lost")
+        && field_matches(controller, kOffsetControllerHold, "hold");
+}
+
 bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
     g_il2cpp_base.store(image.base);
     void* model = find_runtime_class(image, assembly, "ExamParameterModel");
     void* controller = find_runtime_class(image, assembly, "ExamCardMoveController");
     if (!model || !controller) {
         write_status("native-exam-classes-unresolved", image.build_id);
+        return false;
+    }
+    if (!validated_exam_layout(image, model, controller)) {
+        write_status("native-exam-layout-unverified", image.build_id);
         return false;
     }
     const auto hook_method = [](uintptr_t address, void* replacement, void** original) -> bool {
