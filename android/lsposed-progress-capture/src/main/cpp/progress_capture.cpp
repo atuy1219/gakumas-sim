@@ -129,6 +129,7 @@ std::atomic<uint64_t> g_trace_sequence{0};
 std::atomic<bool> g_exam_recording{false};
 std::atomic<void*> g_exam_parameter{nullptr};
 std::atomic<int32_t> g_exam_type{-1};
+std::string g_exam_mode = "exam-unknown";
 std::atomic<bool> g_full_exam_hooks{false};
 std::atomic<int64_t> g_exam_started_ms{0};
 std::mutex g_exam_session_mutex;
@@ -899,6 +900,20 @@ int32_t native_exam_type(void* parameter) {
     return reinterpret_cast<GetterInt32Fn>(getter.address)(parameter, getter.method);
 }
 
+std::string resolve_exam_mode(void* parameter, int32_t type) {
+    // Tower=5 is verified in the reference ELF. For other modes consult
+    // managed semantic getters, never guess enum numeric assignments.
+    if (type == 5) return "tower";
+    for (const auto& candidate : std::vector<std::pair<const char*, const char*>>{
+             {"get_IsContest", "contest"}, {"get_IsAudition", "audition"}}) {
+        const RuntimeMethod method = resolve_object_method(parameter, candidate.first, 0);
+        if (!method.address) continue;
+        if (reinterpret_cast<GetterBoolFn>(method.address)(parameter, method.method))
+            return candidate.second;
+    }
+    return "exam-unknown";
+}
+
 void write_session_status(const char* phase, const char* reason, void* parameter) {
     (void)parameter;
     const int uid = static_cast<int>(getuid() / 100000);
@@ -910,7 +925,7 @@ void write_session_status(const char* phase, const char* reason, void* parameter
         << "\"phase\":\"" << json_escape(phase ? phase : "") << "\","
         << "\"reason\":\"" << json_escape(reason ? reason : "") << "\","
         << "\"examType\":" << exam_type << ","
-        << "\"mode\":\"" << (exam_type == 5 ? "tower" : "exam-unknown") << "\","
+        << "\"mode\":\"" << json_escape(g_exam_mode) << "\","
         << "\"sessionStartedAtUnixMs\":" << g_exam_started_ms.load() << ","
         << "\"updatedAtUnixMs\":" << unix_time_ms() << ","
         << "\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
@@ -959,6 +974,7 @@ void begin_exam_session(void* parameter, const char* trigger) {
     g_exam_parameter.store(parameter);
     const int32_t exam_type = native_exam_type(parameter);
     g_exam_type.store(exam_type);
+    g_exam_mode = resolve_exam_mode(parameter, exam_type);
     // Record all exam types, including currently unmapped contest/audition
     // enum values. A missing getter must not silently suppress a real exam.
     g_exam_recording.store(true, std::memory_order_release);
@@ -968,7 +984,7 @@ void begin_exam_session(void* parameter, const char* trigger) {
         << ",\"event\":\"trace-start\",\"captureSchemaVersion\":3,"
         << "\"sessionStartedAtUnixMs\":" << g_exam_started_ms.load()
         << ",\"examType\":" << exam_type
-        << ",\"mode\":\"" << (exam_type == 5 ? "tower" : "exam-unknown") << "\""
+        << ",\"mode\":\"" << json_escape(g_exam_mode) << "\""
         << ",\"startTrigger\":\"" << json_escape(trigger ? trigger : "") << "\""
         << ",\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
         << ",\"hooksInstalled\":" << (g_full_exam_hooks.load() ? "true" : "false") << ","
@@ -985,10 +1001,13 @@ void begin_exam_session(void* parameter, const char* trigger) {
 // supersession and optional native Dispose hooks where available.
 void maybe_finish_last_turn(void* parameter) {
     if (!parameter || !g_exam_recording.load()) return;
-    const RuntimeMethod remaining = resolve_object_method(parameter, "get_RemainTurn", 0);
-    if (!remaining.address) return;
-    const int32_t turns = reinterpret_cast<GetterInt32Fn>(remaining.address)(parameter, remaining.method);
-    if (turns == 0) finish_exam_session(parameter, "remain-turn-zero-after-reset");
+    for (const auto* name : {"get_RemainTurn", "get_RemainingTurn"}) {
+        const RuntimeMethod remaining = resolve_object_method(parameter, name, 0);
+        if (!remaining.address) continue;
+        const int32_t turns = reinterpret_cast<GetterInt32Fn>(remaining.address)(parameter, remaining.method);
+        if (turns == 0) finish_exam_session(parameter, "remaining-turn-zero-after-reset");
+        return;
+    }
 }
 
 int32_t hooked_random_no_arg(void* self, const void* method) {
@@ -1337,14 +1356,14 @@ bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
 
 void* hooked_get_card_data(void* self, void* method) {
     const CardRecord card = read_card(self);
-    remember_card(card);
+    if (g_capture_depth > 0 || g_exam_recording.load(std::memory_order_relaxed)) remember_card(card);
     if (g_capture_depth > 0 && !card.deleted) g_capture_cards.push_back(card);
     return g_orig_get_card_data(self, method);
 }
 
 void hooked_internal_merge_from(void* self, void* parse_context, void* method) {
     g_orig_internal_merge_from(self, parse_context, method);
-    remember_card(read_card(self));
+    if (g_exam_recording.load(std::memory_order_relaxed)) remember_card(read_card(self));
 }
 
 void* hooked_create_deck(void* a0, void* a1) {
