@@ -220,7 +220,6 @@ public final class DiagnosticActivity extends Activity {
             }
         });
     }
-    }
 
     private void setupNotifications() {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
