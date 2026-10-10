@@ -36,8 +36,8 @@ jobs:
           bash android/lsposed-progress-capture/build-apk.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: gakumas-progress-capture-v1.4.1
+          name: gakumas-progress-capture-v1.4.2
           path: |
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.4.1.apk
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.4.1.apk.sha256
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.4.2.apk
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.4.2.apk.sha256
           if-no-files-found: error
