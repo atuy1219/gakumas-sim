@@ -66,6 +66,8 @@ public final class DiagnosticActivity extends Activity {
     private final Map<String, String> lastPreflight = new LinkedHashMap<>();
     private final Set<String> previouslyObtained = new LinkedHashSet<>();
     private volatile String lastScreenState = "";
+    // Explicitly requested only; never continuously read logcat during polling.
+    private volatile String lastInjectionLog = "";
 
     private static final class SourceFile {
         final String name;
@@ -133,6 +135,10 @@ public final class DiagnosticActivity extends Activity {
         mode.setText("安全モード／フック設定");
         mode.setOnClickListener(v -> chooseHookMode());
         root.addView(mode);
+        Button logs = new Button(this);
+        logs.setText("LSPosed初期化ログを取得");
+        logs.setOnClickListener(v -> collectInjectionLogs());
+        root.addView(logs);
 
         ScrollView scrolling = new ScrollView(this);
         display = new TextView(this);
@@ -221,6 +227,32 @@ public final class DiagnosticActivity extends Activity {
         });
     }
 
+    private void collectInjectionLogs() {
+        worker.execute(() -> {
+            try {
+                // Filter by this module's exact Android Log tag. Avoid
+                // exporting unrelated account, network or game log lines.
+                String command = "logcat -d -v brief -s GakumasCapture:V 2>&1 | tail -n 48";
+                String logs = runRoot(command).trim();
+                if (logs.length() > 16000)
+                    logs = logs.substring(logs.length() - 16000);
+                if (logs.isEmpty())
+                    logs = "(GakumasCaptureのログは確認できませんでした。"
+                        + "LSPosedの適用範囲とAPIバージョンを確認してください。)";
+                lastInjectionLog = logs;
+                final String toDisplay = logs;
+                main.post(() -> {
+                    display.append("\n\n--- LSPosed初期化ログ ---\n" + toDisplay);
+                    lastDigest = "";
+                    checkCapture();
+                });
+            } catch (Exception error) {
+                main.post(() -> display.append(
+                    "\n初期化ログを取得できません: " + error.getMessage()));
+            }
+        });
+    }
+
     private void setupNotifications() {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26 && manager != null) {
@@ -293,6 +325,22 @@ public final class DiagnosticActivity extends Activity {
         command.append("if [ -d '/data/user/0/").append(GAME).append("' ]; ");
         command.append("then echo '@targetDataDir|exists'; else echo '@targetDataDir|missing'; fi; ");
         command.append("echo \"@hookMask|$(cat '" + TRACE_DIR + "'native_hookmask.txt 2>/dev/null || echo 0)\"; ");
+        command.append("if [ -d '").append(TRACE_DIR).append("' ]; then ");
+        command.append("echo '@captureDirectory|exists'; ");
+        command.append("stat -c '@captureDirectoryOwner|%u:%g %a' '").append(TRACE_DIR)
+            .append("' 2>/dev/null; ");
+        command.append("else echo '@captureDirectory|missing'; fi; ");
+        command.append("stat -c '@gameFilesOwner|%u:%g %a' '/data/user/0/")
+            .append(GAME).append("/files' 2>/dev/null; ");
+        command.append("p=$(pidof ").append(GAME).append(" 2>/dev/null | cut -d ' ' -f 1); ");
+        command.append("if [ -n \"$p\" ] && [ -r \"/proc/$p/maps\" ]; then ");
+        command.append("if grep -Fq 'libgakumas_progress_capture.so' \"/proc/$p/maps\"; ");
+        command.append("then echo '@moduleLibraryMapped|yes'; ");
+        command.append("else echo '@moduleLibraryMapped|no'; fi; ");
+        command.append("if grep -Fq 'libil2cpp.so' \"/proc/$p/maps\"; ");
+        command.append("then echo '@il2cppLibraryMapped|yes'; ");
+        command.append("else echo '@il2cppLibraryMapped|no'; fi; ");
+        command.append("else echo '@moduleLibraryMapped|game-not-running-or-maps-inaccessible'; fi; ");
         command.append("for d in /data/user/*/").append(GAME).append("; do ");
         command.append("[ -d \"$d\" ] && echo \"@candidateDataDir|$d\"; done");
         String[] lines = runRoot(command.toString()).split("\\r?\\n");
@@ -557,7 +605,15 @@ public final class DiagnosticActivity extends Activity {
                 StringBuilder fileSummary = new StringBuilder("ファイル取得状況\n");
                 fileSummary.append("Root UID: ").append(lastPreflight.get("rootUid")).append("\n");
                 fileSummary.append("ゲームPID: ").append(lastPreflight.get("gamePid")).append("\n");
-                fileSummary.append("Nativeフック設定: ").append(lastPreflight.get("hookMask")).append("\n");
+                fileSummary.append("設定済みフックマスク: ").append(lastPreflight.get("hookMask")).append("\n");
+                fileSummary.append("ゲーム内Nativeライブラリ: ")
+                    .append(lastPreflight.get("moduleLibraryMapped")).append("\n");
+                fileSummary.append("IL2CPPライブラリ: ")
+                    .append(lastPreflight.get("il2cppLibraryMapped")).append("\n");
+                fileSummary.append("保存先ディレクトリ: ")
+                    .append(lastPreflight.get("captureDirectory")).append("\n");
+                fileSummary.append("保存先所有者: ")
+                    .append(lastPreflight.get("captureDirectoryOwner")).append("\n");
                 fileSummary.append("user 0のゲームデータ: ").append(lastPreflight.get("targetDataDir"))
                     .append("\n");
                 if (lastPreflight.containsKey("candidateDataDir")) {
@@ -602,6 +658,8 @@ public final class DiagnosticActivity extends Activity {
                         content(sources, "exam_session_status.json"),
                         content(sources, "exam_runtime_inventory.json"), sources,
                         new LinkedHashMap<>(lastPreflight));
+                    if (!lastInjectionLog.isEmpty())
+                        report.put("injectionLogcat", lastInjectionLog);
                     String serialized = report.toString(2);
                     File saved = new File(getFilesDir(), "gakumas-diagnostic-latest.json");
                     try (FileOutputStream out = new FileOutputStream(saved)) {
