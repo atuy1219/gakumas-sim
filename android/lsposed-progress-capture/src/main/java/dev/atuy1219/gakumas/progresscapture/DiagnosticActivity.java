@@ -1,6 +1,7 @@
 package dev.atuy1219.gakumas.progresscapture;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -57,7 +58,6 @@ public final class DiagnosticActivity extends Activity {
         "exam_session_status.json",
         "exam_lifecycle_status.json",
         "exam_runtime_inventory.json",
-        "exam_lifecycle_status.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
     };
@@ -129,6 +129,10 @@ public final class DiagnosticActivity extends Activity {
         export.setOnClickListener(v -> exportReport());
         buttons.addView(export);
         root.addView(buttons);
+        Button mode = new Button(this);
+        mode.setText("安全モード／フック設定");
+        mode.setOnClickListener(v -> chooseHookMode());
+        root.addView(mode);
 
         ScrollView scrolling = new ScrollView(this);
         display = new TextView(this);
@@ -157,6 +161,41 @@ public final class DiagnosticActivity extends Activity {
     @Override protected void onDestroy() {
         worker.shutdownNow();
         super.onDestroy();
+    }
+
+    private void chooseHookMode() {
+        final String[] options = {
+            "安全モード：ゲーム関数をフックしない（0）",
+            "StartExamのみ（1）",
+            "開始＋完了（3）",
+            "開始＋完了＋Dispose（7）",
+            "コンテストを含むライフサイクル全体（31）",
+            "詳細なカード・乱数フックも追加（63）",
+            "詳細フック＋IL2CPP初期化フック（127）"
+        };
+        final int[] flags = {0, 1, 3, 7, 31, 63, 127};
+        new AlertDialog.Builder(this)
+            .setTitle("実機クラッシュ調査")
+            .setMessage("v1.4.0でSIGSEGVが発生しました。既定は安全モードです。"
+                + "実験フックは学マスをクラッシュさせる可能性があります。"
+                + "設定変更後、学マスを完全終了して再起動してください。")
+            .setItems(options, (dialog, choice) -> {
+                int mask = flags[choice];
+                worker.execute(() -> {
+                    try {
+                        runRoot("printf '%s\\n' " + mask
+                            + " > /data/local/tmp/gakumas_capture_hookmask"
+                            + " && chmod 0600 /data/local/tmp/gakumas_capture_hookmask");
+                        main.post(() -> display.append(
+                            "\\n\\nフック設定を " + mask +
+                            " に変更しました。学マスの強制終了・再起動後に有効になります。"));
+                    } catch (Exception error) {
+                        main.post(() -> display.append("\\n設定に失敗: " + error.getMessage()));
+                    }
+                });
+            })
+            .setNegativeButton("キャンセル", null)
+            .show();
     }
 
     private void setupNotifications() {
@@ -230,6 +269,7 @@ public final class DiagnosticActivity extends Activity {
         command.append("echo '@gamePid|'$(pidof ").append(GAME).append(" 2>/dev/null || echo none); ");
         command.append("if [ -d '/data/user/0/").append(GAME).append("' ]; ");
         command.append("then echo '@targetDataDir|exists'; else echo '@targetDataDir|missing'; fi; ");
+        command.append("echo \"@hookMask|$(cat /data/local/tmp/gakumas_capture_hookmask 2>/dev/null || echo 0)\"; ");
         command.append("for d in /data/user/*/").append(GAME).append("; do ");
         command.append("[ -d \"$d\" ] && echo \"@candidateDataDir|$d\"; done");
         String[] lines = runRoot(command.toString()).split("\\r?\\n");
@@ -494,6 +534,7 @@ public final class DiagnosticActivity extends Activity {
                 StringBuilder fileSummary = new StringBuilder("ファイル取得状況\n");
                 fileSummary.append("Root UID: ").append(lastPreflight.get("rootUid")).append("\n");
                 fileSummary.append("ゲームPID: ").append(lastPreflight.get("gamePid")).append("\n");
+                fileSummary.append("Nativeフック設定: ").append(lastPreflight.get("hookMask")).append("\n");
                 fileSummary.append("user 0のゲームデータ: ").append(lastPreflight.get("targetDataDir"))
                     .append("\n");
                 if (lastPreflight.containsKey("candidateDataDir")) {
