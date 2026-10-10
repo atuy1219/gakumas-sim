@@ -1,6 +1,12 @@
 package dev.atuy1219.gakumas.progresscapture;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -20,6 +26,11 @@ import java.io.OutputStream;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONArray;
@@ -38,6 +49,39 @@ public final class DiagnosticActivity extends Activity {
     private static final String GAME = "com.bandainamcoent.idolmaster_gakuen";
     private static final String TRACE_DIR = "/data/user/0/" + GAME + "/files/gakumas-sim/";
     private static final int EXPORT_REQUEST = 1201;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 1202;
+    private static final String NOTIFICATION_CHANNEL = "gakumas-capture-files";
+    private static final String[] SOURCE_FILES = {
+        "bootstrap_status.json",
+        "capture_status.json",
+        "exam_session_status.json",
+        "exam_runtime_inventory.json",
+        "produce_cards.json",
+        "exam_seed_trace.jsonl"
+    };
+    // Accessed only on the single-thread worker.
+    private final Map<String, SourceFile> sourceCache = new LinkedHashMap<>();
+    private final Set<String> previouslyObtained = new LinkedHashSet<>();
+    private volatile String lastScreenState = "";
+
+    private static final class SourceFile {
+        final String name;
+        String status = "missing";
+        String fingerprint = "";
+        String content = "";
+        long size = -1L;
+        String detail = "";
+        SourceFile(String name) { this.name = name; }
+
+        JSONObject asJson() throws JSONException {
+            JSONObject info = new JSONObject();
+            info.put("name", name);
+            info.put("status", status);
+            info.put("bytes", size < 0 ? JSONObject.NULL : size);
+            if (!detail.isEmpty()) info.put("detail", detail);
+            return info;
+        }
+    }
     private static final long POLL_MS = 2500L;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -65,9 +109,9 @@ public final class DiagnosticActivity extends Activity {
         root.addView(heading);
 
         TextView guidance = new TextView(this);
-        guidance.setText("LSPosedの対象を学マスに設定して再起動してください。"
-            + "この画面を開いている間、約2.5秒ごとにログを更新します。"
-            + "ゲーム全体の一致は未検証であり、現時点で比較できるのは乱数系列です。");
+        guidance.setText("取得したファイルを個別に表示します。未生成はRootエラーではありません。"
+            + "画面を開いている間は2.5秒ごとに確認し、新しく取得したファイルだけ通知します。"
+            + "ゲーム全体の一致は未検証であり、現在比較できるのは乱数系列です。");
         guidance.setPadding(0, 12, 0, 12);
         root.addView(guidance);
 
@@ -92,6 +136,7 @@ public final class DiagnosticActivity extends Activity {
         root.addView(scrolling, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
+        setupNotifications();
     }
 
     @Override protected void onStart() {
@@ -111,14 +156,47 @@ public final class DiagnosticActivity extends Activity {
         super.onDestroy();
     }
 
-    private static String readRootFile(String basename, boolean required) throws Exception {
-        // Only fixed, hardcoded filenames enter the privileged shell.
-        if (!"exam_seed_trace.jsonl".equals(basename) && !"produce_cards.json".equals(basename)
-            && !"exam_session_status.json".equals(basename)
-            && !"exam_runtime_inventory.json".equals(basename)) {
-            throw new SecurityException("Unexpected filename");
+    private void setupNotifications() {
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= 26 && manager != null) {
+            NotificationChannel channel = new NotificationChannel(
+                NOTIFICATION_CHANNEL, "学マス 診断ファイル取得",
+                NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("LSPosedが新しい診断ファイルを取得したときに通知");
+            manager.createNotificationChannel(channel);
         }
-        Process process = new ProcessBuilder("su", "-c", "cat " + TRACE_DIR + basename)
+        if (Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            && !getPreferences(MODE_PRIVATE).getBoolean("notification_permission_requested", false)) {
+            getPreferences(MODE_PRIVATE).edit()
+                .putBoolean("notification_permission_requested", true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                NOTIFICATION_PERMISSION_REQUEST);
+        }
+    }
+
+    private void notifyNewFiles(ArrayList<String> names) {
+        if (names.isEmpty()) return;
+        if (Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) return;
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager == null) return;
+        String joined = android.text.TextUtils.join("、", names);
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
+            ? new Notification.Builder(this, NOTIFICATION_CHANNEL)
+            : new Notification.Builder(this);
+        builder.setContentTitle("学マス診断: " + names.size() + "件のファイルを取得")
+            .setContentText(joined)
+            .setStyle(new Notification.BigTextStyle().bigText(joined))
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setAutoCancel(true);
+        manager.notify(101, builder.build());
+    }
+
+    private static String runRoot(String command) throws Exception {
+        Process process = new ProcessBuilder("su", "-c", command)
             .redirectErrorStream(true).start();
         ByteArrayOutputStream result = new ByteArrayOutputStream();
         try (InputStream in = process.getInputStream()) {
@@ -126,17 +204,97 @@ public final class DiagnosticActivity extends Activity {
             int length;
             while ((length = in.read(buffer)) != -1) {
                 if (result.size() + length > 64 * 1024 * 1024) {
-                    process.destroy();
-                    throw new IllegalStateException("Trace exceeds 64 MiB");
+                    process.destroyForcibly();
+                    throw new IllegalStateException("ファイルが64MiBを超えています");
                 }
                 result.write(buffer, 0, length);
             }
         }
         if (process.waitFor() != 0) {
-            if (!required) return "";
-            throw new IllegalStateException("su/cat failed: " + result.toString("UTF-8"));
+            throw new IllegalStateException(result.toString("UTF-8").trim());
         }
         return result.toString("UTF-8");
+    }
+
+    private static Map<String, SourceFile> scanRootFiles() throws Exception {
+        // One root shell probes ALL paths. Missing files are not errors.
+        // The script contains only fixed, predefined names.
+        StringBuilder command = new StringBuilder("id -u; for name in");
+        for (String name : SOURCE_FILES) command.append(" ").append(name);
+        command.append("; do f='").append(TRACE_DIR).append("'\"$name\"; ");
+        command.append("if [ -f \"$f\" ]; then stat -c \"$name|%s|%Y\" \"$f\" ");
+        command.append("|| echo \"$name|ERROR\"; else echo \"$name|MISSING\"; fi; done");
+        String[] lines = runRoot(command.toString()).split("\\r?\\n");
+        if (lines.length == 0 || !"0".equals(lines[0].trim())) {
+            throw new SecurityException("KernelSUのsu権限が必要です: " +
+                (lines.length > 0 ? lines[0] : "no root output"));
+        }
+        Map<String, SourceFile> files = new LinkedHashMap<>();
+        for (String name : SOURCE_FILES) files.put(name, new SourceFile(name));
+        for (int i = 1; i < lines.length; i++) {
+            String[] parts = lines[i].trim().split("\\|", 3);
+            if (parts.length < 2) continue;
+            SourceFile info = files.get(parts[0]);
+            if (info == null) continue;
+            if ("MISSING".equals(parts[1])) continue;
+            if ("ERROR".equals(parts[1]) || parts.length != 3) {
+                info.status = "error";
+                info.detail = "ファイルの状態を取得できません";
+                continue;
+            }
+            try {
+                info.size = Long.parseLong(parts[1]);
+                info.fingerprint = parts[1] + "|" + parts[2];
+                info.status = info.size == 0 ? "empty" : "available";
+            } catch (NumberFormatException error) {
+                info.status = "error";
+                info.detail = "ファイルのサイズ情報が不正です";
+            }
+        }
+        return files;
+    }
+
+    private static String readRootFile(String basename) throws Exception {
+        boolean trusted = false;
+        for (String name : SOURCE_FILES) if (name.equals(basename)) trusted = true;
+        if (!trusted) throw new SecurityException("Unexpected filename");
+        return runRoot("cat " + TRACE_DIR + basename);
+    }
+
+    private Map<String, SourceFile> readAvailableFiles() throws Exception {
+        Map<String, SourceFile> files = scanRootFiles();
+        for (SourceFile info : files.values()) {
+            if (!"available".equals(info.status) && !"empty".equals(info.status)) continue;
+            SourceFile prior = sourceCache.get(info.name);
+            if (prior != null && info.fingerprint.equals(prior.fingerprint)
+                && ("obtained".equals(prior.status) || "empty".equals(prior.status))) {
+                info.content = prior.content;
+                info.status = prior.status;
+                continue;
+            }
+            if ("empty".equals(info.status)) continue;
+            try {
+                info.content = readRootFile(info.name);
+                info.status = info.content.isEmpty() ? "empty" : "obtained";
+            } catch (Exception error) {
+                info.status = "error";
+                info.detail = error.getMessage() == null ? error.toString() : error.getMessage();
+            }
+        }
+        sourceCache.clear();
+        sourceCache.putAll(files);
+        return files;
+    }
+
+    private static String content(Map<String, SourceFile> files, String name) {
+        SourceFile info = files.get(name);
+        return info == null ? "" : info.content;
+    }
+
+    private static JSONObject fileStatuses(Map<String, SourceFile> files) throws JSONException {
+        JSONObject result = new JSONObject();
+        for (SourceFile info : files.values()) result.put(info.name, info.asJson());
+        return result;
     }
 
     private static String sha256(String content) throws Exception {
@@ -155,7 +313,8 @@ public final class DiagnosticActivity extends Activity {
         return x;
     }
 
-    private static JSONObject makeReport(String trace, String cards, String sessionJson, String metadataJson) throws Exception {
+    private static JSONObject makeReport(String trace, String cards, String sessionJson, String metadataJson,
+        Map<String, SourceFile> sources) throws Exception {
         JSONArray events = new JSONArray();
         JSONArray warnings = new JSONArray();
         JSONObject traceStart = null;
@@ -252,6 +411,18 @@ public final class DiagnosticActivity extends Activity {
             try { environment.put("runtimeMetadataInventory", new JSONObject(metadataJson)); }
             catch (JSONException error) { warnings.put("invalid-runtime-metadata-inventory"); }
         }
+        for (String config : new String[]{"bootstrap_status.json", "capture_status.json"}) {
+            String text = content(sources, config);
+            if (!text.trim().isEmpty()) {
+                try { environment.put(config, new JSONObject(text)); }
+                catch (JSONException error) { warnings.put("invalid-" + config); }
+            }
+        }
+        report.put("sources", fileStatuses(sources));
+        for (SourceFile info : sources.values()) {
+            if (!"obtained".equals(info.status))
+                warnings.put("source-" + info.status + ":" + info.name);
+        }
         report.put("environment", environment);
 
         JSONObject input = new JSONObject();
@@ -289,13 +460,40 @@ public final class DiagnosticActivity extends Activity {
         checking = true;
         worker.execute(() -> {
             try {
-                String trace = readRootFile("exam_seed_trace.jsonl", true);
-                String cards = readRootFile("produce_cards.json", false);
-                String session = readRootFile("exam_session_status.json", false);
-                String inventory = readRootFile("exam_runtime_inventory.json", false);
-                String digest = sha256(trace + "\0" + cards + "\0" + session + "\0" + inventory);
+                Map<String, SourceFile> sources = readAvailableFiles();
+                ArrayList<String> acquired = new ArrayList<>();
+                Set<String> liveFiles = new LinkedHashSet<>();
+                StringBuilder fileSummary = new StringBuilder("ファイル取得状況\n");
+                for (SourceFile info : sources.values()) {
+                    if ("obtained".equals(info.status)) {
+                        liveFiles.add(info.name);
+                        if (!previouslyObtained.contains(info.name)) acquired.add(info.name);
+                        fileSummary.append("取得済み  ").append(info.name).append(" (")
+                            .append(info.size).append(" B)\n");
+                    } else if ("empty".equals(info.status)) {
+                        fileSummary.append("空ファイル  ").append(info.name).append("\n");
+                    } else if ("missing".equals(info.status)) {
+                        fileSummary.append("未生成  ").append(info.name).append("\n");
+                    } else {
+                        fileSummary.append("取得失敗  ").append(info.name).append(": ")
+                            .append(info.detail).append("\n");
+                    }
+                }
+                previouslyObtained.clear();
+                previouslyObtained.addAll(liveFiles);
+                if (!acquired.isEmpty()) main.post(() -> notifyNewFiles(acquired));
+                StringBuilder key = new StringBuilder();
+                for (SourceFile source : sources.values()) {
+                    key.append(source.name).append('|').append(source.status)
+                        .append('|').append(source.fingerprint).append('|').append(source.detail).append(';');
+                }
+                String digest = sha256(key.toString());
                 if (!digest.equals(lastDigest)) {
-                    JSONObject report = makeReport(trace, cards, session, inventory);
+                    JSONObject report = makeReport(
+                        content(sources, "exam_seed_trace.jsonl"),
+                        content(sources, "produce_cards.json"),
+                        content(sources, "exam_session_status.json"),
+                        content(sources, "exam_runtime_inventory.json"), sources);
                     String serialized = report.toString(2);
                     File saved = new File(getFilesDir(), "gakumas-diagnostic-latest.json");
                     try (FileOutputStream out = new FileOutputStream(saved)) {
@@ -304,31 +502,39 @@ public final class DiagnosticActivity extends Activity {
                     latestReport = serialized;
                     lastDigest = digest;
                     JSONObject comparison = report.getJSONObject("comparison");
-                    StringBuilder message = new StringBuilder();
+                    StringBuilder message = new StringBuilder(fileSummary);
+                    message.append("\n診断ステータス: ").append(comparison.getString("status")).append("\n");
+                    message.append("RNG比較件数: ").append(comparison.getInt("comparedRandomCalls")).append("\n");
+                    message.append("差分件数: ").append(comparison.getJSONArray("differences").length()).append("\n");
                     JSONObject sessionStatus = report.getJSONObject("environment").optJSONObject("session");
                     if (sessionStatus != null) {
                         message.append("試験記録: ").append(sessionStatus.optString("phase", "unknown"))
                             .append(" / ").append(sessionStatus.optString("mode", "unknown"))
                             .append(" / ExamType=").append(sessionStatus.optInt("examType", -1)).append("\n");
                     }
-                    message.append("診断ステータス: ").append(comparison.getString("status")).append("\n");
-                    message.append("RNG比較件数: ").append(comparison.getInt("comparedRandomCalls")).append("\n");
-                    message.append("差分件数: ").append(comparison.getJSONArray("differences").length()).append("\n");
-                    message.append("実機イベント: ").append(report.getJSONObject("realDevice").getJSONArray("events").length()).append("\n");
-                    JSONObject metadata = report.getJSONObject("environment").optJSONObject("runtimeMetadataInventory");
+                    JSONObject metadata = report.getJSONObject("environment")
+                        .optJSONObject("runtimeMetadataInventory");
                     if (metadata != null) {
-                        message.append("IL2CPP検出クラス: ").append(metadata.optInt("selectedClassCount", 0)).append("\n");
+                        message.append("IL2CPP検出クラス: ")
+                            .append(metadata.optInt("selectedClassCount", 0)).append("\n");
                     }
-                    message.append("ゲームのスコア・効果・手札の完全一致: 未検証\n\n");
                     JSONObject first = comparison.optJSONObject("firstDivergence");
-                    if (first != null) message.append("最初の差分:\n").append(first.toString(2)).append("\n\n");
-                    message.append("診断JSONはアプリ内へ自動保存されます。\n");
-                    message.append("AIへ渡すときは「診断JSONを書き出す」を選択してください。");
-                    main.post(() -> display.setText(message));
+                    if (first != null) message.append("最初の差分: ")
+                        .append(first.toString()).append("\n");
+                    if (!"obtained".equals(sources.get("exam_seed_trace.jsonl").status)) {
+                        message.append("\n試験ログはまだ取得できていません。"
+                            + "学マス側のフック状態はcapture_status.jsonを確認してください。"
+                            + "ファイル未生成とRoot権限不足は別の状態です。\n");
+                    }
+                    message.append("\n診断JSONには各ファイルの取得状態も含まれます。");
+                    String shown = message.toString();
+                    lastScreenState = shown;
+                    main.post(() -> display.setText(shown));
                 }
             } catch (Exception error) {
-                main.post(() -> display.setText("取得できません: " + error.getMessage()
-                    + "\n\nKernelSUで本モジュールアプリにsu権限を許可し、学マスを起動してください。"));
+                String explanation = "ファイル一覧の検査に失敗しました: " + error.getMessage()
+                    + "\nRoot権限、学マス側のフォルダ、SELinux拒否を確認してください。";
+                main.post(() -> display.setText(explanation));
             } finally {
                 checking = false;
             }
