@@ -1,0 +1,40 @@
+name: Build LSPosed diagnostic APK
+
+on:
+  push:
+    paths:
+      - "android/lsposed-progress-capture/**"
+      - ".github/workflows/build-lsposed-diagnostic.yml"
+  pull_request:
+    paths:
+      - "android/lsposed-progress-capture/**"
+      - ".github/workflows/build-lsposed-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+      - name: Build native LSPosed APK
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          bash android/lsposed-progress-capture/build-apk.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gakumas-progress-capture-v1.1.0
+          path: |
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.1.0.apk
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.1.0.apk.sha256
+          if-no-files-found: error
