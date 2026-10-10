@@ -1015,6 +1015,8 @@ void begin_exam_session(void* parameter, const char* trigger) {
 // result UI has appeared. Early leaves/retries are handled by new-session
 // supersession and optional native Dispose hooks where available.
 void maybe_finish_last_turn(void* parameter) {
+    // v3.4.1 uses exact completion/dispose hooks: do not end on a heuristic.
+    if (g_runtime_build_id == kV341BuildId) return;
     if (!parameter || !g_exam_recording.load()) return;
     for (const auto* name : {"get_RemainTurn", "get_RemainingTurn"}) {
         const RuntimeMethod remaining = resolve_object_method(parameter, name, 0);
