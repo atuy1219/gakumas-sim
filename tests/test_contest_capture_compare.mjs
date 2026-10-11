@@ -53,7 +53,7 @@ const old={scope:"contest-gameplay-capture",events:[capture.events[0],
 assert.equal(reconstructContestCapture(old).sessions[0].turns.length,2);
 // Confirm that native decisions do not become fake simulator outputs:
 // a fresh runtime must independently shuffle/draw and predict turn values.
-const neutralDeck=["N-A","N-B","N-C"].map(id=>({id,upgradeCount:0}));
+const neutralDeck=["p_card-N-A","p_card-N-B","p_card-N-C"].map(id=>({id,upgradeCount:0}));
 const neutralMasters=new Map(neutralDeck.map(card=>[card.id,card]));
 const nativeInput={
  initialDeck:neutralDeck,pItems:[],examSettings:{},
