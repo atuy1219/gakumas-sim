@@ -277,6 +277,7 @@ function runtimeInstances(
       rarity: String(master.rarity ?? card.rarity ?? ""),
       planType: String(master.planType ?? card.planType ?? ""),
       searchTag: String(master.searchTag ?? card.searchTag ?? ""),
+      originIdolCardId: String(master.originIdolCardId ?? card.originIdolCardId ?? ""),
       effectGroupIds: Array.isArray(master.effectGroupIds) ? [...master.effectGroupIds] : [],
       stamina: Number(master.stamina ?? 0) || 0,
       forceStamina: Number(master.forceStamina ?? 0) || 0,
@@ -1077,7 +1078,12 @@ export function cardMatchesMasterSearch(card, search) {
   const planType = String(search.planType ?? "");
   if (planType && planType !== "ProducePlanType_Unknown" && planType !== String(card.planType ?? "")) return false;
   const tag = String(search.cardSearchTag ?? "");
-  if (tag && tag !== String(card.searchTag ?? "")) return false;
+  if (tag) {
+    // Idol-unique is derived from the card's official originIdolCardId;
+    // ProduceCard masters do not provide a literal searchTag for this class.
+    const idolUnique = tag === "idol-unique" && Boolean(String(card.originIdolCardId ?? ""));
+    if (!idolUnique && tag !== String(card.searchTag ?? "")) return false;
+  }
   const costType = String(search.costType ?? "");
   if (costType && costType !== "ExamCostType_Unknown" && costType !== String(card.costType ?? "")) return false;
   const groups = new Set((search.effectGroupIds ?? []).map(String));
