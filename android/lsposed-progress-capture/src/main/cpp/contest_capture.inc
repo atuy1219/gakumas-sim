@@ -269,10 +269,11 @@ using ElementClass=void*(*)(void*);
 using ValueType=bool(*)(void*);
 using ValueSize=int32_t(*)(void*,uint32_t*);
 using ClassParent=void*(*)(void*);
+using InstanceSize=int32_t(*)(void*);
 struct API {
     GetFields getFields=nullptr;FieldName fieldName=nullptr;FieldOffset fieldOffset=nullptr;
     FieldType fieldType=nullptr;TypeKind typeKind=nullptr;ClassName className=nullptr;
-    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;
+    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;InstanceSize instanceSize=nullptr;
     bool ready()const{return getFields&&fieldName&&fieldOffset&&fieldType&&typeKind&&className&&classFromType;}
 };
 const API& api(){
@@ -298,6 +299,7 @@ const API& api(){
         p.valueType=reinterpret_cast<ValueType>(resolve("il2cpp_class_is_valuetype"));
         p.valueSize=reinterpret_cast<ValueSize>(resolve("il2cpp_class_value_size"));
         p.classParent=reinterpret_cast<ClassParent>(resolve("il2cpp_class_get_parent"));
+        p.instanceSize=reinterpret_cast<InstanceSize>(resolve("il2cpp_class_instance_size"));
         if(existing)dlclose(existing);
         return p;
     }();
@@ -322,6 +324,7 @@ struct Context {
     unsigned nodes=0;
     size_t remaining=65536;
     bool truncated=false;
+    bool cardMetadataEmitted=false;
     std::vector<Address> seen;
 };
 // ExamCardData inherits its card identity. On some game builds the parent
@@ -329,13 +332,16 @@ struct Context {
 // identify a single direct UTF-16 "p_card-" field without guessing its offset.
 // The scan is observational only: multiple candidates => no identity.
 struct ScannedCardId { std::string json="null"; size_t offset=0; bool found=false; bool ambiguous=false; };
-ScannedCardId scanCardIdentity(Address card){
+ScannedCardId scanCardIdentity(Address card,void* cardClass){
     ScannedCardId result;
-    unsigned char data[768]={};
+    unsigned char data[4096]={};
     const ReadFailure previous=firstReadFailure;
-    bool loaded=bytes(card,0,data,sizeof(data));
-    const size_t span=loaded?sizeof(data):256;
-    if(!loaded) loaded=bytes(card,0,data,256);
+    // Do not read past the actual managed object's IL2CPP instance size.
+    const int32_t instance=api().instanceSize?api().instanceSize(cardClass):0;
+    const size_t span=instance>=0x20&&instance<=4096
+        ? static_cast<size_t>(instance) : size_t(768);
+    bool loaded=bytes(card,0,data,span);
+    if(!loaded)loaded=bytes(card,0,data,std::min(span,size_t(256)));
     // A failed optional probe must not make the parent snapshot a failure.
     firstReadFailure=previous;
     if(!loaded)return result;
@@ -366,6 +372,40 @@ ScannedCardId scanCardIdentity(Address card){
     firstReadFailure=previous;
     if(result.ambiguous){result.json="null";result.found=false;}
     return result;
+}
+// One per snapshot: metadata-only inventory determines whether a card ID is
+// an instance field or computed through a getter. No managed getter is called.
+std::string cardClassInventory(void* cls){
+    const API& p=api();
+    std::ostringstream out;
+    out<<"{\"runtimeSize\":";
+    const int32_t size=p.instanceSize?p.instanceSize(cls):0;
+    if(size>0&&size<65536)out<<size;else out<<"null";
+    out<<",\"hierarchy\":[";
+    unsigned parentCount=0;
+    for(void* current=cls;current&&parentCount<8;
+        current=p.classParent?p.classParent(current):nullptr){
+        if(parentCount++)out<<',';
+        const char* className=p.className(current);
+        out<<"{\"class\":\""<<(className?className:"?")<<"\",\"fields\":[";
+        void* iterator=nullptr;
+        for(unsigned n=0;n<140;++n){
+            void* field=p.getFields(current,&iterator);
+            if(!field)break;
+            const char* name=p.fieldName(field);
+            if(n)out<<',';
+            out<<"{\"name\":\"";
+            if(name)for(const char* c=name;*c;++c){
+                if(*c=='"'||*c=='\\')out<<'\\';
+                if(static_cast<unsigned char>(*c)>=0x20)out<<*c;
+            }
+            void* ft=p.fieldType(field);
+            out<<"\",\"offset\":"<<p.fieldOffset(field)
+               <<",\"kind\":"<<(ft?p.typeKind(ft):-1)<<"}";
+        }
+        out<<"]}";
+    }
+    out<<"]}";return out.str();
 }
 std::string value(Address where,int type,void* cls,int depth,Context& c,bool& ok);
 std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unboxed=false){
@@ -423,11 +463,15 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
     std::ostringstream out;out<<"{\"$type\":\""<<name<<"\",\"fields\":{";
     bool first=true;unsigned fieldCount=0;
     if(std::strcmp(name,"ExamCardData")==0){
-        const auto identity=scanCardIdentity(ptr);
+        const auto identity=scanCardIdentity(ptr,cls);
         out<<"\"$scannedCardId\":"<<identity.json
            <<",\"$scannedCardIdOffset\":"<<(identity.found?std::to_string(identity.offset):"null")
            <<",\"$scannedCardIdAmbiguous\":"<<(identity.ambiguous?"true":"false");
         first=false;
+        if(!c.cardMetadataEmitted){
+            out<<",\"$cardClassInventory\":"<<cardClassInventory(cls);
+            c.cardMetadataEmitted=true;
+        }
     }
     void* targetClass=cls;
     // il2cpp_class_get_fields lists declared fields only. ExamCardData
