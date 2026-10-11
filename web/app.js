@@ -1,5 +1,6 @@
 import { officialDescriptionText } from "./official_description.js";
 import { compareContestCapture } from "./contest_capture_compare.js";
+import { replayObservedContest } from "./contest_native_replay.js";
 import { createSimulationBackup, parseSimulationBackup, stringifySimulationBackup } from "./simulation_backup.js";
 import { renderSimulationHistory } from "./simulation_history_ui.js";
 import {
@@ -1443,7 +1444,13 @@ $("contest-capture-file").addEventListener("change", async (event) => {
   try {
     if (file.size > 12 * 1024 * 1024) throw new Error("最大12 MiBのキャプチャーJSONを選択してください。");
     const capture = JSON.parse(await file.text());
-    const report = compareContestCapture(capture);
+    const report = compareContestCapture(capture, {
+      simulator: (session, setup) => replayObservedContest(session, setup, {
+        cardById: catalogs.cardById,
+        cardVariantByKey: catalogs.cardVariantByKey,
+        examItemCatalogs,
+      }),
+    });
     contestCaptureComparison = report;
     const s = report.summary;
     status.textContent = "実機 " + s.sessions + "実行、" + s.totalProgress + "経過、" + s.totalTurns
@@ -1461,7 +1468,9 @@ $("contest-capture-file").addEventListener("change", async (event) => {
         String(row.realDevice.score ?? "-"),
         row.simulation?.result?.score == null ? "未実行" : String(row.simulation.result.score),
         row.comparison.status === "mismatch" ? "不一致: " + (row.comparison.firstDivergence?.path ?? "?")
-          : row.comparison.status === "match" ? "一致" : row.realDevice.dataComplete ? "取得成功・再計算不可" : "取得欠損"
+          : row.comparison.status === "match" ? "全項目一致"
+            : row.comparison.status === "partial-match" ? "検証できた項目は一致（未比較項目あり）"
+              : row.realDevice.dataComplete ? "取得成功・初期条件不足または再計算未対応" : "取得欠損"
       ];
       for (const v of values) { const td = document.createElement("td"); td.textContent = v; tr.append(td); }
       rows.append(tr);
