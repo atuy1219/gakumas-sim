@@ -13,11 +13,14 @@ export function reconstructContestCapture(capture){
   const e=capture.events[i];
   if(!object(e)||!Number.isSafeInteger(e.pid)||!Number.isSafeInteger(e.sessionId)){warnings.push("events["+i+"]:invalid-session-identity");continue;}
   const key=e.pid+":"+e.sessionId;
-  if(!sessions.has(key))sessions.set(key,{key,pid:e.pid,sessionId:e.sessionId,start:null,progress:[],result:null,turns:[],warnings:[],complete:true});
+  if(!sessions.has(key))sessions.set(key,{key,pid:e.pid,sessionId:e.sessionId,start:null,setup:null,progress:[],result:null,turns:[],warnings:[],complete:true});
   const s=sessions.get(key);
   if(e.dataComplete===false){s.complete=false;s.warnings.push("step-"+e.step+":native-read-incomplete");}
   if(e.event==="contest-start"){
    if(s.start){s.complete=false;s.warnings.push("duplicate-start");}s.start=e;
+  }else if(e.event==="contest-setup"){
+   if(s.setup){s.warnings.push("multiple-setup-snapshots");}
+   s.setup=e;
   }else if(e.event==="contest-progress"){
    const prev=s.progress.at(-1);
    if(prev&&e.step!==prev.step+1){s.complete=false;s.warnings.push("noncontiguous-progress-step:"+prev.step+"->"+e.step);}
@@ -53,6 +56,35 @@ export function reconstructContestCapture(capture){
   if(s.result?.dataComplete===false){s.complete=false;s.warnings.push("terminal-marked-incomplete");}
  }
  return {sessions:[...sessions.values()],warnings};
+}
+// Report candidate configuration values from native reflection. These are
+// observations, not silently promoted to a complete replay configuration.
+export function extractSetupCandidates(session){
+ const snapshots=[
+  ["examData",session.start?.nativeInitialState],
+  ["parameter",session.setup?.examParameterSnapshot],
+  ["sequence",session.setup?.examSequenceSnapshot],
+ ];
+ const fields=[];
+ const walk=(node,path,depth,visited)=>{
+  if(!object(node)||depth>5||visited.count++>400)return;
+  if(object(node.fields)){
+   for(const [name,value] of Object.entries(node.fields)){
+    const key=path+"."+name;
+    if(/Deck|Card|Item|Drink|Parameter|Setting|Random|Seed|Turn|Stamina|Status|Effect|Initial|Support|Gimmick|Plan|Pool|Score|Block/i.test(name)){
+     if(value===null||["string","number","boolean"].includes(typeof value)||Array.isArray(value))
+      fields.push({path:key,value});
+     else if(object(value)&&Array.isArray(value.elements))
+      fields.push({path:key,type:value.$type,count:value.elements.length});
+    }
+    walk(value,key,depth+1,visited);
+   }
+  }
+  if(Array.isArray(node.elements))for(let i=0;i<Math.min(64,node.elements.length);i++)walk(node.elements[i],path+".elements["+i+"]",depth+1,visited);
+ };
+ for(const [name,snapshot] of snapshots)if(object(snapshot)&&object(snapshot.root))walk(snapshot.root,name,0,{count:0});
+ return {available:fields.length>0,fields:fields.slice(0,240),
+   snapshots:snapshots.filter(x=>object(x[1])).map(([name,snapshot])=>({name,available:snapshot.available===true,complete:snapshot.complete===true,truncated:snapshot.truncated===true}))};
 }
 function diffInto(out,path,a,b){
  if(out.length>=100||equal(a,b))return;
@@ -102,7 +134,7 @@ export function compareContestCapture(capture,{simulator=null}={}){
  let compared=0,mismatches=0,matched=0,blocked=0,partial=0;
  for(const s of normalized.sessions){
   const inputs=object(capture.simulatorInputs)?capture.simulatorInputs:{};
-  const input=inputs[s.key]||inputs[String(s.sessionId)]||{};
+  const input=inputs[s.key]||inputs[String(s.sessionId)]||s.start?.simulatorInputs||{};
   const missing=REQUIRED.filter(k=>!Object.hasOwn(input,k)||input[k]===null);
   const warnings=[...s.warnings];
   let simulation=null,comparison={status:"unavailable",differences:[],firstDivergence:null,compared:false};
@@ -116,6 +148,7 @@ export function compareContestCapture(capture,{simulator=null}={}){
   if(comparison.compared){compared++;if(comparison.status==="mismatch")mismatches++;else if(comparison.status==="match")matched++;else partial++;}
   else {blocked++;warnings.push(missing.length?"simulator-input-missing:"+missing.join(","):"simulator-runner-not-connected");}
   sessions.push({pid:s.pid,sessionId:s.sessionId,characterId:s.start?.characterId||null,seed:s.start?.seed??null,
+    nativeSetup:s.setup??null,setupCandidates:extractSetupCandidates(s),
     realDevice:{score:s.result?.score??null,result:s.result,progress:s.progress,turns:s.turns,dataComplete:s.complete},
     simulation,comparison,warnings});
  }
