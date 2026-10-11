@@ -1,6 +1,24 @@
 # Gakumas Progress Capture (LSPosed)
 
-## Current checkpoint: v1.5.3 (device verification pending)
+## Current checkpoint: v1.5.4 (device verification pending)
+
+
+The v1.5.3 device screenshot could not see the game data, whereas Termux root
+listed fresh bootstrap/capture/native-bootstrap files owned by the game UID.
+Root and game mount namespace IDs differed. v1.5.4 detects advertised
+`su -M / --mount-master` support and requests the global namespace for **all**
+root scans, reads, logs and configuration. Unsupported implementations use
+ordinary su; errors are never automatically retried in another namespace.
+The selected invocation and actual Root/init/game namespace IDs are recorded.
+An advertised flag does not prove that KernelSU's namespace switch succeeded.
+Device verification of this visibility repair remains pending.
+
+「診断表示をコピー」 copies current visible text. 「初期化JSONをコピー」
+copies compact initialization JSON with preflight, file acquisition states,
+bootstrap/capture/native-bootstrap/self-test and requested initialization logs.
+It omits old inventory/card/trace dumps; full JSON remains available via export.
+No hook setting is changed by copying. First collect initialization logs, then
+paste the compact JSON to verify current-PID Native initialization.
 
 The v1.5.2 device report showed root UID 0 and an active IL2CPP process,
 but all capture paths were unseen. An unmatched candidate-directory glob

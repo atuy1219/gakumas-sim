@@ -276,5 +276,89 @@ public final class ScanHarness {
             self.assertEqual(result.returncode == 0, good, result.stderr)
 
 
+@unittest.skipUnless(shutil.which("javac"), "host JDK required")
+class DiagnosticRootShellTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temporary.name)
+        package = "dev.atuy1219.gakumas.progresscapture"
+        harness = cls.root / "RootShellHarness.java"
+        harness.write_text("package " + package + r''';
+import java.util.ArrayList;
+import java.util.Arrays;
+public final class RootShellHarness {
+    public static void main(String[] args) throws Exception {
+        if (args[0].equals("process")) {
+            DiagnosticRootShell shell = new DiagnosticRootShell();
+            System.out.print(shell.execute(args[1]));
+            System.out.print(shell.execute(args[2]));
+            System.out.println(shell.invocation());
+            return;
+        }
+        final ArrayList<String[]> calls = new ArrayList<>();
+        final boolean supported = args[0].equals("supported") || args[0].equals("failure");
+        DiagnosticRootShell shell = new DiagnosticRootShell(argv -> {
+            calls.add(argv);
+            if (argv.length == 2) return new DiagnosticRootShell.Result(
+                args[0].equals("help-failure") ? 1 : 0,
+                supported || args[0].equals("help-failure") ? "-M, --mount-master global namespace" : "-c command");
+            return new DiagnosticRootShell.Result(args[0].equals("failure") ? 41 : 0, "result\n");
+        });
+        if (args[0].equals("failure")) {
+            try { shell.execute("write-fixed-config"); throw new AssertionError("failure hidden"); }
+            catch (IllegalStateException expected) {
+                if (!expected.getMessage().contains("su -M -c 終了コード 41")) throw expected;
+            }
+            if (calls.size() != 2) throw new AssertionError("failed write retried");
+        } else {
+            for (String command : new String[]{"scan", "read-fixed-report", "configure-fixed-mask"})
+                if (!shell.execute(command).equals("result\n")) throw new AssertionError("output changed");
+            if (calls.size() != 4) throw new AssertionError("help not cached");
+        }
+        if (!Arrays.equals(calls.get(0), new String[]{"su", "--help"})) throw new AssertionError("wrong detection");
+        for (int i=1; i<calls.size(); i++) {
+            String[] argv=calls.get(i);
+            if (supported ? argv.length != 4 || !argv[1].equals("-M") || !argv[2].equals("-c")
+                          : argv.length != 3 || !argv[1].equals("-c")) throw new AssertionError("namespace mismatch");
+        }
+        System.out.print("ok");
+    }
+}
+'''
+)
+        subprocess.run(["javac", "-d", str(cls.root),
+                        str(ANDROID / "java/dev/atuy1219/gakumas/progresscapture/DiagnosticRootShell.java"),
+                        str(harness)], check=True)
+        cls.runner = ["java", "-cp", str(cls.root), package + ".RootShellHarness"]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
+    def test_capability_selection_applies_to_scan_read_and_config(self):
+        for mode in ("supported", "unsupported", "help-failure"):
+            self.assertEqual(subprocess.check_output(self.runner + [mode], text=True), "ok")
+
+    def test_failed_global_command_is_not_retried_as_local(self):
+        self.assertEqual(subprocess.check_output(self.runner + ["failure"], text=True), "ok")
+
+    def test_actual_process_runner_preserves_commands_and_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = root / "bin"
+            commands.mkdir()
+            su = commands / "su"
+            su.write_text("#!/bin/sh\n"
+                          "if [ \"$1\" = --help ]; then echo '-M, --mount-master'; exit 0; fi\n"
+                          "[ \"$1\" = -M ] && [ \"$2\" = -c ] || exit 55\n"
+                          "exec sh -c \"$3\"\n")
+            su.chmod(0o755)
+            env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"])
+            result = subprocess.run(self.runner + ["process", "printf '診断|test\\n'", "printf 'second\\n'"],
+                                    env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout, "診断|test\nsecond\nsu -M -c\n")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,8 @@ import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -19,7 +21,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import java.io.ByteArrayOutputStream;
+import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -69,6 +71,7 @@ public final class DiagnosticActivity extends Activity {
     };
     // Accessed only on the single-thread worker.
     private final Map<String, SourceFile> sourceCache = new LinkedHashMap<>();
+    private final DiagnosticRootShell rootShell = new DiagnosticRootShell();
     private final Map<String, String> lastPreflight = new LinkedHashMap<>();
     private String resolvedTraceDir = TRACE_DIR;
     private final Set<String> previouslyObtained = new LinkedHashSet<>();
@@ -138,6 +141,19 @@ public final class DiagnosticActivity extends Activity {
         export.setOnClickListener(v -> exportReport());
         buttons.addView(export);
         root.addView(buttons);
+        LinearLayout copyButtons = new LinearLayout(this);
+        copyButtons.setOrientation(LinearLayout.HORIZONTAL);
+        Button copyText = new Button(this);
+        copyText.setText("診断表示をコピー");
+        copyText.setOnClickListener(v -> copyDiagnostic(false));
+        copyButtons.addView(copyText, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button copyJson = new Button(this);
+        copyJson.setText("初期化JSONをコピー");
+        copyJson.setOnClickListener(v -> copyDiagnostic(true));
+        copyButtons.addView(copyJson, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(copyButtons);
         Button mode = new Button(this);
         mode.setText("安全モード／フック設定");
         mode.setOnClickListener(v -> chooseHookMode());
@@ -163,6 +179,7 @@ public final class DiagnosticActivity extends Activity {
         display = new TextView(this);
         display.setText("ログを確認していません。Rootアクセスが必要です。");
         display.setTextSize(14);
+        display.setTextIsSelectable(true);
         display.setGravity(Gravity.START);
         scrolling.addView(display);
         root.addView(scrolling, new LinearLayout.LayoutParams(
@@ -323,26 +340,8 @@ public final class DiagnosticActivity extends Activity {
         manager.notify(101, builder.build());
     }
 
-    private static String runRoot(String command) throws Exception {
-        Process process = new ProcessBuilder("su", "-c", command)
-            .redirectErrorStream(true).start();
-        ByteArrayOutputStream result = new ByteArrayOutputStream();
-        try (InputStream in = process.getInputStream()) {
-            byte[] buffer = new byte[8192];
-            int length;
-            while ((length = in.read(buffer)) != -1) {
-                if (result.size() + length > 64 * 1024 * 1024) {
-                    process.destroyForcibly();
-                    throw new IllegalStateException("ファイルが64MiBを超えています");
-                }
-                result.write(buffer, 0, length);
-            }
-        }
-        int exit = process.waitFor();
-        if (exit != 0) {
-            throw new IllegalStateException("su終了コード " + exit + ": " + result.toString("UTF-8").trim());
-        }
-        return result.toString("UTF-8");
+    private String runRoot(String command) throws Exception {
+        return rootShell.execute(command);
     }
 
     private Map<String, SourceFile> scanRootFiles() throws Exception {
@@ -350,6 +349,8 @@ public final class DiagnosticActivity extends Activity {
             android.os.Process.myUid() / 100000, getApplicationInfo().sourceDir, SOURCE_FILES)));
         lastPreflight.clear();
         lastPreflight.putAll(scan.preflight);
+        lastPreflight.put("rootInvocation", rootShell.invocation());
+        lastPreflight.put("suHelpStatus", rootShell.helpStatus());
         resolvedTraceDir = DiagnosticScan.traceDirectory(android.os.Process.myUid() / 100000, scan);
         Map<String, SourceFile> files = new LinkedHashMap<>();
         for (String name : SOURCE_FILES) files.put(name, new SourceFile(name));
@@ -631,6 +632,8 @@ public final class DiagnosticActivity extends Activity {
                 Set<String> liveFiles = new LinkedHashSet<>();
                 StringBuilder fileSummary = new StringBuilder("ファイル取得状況\n");
                 fileSummary.append("Root UID: ").append(lastPreflight.get("rootUid")).append("\n");
+                fileSummary.append("Root実行方法: ").append(lastPreflight.get("rootInvocation")).append("\n");
+                fileSummary.append("su機能検出: ").append(lastPreflight.get("suHelpStatus")).append("\n");
                 fileSummary.append("ゲームPID: ").append(lastPreflight.get("gamePid")).append("\n");
                 fileSummary.append("設定済みフックマスク: ").append(lastPreflight.get("hookMask")).append("\n");
                 fileSummary.append("ゲーム内Nativeライブラリ: ")
@@ -661,8 +664,9 @@ public final class DiagnosticActivity extends Activity {
                     .append(lastPreflight.get("targetDataDirDetails")).append("\n");
                 fileSummary.append("ゲームプロセスから見えるfiles: ")
                     .append(lastPreflight.get("gameProcessFilesDetails")).append("\n");
-                fileSummary.append("Root／ゲームのmount namespace: ")
+                fileSummary.append("Root／init／ゲームのmount namespace: ")
                     .append(lastPreflight.get("rootMountNamespace")).append(" / ")
+                    .append(lastPreflight.get("initMountNamespace")).append(" / ")
                     .append(lastPreflight.get("gameMountNamespace")).append("\n");
                 if ("game-process-root-read-only".equals(lastPreflight.get("tracePathKind")))
                     fileSummary.append("通常パスは見えないため、ゲームプロセス経由で読み取りました。修復・設定変更は通常パスが参照できる環境で行う必要があります。\n");
@@ -808,6 +812,8 @@ public final class DiagnosticActivity extends Activity {
                 lastPreflight.clear();
                 lastPreflight.put("scanComplete", "no");
                 lastPreflight.put("scanError", String.valueOf(error.getMessage()));
+                lastPreflight.put("rootInvocation", rootShell.invocation());
+                lastPreflight.put("suHelpStatus", rootShell.helpStatus());
                 lastDigest = "";
                 latestReport = null;
                 try {
@@ -832,6 +838,44 @@ public final class DiagnosticActivity extends Activity {
                 checking = false;
             }
         });
+    }
+
+    private void copyDiagnostic(boolean json) {
+        String text = json ? latestReport : display.getText().toString();
+        if (text == null || text.isEmpty()) {
+            Toast.makeText(this, "まだ診断データがありません", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard == null) {
+            Toast.makeText(this, "クリップボードを利用できません", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            if (json) {
+                // Clipboard payload deliberately omits inventories/card/trace
+                // dumps. Full diagnostic JSON remains available via export.
+                JSONObject report = new JSONObject(text);
+                JSONObject compact = new JSONObject();
+                compact.put("scope", "initialization-only");
+                compact.put("preflight", report.optJSONObject("preflight"));
+                compact.put("sources", report.opt("sources"));
+                JSONObject environment = report.optJSONObject("environment");
+                if (environment != null) {
+                    for (String name : new String[]{"nativeInitialization", "bootstrap_status.json",
+                        "capture_status.json", "native_bootstrap_status.json", "native_self_test.json"}) {
+                        if (environment.has(name)) compact.put(name, environment.get(name));
+                    }
+                }
+                if (report.has("injectionLogcat"))
+                    compact.put("injectionLogcat", report.get("injectionLogcat"));
+                text = compact.toString(2);
+            }
+            clipboard.setPrimaryClip(ClipData.newPlainText("学マス実機診断", text));
+            Toast.makeText(this, "診断をコピーしました", Toast.LENGTH_SHORT).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "コピーできませんでした。診断JSONを書き出してください", Toast.LENGTH_LONG).show();
+        }
     }
 
     private void exportReport() {

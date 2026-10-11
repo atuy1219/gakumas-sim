@@ -1,6 +1,6 @@
 # Work引き継ぎ — 学園アイドルマスター3.4.1 / Native Capture / 2026-10-11
 
-> **最新チェックポイント: v1.5.3 / versionCode 26。** §9が以下の旧版動作説明より優先。実機未接続のためNative自己テスト・ゲームフック・モード別取得の実測確認は未完了。PRはDraftを維持する。
+> **最新チェックポイント: v1.5.4 / versionCode 27。** §10が以下の旧版動作説明より優先。実機未接続のためNative自己テスト・ゲームフック・モード別取得の実測確認は未完了。PRはDraftを維持する。
 
 > この資料は、新しいChatGPT Workセッションが過去のチャットを参照できなくても継続できるように作成したもの。事実（static verified / on-device observed）、仮説、未検証を区別する。APKのビルド成功を実機機能の完成と混同しないこと。
 
@@ -156,3 +156,22 @@ ExamSequence.StartExam（token 0x060050A9 / RVA 0x080A5354）は実際の試験�
 - Native自己テスト256、SetUpExam128、詳細モード分類と乱数・カード・効果・スコア取得は依然実機未確認。§8の静的照合結果を保持し、PRはDraftを維持する。
 
 今回の公開前ローカル検証: Python 57テスト（一覧シェル実行とパス検証を含む）、SDK35/NDK r27c/JDK17でAPKビルド、v2/v3署名確認。前回配布v1.5.2と同じローカル署名鍵を使用。コード修正は検証完了後の1コミットにまとめた。公開後CIでもAPKビルドは成功したが、upload-artifactの旧v1.5.2ファイル指定が残っており保存ステップのみ失敗した。この見落としを補足修正し、2つのAPK workflowをバージョン非依存のglob指定に変更。既に完成したローカルAPKとsha256が各指定に一つずつ一致することを確認してから反映した。CIの手動再実行は行わない。Nativeコードとモード別フックの追加はこの更新では行っていない。
+
+
+## 10. Termuxとの保存先可視性の差とコピー操作: v1.5.4
+
+### 実機で新たに確認できたこと
+- 12:09の診断スクショ: Root UID 0、gamePid 10441、gameUid 10537/user0、診断user0。Root namespace `mnt:[4026535922]`、ゲーム `mnt:[4026535892]`。通常パスと/proc/PID/root経路はNo such file、対象データも見えない。
+- 一方、ユーザーのTermux `su -c ls -l /data/user/0/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/` ではbootstrap_status(660 B)、capture_status(438 B)、native_bootstrap_status(464 B)が12:08更新で存在し、所有者はu0_a537（ゲームUIDと一致）。「ファイルが全て未生成」という仮説はこの証拠で棄却する。
+- Native自己テストファイルとmaskファイルはこの一覧に見えない。古いlifecycle/runtime inventoryは02:39、カード/seed等は9月のmtime。これらを現在PIDの稼働証拠にしない。新しい初期化JSONの内容・PID照合はまだ取得できていない。
+
+### 修正
+- KernelSU Nextの一次ソースをローカルで照合: commit `cd4a6b468653fb9640caaf203c05e07609ba5da1`、[userspace/ksud/src/su.rs](https://github.com/KernelSU-Next/KernelSU-Next/blob/cd4a6b468653fb9640caaf203c05e07609ba5da1/userspace/ksud/src/su.rs)。`-M/--mount-master` はPID1のmount namespaceへの切替を要求する。実装は切替のエラーを無視するため、フラグ指定だけで実際の切替成功を保証しない。
+- `su --help` が正常終了し、-M/--mount-master対応を広告する場合のみ `su -M -c` を使用。未対応なら通常suを使用し、その選択を診断に記録する。scan/read/logcat/config/repairは同じ選択に固定。失敗した書込を別namespaceで自動再試行しない。Root/init/gameのnamespace IDも表示・保存する。
+- コピー操作を2つ追加: 「診断表示をコピー」は現在表示のテキスト、「初期化JSONをコピー」はpreflight・取得状態・bootstrap/capture/native bootstrap/self-test・初期化ログだけ。巨大なinventory/カード/traceはクリップボード用JSONから除外し、完全版は従来のファイル書き出しを保持する。コピー失敗は明示する。
+- Nativeコード/マスク・ゲームフックは変更しない。SELinuxはEnforcingのまま。対象の所有者/リンク検証とユーザー一致ガードも保持する。
+
+### 検証と次の入力
+- 公開前にPython 60テスト、実SDK35/NDK r27c/JDK17でローカルAPKビルドと署名検証。su選択のキャッシュ、scan/read/config共通フラグ、未対応help、失敗したglobalコマンドの非再試行、実ProcessBuilderへの引数と出力をホストで検証。
+- ホストのsuは模擬実装でありAndroidのsetns/KernelSU/Clipboard UIの実動作検証ではない。Termuxと診断アプリの差にnamespaceが関与する有力証拠はあるが、原因の具体的mountと修正の実機成功は未確定。
+- v1.5.4で設定を変更せず、初期化ログ取得→「初期化JSONをコピー」をユーザーから受け取る。まず現在PIDのJNIロードとNative API登録を照合し、それから256自己テストへ進む。乱数・カード・効果・得点の各モード実機取得は未完了、PRはDraft維持。
