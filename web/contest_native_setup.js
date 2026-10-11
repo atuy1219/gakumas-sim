@@ -34,7 +34,7 @@ function elements(value){
 function extractCard(value){
  if(typeof value==="string"&&value.startsWith("p_card-"))return {id:value,upgradeCount:0};
  if(!plain(value))return null;
- const id=primitive(names(value,["ProduceCardId","CardId","Id"]));
+ const id=primitive(names(value,["ProduceCardId","CardId","Id"]))??value.$scannedCardId;
  if(typeof id!=="string"||!id.startsWith("p_card-"))return null;
  const upgrade=number(names(value,["UpgradeCount","BaseUpgradeCount","baseUpgradeCount"]));
  if(!Number.isInteger(upgrade)||upgrade<0||upgrade>3)return null;
