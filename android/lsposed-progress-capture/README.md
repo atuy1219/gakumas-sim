@@ -1,5 +1,57 @@
 # Gakumas Progress Capture (LSPosed)
 
+## Current checkpoint: v1.5.2 (device verification pending)
+
+Only masks **0**, **128**, **256**, and **384** are accepted now. Legacy
+bits 1–127 are rejected, including the detailed RNG/card and unconditional
+StartExam paths described in the historical sections below. These paths are
+not completed capture features. Default 0 touches no game functions.
+
+The Java module loads Native code at the target package callback after module
+registration, replacing the guessed one-second delay. JNI_OnLoad independently
+writes `native_bootstrap_status.json` even if the framework never calls
+`native_init`; the Java bootstrap also includes a JNI handshake. File-write
+errors log the path/errno under GakumasCapture. A module loaded straight from
+its APK may appear in maps as the APK path, so a missing SO filename does not
+prove missing injection. Exported initialization/self-test verdicts require the
+currently running game's PID, and full gameplay remains unverified.
+
+The repair/configuration action checks only fixed diagnostic children (and
+their `.tmp` files), rejects symlinks/hard links, resets the mask **before**
+making a root-owned directory writable, and repairs those children's ownership
+and context too. It uses the diagnostic app's Android user, not hardcoded user 0.
+Host tests simulate privileged chown/restorecon: Android ownership and SELinux
+must still be verified on the device. No arbitrary game-data recursion occurs.
+
+Device test order:
+1. Install the APK and re-enable the LSPosed scope if a signature-changing
+   reinstall was needed. Press the repair button; it sets mask 0. Fully restart
+   the game and confirm bootstrap, native bootstrap and capture status exist.
+2. Select **Native自己テスト (256)** and fully restart the game. It hooks a
+   pure function in the module itself, calls both backup and detoured function,
+   and writes `native_self_test.json`. `passed` requires one replacement call,
+   unchanged backup result and the expected changed detoured result. This proves
+   only the local Native API/trampoline test, not IL2CPP hooks or game capture.
+3. Export diagnostic JSON including initialization logs. If this succeeds,
+   explicitly choose 128, restart, and inspect `callsObserved`, recorded samples,
+   process/sequence/thread IDs and caller RVAs. No managed objects are read.
+
+Local builds retain the debug key under ignored `.build/`, so rebuilds in the
+same workspace share a signing identity. `GAKUMAS_SIGNING_KEYSTORE` can select
+an existing debug-format key. Fresh CI runners still generate new keys; stable
+CI release signing is not established. The diagnostic branch runs one APK job
+per push; its duplicate PR APK job is skipped.
+
+Reproduce static verification with matching, locally supplied game files:
+
+```sh
+python3 tools/verify_gakumas_v341.py base.apk split_config.arm64_v8a.apk libil2cpp.so --output v341-verification.json
+```
+
+It checks exact hashes, ELF Build ID, token/RVA mappings, MetadataRegistration
+types and documented direct BL instructions. It is not a device test, and does
+not establish generic value-type/async ARM64 ABI, mode boundaries or parity.
+
 Native-only LSPosed module for `com.bandainamcoent.idolmaster_gakuen`.
 It passively captures the card-instance sequence that the game itself feeds into
 `ProduceUtility::CreateDeckProduceCardMasters()` and writes a JSON file compatible

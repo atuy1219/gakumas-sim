@@ -56,5 +56,20 @@ class MetadataInspectorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 inspector.inventory(path)
 
+    def test_empty_ranges_use_minus_one_start(self):
+        data = bytearray(self.sample())
+        method_offset = struct.unpack_from("<I", data, 8 + 5 * 8)[0]
+        for method in range(2):
+            struct.pack_into("<I", data, method_offset + 36 * method + 16, 0xFFFFFFFF)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "metadata.dat"
+            path.write_bytes(data)
+            self.assertEqual(len(inspector.inventory(path, ("Exam",))), 2)
+            type_offset = struct.unpack_from("<I", data, 8 + 19 * 8)[0]
+            struct.pack_into("<I", data, type_offset + 36, 0xFFFFFFFF)
+            struct.pack_into("<H", data, type_offset + 64, 0)
+            path.write_bytes(data)
+            self.assertEqual(inspector.inventory(path, ("Exam",)), [])
+
 if __name__ == "__main__":
     unittest.main()

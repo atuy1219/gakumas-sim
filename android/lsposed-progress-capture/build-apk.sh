@@ -90,7 +90,7 @@ cp "$OUT/dex/classes.dex" "$STAGE/classes.dex"
 BASE_APK="$OUT/base.apk"
 UNALIGNED="$OUT/gakumas-progress-capture-unaligned.apk"
 ALIGNED="$OUT/gakumas-progress-capture-aligned.apk"
-FINAL="$OUT/gakumas-progress-capture-v1.5.1.apk"
+FINAL="$OUT/gakumas-progress-capture-v1.5.2.apk"
 
 "$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
@@ -103,8 +103,13 @@ cp "$BASE_APK" "$UNALIGNED"
 
 "$ZIPALIGN" -P 16 -f 4 "$UNALIGNED" "$ALIGNED"
 
-KEYSTORE="$OUT/debug.keystore"
-keytool -genkeypair -v   -keystore "$KEYSTORE"   -storepass android -keypass android   -alias androiddebugkey   -keyalg RSA -keysize 2048 -validity 10000   -dname "CN=Gakumas Progress Capture,O=atuy1219,C=JP" >/dev/null 2>&1
+KEYSTORE="${GAKUMAS_SIGNING_KEYSTORE:-$ROOT/.build/debug.keystore}"
+mkdir -p "$(dirname "$KEYSTORE")"
+if [[ ! -f "$KEYSTORE" ]]; then
+  keytool -genkeypair -v -keystore "$KEYSTORE" -storepass android -keypass android \
+    -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+    -dname "CN=Gakumas Progress Capture,O=atuy1219,C=JP" >/dev/null 2>&1
+fi
 
 "$APKSIGNER" sign   --ks "$KEYSTORE" --ks-pass pass:android   --key-pass pass:android --ks-key-alias androiddebugkey   --out "$FINAL" "$ALIGNED"
 

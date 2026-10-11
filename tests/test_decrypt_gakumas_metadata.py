@@ -30,6 +30,13 @@ class MetadataXorTests(unittest.TestCase):
         self.assertEqual(result["version"], 31)
         self.assertEqual(result["sections"], 31)
 
+        # Real 3.4.1 names include non-UTF-8 obfuscated identifiers. The
+        # decoder must accept them without corrupting or replacing bytes.
+        binary_names = bytearray(restored)
+        binary_names.extend(b"\x80\xa0\x00\x00")
+        pack_into("<II", binary_names, 24, 256, len(names) + 4)
+        self.assertEqual(validate(bytes(binary_names))["version"], 31)
+
         corrupted = bytearray(restored)
         corrupted[0] = 0
         with self.assertRaises(ValueError):

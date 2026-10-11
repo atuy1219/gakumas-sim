@@ -3,7 +3,7 @@
   "gameVersion": "3.4.1",
   "libil2cppBuildId": "77fda4e2a21f23954e2349b83fc113ede408f70b",
   "encryptedMetadataSha256": "aaff4137984cbfbc58aeabe48c0d3abf4d586923c2355e43c5908dd890ca29dc",
-  "evidence": "IL2CPP v31 method token -> codegen methodPointers -> ARM64 BL direct xrefs; latest provided APK base.apk metadata SHA-256 identical to earlier sample. Native shared object from archive not yet independently hash-matched.",
+  "evidence": "Rechecked 2026-10-11 from matching base.apk and arm64 split APK: standalone/split ELF byte-identical; IL2CPP v31 method tokens and relocation-derived RVAs, 6 mode BL calls and 14 SetUpExam caller returns agree. Static evidence only, no on-device mode verification.",
   "userModes": {
     "audition": {
       "modeType": 1,
@@ -208,5 +208,6 @@
         ]
       ]
     }
-  }
+  },
+  "libil2cppSha256": "90a0b71d96691e41641690e57983d600c3ef1301b971d114d6a1658591e9ea17"
 }

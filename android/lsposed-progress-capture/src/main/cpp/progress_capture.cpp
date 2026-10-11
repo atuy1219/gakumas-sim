@@ -20,6 +20,9 @@
 #include <unistd.h>
 #include <utility>
 #include <vector>
+#include <cerrno>
+#include <fcntl.h>
+#include "native_probe.h"
 
 namespace {
 
@@ -149,6 +152,8 @@ std::atomic<bool> g_lifecycle_hook_attempted{false};
 // instructions against the matching libil2cpp.so Build ID.
 std::atomic<bool> g_entry_probe_installed{false};
 std::atomic<unsigned> g_entry_probe_events{0};
+std::atomic<unsigned> g_entry_probe_calls{0};
+std::atomic<unsigned> g_entry_probe_written{0};
 std::mutex g_entry_probe_mutex;
 // Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
 // Enable one group at a time to isolate fatal native object corruption.
@@ -156,13 +161,25 @@ std::mutex g_entry_probe_mutex;
 // 32 detailed card/RNG capture, 64 il2cpp_init trigger.
 // Per-game private file, not /data/local/tmp, which can be blocked by SELinux.
 std::atomic<unsigned> g_hook_mask{0};
+std::string g_mask_read_status = "not-read";
+std::atomic<bool> g_native_api_accepted{false};
+std::atomic<bool> g_jni_loaded{false};
+std::string g_native_library_path;
 unsigned load_hook_mask() {
     const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
         kTargetPackage + "/files/gakumas-sim/native_hookmask.txt";
     std::ifstream config(path);
+    if (!config) {
+        g_mask_read_status = ::access(path.c_str(), F_OK) == 0 ? "unreadable" : "missing-or-inaccessible";
+        return 0;
+    }
+    std::string text((std::istreambuf_iterator<char>(config)), std::istreambuf_iterator<char>());
     unsigned mask = 0;
-    if (!(config >> mask)) return 0;
-    if (mask > 255) return 0;
+    if (!native_probe::parse_mask(text, mask)) {
+        g_mask_read_status = "rejected-legacy-or-invalid-mask";
+        return 0;
+    }
+    g_mask_read_status = "read";
     return mask;
 }
 bool hook_enabled(unsigned bit) {
@@ -371,17 +388,31 @@ void ensure_parent_dir(const std::string& file_path) {
     mkdir_if_needed(target);
 }
 
-void atomic_write(const std::string& path, const std::string& data) {
+bool atomic_write(const std::string& path, const std::string& data) {
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> guard(mutex);
     ensure_parent_dir(path);
     const std::string temp = path + ".tmp";
-    {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
-        out.write(data.data(), static_cast<std::streamsize>(data.size()));
-        out.flush();
-        if (!out) return;
+    const int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    bool ok = fd >= 0;
+    int saved_errno = errno;
+    if (ok) {
+        size_t written = 0;
+        while (written < data.size()) {
+            const ssize_t n = ::write(fd, data.data() + written, data.size() - written);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) { ok = false; saved_errno = errno; break; }
+            written += static_cast<size_t>(n);
+        }
+        if (::close(fd) != 0) { ok = false; saved_errno = errno; }
+        if (ok && ::rename(temp.c_str(), path.c_str()) != 0) { ok = false; saved_errno = errno; }
     }
-    ::rename(temp.c_str(), path.c_str());
+    if (!ok) {
+        __android_log_print(ANDROID_LOG_ERROR, "GakumasCapture",
+            "write-failed pid=%d uid=%d path=%s errno=%d (%s)",
+            getpid(), getuid(), path.c_str(), saved_errno, std::strerror(saved_errno));
+    }
+    return ok;
 }
 void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
     const int user_id = static_cast<int>(getuid() / 100000);
@@ -392,6 +423,11 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
     out << "{\n"
         << "  \"phase\": \"" << json_escape(phase) << "\",\n"
         << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
+        << "  \"pid\": " << getpid() << ",\n"
+        << "  \"uid\": " << getuid() << ",\n"
+        << "  \"hookMask\": " << g_hook_mask.load() << ",\n"
+        << "  \"maskReadStatus\": \"" << json_escape(g_mask_read_status) << "\",\n"
+        << "  \"nativeApiAccepted\": " << (g_native_api_accepted.load() ? "true" : "false") << ",\n"
         << "  \"libil2cppBuildId\": \"" << json_escape(build_id) << "\",\n"
         << "  \"expectedBuildId\": \"" << kExpectedBuildId << "\",\n"
         << "  \"hooks\": {"
@@ -1322,14 +1358,31 @@ const char* verified_setup_origin(uintptr_t return_rva) {
     }
 }
 
+void write_entry_probe_status(bool installed) {
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probe_status.json";
+    std::ostringstream result;
+    result << "{\"schemaVersion\":1,\"pid\":" << getpid()
+           << ",\"hook\":\"ExamSequence.SetUpExam\","
+           << "\"token\":\"0x060050A4\",\"rva\":\"0x080A1E90\","
+           << "\"installed\":" << (installed ? "true" : "false")
+           << ",\"callsObserved\":" << g_entry_probe_calls.load()
+           << ",\"recordedSamples\":" << g_entry_probe_written.load()
+           << ",\"scope\":\"exact-build-observation-only\","
+           << "\"modeVerification\":\"requires-live-state-confirmation\"}\n";
+    atomic_write(path, result.str());
+}
+
 __attribute__((noinline))
 void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     void* return_address = __builtin_extract_return_addr(__builtin_return_address(0));
     const uintptr_t returned = reinterpret_cast<uintptr_t>(return_address);
     const uintptr_t base = g_il2cpp_base.load(std::memory_order_acquire);
+    const unsigned call = g_entry_probe_calls.fetch_add(1);
     // ALWAYS execute original without touching managed objects. No getter,
     // memory walk, replay state reset or global session pointer here.
     g_original_sequence_setup(sequence, data, method);
+    if (call < 128) write_entry_probe_status(true);
     if (!base || returned < base) return;
     const uintptr_t return_rva = returned - base;
     const char* lane = verified_setup_origin(return_rva);
@@ -1342,6 +1395,9 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
         kTargetPackage + "/files/gakumas-sim/exam_entry_probes.jsonl";
     std::ostringstream line;
     line << "{\"schemaVersion\":1,\"event\":\"exam-setup-origin\","
+         << "\"pid\":" << getpid() << ",\"tid\":" << gettid()
+         << ",\"observedAtUnixMs\":" << unix_time_ms()
+         << ",\"sequence\":\"" << hex_value(reinterpret_cast<uintptr_t>(sequence)) << "\","
          << "\"source\":\"native-code-callsite\","
          << "\"callerReturnRva\":\"" << hex_value(return_rva) << "\","
          << "\"lane\":\"" << lane << "\","
@@ -1350,7 +1406,14 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     std::lock_guard<std::mutex> guard(g_entry_probe_mutex);
     ensure_parent_dir(path);
     std::ofstream out(path, std::ios::app | std::ios::binary);
-    if (out) out << line.str();
+    if (out) {
+        out << line.str();
+        out.flush();
+    }
+    if (out) g_entry_probe_written.fetch_add(1);
+    else __android_log_print(ANDROID_LOG_ERROR, "GakumasCapture",
+        "entry-probe-write-failed pid=%d path=%s errno=%d", getpid(), path.c_str(), errno);
+    write_entry_probe_status(true);
 }
 
 void install_scoped_exam_probe(const ImageInfo& image) {
@@ -1360,16 +1423,7 @@ void install_scoped_exam_probe(const ImageInfo& image) {
     const bool installed = install_hook(image.base + 0x080A1E90,
         reinterpret_cast<void*>(hooked_sequence_setup),
         reinterpret_cast<void**>(&g_original_sequence_setup));
-    const int uid = static_cast<int>(getuid() / 100000);
-    const std::string path = "/data/user/" + std::to_string(uid) + "/" +
-        kTargetPackage + "/files/gakumas-sim/exam_entry_probe_status.json";
-    std::ostringstream result;
-    result << "{\"schemaVersion\":1,\"hook\":\"ExamSequence.SetUpExam\","
-           << "\"token\":\"0x060050A4\",\"rva\":\"0x080A1E90\","
-           << "\"installed\":" << (installed ? "true" : "false")
-           << ",\"scope\":\"exact-build-observation-only\","
-           << "\"modeVerification\":\"requires-live-state-confirmation\"}\n";
-    atomic_write(path, result.str());
+    write_entry_probe_status(installed);
     if (!installed) g_entry_probe_installed.store(false);
 }
 
@@ -1690,6 +1744,80 @@ bool install_hook(uintptr_t address, void* replacement, void** original) {
     return g_hook(reinterpret_cast<void*>(address), replacement, original) == 0 && *original != nullptr;
 }
 
+using SelfTestFn = int (*)(int);
+SelfTestFn g_original_self_test = nullptr;
+std::atomic<unsigned> g_self_test_calls{0};
+std::string g_self_test_status = "not-requested";
+std::atomic<bool> g_self_test_attempted{false};
+// Long enough for an inline trampoline, no IL2CPP/managed memory involved.
+__attribute__((noinline)) int self_test_target(int value) {
+    volatile int result = value;
+    for (int i = 0; i < 4; ++i) result = (result ^ (17 + i)) + 3;
+    return result;
+}
+__attribute__((noinline)) int hooked_self_test(int value) {
+    g_self_test_calls.fetch_add(1);
+    return g_original_self_test(value) + 1;
+}
+
+void run_native_self_test() {
+    if (!hook_enabled(native_probe::kSelfTest) || g_self_test_attempted.exchange(true)) return;
+    SelfTestFn volatile target = self_test_target;
+    const int baseline = target(42);
+    // Record entry before installing/calling a trampoline: a framework-level
+    // crash must leave evidence that the self-test was attempted.
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/native_self_test.json";
+    atomic_write(path, "{\"schemaVersion\":1,\"pid\":" + std::to_string(getpid()) +
+        ",\"status\":\"started\",\"scope\":\"module-local-pure-function\","
+        "\"gameCaptureVerified\":false}\n");
+    const bool installed = install_hook(reinterpret_cast<uintptr_t>(self_test_target),
+        reinterpret_cast<void*>(hooked_self_test), reinterpret_cast<void**>(&g_original_self_test));
+    int original = 0, detoured = 0;
+    if (installed) {
+        original = g_original_self_test(42);
+        detoured = target(42); // Volatile indirect call: cannot be optimized away.
+    }
+    const unsigned calls = g_self_test_calls.load();
+    const bool passed = native_probe::self_test_passed(installed,
+        g_original_self_test != nullptr, calls, baseline, original, detoured);
+    g_self_test_status = passed ? "passed" : "failed";
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"pid\":" << getpid()
+        << ",\"uid\":" << getuid() << ",\"hookMask\":" << g_hook_mask.load()
+        << ",\"scope\":\"module-local-pure-function\",\"selfTestTouchesGameFunctions\":false,"
+        << "\"installed\":" << (installed ? "true" : "false")
+        << ",\"backupAvailable\":" << (g_original_self_test ? "true" : "false")
+        << ",\"replacementCalls\":" << calls << ",\"baseline\":" << baseline
+        << ",\"originalResult\":" << original << ",\"detouredResult\":" << detoured
+        << ",\"status\":\"" << g_self_test_status << "\",\"gameCaptureVerified\":false}\n";
+    atomic_write(path, out.str());
+    __android_log_print(passed ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "GakumasCapture",
+        "native-self-test %s pid=%d installed=%d backup=%d calls=%u baseline=%d original=%d detoured=%d",
+        g_self_test_status.c_str(), getpid(), installed, g_original_self_test != nullptr,
+        calls, baseline, original, detoured);
+}
+
+std::string native_bootstrap_json() {
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"pid\":" << getpid()
+        << ",\"uid\":" << getuid() << ",\"observedAtUnixMs\":" << unix_time_ms()
+        << ",\"process\":\"" << json_escape(process_name())
+        << "\",\"jniLoaded\":" << (g_jni_loaded.load() ? "true" : "false")
+        << ",\"nativeApiAccepted\":" << (g_native_api_accepted.load() ? "true" : "false")
+        << ",\"moduleLibraryPath\":\"" << json_escape(g_native_library_path)
+        << "\",\"effectiveHookMask\":" << g_hook_mask.load()
+        << ",\"maskReadStatus\":\"" << json_escape(g_mask_read_status)
+        << "\",\"selfTest\":\"" << g_self_test_status
+        << "\",\"gameCaptureVerified\":false}\n";
+    return out.str();
+}
+
+void write_native_bootstrap() {
+    atomic_write("/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/native_bootstrap_status.json", native_bootstrap_json());
+}
+
 void install_il2cpp_hooks() {
     if (g_hooks_installed.exchange(true)) return;
     if (!target_process()) return;
@@ -1705,7 +1833,7 @@ void install_il2cpp_hooks() {
 
     // Only install native game hooks when explicitly enabled. A tombstone
     // during ExamSequence.StartExam requires isolating hooks individually.
-    if (g_hook_mask.load() == 0) {
+    if (!hook_enabled(128)) {
         write_status("safe-mode-no-native-hooks", image.build_id);
         return;
     }
@@ -1872,11 +2000,15 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
         return nullptr;
     }
     g_hook = entries->hookFunc;
+    g_native_api_accepted.store(true);
     const unsigned mask = load_hook_mask();
     g_hook_mask.store(mask);
     __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
         "native_init accepted pid=%d hookMask=%u", getpid(), mask);
     write_status("native-init");
+    write_native_bootstrap();
+    run_native_self_test();
+    write_native_bootstrap();
 
     // The library may already be mapped before module injection.
     // If the domain does not exist yet, il2cpp_init will retry without polling.
@@ -1889,7 +2021,25 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
     __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
         "JNI_OnLoad native shared object loaded pid=%d uid=%d",
         getpid(), getuid());
+    if (target_process()) {
+        g_jni_loaded.store(true);
+        Dl_info info{};
+        if (::dladdr(reinterpret_cast<void*>(JNI_OnLoad), &info) && info.dli_fname)
+            g_native_library_path = info.dli_fname;
+        // This baseline MUST work even when native_init was never called.
+        // System.loadLibrary succeeding does not prove an available hook API.
+        if (!g_native_api_accepted.load()) {
+            g_hook_mask.store(load_hook_mask());
+            write_status("jni-loaded-native-api-not-observed");
+        }
+        write_native_bootstrap();
+    }
     return JNI_VERSION_1_6;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_atuy1219_gakumas_progresscapture_ModuleEntry_nativeGetBootstrap(JNIEnv* env, jclass) {
+    return env->NewStringUTF(native_bootstrap_json().c_str());
 }
 
 extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM*, void*) {

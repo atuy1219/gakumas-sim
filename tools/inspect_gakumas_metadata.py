@@ -26,7 +26,9 @@ def inventory(metadata, filters=("Exam", "Contest", "Tower", "Audition")):
         end = b.find(b"\0", start, strings + strings_len)
         if end < 0:
             raise ValueError("Unterminated metadata string")
-        return b[start:end].decode("utf-8")
+        # Preserve arbitrary obfuscated name bytes as escaped text; names
+        # used for targeting must match literally, never by replacement.
+        return b[start:end].decode("utf-8", "backslashreplace")
     result = []
     for ti in range(types_len//88):
         t = struct.unpack_from("<16I8H2I", b, types+88*ti)
@@ -34,12 +36,13 @@ def inventory(metadata, filters=("Exam", "Contest", "Tower", "Audition")):
         if not any(s.lower() in owner.lower() for s in filters):
             continue
         start, count = t[9], t[16]
-        if count > 4096 or start+count > methods_len//36:
+        if count > 4096 or (count and start+count > methods_len//36):
             raise ValueError("Invalid method range")
         for mi in range(start, start+count):
             m = struct.unpack_from("<7I4H", b, methods+36*mi)
             pstart, argc = m[4], m[10]
-            if m[1] != ti or pstart+argc > params_len//12:
+            # IL2CPP uses -1 (UINT32_MAX) for the start of an empty range.
+            if m[1] != ti or (argc and pstart+argc > params_len//12):
                 raise ValueError("Invalid method reference")
             args = [name(struct.unpack_from("<I", b, params+12*(pstart+i))[0])
                     for i in range(argc)]

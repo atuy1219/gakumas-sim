@@ -6,12 +6,16 @@ import io.github.libxposed.api.XposedModule;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
 
 public final class ModuleEntry extends XposedModule {
     private static final String TARGET = "com.bandainamcoent.idolmaster_gakuen";
     private static final String TAG = "GakumasCapture";
     private static volatile boolean nativeLoaded;
     private static volatile boolean nativeLoadScheduled;
+    private static String processName = "";
+    private static String nativeBootstrap = "";
+    private static native String nativeGetBootstrap();
 
     public ModuleEntry() {
         super();
@@ -37,6 +41,9 @@ public final class ModuleEntry extends XposedModule {
                     "{\n"
                     + "  \"phase\": \"" + escape(phase) + "\",\n"
                     + "  \"uid\": " + Process.myUid() + ",\n"
+                    + "  \"pid\": " + Process.myPid() + ",\n"
+                    + "  \"process\": \"" + escape(processName) + "\",\n"
+                    + "  \"nativeBootstrap\": " + (nativeBootstrap.isEmpty() ? "null" : nativeBootstrap) + ",\n"
                     + "  \"errorClass\": \"" + escape(errorClass) + "\",\n"
                     + "  \"errorMessage\": \"" + escape(errorMessage) + "\"\n"
                     + "}\n";
@@ -49,7 +56,7 @@ public final class ModuleEntry extends XposedModule {
         }
     }
 
-    private static void loadNativeDelayed() {
+    private static void loadNative() {
         if (nativeLoaded || nativeLoadScheduled) return;
         synchronized (ModuleEntry.class) {
             if (nativeLoaded || nativeLoadScheduled) return;
@@ -59,12 +66,10 @@ public final class ModuleEntry extends XposedModule {
         writeBootstrapStatus("native-load-scheduled", null);
         Thread loader = new Thread(() -> {
             try {
-                // Compatibility with Vector builds that register native_init.list
-                // only after XposedModule.onModuleLoaded() returns.
-                Thread.sleep(1000L);
                 System.loadLibrary("gakumas_progress_capture");
                 nativeLoaded = true;
-                Log.i(TAG, "native-library-loaded");
+                nativeBootstrap = new JSONObject(nativeGetBootstrap()).toString();
+                Log.i(TAG, "native-library-loaded pid=" + Process.myPid() + " " + nativeBootstrap);
                 writeBootstrapStatus("native-library-loaded", null);
             } catch (Throwable error) {
                 Log.e(TAG, "native-load-failed", error);
@@ -77,8 +82,22 @@ public final class ModuleEntry extends XposedModule {
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
-        Log.i(TAG, "LSPosed ModuleEntry loaded; processUid=" + Process.myUid());
+        processName = param.getProcessName();
+        if (!TARGET.equals(processName)) return;
+        Log.i(TAG, "LSPosed ModuleEntry loaded; process=" + processName
+            + " pid=" + Process.myPid() + " processUid=" + Process.myUid());
         writeBootstrapStatus("module-loaded", null);
-        loadNativeDelayed();
+        // Package callbacks happen after module loading/entrypoint registration.
+        // Avoid a guessed one-second delay on framework revisions that used
+        // to register native_init.list after onModuleLoaded returned.
+        writeBootstrapStatus("waiting-for-target-package", null);
+    }
+
+    @Override
+    public void onPackageLoaded(PackageLoadedParam param) {
+        if (!TARGET.equals(processName) || !TARGET.equals(param.getPackageName())
+                || !param.isFirstPackage()) return;
+        Log.i(TAG, "target-package-loaded pid=" + Process.myPid());
+        loadNative();
     }
 }

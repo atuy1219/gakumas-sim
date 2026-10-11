@@ -48,13 +48,17 @@ import org.json.JSONObject;
  */
 public final class DiagnosticActivity extends Activity {
     private static final String GAME = "com.bandainamcoent.idolmaster_gakuen";
-    private static final String TRACE_DIR = "/data/user/0/" + GAME + "/files/gakumas-sim/";
+    private static final String GAME_DATA = "/data/user/" + (android.os.Process.myUid() / 100000) + "/" + GAME;
+    private static final String GAME_FILES = GAME_DATA + "/files";
+    private static final String TRACE_DIR = GAME_FILES + "/gakumas-sim/";
     private static final int EXPORT_REQUEST = 1201;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 1202;
     private static final String NOTIFICATION_CHANNEL = "gakumas-capture-files";
     private static final String[] SOURCE_FILES = {
         "bootstrap_status.json",
         "capture_status.json",
+        "native_bootstrap_status.json",
+        "native_self_test.json",
         "exam_session_status.json",
         "exam_lifecycle_status.json",
         "exam_entry_probe_status.json",
@@ -185,16 +189,11 @@ public final class DiagnosticActivity extends Activity {
 
     private void chooseHookMode() {
         final String[] options = {
-            "安全モード（0）：フックなし",
-            "検証用（128）：SetUpExam呼出元だけ記録",
-            "旧方式（1）：StartExamをフック（非推奨）",
-            "旧方式（3）：開始＋完了（非推奨）",
-            "旧方式（7）：開始＋完了＋Dispose（非推奨）",
-            "旧方式（31）：コンテスト境界まで（非推奨）",
-            "旧方式（63）：カード・乱数まで（非推奨）",
-            "旧方式（127）：初期化フックまで（非推奨）"
+            "安全モード（0）：ゲーム関数をフックしない",
+            "Native自己テスト（256）：モジュール内関数だけを検証",
+            "実験プローブ（128）：SetUpExam呼出元を観測"
         };
-        final int[] flags = {0, 128, 1, 3, 7, 31, 63, 127};
+        final int[] flags = {0, 256, 128};
         // Android AlertDialog may suppress setItems when setMessage is also
         // present. The selection dialog must use a list without a message.
         new AlertDialog.Builder(this)
@@ -213,7 +212,7 @@ public final class DiagnosticActivity extends Activity {
                         + "実験フックは学マスをクラッシュさせる可能性があります。"
                         + "128はSetUpExamの呼出元RVAだけを記録し、"
                         + "予測処理や未確認の呼出元は除外します。"
-                        + "1〜127は旧式フックであり非推奨です。"
+                        + "256はモジュール自身の関数だけを検証します。"
                         + "設定変更後は学マスを完全に終了して再起動してください。")
                     .setPositiveButton("有効化する", (confirm, which) -> saveHookMode(mask))
                     .setNegativeButton("キャンセル", null)
@@ -223,64 +222,22 @@ public final class DiagnosticActivity extends Activity {
             .show();
     }
 
-    private static String diagnosticDirectoryRepairCommand() {
-        // Use only the fixed game-private diagnostic directory; never chown
-        // a game data root or follow an untrusted symlink.
-        String parent = "/data/user/0/" + GAME + "/files";
-        String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
-        return "p='" + parent + "'; d='" + dir + "'; "
-            + "test -d \"$p\" || exit 30; "
-            + "test ! -L \"$d\" || exit 31; "
-            + "uid=$(stat -c %u \"$p\") || exit 32; "
-            + "gid=$(stat -c %g \"$p\") || exit 33; "
-            + "[ \"$uid\" -ge 10000 ] || exit 34; "
-            + "[ \"$gid\" -ge 10000 ] || exit 35; "
-            + "mkdir -p \"$d\" && chown \"$uid:$gid\" \"$d\" "
-            + "&& chmod 0700 \"$d\" || exit 36; "
-            + "if [ -f \"$d/native_hookmask.txt\" ]; then "
-            + "test ! -L \"$d/native_hookmask.txt\" || exit 37; "
-            + "chown \"$uid:$gid\" \"$d/native_hookmask.txt\" "
-            + "&& chmod 0600 \"$d/native_hookmask.txt\" || exit 38; fi; "
-            + "restorecon -R \"$d\" || exit 39; "
-            + "stat -c 'repaired-dir %u:%g %a %n' \"$d\"";
-    }
-
     private void repairCaptureDirectory() {
-        worker.execute(() -> {
-            try {
-                String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
-                String safe = " && uid=$(stat -c %u '/data/user/0/" + GAME + "/files')"
-                    + " && gid=$(stat -c %g '/data/user/0/" + GAME + "/files')"
-                    + " && printf '0\\n' > '" + dir + "/native_hookmask.txt'"
-                    + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
-                    + " && chmod 0600 '" + dir + "/native_hookmask.txt'"
-                    + " && restorecon '" + dir + "/native_hookmask.txt'";
-                final String result = runRoot(diagnosticDirectoryRepairCommand() + safe);
-                main.post(() -> display.append("\n保存先修復成功（フック設定0）: " + result
-                    + "\n学マスの完全終了・再起動後に診断を再確認してください。"));
-            } catch (Exception error) {
-                main.post(() -> display.append("\n保存先修復失敗: " + error.getMessage()));
-            }
-        });
+        configureNativeMask(0, "保存先修復成功（フック設定0）");
     }
 
     private void saveHookMode(int mask) {
+        configureNativeMask(mask, "フック設定を " + mask + " に変更しました");
+    }
+
+    private void configureNativeMask(int mask, String success) {
         worker.execute(() -> {
             try {
-                String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
-                String cmd = diagnosticDirectoryRepairCommand()
-                    + " && uid=$(stat -c %u '/data/user/0/" + GAME + "/files')"
-                    + " && gid=$(stat -c %g '/data/user/0/" + GAME + "/files')"
-                    + " && printf '%s\\n' " + mask + " > '" + dir + "/native_hookmask.txt'"
-                    + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
-                    + " && chmod 0600 '" + dir + "/native_hookmask.txt'"
-                    + " && restorecon '" + dir + "/native_hookmask.txt'";
-                runRoot(cmd);
-                main.post(() -> display.append(
-                    "\\n\\nフック設定を " + mask
-                    + " に変更しました。学マスの完全終了・再起動後に有効になります。"));
+                final String result = runRoot(DiagnosticStorage.configure(GAME_FILES, mask, SOURCE_FILES));
+                main.post(() -> display.append("\n" + success + ": " + result
+                    + "\n学マスの完全終了・再起動後に診断を再確認してください。"));
             } catch (Exception error) {
-                main.post(() -> display.append("\\n設定に失敗: " + error.getMessage()));
+                main.post(() -> display.append("\n設定／保存先修復失敗: " + error.getMessage()));
             }
         });
     }
@@ -380,7 +337,7 @@ public final class DiagnosticActivity extends Activity {
         command.append("if [ -f \"$f\" ]; then stat -c \"$name|%s|%Y\" \"$f\" ");
         command.append("|| echo \"$name|ERROR\"; else echo \"$name|MISSING\"; fi; done; ");
         command.append("echo '@gamePid|'$(pidof ").append(GAME).append(" 2>/dev/null || echo none); ");
-        command.append("if [ -d '/data/user/0/").append(GAME).append("' ]; ");
+        command.append("if [ -d '").append(GAME_DATA).append("' ]; ");
         command.append("then echo '@targetDataDir|exists'; else echo '@targetDataDir|missing'; fi; ");
         command.append("echo \"@hookMask|$(cat '" + TRACE_DIR + "'native_hookmask.txt 2>/dev/null || echo 0)\"; ");
         command.append("if [ -d '").append(TRACE_DIR).append("' ]; then ");
@@ -388,8 +345,8 @@ public final class DiagnosticActivity extends Activity {
         command.append("stat -c '@captureDirectoryOwner|%u:%g %a' '").append(TRACE_DIR)
             .append("' 2>/dev/null; ");
         command.append("else echo '@captureDirectory|missing'; fi; ");
-        command.append("stat -c '@gameFilesOwner|%u:%g %a' '/data/user/0/")
-            .append(GAME).append("/files' 2>/dev/null; ");
+        command.append("stat -c '@gameFilesOwner|%u:%g %a' '")
+            .append(GAME_FILES).append("' 2>/dev/null; ");
         command.append("p=$(pidof ").append(GAME).append(" 2>/dev/null | cut -d ' ' -f 1); ");
         command.append("if [ -n \"$p\" ] && [ -r \"/proc/$p/maps\" ]; then ");
         command.append("if grep -Fq 'libgakumas_progress_capture.so' \"/proc/$p/maps\"; ");
@@ -449,7 +406,9 @@ public final class DiagnosticActivity extends Activity {
     }
 
     private Map<String, SourceFile> readAvailableFiles() throws Exception {
+        String previousPid = lastPreflight.get("gamePid");
         Map<String, SourceFile> files = scanRootFiles();
+        if (!String.valueOf(lastPreflight.get("gamePid")).equals(previousPid)) sourceCache.clear();
         for (SourceFile info : files.values()) {
             if (!"available".equals(info.status) && !"empty".equals(info.status)) continue;
             SourceFile prior = sourceCache.get(info.name);
@@ -608,13 +567,35 @@ public final class DiagnosticActivity extends Activity {
             try { environment.put("runtimeMetadataInventory", new JSONObject(metadataJson)); }
             catch (JSONException error) { warnings.put("invalid-runtime-metadata-inventory"); }
         }
-        for (String config : new String[]{"bootstrap_status.json", "capture_status.json"}) {
+        for (String config : new String[]{"bootstrap_status.json", "capture_status.json", "native_bootstrap_status.json", "native_self_test.json"}) {
             String text = content(sources, config);
             if (!text.trim().isEmpty()) {
                 try { environment.put(config, new JSONObject(text)); }
                 catch (JSONException error) { warnings.put("invalid-" + config); }
             }
         }
+        JSONObject nativeInit = new JSONObject();
+        String nativeStatus = content(sources, "native_bootstrap_status.json");
+        String selfTestStatus = content(sources, "native_self_test.json");
+        nativeInit.put("status", "unobserved");
+        nativeInit.put("gameCaptureVerified", false);
+        try {
+            JSONObject state = nativeStatus.isEmpty() ? new JSONObject() : new JSONObject(nativeStatus);
+            String pid = String.valueOf(state.optInt("pid", -1));
+            boolean current = pid.equals(preflight.get("gamePid"));
+            nativeInit.put("currentProcess", current);
+            nativeInit.put("status", !current ? "stale-or-unobserved"
+                : !state.optBoolean("jniLoaded") ? "jni-not-observed"
+                : state.optBoolean("nativeApiAccepted") ? "native-api-accepted" : "jni-loaded-native-api-missing");
+            if (!selfTestStatus.isEmpty()) {
+                JSONObject test = new JSONObject(selfTestStatus);
+                nativeInit.put("selfTest", current && pid.equals(String.valueOf(test.optInt("pid", -2)))
+                    ? test.optString("status", "unverified") : "stale");
+            }
+        } catch (JSONException malformed) {
+            warnings.put("invalid-native-initialization-status");
+        }
+        environment.put("nativeInitialization", nativeInit);
         report.put("sources", fileStatuses(sources));
         report.put("preflight", new JSONObject(preflight));
         for (SourceFile info : sources.values()) {
@@ -677,7 +658,7 @@ public final class DiagnosticActivity extends Activity {
                     .append(lastPreflight.get("captureDirectory")).append("\n");
                 fileSummary.append("保存先所有者: ")
                     .append(lastPreflight.get("captureDirectoryOwner")).append("\n");
-                fileSummary.append("user 0のゲームデータ: ").append(lastPreflight.get("targetDataDir"))
+                fileSummary.append("同一ユーザーのゲームデータ: ").append(lastPreflight.get("targetDataDir"))
                     .append("\n");
                 if (lastPreflight.containsKey("candidateDataDir")) {
                     fileSummary.append("検出したユーザー領域: ")
@@ -708,7 +689,7 @@ public final class DiagnosticActivity extends Activity {
                         fileSummary.append("学マスが起動していません。起動後に再確認してください。");
                     } else if ("no".equals(lastPreflight.get("moduleLibraryMapped"))) {
                         fileSummary.append("ゲームプロセス内にNativeモジュールが確認できません。");
-                        fileSummary.append("LSPosedの有効化・学マスのスコープを確認してください。");
+                        fileSummary.append("APK内直接ロードではmapsにSO名が出ない場合があります。初期化JSON／ログを確認してください。");
                     } else if ("yes".equals(lastPreflight.get("moduleLibraryMapped"))) {
                         fileSummary.append("Nativeライブラリはロード済みですが診断ファイルがありません。");
                         fileSummary.append("初期化失敗またはファイル書込権限を確認してください。");
@@ -738,7 +719,13 @@ public final class DiagnosticActivity extends Activity {
                         JSONArray probeEvents = new JSONArray();
                         for (String line : entryProbes.split("\\r?\\n")) {
                             if (line.trim().isEmpty()) continue;
-                            try { probeEvents.put(new JSONObject(line)); }
+                            try {
+                                JSONObject event = new JSONObject(line);
+                                // The JSONL is retained across restarts. Old or
+                                // pre-v1.5.2 untagged events cannot prove this run.
+                                if (String.valueOf(event.optInt("pid", -1)).equals(lastPreflight.get("gamePid")))
+                                    probeEvents.put(event);
+                            }
                             catch (JSONException malformed) {
                                 probeEvents.put(new JSONObject()
                                     .put("event", "invalid-probe-record"));
@@ -755,6 +742,10 @@ public final class DiagnosticActivity extends Activity {
                     latestReport = serialized;
                     lastDigest = digest;
                     JSONObject comparison = report.getJSONObject("comparison");
+                    JSONObject init = report.getJSONObject("environment").getJSONObject("nativeInitialization");
+                    fileSummary.append("\nNative初期化: ").append(init.optString("status"))
+                        .append("\nNative自己テスト: ").append(init.optString("selfTest", "未実行"))
+                        .append("\n（ゲーム関数のログ取得・正常動作は別途検証が必要）\n");
                     StringBuilder message = new StringBuilder(fileSummary);
                     message.append("\n診断ステータス: ").append(comparison.getString("status")).append("\n");
                     message.append("RNG比較件数: ").append(comparison.getInt("comparedRandomCalls")).append("\n");

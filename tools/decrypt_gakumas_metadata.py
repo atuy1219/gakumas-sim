@@ -46,9 +46,17 @@ def validate(data: bytes) -> dict:
         raise ValueError("metadata sections do not extend to EOF")
     if b"get_HttpResponse\x00" not in data or b"get_SerializationContext\x00" not in data:
         raise ValueError("expected method-name evidence absent")
-    # Validate the pure UTF-8 string table in the supplied IL2CPP v31 image.
+    # IL2CPP's name table is NUL-terminated bytes, not one guaranteed UTF-8
+    # document. This exact input includes a name b'\x80\xa0' at 2922970.
+    # Do not reject a matching decode because of unrelated obfuscated names;
+    # validate the ASCII evidence we actually use INSIDE the string section.
     string_offset, string_length = sections[2]
-    data[string_offset : string_offset + string_length].decode("utf-8")
+    names = data[string_offset : string_offset + string_length]
+    if not names.endswith(b"\0"):
+        raise ValueError("unterminated metadata string section")
+    for expected in (b"get_HttpResponse\0", b"get_SerializationContext\0"):
+        if expected not in names:
+            raise ValueError("expected name missing from metadata string section")
     return {"version": version, "sections": len(sections),
             "bytes": len(data), "sha256": sha256(data).hexdigest()}
 
