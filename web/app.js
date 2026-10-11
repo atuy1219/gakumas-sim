@@ -1,6 +1,7 @@
 import { officialDescriptionText } from "./official_description.js";
 import { compareContestCapture } from "./contest_capture_compare.js";
 import { replayObservedContest } from "./contest_native_replay.js";
+import { normalizeNativeContestSetup } from "./contest_native_setup.js";
 import { createSimulationBackup, parseSimulationBackup, stringifySimulationBackup } from "./simulation_backup.js";
 import { renderSimulationHistory } from "./simulation_history_ui.js";
 import {
@@ -1445,6 +1446,7 @@ $("contest-capture-file").addEventListener("change", async (event) => {
     if (file.size > 12 * 1024 * 1024) throw new Error("最大12 MiBのキャプチャーJSONを選択してください。");
     const capture = JSON.parse(await file.text());
     const report = compareContestCapture(capture, {
+      resolveInput: (session) => normalizeNativeContestSetup(session, { examItemCatalogs }),
       simulator: (session, setup) => replayObservedContest(session, setup, {
         cardById: catalogs.cardById,
         cardVariantByKey: catalogs.cardVariantByKey,
