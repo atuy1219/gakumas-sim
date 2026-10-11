@@ -1457,7 +1457,8 @@ $("contest-capture-file").addEventListener("change", async (event) => {
     const s = report.summary;
     status.textContent = "実機 " + s.sessions + "実行、" + s.totalProgress + "経過、" + s.totalTurns
       + "ターン復元（完全 " + s.capturesComplete + "/" + s.sessions + "）。独立シミュ比較 "
-      + s.simulationCompared + "件、未実行 " + s.simulationBlocked + "件。";
+      + s.simulationCompared + "件、未実行 " + s.simulationBlocked + "件。セットアップ乱数検証 "
+      + s.setupRngVerified + "/" + s.sessions + "件（スコア一致とは別）。";
     const summary = $("contest-capture-summary");
     const note = document.createElement("p");
     note.className = "hint";
@@ -1472,7 +1473,10 @@ $("contest-capture-file").addEventListener("change", async (event) => {
         row.comparison.status === "mismatch" ? "不一致: " + (row.comparison.firstDivergence?.path ?? "?")
           : row.comparison.status === "match" ? "全項目一致"
             : row.comparison.status === "partial-match" ? "検証できた項目は一致（未比較項目あり）"
-              : row.realDevice.dataComplete ? "取得成功・初期条件不足または再計算未対応" : "取得欠損"
+              : row.realDevice.dataComplete
+                ? "再計算不可: " + (row.normalization?.reasons?.join(", ") || "初期条件不足")
+                  + (row.rngVerification.status === "match" ? " / RNG +" + row.rngVerification.advanceSteps + "回検証" : "")
+                : "取得欠損"
       ];
       for (const v of values) { const td = document.createElement("td"); td.textContent = v; tr.append(td); }
       rows.append(tr);
