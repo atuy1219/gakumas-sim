@@ -526,6 +526,18 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         // fields from this model to preserve the complete exact turn order.
         if(std::strcmp(name,"ExamParameterModel")==0 &&
            !keepSetupParameterField(fieldName))continue;
+        // A replay needs the initial card's identity, upgrades and custom
+        // support modifiers, not its potentially large dynamic effect graph.
+        // This projection is read-only and never invokes managed getters.
+        if(std::strcmp(name,"ExamCardData")==0 && fieldName){
+            bool essential=false;
+            for(const char* field:{"_cardData","_guid","_fixedDeckOrder",
+                     "_baseUpgradeCount","_tmpUpgradeCount",
+                     "_supportUpgradeIdList","_statusEffect"}){
+                if(std::strcmp(fieldName,field)==0){essential=true;break;}
+            }
+            if(!essential)continue;
+        }
         // Drop cache-only icon/description internals from each deck card.
         // They consume most of the snapshot budget but cannot reconstruct
         // the card's ID, upgrade level, origin or runtime effects.
