@@ -63,7 +63,13 @@ function normalizeTurnTypes(list){
   // Enum ordinals alone are ambiguous across game versions. Only consume
   // explicit type names produced by the managed metadata.
   const type=typeof raw==="string"?raw.toLowerCase():"";
-  const canonical=type.includes("vocal")?"vocal":type.includes("dance")?"dance":type.includes("visual")?"visual":null;
+  // ExamParameterType/StatusParameterType ordinals are pinned by the
+  // local native-engine model: None=0, Vocal=1, Dance=2, Visual=3.
+  // Numeric values from unrelated enums are deliberately rejected.
+  const verifiedEnum=/^(?:ExamParameterType|StatusParameterType)$/.test(String(v?.$type??""));
+  const canonical=type.includes("vocal")?"vocal":type.includes("dance")?"dance"
+    :type.includes("visual")?"visual"
+      :(verifiedEnum&&Number.isInteger(raw)?({1:"vocal",2:"dance",3:"visual"}[raw]??null):null);
   if(!canonical)return null;
   types.push(canonical);
  }
