@@ -81,6 +81,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   const simulatedHand=(draw.hand??[]).map(x=>x.id);
   if(observedHand.length!==simulatedHand.length||observedHand.some((id,j)=>id!==simulatedHand[j])){
    warnings.push({turn:i+1,phase:"draw",native:observedHand,simulator:simulatedHand});
+   // Preserve the *simulated* opening hand to make this the first structured
+   // mismatch instead of marking the entire session incomparable.
+   turns.push({turn:i+1,hand:simulatedHand.map(id=>({id}))});
    // Refuse to force a native hand into the simulated state. This is the
    // earliest independent RNG/deck divergence.
    break;
