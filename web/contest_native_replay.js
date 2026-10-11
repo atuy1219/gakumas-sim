@@ -107,7 +107,18 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    const pos=state.hand.findIndex(x=>x.id===cardId &&
      Number(x.upgradeCount??0)===Number(command.card.baseUpgradeCount??0));
    if(pos<0){warnings.push({turn:i+1,phase:"card-selection",cardId,available:state.hand.map(x=>x.id)});break;}
-   playTowerCard(state,pos);
+   try {
+    playTowerCard(state,pos);
+   } catch(error) {
+    // A native card play rejected by the simulated state is a useful first
+    // divergence. Do not discard the otherwise valid session as unavailable.
+    warnings.push({turn:i+1,phase:"card-play",
+     native:{id:cardId,upgradeCount:Number(command.card.baseUpgradeCount??0)},
+     simulator:{playsRemaining:state.playsRemaining,
+      available:state.hand.map(x=>({id:x.id,upgradeCount:x.upgradeCount??0}))},
+     error:String(error?.message??error)});
+    break;
+   }
    if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-card-effect:"+state.unsupported.join("|"));
   }
   if(warnings.length)break;
