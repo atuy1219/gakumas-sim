@@ -42,7 +42,58 @@ function elements(value){
  }
  return undefined;
 }
-function extractCard(value){
+// Native saved-card customizeCounts are indexed by ProduceCard.produceCardCustomizeIds.
+// They are NOT upgrade counts; absence is unknown, not a vector of zeros.
+function resolveCustomizationCounts(id, raw, rules){
+ if(!Array.isArray(raw))return {available:false,customizes:[]};
+ const rule=rules?.get?.(id);
+ const ids=rule?.customizeIds;
+ if(!Array.isArray(ids)||ids.length!==raw.length || !raw.every(n=>Number.isInteger(n)&&n>=0))
+  return {available:false,customizes:[],reason:"customization-routes-or-counts-unmatched:"+id};
+ return {available:true,customizes:raw.flatMap((n,i)=>n>0?[{id:ids[i],customizeCount:n}]:[])};
+}
+function readCustomizationCounts(card){
+ const master=names(card,["CardData"]);
+ for(const node of [card,master]){
+  const raw=names(node,["CustomizeCounts","CustomizeCountList","CustomizesCountList",
+   "ProduceCardCustomizeCountList","CustomizeCount"]);
+  const entries=elements(raw);
+  if(Array.isArray(entries))return entries.map(number);
+ }
+ return null;
+}
+function applyObservedCustomizations(session,deck,rules){
+ const counts=new Map(deck.map(c=>[c.id,0]));
+ for(const card of deck)counts.set(card.id,counts.get(card.id)+1);
+ const observations=new Map();
+ for(const turn of session?.turns??[]){
+  for(const card of [...(turn.hand??[]),...(turn.hold??[])]){
+   const id=String(card?.id??"");
+   if(!id||!Array.isArray(card.customizeCounts)||!counts.has(id))continue;
+   const before=observations.get(id);
+   const raw=card.customizeCounts;
+   if(!before)observations.set(id,{raw,firstTurn:turn.turn,conflict:false});
+   else if(JSON.stringify(before.raw)!==JSON.stringify(raw))before.conflict=true;
+  }
+ }
+ let recovered=0,nonzero=0,ambiguous=0,unmapped=0;
+ for(const card of deck){
+  // Without initial GUIDs duplicate card IDs cannot be assigned independently.
+  if(card.customizes || counts.get(card.id)!==1)continue;
+  const observed=observations.get(card.id);
+  if(!observed)continue;
+  if(observed.conflict){ambiguous++;continue;}
+  const resolved=resolveCustomizationCounts(card.id,observed.raw,rules);
+  if(!resolved.available){unmapped++;continue;}
+  card.customizes=resolved.customizes;
+  card.customizationSource="observed-turn-hand-provisional";
+  recovered++;
+  if(resolved.customizes.length)nonzero++;
+ }
+ return {recovered,nonzero,ambiguous,unmapped,
+  firstObservationIsAfterStart:true,verifiedAtInitialization:false};
+}
+function extractCard(value,rules){
  if(typeof value==="string"&&value.startsWith("p_card-"))return {id:value,upgradeCount:0};
  if(!plain(value))return null;
  const cardMaster=names(value,["CardData"]);
@@ -53,7 +104,14 @@ function extractCard(value){
  const upgrade=number(names(value,["UpgradeCount","BaseUpgradeCount","baseUpgradeCount"]));
  if(!Number.isInteger(upgrade)||upgrade<0||upgrade>3)return null;
  const order=number(names(value,["FixedDeckOrder","fixedDeckOrder"]));
- return {id,upgradeCount:upgrade,...(Number.isInteger(order)?{fixedDeckOrder:order}:{})};
+ const base={id,upgradeCount:upgrade,...(Number.isInteger(order)?{fixedDeckOrder:order}:{})};
+ const raw=readCustomizationCounts(value);
+ if(raw!==null){
+  const resolved=resolveCustomizationCounts(id,raw,rules);
+  if(resolved.available){base.customizes=resolved.customizes;base.customizationSource="native-initial";}
+  else base.customizationUnresolved=resolved.reason;
+ }
+ return base;
 }
 function extractList(node,keys){
  const value=names(node,keys);
@@ -89,7 +147,7 @@ function normalizeTurnTypes(list){
  }
  return types;
 }
-export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
+export function normalizeNativeContestSetup(session,{examItemCatalogs={},allowObservedCustomizations=false}={}){
  const reasons=[];
  const native=session?.start?.nativeInitialState?.root;
  const param=session?.setup?.examParameterSnapshot?.root;
@@ -97,10 +155,16 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
   "InitialDeckProduceCardDataList","DeckProduceCardDataList","ProduceCardDataList",
   "InitialDeckCardList","DeckCardList","DeckList","ProduceCardList",
  ]);
+ const rules=examItemCatalogs.cardCustomizeRuleById;
  let initialDeck=null;
+ let observedCustomizationRecovery=null;
  if(deckSource){
-  const cards=deckSource.map(extractCard);
-  if(cards.every(Boolean)&&cards.length)initialDeck=cards;
+  const cards=deckSource.map(value=>extractCard(value,rules));
+  if(cards.every(Boolean)&&cards.length){
+   initialDeck=cards;
+   if(allowObservedCustomizations)
+    observedCustomizationRecovery=applyObservedCustomizations(session,cards,rules);
+  }
  }
  if(!initialDeck)reasons.push("native-deck-not-recognized");
  let pItemSource=extractList(native,["ProduceItemDataList","ProduceItemList","ItemDataList","ItemList"]);
@@ -214,7 +278,10 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
      nativeBeforeAvailable?"captured-before-setup":"verified-seed-post-setup-hypothesis",
     scoreBonusProvenance:parameterBonus?"native-battle-bonus-permil":"not-observed",
     supportBonusSeparatelyVerified:false,
-    turnParameterTypesSource:turnTypeSource,independentDecisionSearch:false},
+    turnParameterTypesSource:turnTypeSource,independentDecisionSearch:false,
+    customizationSource:observedCustomizationRecovery?.recovered?"observed-turn-hand-provisional":
+     initialDeck?.some(c=>c.customizationSource==="native-initial")?"native-initial":"not-captured",
+    initialDeckCustomizationVerified:initialDeck?.every(c=>c.customizationSource==="native-initial")===true},
   }:null,
   candidates:{deckCount:deckSource?.length??null,
    identifiedDeckCards:deckSource?.filter(card=>extractCard(card)!==null).length??null,
@@ -236,6 +303,10 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
    verifiedPreShuffle,
    nativeAttributeBonusPermil:parameterBonus?bonusValues:null,
    supportBonus,
+   observedCustomizationRecovery,
+   initialCustomizeCountKnown:initialDeck?.filter(c=>Array.isArray(c.customizes)).length??0,
+   initialCustomizeCountUnknown:initialDeck?.filter(c=>!Array.isArray(c.customizes)).length??0,
+   initialCustomizeCountUnresolved:initialDeck?.filter(c=>c.customizationUnresolved).length??0,
    genericSnapshotTruncated:session?.start?.nativeInitialState?.truncated===true,
    verifiedSetupRng,settingId:settingId??null,
    parameterKeys:plain(param?.fields)?Object.keys(param.fields):[]},
