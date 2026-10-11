@@ -29,7 +29,7 @@ public final class CaptureExportActivity extends Activity {
         int padding = (int)(20 * getResources().getDisplayMetrics().density);
         layout.setPadding(padding, padding, padding, padding);
         statusView = new TextView(this);
-        statusView.setText("Gakumas Progress Capture v1.5.17\n\nコンテストの自動計算で選ばれた経過と結果を記録します。\nプレイ後に記録ファイルを保存してください。");
+        statusView.setText("Gakumas Progress Capture v1.5.18\n\nコンテストの自動計算で選ばれた経過と結果を記録します。\nプレイ後に記録ファイルを保存してください。");
         layout.addView(statusView);
         Button save = new Button(this); save.setText("コンテスト記録を保存");
         save.setOnClickListener(v -> prepareExport(false)); layout.addView(save);
@@ -72,7 +72,7 @@ public final class CaptureExportActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject s = new JSONObject(new String(readRoot("contest_capture_status.json", 65536), StandardCharsets.UTF_8));
-                String text = "Gakumas Progress Capture v1.5.17\n\n"
+                String text = "Gakumas Progress Capture v1.5.18\n\n"
                     + "記録開始: " + (s.optBoolean("moveNextInstalled") && s.optBoolean("searchResultInstalled") ? "準備済み" : "準備できていません")
                     + "\n対象実行: " + s.optLong("sessions") + "\n保存件数: " + s.optLong("recordsWritten")
                     + "\n読み取り不完全: " + s.optLong("incompleteReads") + "\n書き込み失敗: " + s.optLong("writeFailures")
@@ -97,7 +97,7 @@ public final class CaptureExportActivity extends Activity {
                 if (events.length() == 0) throw new Exception("記録がまだありません。コンテストを実行してから保存してください");
                 JSONObject export = new JSONObject();
                 export.put("schemaVersion", 2); export.put("scope", "contest-gameplay-capture");
-                export.put("moduleVersion", "1.5.17"); export.put("exportedAtUnixMs", System.currentTimeMillis());
+                export.put("moduleVersion", "1.5.18"); export.put("exportedAtUnixMs", System.currentTimeMillis());
                 export.put("previousProcess", previous); export.put("events", events);
                 export.put("incompleteTailOmitted", incompleteTail);
                 if (!previous) {
