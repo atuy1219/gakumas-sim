@@ -2,6 +2,8 @@
 /** Analyze one exported contest capture; never echo native scores as simulator predictions. */
 import { readFile, writeFile } from "node:fs/promises";
 import { compareContestCapture } from "../web/contest_capture_compare.js";
+import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
+import { replayObservedContest } from "../web/contest_native_replay.js";
 
 async function main(args) {
   if(args.length < 1 || args.includes("--help")) {
@@ -10,7 +12,10 @@ async function main(args) {
     return;
   }
   const source = JSON.parse(await readFile(args[0], "utf8"));
-  const result = compareContestCapture(source);
+  const result = compareContestCapture(source, {
+    resolveInput: session => normalizeNativeContestSetup(session),
+    simulator: (session,input) => replayObservedContest(session,input),
+  });
   const output=args[1] || "gakumas-contest-comparison.json";
   await writeFile(output, JSON.stringify(result,null,2)+"\n");
   const s=result.summary;
