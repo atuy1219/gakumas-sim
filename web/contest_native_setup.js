@@ -29,6 +29,15 @@ function number(value){
 function elements(value){
  if(Array.isArray(value))return value;
  if(plain(value)&&Array.isArray(value.elements))return value.elements;
+ if(value?.$type?.startsWith?.("ArraySegment")&&plain(value.fields)){
+  const array=value.fields._array??value.fields.array;
+  const offset=number(value.fields._offset??value.fields.offset);
+  const count=number(value.fields._count??value.fields.count);
+  const entries=elements(array);
+  if(Array.isArray(entries)&&Number.isInteger(offset)&&offset>=0&&
+    Number.isInteger(count)&&count>=0&&offset+count<=entries.length)
+   return entries.slice(offset,offset+count);
+ }
  return undefined;
 }
 function extractCard(value){
