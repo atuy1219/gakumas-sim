@@ -11,6 +11,9 @@ fixtures["ProduceCard.yaml"] = [
   "- id: p_card-01-men-0_007",
   "  upgradeCount: 0",
   "  name: Card zero",
+  "  produceCardCustomizeIds:",
+  "  - route-a",
+  "  - route-b",
   "  playEffects:",
   "  - produceExamEffectId: e_effect-example",
   "- id: p_card-01-men-0_007",
@@ -28,6 +31,7 @@ assert.equal(catalog.provenance.gameVersionVerified,false);
 assert.equal(catalog.cardVariants.length,2);
 assert.equal(catalog.cards.length,1);
 assert.equal(catalog.cards[0].upgradeCount,0);
+assert.deepEqual(catalog.cardCustomizeRules.find(x=>x.id==="p_card-01-men-0_007").customizeIds,["route-a","route-b"]);
 assert.equal(catalog.cardVariants[0].playEffects[0].produceExamEffectId,"e_effect-example");
 assert.equal(catalog.examSettings[0].turnStartDistribute,3);
 assert.deepEqual(catalog.items[0].produceItemEffectIds,["pitem_effect_1"]);
