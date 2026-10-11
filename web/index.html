@@ -389,7 +389,7 @@
 
       <section class="panel">
         <div class="section-head"><div><p class="step">04</p><h2>実機コンテストログの自動比較</h2></div></div>
-        <p class="hint">LSPosedから保存した gakumas-contest-capture.json を選択すると、セッション・ターン履歴を復元して整合性を自動検査します。実機と独立した完全なスコアシミュレータは未接続であり、初期編成・設定がない場合は「比較不能」と表示します。</p>
+        <p class="hint">LSPosedから保存した gakumas-contest-capture.json を選択すると、セッション・ターン履歴を復元して整合性を自動検査します。初期デッキ・Pアイテム・設定・乱数状態がすべて解決できた場合のみ独立した操作・効果リプレイを実行します。AI判断を含む完全な探索の再現は未対応のため、比較範囲を明示します。</p>
         <label><span>実機コンテストキャプチャー（JSON 1ファイル）</span><input id="contest-capture-file" type="file" accept=".json,application/json"></label>
         <p id="contest-capture-status" class="hint" aria-live="polite">ファイルを選択してください。</p>
         <div id="contest-capture-summary" class="result-meta"></div>
