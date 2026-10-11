@@ -61,6 +61,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   ...(input.parameterBonus?{parameterBonus:input.parameterBonus}:{}),
   examRuntimeSettings:input.examSettings,examScoreSettings:input.examSettings,
   cardVariantByKey,customizeById,growEffectById,
+  captureActionTelemetry:true,
   itemById:examItemCatalogs.itemById,
   examEffectById:examItemCatalogs.examEffectById??new Map(),
   examStatusEnchantById:examItemCatalogs.examStatusEnchantById??new Map(),
@@ -77,7 +78,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  for(const attr of ["parameter","review","block","parameterBuff","concentration","fullPower","motivation"]){
   if(own(p,attr))state.exam[attr]=requireNumber(p[attr],"initialParameters."+attr);
  }
- const turns=[],warnings=[],scoreByType={vocal:0,dance:0,visual:0};
+ const turns=[],warnings=[],cardActionTrace=[],scoreByType={vocal:0,dance:0,visual:0};
  const nativeExtraTurns=Math.max(0,session.turns.length-initialLimit);
  let previousScore=Number(state.exam.parameter??0);
  for(let i=0;i<session.turns.length;i++){
@@ -108,7 +109,24 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
      Number(x.upgradeCount??0)===Number(command.card.baseUpgradeCount??0));
    if(pos<0){warnings.push({turn:i+1,phase:"card-selection",cardId,available:state.hand.map(x=>x.id)});break;}
    try {
-    playTowerCard(state,pos);
+    const event=playTowerCard(state,pos);
+    const steps=event.actionTelemetry??[];
+    const beginning=steps[0]??null;
+    const ending=steps.at(-1)??null;
+    cardActionTrace.push({
+      turn:i+1,
+      commandIndex:cardActionTrace.filter(x=>x.turn===i+1).length,
+      cardId,upgradeCount:Number(command.card.baseUpgradeCount??0),
+      nativePerCardMetricsAvailable:false,
+      simulated:{
+        before:beginning ? {score:beginning.score,stamina:beginning.stamina,block:beginning.block,review:beginning.review,aggressive:beginning.aggressive}:null,
+        after:ending ? {score:ending.score,stamina:ending.stamina,block:ending.block,review:ending.review,aggressive:ending.aggressive}:null,
+        scoreGained:beginning&&ending?ending.score-beginning.score:null,
+        blockDelta:beginning&&ending?ending.block-beginning.block:null,
+        staminaDelta:beginning&&ending?ending.stamina-beginning.stamina:null,
+        phases:steps,
+      },
+    });
    } catch(error) {
     // A native card play rejected by the simulated state is a useful first
     // divergence. Do not discard the otherwise valid session as unavailable.
@@ -140,7 +158,8 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  const prediction={
   provenance:"independent-simulator",
   replayMode:"observed-actions",decisionSearchVerified:false,
-  turns, warnings,
+  turns, warnings, cardActionTrace,
+  nativePerCardMetricsAvailable:false,
   extraTurnsObserved:nativeExtraTurns,
   extraTurnsSimulated:Math.max(0,Number(state.turnLimit)-initialLimit),
   rngProvenance:input.metadata?.rngProvenance??"unknown",
