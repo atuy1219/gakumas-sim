@@ -431,6 +431,16 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.21: device v1.5.20 card identity, protected-value, and ArraySegment diagnostics
+
+The 2026-10-11 device v1.5.20 capture contains **9 sessions, 52 selected-progress events, 95 native turn logs, 9 results, 9 setup records** with zero read failures, write failures and drops. The native result score equals the terminal progress score and Vo+Da+Vi in each session. Each `ExamData.DeckList` has 16–19 real cards; 11–12 were previously decoded due to the nested effects/tree byte cap. The IL2CPP `ExamParameterModel` now includes 89 fields, `_random.state`, 8/10/12-turn attribution, and Obscured<T> stamina; the latter contains **encrypted/raw values**, not direct stamina. No independent full-score comparison is supported for this data.
+
+v1.5.20 still omitted every card's inherited `ProduceCardId`, despite an attempt to inspect class parents. v1.5.21 logs whether `il2cpp_class_get_parent` was available and adds a bounded *read-only, single-direct-reference UTF-16 scanner* for the unique `p_card-` identity inside each real `ExamCardData` object. An ambiguous/missing identity is `null`; it is not manufactured from the observed hand. Native string probes restore optional read failures and do not execute managed gameplay methods.
+
+The capture also skips heavy per-card resolved effect-tree/cache fields (effect masters remain in the public catalog) so the deck, items and other setup fields are not displaced by its output budget. For `Obscured<T>`, `Raw<T>`, and `ArraySegment<T>` it records all named fields instead of only name-filtered values, preserving possible deobfuscation keys and backing arrays, offsets and counts. The browser normalizer accepts the unique `$scannedCardId` field and decodes `ArraySegment<T>` using a verified offset/count bound. New host and JS tests cover unique ID recognition, rejected missing IDs, and sliced P-item arrays.
+
+**This is still an experimental acquisition build.** v1.5.21 cannot yet claim confirmed card identity scanning, stamina deobfuscation, exact pre-shuffle RNG or full AI/DFS score replay on the device. Reinstall/upgrade, fully restart game, run contest, export only `gakumas-contest-capture.json`. The next real capture will show whether ID-field scanning and item/obscured internals are now sufficient to refine the setup adapter.
+
 ## v1.5.20: real-device v1.5.19 inherited-card discovery
 
 The 2026-10-11 v1.5.19 contest capture recorded **9 sessions, 54 selected-progress records, 9 setup records, 9 results and 95 contiguous delta turns**. Each `contest-start.nativeInitialState` successfully resolved the actual IL2CPP `ExamData` runtime type, with `DeckList` sizes 16–19 and `LimitTurn` values 8, 10 or 12. `ExamParameterModel._turnTargetStatusParameterTypeList` exposed the exact numeric `ProduceParameterType` enum. Nine independent XorShift32 post-setup checks passed with 5, 7 and 9 advancements respectively. Native gameplay recording still had zero read/write failures.
