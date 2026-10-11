@@ -260,7 +260,7 @@ void status() {
     atomic_write(path("contest_capture_status.json"),s.str());
 }
 bool emit(const Run& run,const char* event,const std::string& content) {
-    std::ostringstream s;s<<"{\"schemaVersion\":1,\"pid\":"<<getpid()<<",\"tid\":"<<gettid()
+    std::ostringstream s;s<<"{\"schemaVersion\":2,\"pid\":"<<getpid()<<",\"tid\":"<<gettid()
       <<",\"observedAtUnixMs\":"<<unix_time_ms()<<",\"sessionId\":"<<run.id
       <<",\"event\":\""<<event<<"\",\"step\":"<<run.steps<<",\"source\":\"natural-selected-auto-play\","
       <<"\"gameCaptureVerified\":false,\"rngCaptured\":false,\"syntheticGameCalls\":false,"
