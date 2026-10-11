@@ -53,4 +53,44 @@ const activeIndex=activeState.hand.findIndex(c=>c.id==="active-test");
 const played=playTowerCard(activeState,activeIndex);
 assert.equal(activeState.exam.block,6,"ExamCardPlay phaseValue=0 must fire");
 assert.ok(played.effects.some(x=>x.includes("元気 +6")));
-console.log("contest master trigger lesson and card-play phases: OK");
+// An idol-unique card has an originIdolCardId in the ProduceCard master,
+// not a literal searchTag. Native after-play P-item checks must see it.
+const idolSearch={
+ id:"idol-unique",cardSearchTag:"idol-unique",
+ cardPositionType:"ProduceCardPositionType_Target",
+};
+const idolPItem={id:"pitem-idol",effects:[{
+ id:"pitem-idol-effect",effectType:"ProduceItemEffectType_ExamStatusEnchant",
+ effectCount:1,effectTurn:-1,
+ examStatusEnchant:{id:"enchant-idol",trigger:{
+  id:"trigger-idol-after",
+  phaseTypes:["ProduceExamPhaseType_ExamCardPlayAfter"],
+  fieldStatusTypes:["ProduceExamFieldStatusType_StaminaUpMultiple"],
+  fieldStatusValues:[800],lowerSearchCount:1,cardSearch:idolSearch,
+ },examEffects:[{
+  id:"effect-extra",effectType:"ProduceExamEffectType_ExamPlayableValueAdd",
+  effectValue1:0,effectCount:1,
+ }]},
+}]};
+const idolDeck=[
+ {id:"idol-special",upgradeCount:0},
+ {id:"ordinary",upgradeCount:0},
+ {id:"ordinary2",upgradeCount:0},
+];
+const idolMasters=new Map(idolDeck.map(c=>[c.id,{
+ ...c,category:"ProduceCardCategory_MentalSkill",
+ originIdolCardId:c.id==="idol-special"?"i_card-unique":"",
+}]));
+const idolState=createTowerTurnState(idolDeck,42,idolMasters,{
+ stamina:100,initialRandomState:42,turnLimit:1,drawPerTurn:3,
+ turnParameterTypes:["vocal"],pItems:[idolPItem],
+ examRuntimeSettings:{},examScoreSettings:{},
+});
+drawTowerTurn(idolState,3);
+const idolIndex=idolState.hand.findIndex(c=>c.id==="idol-special");
+assert.ok(idolIndex>=0);
+playTowerCard(idolState,idolIndex);
+assert.equal(idolState.playsRemaining,1,
+ "Idol unique after-play P-item effect must grant another play");
+
+console.log("contest master trigger lesson, play phases and idol-unique search: OK");
