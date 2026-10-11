@@ -82,13 +82,24 @@ function compareSession(s,pred){
   for(let i=0;i<Math.min(s.turns.length,pred.turns.length);i++)compareFields(differences,s.turns[i],pred.turns[i],"turns["+i+"]",TURN);
  }
  if(object(pred?.result))compareFields(differences,s.result||{},pred.result,"result",FIELDS);
- const compared=Array.isArray(pred?.progress)||Array.isArray(pred?.turns)||object(pred?.result);
- return {status:!compared?"not-comparable":differences.length?"mismatch":"match",differences,firstDivergence:differences[0]||null,compared};
+ const compared=(
+  (Array.isArray(pred?.progress)&&pred.progress.length>0&&pred.progress.some(p=>object(p)&&PROGRESS.some(k=>Object.hasOwn(p,k))))||
+  (Array.isArray(pred?.turns)&&pred.turns.length>0&&pred.turns.some(t=>object(t)&&TURN.some(k=>Object.hasOwn(t,k))))||
+  (object(pred?.result)&&FIELDS.some(k=>Object.hasOwn(pred.result,k)))
+ );
+ const completeCoverage=compared && object(pred?.result) &&
+  FIELDS.every(k=>Object.hasOwn(pred.result,k)) &&
+  Array.isArray(pred?.progress) && pred.progress.length===s.progress.length &&
+  pred.progress.every(p=>object(p)&&PROGRESS.every(k=>Object.hasOwn(p,k))) &&
+  Array.isArray(pred?.turns) && pred.turns.length===s.turns.length &&
+  pred.turns.every(t=>object(t)&&TURN.every(k=>Object.hasOwn(t,k)));
+ return {status:!compared?"not-comparable":differences.length?"mismatch":completeCoverage?"match":"partial-match",
+  completeCoverage,differences,firstDivergence:differences[0]||null,compared};
 }
 /* simulator(s,input) MUST run the independent engine; never echo native observations. */
 export function compareContestCapture(capture,{simulator=null}={}){
  const normalized=reconstructContestCapture(capture),sessions=[];
- let compared=0,mismatches=0,matched=0,blocked=0;
+ let compared=0,mismatches=0,matched=0,blocked=0,partial=0;
  for(const s of normalized.sessions){
   const inputs=object(capture.simulatorInputs)?capture.simulatorInputs:{};
   const input=inputs[s.key]||inputs[String(s.sessionId)]||{};
@@ -102,7 +113,7 @@ export function compareContestCapture(capture,{simulator=null}={}){
     comparison=compareSession(s,simulation);
    }catch(err){warnings.push("simulator-execution-failed:"+String(err?.message||err));simulation=null;}
   }
-  if(comparison.compared){compared++;if(comparison.status==="mismatch")mismatches++;else matched++;}
+  if(comparison.compared){compared++;if(comparison.status==="mismatch")mismatches++;else if(comparison.status==="match")matched++;else partial++;}
   else {blocked++;warnings.push(missing.length?"simulator-input-missing:"+missing.join(","):"simulator-runner-not-connected");}
   sessions.push({pid:s.pid,sessionId:s.sessionId,characterId:s.start?.characterId||null,seed:s.start?.seed??null,
     realDevice:{score:s.result?.score??null,result:s.result,progress:s.progress,turns:s.turns,dataComplete:s.complete},
@@ -112,10 +123,10 @@ export function compareContestCapture(capture,{simulator=null}={}){
  const summary={sessions:sessions.length,capturesComplete:complete,
   totalProgress:sessions.reduce((n,s)=>n+s.realDevice.progress.length,0),
   totalTurns:sessions.reduce((n,s)=>n+s.realDevice.turns.length,0),
-  simulationCompared:compared,simulationMatches:matched,simulationMismatches:mismatches,simulationBlocked:blocked};
+  simulationCompared:compared,simulationMatches:matched,simulationPartialMatches:partial,simulationMismatches:mismatches,simulationBlocked:blocked};
  return {schemaVersion:1,scope:"gakumas-contest-comparison",captureModuleVersion:capture.moduleVersion||null,
-  status:!sessions.length?"no-sessions":blocked?"simulation-unavailable":mismatches?"mismatch":"match",
-  complete:blocked===0&&sessions.length>0&&complete===sessions.length&&mismatches===0,
+  status:!sessions.length?"no-sessions":mismatches?"mismatch":blocked?"simulation-unavailable":partial?"partial-match":"match",
+  complete:blocked===0&&sessions.length>0&&complete===sessions.length&&mismatches===0&&partial===0,
   summary,firstDivergence:sessions.find(s=>s.comparison.firstDivergence)?.comparison.firstDivergence||null,
   sessions,warnings:normalized.warnings,
   note:"Native self-consistency checks are not an independent gameplay simulation; incomplete simulator inputs block true parity."};
