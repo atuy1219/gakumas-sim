@@ -48,3 +48,4 @@ jobs:
           node tests/test_simulation_backup.mjs
           node tests/test_exam_completeness.mjs
           node tests/test_engine_comparison.mjs
+          node tests/test_contest_capture_compare.mjs
