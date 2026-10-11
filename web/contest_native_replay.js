@@ -115,7 +115,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   replayMode:"observed-actions",decisionSearchVerified:false,
   turns, warnings,
   // Only publish a predicted final result if every native turn was simulated.
-  ...(turns.length===session.turns.length?{result:{score:previousScore,
+  ...(warnings.length===0&&turns.length===session.turns.length?{result:{score:previousScore,
     vocal:scoreByType.vocal,dance:scoreByType.dance,visual:scoreByType.visual}}:{}),
  };
  return prediction;
