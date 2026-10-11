@@ -134,4 +134,43 @@ for(const [seed,randomStateObserved,steps] of nativeSetupRngVectors){
  assert.equal(verification.verifiedPreShuffle,false);
 }
 assert.equal(verifyContestSetupRng({start:{seed:1},setup:{randomStateObserved:null}}).status,"unavailable");
+// The v1.5.19 real-device shape uses a top-level DeckList, inherited card
+// backing fields, and numeric ProduceParameterType value-type list entries.
+const deviceShape={
+ ...normalizedSession,
+ start:{...normalizedSession.start,
+  nativeInitialState:{available:true,complete:false,root:{$type:"ExamData",fields:{
+   "<DeckList>k__BackingField":neutralDeck.map((card,i)=>({
+    $type:"ExamCardData",fields:{"_produceCardId":card.id,
+     "_baseUpgradeCount":0,"_fixedDeckOrder":i}
+   })),
+   "<LimitTurn>k__BackingField":1,
+  }}},
+ },
+ setup:{...normalizedSession.setup,examParameterSnapshot:{available:true,complete:false,
+  root:{$type:"ExamParameterModel",fields:{
+   ...normalizedSession.setup.examParameterSnapshot.root.fields,
+   "<LimitTurn>k__BackingField":null,
+   "_turnTargetStatusParameterTypeList":{$type:"List`1",count:1,
+     elements:[{$type:"ProduceParameterType",fields:{value__:1}}]},
+  }}}},
+};
+const parsedDevice=normalizeNativeContestSetup(deviceShape,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}],itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(parsedDevice.available,true,JSON.stringify(parsedDevice.reasons));
+assert.deepEqual(parsedDevice.input.initialDeck.map(x=>x.id),neutralDeck.map(x=>x.id));
+assert.deepEqual(parsedDevice.input.initialParameters.turnParameterTypes,["vocal"]);
+assert.equal(parsedDevice.input.initialParameters.turnLimit,1);
+const missingIds={
+ ...deviceShape,start:{...deviceShape.start,nativeInitialState:{...deviceShape.start.nativeInitialState,
+  root:{$type:"ExamData",fields:{
+    ...deviceShape.start.nativeInitialState.root.fields,
+    "<DeckList>k__BackingField":neutralDeck.map(()=>({$type:"ExamCardData",fields:{"_baseUpgradeCount":0}}))
+  }}
+ }}
+};
+const rejected=normalizeNativeContestSetup(missingIds,{examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]}});
+assert.equal(rejected.available,false);
+assert.ok(rejected.reasons.includes("native-deck-not-recognized"));
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
