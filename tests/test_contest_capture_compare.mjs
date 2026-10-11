@@ -145,6 +145,8 @@ const deviceShape={
      "_baseUpgradeCount":0,"_fixedDeckOrder":i}
    })),
    "<LimitTurn>k__BackingField":1,
+   "<Stamina>k__BackingField":35,
+   "<MaxStamina>k__BackingField":45,
    "<ItemList>k__BackingField":{$type:"List`1",count:0,elements:[]},
   }}},
  },
@@ -179,8 +181,8 @@ const scannedDeck={
   ...deviceShape.start.nativeInitialState,root:{$type:"ExamData",fields:{
    ...deviceShape.start.nativeInitialState.root.fields,
    "<DeckList>k__BackingField":neutralDeck.map(c=>({
-    $type:"ExamCardData",$scannedCardId:c.id,$scannedCardIdOffset:0x98,
-    fields:{"_baseUpgradeCount":c.upgradeCount,"_fixedDeckOrder":0}
+    $type:"ExamCardData",fields:{"$scannedCardId":c.id,"$scannedCardIdAmbiguous":false,
+     "_baseUpgradeCount":c.upgradeCount,"_fixedDeckOrder":0}
    })),
   }},
  }},
@@ -193,7 +195,7 @@ assert.deepEqual(scannedResult.input.initialDeck.map(c=>c.id),neutralDeck.map(c=
 const scanMissing={...scannedDeck,start:{...scannedDeck.start,nativeInitialState:{
  ...scannedDeck.start.nativeInitialState,root:{$type:"ExamData",fields:{
   ...scannedDeck.start.nativeInitialState.root.fields,
-  "<DeckList>k__BackingField":[{$type:"ExamCardData",$scannedCardId:null,fields:{"_baseUpgradeCount":0}}],
+  "<DeckList>k__BackingField":[{$type:"ExamCardData",fields:{"$scannedCardId":null,"_baseUpgradeCount":0}}],
  }},
 }}};
 assert.ok(normalizeNativeContestSetup(scanMissing,{
@@ -206,14 +208,14 @@ const segmentSession={...deviceShape,start:{...deviceShape.start,
  root:{$type:"ExamData",fields:{
   ...deviceShape.start.nativeInitialState.root.fields,
   "<ItemList>k__BackingField":{$type:"ArraySegment`1",fields:{
-   _array:[null,{$type:"Item",fields:{_id:"p_item-0001"}},null],_offset:1,_count:1,
+   _array:[null,{$type:"Item",fields:{_id:"pitem_0001"}},null],_offset:1,_count:1,
   }},
  }}}}};
 const segment=normalizeNativeContestSetup(segmentSession,{
  examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}],
-  itemById:new Map([["p_item-0001",{id:"p_item-0001",produceItemEffectIds:[]}]]),
+  itemById:new Map([["pitem_0001",{id:"pitem_0001",produceItemEffectIds:[]}]]),
   itemEffectById:new Map()},
 });
 assert.ok(segment.available,JSON.stringify(segment.reasons));
-assert.deepEqual(segment.input.pItems.map(x=>x.id),["p_item-0001"]);
+assert.deepEqual(segment.input.pItems.map(x=>x.id),["pitem_0001"]);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
