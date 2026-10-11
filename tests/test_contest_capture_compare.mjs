@@ -221,4 +221,44 @@ const segment=normalizeNativeContestSetup(segmentSession,{
 });
 assert.ok(segment.available,JSON.stringify(segment.reasons));
 assert.deepEqual(segment.input.pItems.map(x=>x.id),["pitem_0001"]);
+// v1.5.22 metadata revealed the real ExamCardData._cardData reference at
+// +0x10 (IL2CPP type kind 18); no ProduceCardId field is inherited.
+const nestedCardMasterSession={
+ ...deviceShape,
+ start:{...deviceShape.start,nativeInitialState:{
+  ...deviceShape.start.nativeInitialState,
+  root:{$type:"ExamData",fields:{
+   ...deviceShape.start.nativeInitialState.root.fields,
+   "<DeckList>k__BackingField":neutralDeck.map(card=>({
+    $type:"ExamCardData",fields:{
+     "_cardData":{$type:"ProduceCardData",fields:{"_id":card.id}},
+     "_baseUpgradeCount":card.upgradeCount,
+     "$scannedCardId":null,"$scannedCardIdAmbiguous":false,
+    },
+   })),
+  }},
+ }},
+};
+const nestedResult=normalizeNativeContestSetup(nestedCardMasterSession,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}],
+  itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(nestedResult.available,true,JSON.stringify(nestedResult.reasons));
+assert.deepEqual(nestedResult.input.initialDeck.map(card=>card.id),neutralDeck.map(card=>card.id));
+const missingNestedMaster={
+ ...nestedCardMasterSession,
+ start:{...nestedCardMasterSession.start,nativeInitialState:{
+  ...nestedCardMasterSession.start.nativeInitialState,
+  root:{$type:"ExamData",fields:{
+   ...nestedCardMasterSession.start.nativeInitialState.root.fields,
+   "<DeckList>k__BackingField":[{$type:"ExamCardData",fields:{
+    "_cardData":{$type:"ProduceCardData",fields:{"_id":null}},
+    "_baseUpgradeCount":0,
+   }}],
+  }},
+ }},
+};
+assert.ok(normalizeNativeContestSetup(missingNestedMaster,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]},
+}).reasons.includes("native-deck-not-recognized"));
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
