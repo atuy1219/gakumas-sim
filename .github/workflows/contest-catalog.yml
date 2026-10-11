@@ -1,0 +1,31 @@
+name: Temporary contest master snapshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/auto-native-diagnostic
+    paths:
+      - "tools/contest_catalog_provider.mjs"
+      - "tools/build_contest_catalog.mjs"
+      - ".github/workflows/contest-catalog.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Fetch pinned provisional diff snapshot
+        run: node tools/build_contest_catalog.mjs gakumas-contest-catalog.json main
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gakumas-contest-catalog-provisional
+          path: gakumas-contest-catalog.json
+          if-no-files-found: error
+          retention-days: 7
