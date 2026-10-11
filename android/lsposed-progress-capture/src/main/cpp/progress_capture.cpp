@@ -1389,6 +1389,10 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     const uintptr_t returned = reinterpret_cast<uintptr_t>(return_address);
     const uintptr_t base = g_il2cpp_base.load(std::memory_order_acquire);
     const unsigned call = g_entry_probe_calls.fetch_add(1);
+    const bool selectedContest = base && returned >= base && returned-base == 0x07EFD3B4;
+    const contest_capture::BeforeSetup beforeState = selectedContest
+        ? contest_capture::observeBeforeSetup(reinterpret_cast<uintptr_t>(sequence))
+        : contest_capture::BeforeSetup{};
     // Always forward once. Passive binding reads only the verified reference.
     g_original_sequence_setup(sequence, data, method);
     if (base && returned >= base) passive::setup(reinterpret_cast<uintptr_t>(sequence), returned-base);
@@ -1401,7 +1405,7 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     // The selected auto-play native MoveNext already owns the session on
     // this thread. Observe only its exact verified SetUpExam callsite.
     if (std::strcmp(lane, "contest-auto-calculation") == 0)
-        contest_capture::recordSetup(reinterpret_cast<uintptr_t>(sequence));
+        contest_capture::recordSetup(reinterpret_cast<uintptr_t>(sequence),beforeState);
     const unsigned sample = g_entry_probe_events.fetch_add(1);
     if (sample >= 128) return; // Explicit cap prevents background trace storms.
     const int uid = static_cast<int>(getuid() / 100000);
