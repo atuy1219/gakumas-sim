@@ -280,9 +280,11 @@ const API& api(){
         // libil2cpp may be loaded RTLD_LOCAL. NOLOAD only returns an already
         // mapped handle and must never load a second game library.
         void* existing=dlopen("libil2cpp.so",RTLD_NOW|RTLD_NOLOAD);
+        const ImageInfo image=find_il2cpp_image();
         const auto resolve=[&](const char* symbol)->void* {
             void* entry=dlsym(RTLD_DEFAULT,symbol);
-            return entry?entry:(existing?dlsym(existing,symbol):nullptr);
+            if(!entry && existing)entry=dlsym(existing,symbol);
+            return entry?entry:resolve_export(image,symbol);
         };
         p.getFields=reinterpret_cast<GetFields>(resolve("il2cpp_class_get_fields"));
         p.fieldName=reinterpret_cast<FieldName>(resolve("il2cpp_field_get_name"));
@@ -439,9 +441,63 @@ std::string value(Address where,int kind,void* cls,int depth,Context& c,bool& ok
         default:c.truncated=true;return "null";
     }
 }
+// Even stripped game builds can be diagnosed without guessing field offsets.
+// These bounded bytes are offline layout evidence, NOT a decoded deck or input
+// to the simulator. No arbitrary recursive pointer chase and no managed calls.
+std::string rawLayout(Address root) {
+    readBudget=2048;firstReadFailure={};readStage.clear();
+    std::ostringstream out;
+    out<<"{\"format\":\"hex-pointer-inventory\",\"rootBytes\":384,\"rootHex\":";
+    unsigned char raw[384]={};
+    if(!bytes(root,0,raw,sizeof(raw))){
+        out<<"null,\"readFailure\":"<<readFailureJson()<<"}";
+        return out.str();
+    }
+    static const char h[]="0123456789abcdef";
+    const auto encode=[&](const unsigned char* ptr,size_t count)->std::string{
+        std::string out;out.reserve(count*2);
+        for(size_t i=0;i<count;++i){out.push_back(h[ptr[i]>>4]);out.push_back(h[ptr[i]&15]);}
+        return out;
+    };
+    out<<"\""<<encode(raw,sizeof(raw))<<"\",\"references\":[";
+    unsigned found=0;
+    for(size_t offset=0x10;offset+8<=sizeof(raw)&&found<24;offset+=8){
+        Address ptr=0;std::memcpy(&ptr,raw+offset,sizeof(ptr));
+        if(ptr<0x1000000000ull||(ptr&7)!=0)continue;
+        unsigned char sample[64]={};
+        // Missing optional references are an expected outcome. Do not promote
+        // their failures into an error for the independent root memory dump.
+        if(!bytes(ptr,0,sample,sizeof(sample)))continue;
+        if(found++)out<<',';
+        out<<"{\"offset\":"<<offset<<",\"value\":\"0x"<<std::hex<<ptr<<std::dec
+           <<"\",\"sampleHex\":\""<<encode(sample,sizeof(sample))<<"\"}";
+    }
+    out<<"]}";
+    return out.str();
+}
+std::string missingExports() {
+    const API& p=api();
+    std::ostringstream out;out<<'[';bool first=true;
+    const auto append=[&](const char* symbol,bool found){
+        if(found)return;
+        if(!first)out<<',';
+        first=false;out<<'"'<<symbol<<'"';
+    };
+    append("il2cpp_class_get_fields",p.getFields!=nullptr);
+    append("il2cpp_field_get_name",p.fieldName!=nullptr);
+    append("il2cpp_field_get_offset",p.fieldOffset!=nullptr);
+    append("il2cpp_field_get_type",p.fieldType!=nullptr);
+    append("il2cpp_type_get_type",p.typeKind!=nullptr);
+    append("il2cpp_class_get_name",p.className!=nullptr);
+    append("il2cpp_class_from_type",p.classFromType!=nullptr);
+    append("il2cpp_class_get_element_class",p.elementClass!=nullptr);
+    append("il2cpp_class_is_valuetype",p.valueType!=nullptr);
+    append("il2cpp_class_value_size",p.valueSize!=nullptr);
+    out<<']';return out.str();
+}
 std::string capture(Address data) {
     const auto& p=api();
-    if(!p.ready())return "{\"available\":false,\"reason\":\"il2cpp-reflection-exports-unavailable\"}";
+    if(!p.ready())return "{\"available\":false,\"reason\":\"il2cpp-reflection-exports-unavailable\",\"missingExports\":"+missingExports()+",\"rawLayout\":"+rawLayout(data)+"}";
     bool ok=true;readBudget=8192;firstReadFailure={};readStage.clear();
     Context c;
     const std::string root=object(data,nullptr,0,c,ok);
