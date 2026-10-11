@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <android/log.h>
+#include <jni.h>
 #include <cctype>
 #include <atomic>
 #include <cstdint>
@@ -1854,10 +1856,26 @@ void on_library_loaded(const char* name, void*) {
 
 extern "C" __attribute__((visibility("default")))
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
-    if (!entries || !entries->hookFunc || entries->version < 1) return nullptr;
-    if (!target_process()) return nullptr;
+    // Log independent of the game-private directory: filesystem ACL/SELinux
+    // failures cannot mask whether the LSPosed native entrypoint ran.
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "native_init entered pid=%d uid=%d entries=%s", getpid(), getuid(),
+        entries ? "non-null" : "null");
+    if (!entries || !entries->hookFunc || entries->version < 1) {
+        __android_log_print(ANDROID_LOG_ERROR, "GakumasCapture",
+            "native_init rejected unavailable native hook API");
+        return nullptr;
+    }
+    if (!target_process()) {
+        __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+            "native_init skipped non-game process");
+        return nullptr;
+    }
     g_hook = entries->hookFunc;
-    g_hook_mask.store(load_hook_mask());
+    const unsigned mask = load_hook_mask();
+    g_hook_mask.store(mask);
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "native_init accepted pid=%d hookMask=%u", getpid(), mask);
     write_status("native-init");
 
     // The library may already be mapped before module injection.
@@ -1865,4 +1883,11 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     install_init_trigger();
     install_il2cpp_hooks();
     return on_library_loaded;
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "JNI_OnLoad native shared object loaded pid=%d uid=%d",
+        getpid(), getuid());
+    return JNI_VERSION_1_6;
 }
