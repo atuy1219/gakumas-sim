@@ -122,9 +122,14 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList","ConfigParameterTypeOrderedList"])
   ??extractList(native,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"]);
  const turnParameterTypes=normalizeTurnTypes(turns);
+ // ExamSetting p_exam_setting-1 declares turnStartDistribute: 3. Read it
+ // from the exact loaded master, not a constant or the observed first hand.
+ const nativeDraw=number(names(param,["CardDrawCountPerTurn","DrawCardCount","TurnStartDistribute"]));
+ const masterDraw=number(setting?.turnStartDistribute);
+ const drawPerTurn=Number.isInteger(nativeDraw)&&nativeDraw>0?nativeDraw
+  :Number.isInteger(masterDraw)&&masterDraw>0?masterDraw:undefined;
  const initialParameters={
-  stamina,maxStamina,turnLimit,turnParameterTypes,
-  drawPerTurn:number(names(param,["CardDrawCountPerTurn","DrawCardCount"])),
+  stamina,maxStamina,turnLimit,turnParameterTypes,drawPerTurn,
  };
  if(![stamina,maxStamina,turnLimit,initialParameters.drawPerTurn].every(Number.isFinite)||!turnParameterTypes)
   reasons.push("exact-initial-parameters-missing");
@@ -146,6 +151,12 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
    identifiedDeckCards:deckSource?.filter(card=>extractCard(card)!==null).length??null,
    initialStamina:stamina??null,initialMaxStamina:maxStamina??null,
    initialTurnLimit:turnLimit??null,
+   turnParameterTypes:turnParameterTypes??null,
+   rawTurnTargetCount:turns?.length??null,
+   rawTurnTargetsDecoded:turns?.filter(v=>v!==null&&v!==undefined).length??null,
+   drawPerTurn:drawPerTurn??null,
+   drawPerTurnProvenance:Number.isInteger(nativeDraw)&&nativeDraw>0?"native-parameter":
+    Number.isInteger(masterDraw)&&masterDraw>0?"exact-exam-setting-master":null,
    pItemIds:pItemIds??null,
    randomStateBeforeSetUp:randomState??null,settingId:settingId??null,
    parameterKeys:plain(param?.fields)?Object.keys(param.fields):[]},
