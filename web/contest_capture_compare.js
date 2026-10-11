@@ -157,8 +157,20 @@ function compareSession(s,pred){
   pred.progress.every(p=>object(p)&&PROGRESS.every(k=>Object.hasOwn(p,k))) &&
   Array.isArray(pred?.turns) && pred.turns.length===s.turns.length &&
   pred.turns.every(t=>object(t)&&TURN.every(k=>Object.hasOwn(t,k)));
+ // Compare completed turn boundaries; selected-search progress is async.
+ const turnDiagnostics=Array.isArray(pred?.turns)?s.turns.slice(0,pred.turns.length).map((real,i)=>{
+  const sim=pred.turns[i]??{};
+  const comparedFields=TURN.filter(k=>Object.hasOwn(real,k)&&Object.hasOwn(sim,k));
+  return {turn:real.turn,comparedFields,
+   mismatchedFields:comparedFields.filter(k=>!equal(real[k],sim[k])),
+   nativeScore:real.score??null,simulationScore:sim.score??null,
+   scoreDelta:Number.isFinite(real.score)&&Number.isFinite(sim.score)?sim.score-real.score:null,
+   nativeCards:(real.commands??[]).filter(c=>c.commandType===2&&c.card?.id)
+    .map(c=>({id:c.card.id,guid:c.card.guid??null,upgradeCount:c.card.baseUpgradeCount??null})),
+   nativeStatuses:real.statuses??null};
+ }):[];
  return {status:!compared?"not-comparable":differences.length?"mismatch":completeCoverage?"match":"partial-match",
-  completeCoverage,differences,firstDivergence:differences[0]||null,compared};
+  completeCoverage,differences,firstDivergence:differences[0]||null,turnDiagnostics,compared};
 }
 /* simulator(s,input) MUST run the independent engine; never echo native observations. */
 export function compareContestCapture(capture,{simulator=null,resolveInput=null}={}){
@@ -186,12 +198,24 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null}
    }catch(err){warnings.push("simulator-execution-failed:"+String(err?.message||err));simulation=null;}
   }
   if(comparison.compared){compared++;if(comparison.status==="mismatch")mismatches++;else if(comparison.status==="match")matched++;else partial++;}
-  else {blocked++;warnings.push(missing.length?"simulator-input-missing:"+missing.join(","):"simulator-runner-not-connected");}
+  else {blocked++;
+   if(missing.length)warnings.push("simulator-input-missing:"+missing.join(","));
+   else if(typeof simulator!=="function")warnings.push("simulator-runner-not-connected");
+   else if(!s.complete)warnings.push("native-capture-incomplete");
+   else if(!warnings.some(w=>w.startsWith("simulator-execution-failed:")))warnings.push("simulator-result-not-comparable");
+  }
   sessions.push({pid:s.pid,sessionId:s.sessionId,characterId:s.start?.characterId||null,seed:s.start?.seed??null,
     nativeSetup:s.setup??null,setupCandidates:extractSetupCandidates(s),rngVerification:verifyContestSetupRng(s),
     normalization:normalizedSetup?{available:normalizedSetup.available,reasons:normalizedSetup.reasons,candidates:normalizedSetup.candidates}:null,
     realDevice:{score:s.result?.score??null,result:s.result,progress:s.progress,turns:s.turns,dataComplete:s.complete},
-    simulation,comparison,warnings});
+    simulation,comparison,
+    scoreBonusEvidence:{
+     nativeAttributeBonusPermil:normalizedSetup?.candidates?.nativeAttributeBonusPermil??null,
+     accountSupportBonus:input?.supportBonus??normalizedSetup?.candidates?.supportBonus??null,
+     separateAccountSupportPercentVerified:
+      input?.supportBonus?.source==="verified-account-support-value" &&
+      typeof input?.supportBonus?.percent==="number",
+    },warnings});
  }
  const complete=sessions.filter(s=>s.realDevice.dataComplete).length;
  const summary={sessions:sessions.length,capturesComplete:complete,
@@ -199,7 +223,9 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null}
   setupRngUnmatched:sessions.filter(s=>s.rngVerification.status==="unmatched").length,
   totalProgress:sessions.reduce((n,s)=>n+s.realDevice.progress.length,0),
   totalTurns:sessions.reduce((n,s)=>n+s.realDevice.turns.length,0),
-  simulationCompared:compared,simulationMatches:matched,simulationPartialMatches:partial,simulationMismatches:mismatches,simulationBlocked:blocked};
+  simulationCompared:compared,simulationMatches:matched,simulationPartialMatches:partial,simulationMismatches:mismatches,simulationBlocked:blocked,
+  nativeAttributeBonusCaptures:sessions.filter(s=>s.scoreBonusEvidence.nativeAttributeBonusPermil!==null).length,
+  separatelyVerifiedAccountSupportBonuses:sessions.filter(s=>s.scoreBonusEvidence.separateAccountSupportPercentVerified).length};
  return {schemaVersion:1,scope:"gakumas-contest-comparison",captureModuleVersion:capture.moduleVersion||null,
   status:!sessions.length?"no-sessions":mismatches?"mismatch":blocked?"simulation-unavailable":partial?"partial-match":"match",
   complete:blocked===0&&sessions.length>0&&complete===sessions.length&&mismatches===0&&partial===0,

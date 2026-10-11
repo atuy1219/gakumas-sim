@@ -407,4 +407,31 @@ assert.equal(starReplay.extraTurnsSimulated,1);
 assert.equal(starReplay.warnings.length,0);
 assert.equal(starReplay.turns.length,2);
 assert.ok(starReplay.result);
+// Native multipliers cannot separately reveal the account support bonus.
+const bonusSession={...masterDrawSession,start:{...masterDrawSession.start,
+ nativeInitialState:{...masterDrawSession.start.nativeInitialState,
+ root:{$type:"ExamData",fields:{
+  ...masterDrawSession.start.nativeInitialState.root.fields,
+  "<VocalBonusPermil>k__BackingField":10680,
+  "<DanceBonusPermil>k__BackingField":21690,
+  "<VisualBonusPermil>k__BackingField":30380,
+ }}}}};
+const bonusSetup=normalizeNativeContestSetup(bonusSession,{examItemCatalogs:{
+ examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],
+ itemById:new Map(),itemEffectById:new Map()}});
+assert.equal(bonusSetup.available,true,JSON.stringify(bonusSetup.reasons));
+assert.deepEqual(bonusSetup.input.parameterBonus,{
+ vocal:{bonusPermil:10680},dance:{bonusPermil:21690},visual:{bonusPermil:30380}});
+assert.equal(bonusSetup.input.supportBonus.percent,null);
+assert.equal(bonusSetup.input.metadata.supportBonusSeparatelyVerified,false);
+const verifiedShuffle=normalizeNativeContestSetup({...bonusSession,
+ setup:{...bonusSession.setup,randomStateBeforeInitialShuffle:87654321,preShuffleStateVerified:true}},
+ {examItemCatalogs:{examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],
+ itemById:new Map(),itemEffectById:new Map()}});
+assert.equal(verifiedShuffle.input.randomStateAtStart,87654321);
+assert.equal(verifiedShuffle.input.metadata.verifiedPreShuffle,true);
+assert.equal(bonusSetup.input.metadata.verifiedPreShuffle,false);
+const turnReport=compareContestCapture(capture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[{turn:1,score:4},{turn:2,score:7}]})});
+assert.equal(turnReport.sessions[0].comparison.turnDiagnostics[0].scoreDelta,-2);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
