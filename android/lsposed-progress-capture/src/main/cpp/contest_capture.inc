@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cmath>
+#include <dlfcn.h>
 // Selected auto-play results only. No polling, synthetic getters or DFS leaf logs.
 namespace contest_capture {
 using Address = uintptr_t;
@@ -319,6 +322,26 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok){
     const char* name=p.className(cls);
     if(!name){ok=false;return "null";}
     if(std::strcmp(name,"String")==0)return string(ptr,ok);
+    if(std::strcmp(name,"List`1")==0){
+        Address backing=0;int32_t count=0;
+        if(!read(ptr,0x10,backing)||!read(ptr,0x18,count)){ok=false;return "null";}
+        if(count<0||count>64||(!backing&&count)){c.truncated=true;return "null";}
+        if(!backing)return "{\"$type\":\"List`1\",\"count\":0,\"elements\":[]}";
+        if(!p.elementClass||!p.valueType){c.truncated=true;return "null";}
+        Address arrayClass=0;uint64_t capacity=0;
+        if(!read(backing,0,arrayClass)||!read(backing,0x18,capacity)){ok=false;return "null";}
+        void* element=p.elementClass(reinterpret_cast<void*>(arrayClass));
+        if(!element||p.valueType(element)||capacity<static_cast<unsigned>(count)){c.truncated=true;return "null";}
+        std::ostringstream items;
+        items<<"{\"$type\":\"List`1\",\"count\":"<<count<<",\"elements\":[";
+        for(int i=0;i<count;++i){
+            Address item=0;if(!read(backing,0x20+i*8,item)){ok=false;return "null";}
+            if(i)items<<',';
+            items<<object(item,element,depth+1,c,ok);
+        }
+        items<<"]}";
+        return items.str();
+    }
     if(c.remaining<100){c.truncated=true;return "null";}
     std::ostringstream out;out<<"{\"$type\":\""<<name<<"\",\"fields\":{";
     void* iterator=nullptr;bool first=true;
