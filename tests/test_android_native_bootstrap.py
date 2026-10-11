@@ -66,10 +66,10 @@ int main() {
 #include <cassert>
 int main() {
     unsigned mask = 99;
-    for (const auto* text : {"0", "128\n", "256", " 384 \n"})
+    for (const auto* text : {"0", "128\n", "256", " 384 \n", "7808"})
         assert(native_probe::parse_mask(text, mask));
     for (const auto* text : {"", "1", "32", "127", "129", "-128",
-                            "512", "4294967296", "128junk", "128 256"})
+                            "513", "4294967296", "128junk", "128 256"})
         assert(!native_probe::parse_mask(text, mask));
     assert(native_probe::self_test_passed(true, true, 1, 42, 42, 43));
     assert(!native_probe::self_test_passed(false, true, 1, 42, 42, 43));

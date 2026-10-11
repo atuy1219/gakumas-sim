@@ -23,6 +23,9 @@
 #include <cerrno>
 #include <fcntl.h>
 #include "native_probe.h"
+#include "scoped_lineage.h"
+#include <sys/uio.h>
+#include <sys/syscall.h>
 
 namespace {
 
@@ -1362,6 +1365,8 @@ const char* verified_setup_origin(uintptr_t return_rva) {
     }
 }
 
+#include "scoped_runtime.inc"
+
 void write_entry_probe_status(bool installed) {
     const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
         kTargetPackage + "/files/gakumas-sim/exam_entry_probe_status.json";
@@ -1383,9 +1388,9 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     const uintptr_t returned = reinterpret_cast<uintptr_t>(return_address);
     const uintptr_t base = g_il2cpp_base.load(std::memory_order_acquire);
     const unsigned call = g_entry_probe_calls.fetch_add(1);
-    // ALWAYS execute original without touching managed objects. No getter,
-    // memory walk, replay state reset or global session pointer here.
+    // Always forward once. Passive binding reads only the verified reference.
     g_original_sequence_setup(sequence, data, method);
+    if (base && returned >= base) passive::setup(reinterpret_cast<uintptr_t>(sequence), returned-base);
     if (call < 128) write_entry_probe_status(true);
     if (!base || returned < base) return;
     const uintptr_t return_rva = returned - base;
@@ -1845,115 +1850,12 @@ void install_il2cpp_hooks() {
         write_status("entry-probe-build-mismatch", image.build_id);
         return;
     }
-    if (image.build_id == kV341BuildId && (g_hook_mask.load() & 31))
-        install_v341_exam_lifecycle(image);
     if (image.build_id == kV341BuildId && hook_enabled(128))
         install_scoped_exam_probe(image);
-    if (!hook_enabled(32)) {
-        write_status(g_entry_probe_installed.load() ? "scoped-exam-entry-probe-installed"
-            : "scoped-exam-entry-probe-failed", image.build_id);
-        return;
-    }
-
-    // Decode UserProduceProgressProduceCard.Customizes through the live IL2CPP
-    // object model. This is read-only and works independently of the known
-    // protobuf field offsets used for the reference build.
-    g_runtime_object_get_class = reinterpret_cast<RuntimeObjectGetClassFn>(
-        resolve_export(image, "il2cpp_object_get_class"));
-    g_runtime_class_get_method_from_name = reinterpret_cast<RuntimeClassGetMethodFromNameFn>(
-        resolve_export(image, "il2cpp_class_get_method_from_name"));
-
-    uintptr_t get_card_address = 0;
-    uintptr_t create_deck_address = 0;
-    bool merge_ok = false;
-    bool seed_trace_ok = false;
-
-    if (image.build_id == kLegacyCardBuildId) {
-        g_use_runtime_getters = false;
-        // Exact ELF used during the original analysis: retain the verified RVAs.
-        get_card_address = image.base + kRvaGetProduceCardData;
-        create_deck_address = image.base + kRvaCreateDeckProduceCardMasters;
-        merge_ok = install_hook(
-            image.base + kRvaInternalMergeFrom,
-            reinterpret_cast<void*>(hooked_internal_merge_from),
-            reinterpret_cast<void**>(&g_orig_internal_merge_from));
-        seed_trace_ok = install_seed_trace_hooks(image);
-    } else {
-        // App update: resolve the managed methods from IL2CPP metadata instead of
-        // guessing new RVAs from the old binary.
-        RuntimeIl2CppApi api;
-        if (!load_runtime_il2cpp_api(image, api)) {
-            write_status("il2cpp-api-unavailable", image.build_id);
-            g_hooks_installed.store(false);
-            return;
-        }
-        const void* assembly_image = find_assembly_csharp(api);
-        if (!assembly_image) {
-            write_status("waiting-for-il2cpp-domain", image.build_id);
-            g_hooks_installed.store(false);
-            return;
-        }
-        write_exam_runtime_inventory(image, assembly_image);
-        // Exact-build lifecycle hooks were already installed before domain
-        // resolution. Card-pool hooks remain independently validated.
-        seed_trace_ok = install_runtime_trace_hooks(image, assembly_image);
-        get_card_address = resolve_managed_method(
-            api,
-            assembly_image,
-            "Campus.Common.Proto.Client.Transaction",
-            "UserProduceProgressProduceCard",
-            "GetProduceCardData");
-        create_deck_address = resolve_managed_method(
-            api,
-            assembly_image,
-            "Campus.InGame",
-            "ProduceUtility",
-            "CreateDeckProduceCardMasters");
-
-        const char* card_ns = "Campus.Common.Proto.Client.Transaction";
-        const char* card_class = "UserProduceProgressProduceCard";
-        g_get_number = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Number");
-        g_get_produce_card_id = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_ProduceCardId");
-        g_get_upgrade_count = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_UpgradeCount");
-        g_get_deleted = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Deleted");
-        g_get_origin_type = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_OriginType");
-        g_get_customizing = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Customizing");
-        g_get_customizes = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Customizes");
-
-        if (!get_card_address || !create_deck_address ||
-            !g_get_number.address || !g_get_produce_card_id.address ||
-            !g_get_upgrade_count.address || !g_get_deleted.address || !g_get_origin_type.address) {
-            write_status("method-resolution-failed", image.build_id);
-            g_hooks_installed.store(false);
-            return;
-        }
-        g_use_runtime_getters = true;
-
-        // InternalMergeFrom is diagnostic-only and intentionally not hooked on
-        // unknown builds; deck capture only requires GetProduceCardData + CreateDeck.
-        merge_ok = false;
-    }
-
-    const bool get_ok = install_hook(
-        get_card_address,
-        reinterpret_cast<void*>(hooked_get_card_data),
-        reinterpret_cast<void**>(&g_orig_get_card_data));
-    const bool deck_ok = install_hook(
-        create_deck_address,
-        reinterpret_cast<void*>(hooked_create_deck),
-        reinterpret_cast<void**>(&g_orig_create_deck));
-
-    write_status(
-        (get_ok && deck_ok)
-            ? (seed_trace_ok ? "hooks-installed-seed-trace" :
-               (image.build_id == kLegacyCardBuildId ? "hooks-installed-trace-partial" : "hooks-installed"))
-            : "hook-install-failed",
-        image.build_id,
-        get_ok,
-        merge_ok,
-        deck_ok);
-
-    if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
+    passive::install(image);
+    write_status(g_entry_probe_installed.load() ? (hook_enabled(512)
+        ? "scoped-mode-lifecycle-probe-installed" : "scoped-exam-entry-probe-installed")
+        : "scoped-exam-entry-probe-failed", image.build_id);
 }
 
 // A library-loaded callback may run BEFORE il2cpp_init creates the managed
