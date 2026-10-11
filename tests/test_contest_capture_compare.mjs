@@ -93,6 +93,17 @@ const overplay={...neutralSession,turns:[{...neutralSession.turns[0],
  commands:expectedHand.slice(0,2).map(card=>({commandType:2,card:{id:card.id,baseUpgradeCount:0}}))}]};
 const refused=replayObservedContest(overplay,nativeInput,{cardById:neutralMasters});
 assert.equal(refused.warnings[0].phase,"card-play");
+assert.equal(refused.nativePerCardMetricsAvailable,false);
+assert.equal(refused.cardActionTrace.length,1);
+assert.equal(refused.cardActionTrace[0].cardId,expectedHand[0].id);
+assert.equal(refused.cardActionTrace[0].nativePerCardMetricsAvailable,false);
+const phaseTrace=refused.cardActionTrace[0].simulated.phases;
+assert.ok(phaseTrace.length>=4);
+assert.equal(phaseTrace[0].phase,"before-card");
+assert.ok(phaseTrace.some(p=>p.phase==="before-main-card-effects-after-card-play-triggers"));
+assert.equal(phaseTrace.at(-1).phase,"after-full-power-resolution");
+assert.ok(phaseTrace.every(p=>typeof p.score==="number"&&typeof p.block==="number"&&typeof p.stamina==="number"));
+assert.equal(refused.cardActionTrace[0].simulated.scoreGained,0);
 assert.equal(refused.warnings[0].turn,1);
 assert.equal(refused.turns.length,0);
 const reflectedFields=Object.fromEntries(neutralDeck.map((c,i)=>[i,c]));
