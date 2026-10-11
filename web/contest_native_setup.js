@@ -43,7 +43,8 @@ function elements(value){
 function extractCard(value){
  if(typeof value==="string"&&value.startsWith("p_card-"))return {id:value,upgradeCount:0};
  if(!plain(value))return null;
- const id=primitive(names(value,["ProduceCardId","CardId","Id"]))??value.$scannedCardId;
+ const id=primitive(names(value,["ProduceCardId","CardId","Id"]))??
+  (value.fields?.$scannedCardIdAmbiguous===false?value.fields?.$scannedCardId:undefined)??value.$scannedCardId;
  if(typeof id!=="string"||!id.startsWith("p_card-"))return null;
  const upgrade=number(names(value,["UpgradeCount","BaseUpgradeCount","baseUpgradeCount"]));
  if(!Number.isInteger(upgrade)||upgrade<0||upgrade>3)return null;
@@ -100,7 +101,8 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  if(!initialDeck)reasons.push("native-deck-not-recognized");
  let pItemSource=extractList(native,["ProduceItemDataList","ProduceItemList","ItemDataList","ItemList"]);
  if(!pItemSource)pItemSource=extractList(param,["ItemList","ProduceItemList"]);
- const pItemIds=rawIds(pItemSource,"p_item-");
+ // The native game IDs start with pitem_, not p_item-.
+ const pItemIds=rawIds(pItemSource,"pitem_");
  let pItems=null;
  if(pItemIds){
   const resolved=resolveProduceItems(pItemIds,examItemCatalogs.itemById,examItemCatalogs.itemEffectById,examItemCatalogs);
@@ -110,9 +112,11 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  const settingId=session.start?.settingId;
  const setting=examItemCatalogs.examSettings?.find(row=>row.id===settingId);
  if(!setting)reasons.push("exact-exam-setting-master-missing");
- const stamina=number(names(param,["Stamina"]));
- const maxStamina=number(names(param,["MaxStamina"]));
- const turnLimit=number(names(param,["LimitTurn"]))??number(names(native,["LimitTurn"]));
+ // ExamParameterModel wraps these values in Obscured<T>; its Raw<T>
+ // is encrypted and MUST NOT be interpreted as the real parameter.
+ const stamina=number(names(native,["Stamina"]));
+ const maxStamina=number(names(native,["MaxStamina"]));
+ const turnLimit=number(names(native,["LimitTurn"]));
  const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList","ConfigParameterTypeOrderedList"])
   ??extractList(native,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"]);
  const turnParameterTypes=normalizeTurnTypes(turns);
@@ -136,7 +140,11 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
    metadata:{source:"native-passive-reflection",randomStateStage:"before-SetUpExam",verifiedPreShuffle:false,
     independentDecisionSearch:false},
   }:null,
-  candidates:{deckCount:initialDeck?.length??null,pItemIds:pItemIds??null,
+  candidates:{deckCount:deckSource?.length??null,
+   identifiedDeckCards:deckSource?.filter(card=>extractCard(card)!==null).length??null,
+   initialStamina:stamina??null,initialMaxStamina:maxStamina??null,
+   initialTurnLimit:turnLimit??null,
+   pItemIds:pItemIds??null,
    randomStateBeforeSetUp:randomState??null,settingId:settingId??null,
    parameterKeys:plain(param?.fields)?Object.keys(param.fields):[]},
  };
