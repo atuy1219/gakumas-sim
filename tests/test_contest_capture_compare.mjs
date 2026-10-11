@@ -174,4 +174,29 @@ const missingIds={
 const rejected=normalizeNativeContestSetup(missingIds,{examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]}});
 assert.equal(rejected.available,false);
 assert.ok(rejected.reasons.includes("native-deck-not-recognized"));
+const scannedDeck={
+ ...deviceShape,start:{...deviceShape.start,nativeInitialState:{
+  ...deviceShape.start.nativeInitialState,root:{$type:"ExamData",fields:{
+   ...deviceShape.start.nativeInitialState.root.fields,
+   "<DeckList>k__BackingField":neutralDeck.map(c=>({
+    $type:"ExamCardData",$scannedCardId:c.id,$scannedCardIdOffset:0x98,
+    fields:{"_baseUpgradeCount":c.upgradeCount,"_fixedDeckOrder":0}
+   })),
+  }},
+ }},
+};
+const scannedResult=normalizeNativeContestSetup(scannedDeck,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}],itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(scannedResult.available,true,JSON.stringify(scannedResult.reasons));
+assert.deepEqual(scannedResult.input.initialDeck.map(c=>c.id),neutralDeck.map(c=>c.id));
+const scanMissing={...scannedDeck,start:{...scannedDeck.start,nativeInitialState:{
+ ...scannedDeck.start.nativeInitialState,root:{$type:"ExamData",fields:{
+  ...scannedDeck.start.nativeInitialState.root.fields,
+  "<DeckList>k__BackingField":[{$type:"ExamCardData",$scannedCardId:null,fields:{"_baseUpgradeCount":0}}],
+ }},
+}}};
+assert.ok(normalizeNativeContestSetup(scanMissing,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]},
+}).reasons.includes("native-deck-not-recognized"));
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
