@@ -1236,6 +1236,15 @@ function triggerFieldStatusesMatch(state, trigger, context = {}) {
     let current;
     if (type === "ProduceExamFieldStatusType_CardSearchCountUp") {
       current = masterSearchMatchCount(state, trigger.fieldStatusCardSearches?.[index], context);
+    } else if (
+      (type === "ProduceExamFieldStatusType_StaminaUpMultiple"
+        || type === "ProduceExamFieldStatusType_StaminaLessMultiple")
+      && context?.card && Number.isFinite(context.beforeCardStaminaRatioPermil)
+    ) {
+      // Card-play P-items test the stamina threshold at play declaration,
+      // before this card pays its cost. The actual effect still executes
+      // in CARD_PLAY, before the card's own playEffects.
+      current = context.beforeCardStaminaRatioPermil;
     } else {
       current = masterFieldStatusValue(state, type);
     }
@@ -3214,6 +3223,9 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   }
 
   const beforeCostStatus = captureNativeStatusSnapshot(state.exam);
+  const maxBeforeCost = Number(state.exam.maxStamina ?? 0);
+  const beforeCardStaminaRatioPermil = maxBeforeCost > 0
+    ? Math.trunc(Number(state.exam.stamina ?? 0) * 1000 / maxBeforeCost) : 0;
   const beforeCost = {
     block: Number(state.exam.block ?? 0),
     stamina: Number(state.exam.stamina ?? 0),
@@ -3265,7 +3277,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     // unplayable card does not execute its main effects or spend repeat buffs.
     // Reuse the eligibility snapshot taken before costs and play triggers.
     const canExecuteCardEffects = !card.isRestrict && cardTrigger.supported && cardTrigger.triggered;
-    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
+    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount, beforeCardStaminaRatioPermil });
     recordCardPhase("before-main-card-effects-after-card-play-triggers");
     const repeatBuff = state.cardEffectPlayCountBuff;
     const repeatMatches = Boolean(
