@@ -180,10 +180,13 @@ std::string command(Address a,bool& ok) {
     s<<'}';return s.str();
 }
 using Serializer=std::string(*)(Address,bool&);
-std::string objectList(Address a,unsigned cap,Serializer serialize,bool& ok) {
-    std::vector<Address> values;if(!list(a,cap,values)){ok=false;return "null";}
+std::string serializeObjects(const std::vector<Address>& values,Serializer serialize,bool& ok) {
     std::ostringstream s;s<<'[';
     for(size_t i=0;i<values.size();++i){if(i)s<<',';s<<serialize(values[i],ok);}s<<']';return s.str();
+}
+std::string objectList(Address a,unsigned cap,Serializer serialize,bool& ok) {
+    std::vector<Address> values;if(!list(a,cap,values)){ok=false;return "null";}
+    return serializeObjects(values,serialize,ok);
 }
 std::string turn(Address a,bool& ok) {
     int32_t v[10]={},tail[3]={};Address refs[5]={},hold=0,enchant=0;
@@ -198,6 +201,37 @@ std::string turn(Address a,bool& ok) {
       <<",\"triggeredEnchantIds\":"<<objectList(enchant,128,string,ok)
       <<",\"parameterType\":"<<tail[0]<<",\"idolStatusType\":"<<tail[1]<<",\"idolStatusStepCount\":"<<tail[2]<<'}';
     return s.str();
+}
+// Device evidence (54/54 v1.5.15 progress events): the object stored
+// at Nullable<ExamSimulateResult>+40 has a null word at +0x10 and a
+// non-zero, bounded word at +0x18. This is the IL2CPP SZARRAY header
+// shape (bounds=nullptr, max_length), not a populated List<T> object.
+// The previous serializer dereferenced +0x10 as List<T>._items and
+// failed at NULL+0x18. Probe both representations without calling the game.
+std::string turnHistory(Address a,bool& ok,bool& arrayShaped) {
+    ReadScope scope("turns");
+    if(!a) {ok=false;noteReadFailure("missing-turn-history",a,0,0);return "null";}
+    Address items=0;
+    uint64_t sizeWord=0;
+    {
+        ReadScope header("container-header");
+        if(!read(a,0x10,items) || !read(a,0x18,sizeWord)) {
+            ok=false;return "null";
+        }
+    }
+    // Zero bounds pointer plus a positive 64-bit length is a normal
+    // one-dimensional IL2CPP array. A malformed List<T> with _items==null
+    // and _size>0 is indistinguishable without a class metadata lookup;
+    // retain the shape in the exported record instead of claiming a type.
+    if(!items && sizeWord>0 && sizeWord<=128) {
+        arrayShaped=true;
+        ReadScope shape("array-shaped");
+        std::vector<Address> values;
+        if(!array(a,128,values)){ok=false;return "null";}
+        return serializeObjects(values,turn,ok);
+    }
+    // A genuine List<T> has an _items array and a _size at +0x18.
+    return objectList(a,128,turn,ok);
 }
 void status() {
     std::ostringstream s;s<<"{\"schemaVersion\":1,\"pid\":"<<getpid()<<",\"hookMask\":"<<g_hook_mask.load()
@@ -234,7 +268,9 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
       <<",\"selectedIndexes\":";
     {ReadScope scope("selectedIndexes");s<<integers(local<Address>(r,8),false,256,ok);}
     s<<",\"turns\":";
-    {ReadScope scope("turns");s<<objectList(local<Address>(r,40),128,turn,ok);}
+    bool turnsArrayShaped=false;
+    s<<turnHistory(local<Address>(r,40),ok,turnsArrayShaped);
+    s<<",\"turnsContainerShape\":\""<<(turnsArrayShaped?"array-shaped":"list-or-unknown")<<"\"";
     s<<",\"dataComplete\":"<<(ok?"true":"false");
     if(!ok){
         ++failures;active->complete=false;
