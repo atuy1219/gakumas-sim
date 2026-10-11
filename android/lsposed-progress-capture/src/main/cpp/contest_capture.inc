@@ -320,7 +320,7 @@ bool wanted(const char* n,int depth){
 }
 struct Context {
     unsigned nodes=0;
-    size_t remaining=32768;
+    size_t remaining=65536;
     bool truncated=false;
     std::vector<Address> seen;
 };
@@ -390,6 +390,13 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         if(!field)break;
         const char* fieldName=p.fieldName(field);
         if(!wanted(fieldName,depth))continue;
+        // Drop cache-only icon/description internals from each deck card.
+        // They consume most of the snapshot budget but cannot reconstruct
+        // the card's ID, upgrade level, origin or runtime effects.
+        if(std::strcmp(name,"ExamCardData")==0 && fieldName &&
+          (std::strstr(fieldName,"Icon")||std::strstr(fieldName,"Internal")||
+           std::strstr(fieldName,"Description")||
+           std::strstr(fieldName,"Cache")))continue;
         const size_t offset=p.fieldOffset(field);
         if(offset<0x10||offset>0x2000)continue;
         void* ft=p.fieldType(field);
@@ -409,9 +416,9 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
             out<<*it;
         }
         out<<"\":"<<serialized;
-        if(out.tellp()>25000||c.nodes>=220){c.truncated=true;break;}
+        if(out.tellp()>40000||c.nodes>=220){c.truncated=true;break;}
       }
-      if(!p.classParent || out.tellp()>25000 || c.nodes>=220)break;
+      if(!p.classParent || out.tellp()>40000 || c.nodes>=220)break;
       targetClass=p.classParent(targetClass);
     }
     out<<"}}";
