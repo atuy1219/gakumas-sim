@@ -324,6 +324,51 @@ struct Context {
     bool truncated=false;
     std::vector<Address> seen;
 };
+// ExamCardData inherits its card identity. On some game builds the parent
+// metadata accessor is absent; a read-only, bounded pointer scan can still
+// identify a single direct UTF-16 "p_card-" field without guessing its offset.
+// The scan is observational only: multiple candidates => no identity.
+struct ScannedCardId { std::string json="null"; size_t offset=0; bool found=false; bool ambiguous=false; };
+ScannedCardId scanCardIdentity(Address card){
+    ScannedCardId result;
+    unsigned char data[768]={};
+    const ReadFailure previous=firstReadFailure;
+    const unsigned before=readBudget;
+    bool loaded=bytes(card,0,data,sizeof(data));
+    const size_t span=loaded?sizeof(data):256;
+    if(!loaded) loaded=bytes(card,0,data,256);
+    // A failed optional probe must not make the parent snapshot a failure.
+    firstReadFailure=previous;
+    if(!loaded)return result;
+    (void)before;
+    for(size_t offset=0x10;offset+8<=span;offset+=8){
+        Address candidate=0;std::memcpy(&candidate,data+offset,sizeof(candidate));
+        if(candidate<0x1000000000ULL||(candidate&7)!=0)continue;
+        int32_t size=0;
+        if(!read(candidate,0x10,size)){
+            firstReadFailure=previous;continue;
+        }
+        if(size<9||size>112)continue;
+        char16_t prefix[7]={};
+        if(!bytes(candidate,0x14,prefix,sizeof(prefix))){
+            firstReadFailure=previous;continue;
+        }
+        if(std::memcmp(prefix,u"p_card-",sizeof(prefix))!=0)continue;
+        // Successful UTF-16 prefix is necessary but not sufficient; validate
+        // every encoded character and insist on a single distinct ID.
+        bool ok=true;
+        const std::string serialized=string(candidate,ok);
+        if(!ok){firstReadFailure=previous;continue;}
+        if(result.found){
+            if(result.json!=serialized)result.ambiguous=true;
+        }else{
+            result.json=serialized;result.offset=offset;result.found=true;
+        }
+    }
+    firstReadFailure=previous;
+    if(result.ambiguous){result.json="null";result.found=false;}
+    return result;
+}
 std::string value(Address where,int type,void* cls,int depth,Context& c,bool& ok);
 std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unboxed=false){
     if(!ptr)return "null";
@@ -379,6 +424,13 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
     if(c.remaining<100){c.truncated=true;return "null";}
     std::ostringstream out;out<<"{\"$type\":\""<<name<<"\",\"fields\":{";
     bool first=true;unsigned fieldCount=0;
+    if(std::strcmp(name,"ExamCardData")==0){
+        const auto identity=scanCardIdentity(ptr);
+        out<<"\"$scannedCardId\":"<<identity.json
+           <<",\"$scannedCardIdOffset\":"<<(identity.found?std::to_string(identity.offset):"null")
+           <<",\"$scannedCardIdAmbiguous\":"<<(identity.ambiguous?"true":"false");
+        first=false;
+    }
     void* targetClass=cls;
     // il2cpp_class_get_fields lists declared fields only. ExamCardData
     // inherits its ID/metadata from the ProduceCardData parent; inspect
@@ -394,6 +446,9 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         // They consume most of the snapshot budget but cannot reconstruct
         // the card's ID, upgrade level, origin or runtime effects.
         if(std::strcmp(name,"ExamCardData")==0 && fieldName &&
+          (std::strstr(fieldName,"ProduceExamEffect")||
+           std::strstr(fieldName,"GrowEffect")||
+           std::strstr(fieldName,"Enchant")||
           (std::strstr(fieldName,"Icon")||std::strstr(fieldName,"Internal")||
            std::strstr(fieldName,"Description")||
            std::strstr(fieldName,"Cache")))continue;
@@ -535,7 +590,7 @@ std::string capture(Address data) {
     const bool rootDecoded=root.rfind("{\"$type\":",0)==0;
     out<<"{\"available\":"<<(rootDecoded?"true":"false")
        <<",\"complete\":"<<((ok&&!c.truncated)?"true":"false")
-       <<",\"source\":\"passive-il2cpp-metadata-and-readv\",\"root\":"<<root
+       <<",\"source\":\"passive-il2cpp-metadata-and-readv\",\"classParentApiAvailable\":"<<(p.classParent?"true":"false")<<",\"root\":"<<root
        <<",\"truncated\":"<<(c.truncated?"true":"false")
        <<",\"objectsVisited\":"<<c.nodes;
     if(!ok)out<<",\"readFailure\":"<<readFailureJson();
