@@ -250,6 +250,163 @@ std::string turnHistory(Address a,unsigned& nextIndex,bool& ok,
     s<<']';return s.str();
 }
 
+// Passive, bounded IL2CPP field inventory for the original ExamData object.
+// The observer calls IL2CPP metadata functions, never a managed getter or
+// game-side simulation method. This captures named setup fields without
+// relying on unverified hard-coded offsets for nested collections.
+namespace setup_probe {
+using GetFields=void*(*)(void*,void**);
+using FieldName=const char*(*)(void*);
+using FieldOffset=size_t(*)(void*);
+using FieldType=void*(*)(void*);
+using TypeKind=int(*)(void*);
+using ClassName=const char*(*)(void*);
+using ClassFromType=void*(*)(void*);
+using ElementClass=void*(*)(void*);
+using ValueType=bool(*)(void*);
+struct API {
+    GetFields getFields=nullptr;FieldName fieldName=nullptr;FieldOffset fieldOffset=nullptr;
+    FieldType fieldType=nullptr;TypeKind typeKind=nullptr;ClassName className=nullptr;
+    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;
+    bool ready()const{return getFields&&fieldName&&fieldOffset&&fieldType&&typeKind&&className&&classFromType;}
+};
+const API& api(){
+    static const API p=[]{
+        API p;
+        p.getFields=reinterpret_cast<GetFields>(dlsym(RTLD_DEFAULT,"il2cpp_class_get_fields"));
+        p.fieldName=reinterpret_cast<FieldName>(dlsym(RTLD_DEFAULT,"il2cpp_field_get_name"));
+        p.fieldOffset=reinterpret_cast<FieldOffset>(dlsym(RTLD_DEFAULT,"il2cpp_field_get_offset"));
+        p.fieldType=reinterpret_cast<FieldType>(dlsym(RTLD_DEFAULT,"il2cpp_field_get_type"));
+        p.typeKind=reinterpret_cast<TypeKind>(dlsym(RTLD_DEFAULT,"il2cpp_type_get_type"));
+        p.className=reinterpret_cast<ClassName>(dlsym(RTLD_DEFAULT,"il2cpp_class_get_name"));
+        p.classFromType=reinterpret_cast<ClassFromType>(dlsym(RTLD_DEFAULT,"il2cpp_class_from_type"));
+        p.elementClass=reinterpret_cast<ElementClass>(dlsym(RTLD_DEFAULT,"il2cpp_class_get_element_class"));
+        p.valueType=reinterpret_cast<ValueType>(dlsym(RTLD_DEFAULT,"il2cpp_class_is_valuetype"));
+        return p;
+    }();
+    return p;
+}
+bool wanted(const char* n,int depth){
+    if(!n)return false;
+    if(depth==0)return true;
+    const std::string name(n);
+    for(const char* word:{"Deck","Card","Item","Drink","Parameter","Setting",
+         "Turn","Random","Stamina","Status","Effect","Initial","Plan","Support",
+         "Gimmick","Score","Bonus","Seed","Idol","Character","Hand","Grave","Hold",
+         "Pool","Limit","Vocal","Dance","Visual","Config","Exam"}){
+        if(name.find(word)!=std::string::npos)return true;
+    }
+    return false;
+}
+struct Context {
+    unsigned nodes=0;
+    size_t remaining=32768;
+    bool truncated=false;
+    std::vector<Address> seen;
+};
+std::string value(Address where,int type,void* cls,int depth,Context& c,bool& ok);
+std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok){
+    if(!ptr)return "null";
+    if(depth>3||c.nodes++>=160||c.seen.size()>=160){c.truncated=true;return "null";}
+    for(Address old:c.seen)if(old==ptr)return "{\"$cycle\":true}";
+    c.seen.push_back(ptr);
+    const auto& p=api();
+    if(!cls) {
+        Address klass=0;
+        if(!read(ptr,0,klass)){ok=false;return "null";}
+        cls=reinterpret_cast<void*>(klass);
+    }
+    const char* name=p.className(cls);
+    if(!name){ok=false;return "null";}
+    if(std::strcmp(name,"String")==0)return string(ptr,ok);
+    if(c.remaining<100){c.truncated=true;return "null";}
+    std::ostringstream out;out<<"{\"$type\":\""<<name<<"\",\"fields\":{";
+    void* iterator=nullptr;bool first=true;
+    for(unsigned fieldCount=0;fieldCount<180;++fieldCount){
+        void* field=p.getFields(cls,&iterator);
+        if(!field)break;
+        const char* fieldName=p.fieldName(field);
+        if(!wanted(fieldName,depth))continue;
+        const size_t offset=p.fieldOffset(field);
+        if(offset<0x10||offset>0x2000)continue;
+        void* ft=p.fieldType(field);
+        if(!ft)continue;
+        const int kind=p.typeKind(ft);
+        void* nested=p.classFromType(ft);
+        const std::string serialized=value(ptr+offset,kind,nested,depth+1,c,ok);
+        if(!first)out<<',';
+        first=false;
+        out<<'"';
+        // Metadata identifiers are compiler-generated alphanumerics and simple punctuation;
+        // escape arbitrary characters defensively.
+        for(const char* it=fieldName;*it;++it){
+            if(*it=='"'||*it=='\\')out<<'\\';
+            if(static_cast<unsigned char>(*it)<0x20)continue;
+            out<<*it;
+        }
+        out<<"\":"<<serialized;
+        if(out.tellp()>16000||c.nodes>=160){c.truncated=true;break;}
+    }
+    out<<"}}";
+    c.remaining-=std::min(c.remaining,static_cast<size_t>(out.tellp()));
+    return out.str();
+}
+std::string value(Address where,int kind,void* cls,int depth,Context& c,bool& ok){
+    if(depth>4||c.remaining<100){c.truncated=true;return "null";}
+    switch(kind){
+        case 0x02:{uint8_t v=0;if(!read(where,0,v)){ok=false;return "null";}return v?"true":"false";}
+        case 0x04:case 0x05:{uint8_t v=0;if(!read(where,0,v)){ok=false;return "null";}return std::to_string(v);}
+        case 0x06:case 0x07:{uint16_t v=0;if(!read(where,0,v)){ok=false;return "null";}return std::to_string(v);}
+        case 0x08:{int32_t v=0;if(!read(where,0,v)){ok=false;return "null";}return std::to_string(v);}
+        case 0x09:{uint32_t v=0;if(!read(where,0,v)){ok=false;return "null";}return std::to_string(v);}
+        case 0x0a:case 0x0b:{uint64_t v=0;if(!read(where,0,v)){ok=false;return "null";}return "\""+std::to_string(v)+"\"";}
+        case 0x0c:{float v=0;if(!read(where,0,v)){ok=false;return "null";}return std::isfinite(v)?std::to_string(v):"null";}
+        case 0x0d:{double v=0;if(!read(where,0,v)){ok=false;return "null";}return std::isfinite(v)?std::to_string(v):"null";}
+        case 0x0e:{Address v=0;if(!read(where,0,v)){ok=false;return "null";}return string(v,ok);}
+        case 0x11: // Unboxed managed value type: do not interpret it as an object pointer.
+            c.truncated=true;return "null";
+        case 0x12:case 0x15:case 0x1c:case 0x1d:case 0x14:{
+            Address ptr=0;if(!read(where,0,ptr)){ok=false;return "null";}
+            if(!ptr)return "null";
+            const auto& p=api();
+            if(kind==0x1d||kind==0x14){
+                if(!p.elementClass||!p.valueType){c.truncated=true;return "null";}
+                void* element=p.elementClass(cls);
+                if(!element||p.valueType(element)){c.truncated=true;return "null";}
+                uint64_t length=0;
+                if(!read(ptr,0x18,length)){ok=false;return "null";}
+                if(length>64){c.truncated=true;return "null";}
+                std::ostringstream result;result<<'[';
+                for(uint64_t i=0;i<length;++i){
+                    Address item=0;if(!read(ptr,0x20+i*8,item)){ok=false;return "null";}
+                    if(i)result<<',';
+                    result<<object(item,element,depth+1,c,ok);
+                }
+                result<<']';return result.str();
+            }
+            return object(ptr,cls,depth+1,c,ok);
+        }
+        default:c.truncated=true;return "null";
+    }
+}
+std::string capture(Address data) {
+    const auto& p=api();
+    if(!p.ready())return "{\"available\":false,\"reason\":\"il2cpp-reflection-exports-unavailable\"}";
+    bool ok=true;readBudget=8192;firstReadFailure={};readStage.clear();
+    Context c;
+    const std::string root=object(data,nullptr,0,c,ok);
+    std::ostringstream out;
+    out<<"{\"available\":"<<(ok?"true":"false")
+       <<",\"complete\":"<<((ok&&!c.truncated)?"true":"false")
+       <<",\"source\":\"passive-il2cpp-metadata-and-readv\",\"root\":"<<root
+       <<",\"truncated\":"<<(c.truncated?"true":"false")
+       <<",\"objectsVisited\":"<<c.nodes;
+    if(!ok)out<<",\"readFailure\":"<<readFailureJson();
+    out<<'}';
+    return out.str();
+}
+} // namespace setup_probe
+
 void status() {
     std::ostringstream s;s<<"{\"schemaVersion\":2,\"pid\":"<<getpid()<<",\"hookMask\":"<<g_hook_mask.load()
       <<",\"moveNextInstalled\":"<<(moveInstalled?"true":"false")<<",\"searchResultInstalled\":"<<(resultInstalled?"true":"false")
@@ -316,7 +473,7 @@ __attribute__((noinline)) void move(void* self,const void* method) {
             const bool values=read(data,0x10,type)&&read(data,0x14,seed);
             std::ostringstream s;s<<",\"examType\":"<<(values?std::to_string(type):"null")<<",\"seed\":"<<(values?std::to_string(seed):"null")
               <<",\"characterId\":"<<stringField(data,0x78,ok)<<",\"idolCardId\":"<<stringField(data,0x88,ok)
-              <<",\"settingId\":"<<stringField(data,0x18,ok)<<",\"dataComplete\":"<<(ok&&values?"true":"false");
+              <<",\"settingId\":"<<stringField(data,0x18,ok)<<",\"nativeInitialState\":"<<setup_probe::capture(data)<<",\"dataComplete\":"<<(ok&&values?"true":"false");
             if(!ok||!values){++failures;current.complete=false;runs[machine]=current;}emit(current,"contest-start",s.str());
           }else {++drops;status();}
         }else current=i->second;
