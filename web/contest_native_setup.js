@@ -36,9 +36,9 @@ function extractCard(value){
  if(!plain(value))return null;
  const id=primitive(names(value,["ProduceCardId","CardId","Id"]));
  if(typeof id!=="string"||!id.startsWith("p_card-"))return null;
- const upgrade=number(names(value,["UpgradeCount","BaseUpgradeCount"]));
+ const upgrade=number(names(value,["UpgradeCount","BaseUpgradeCount","baseUpgradeCount"]));
  if(!Number.isInteger(upgrade)||upgrade<0||upgrade>3)return null;
- const order=number(names(value,["FixedDeckOrder"]));
+ const order=number(names(value,["FixedDeckOrder","fixedDeckOrder"]));
  return {id,upgradeCount:upgrade,...(Number.isInteger(order)?{fixedDeckOrder:order}:{})};
 }
 function extractList(node,keys){
@@ -66,7 +66,7 @@ function normalizeTurnTypes(list){
   // ExamParameterType/StatusParameterType ordinals are pinned by the
   // local native-engine model: None=0, Vocal=1, Dance=2, Visual=3.
   // Numeric values from unrelated enums are deliberately rejected.
-  const verifiedEnum=/^(?:ExamParameterType|StatusParameterType)$/.test(String(v?.$type??""));
+  const verifiedEnum=/^(?:ExamParameterType|StatusParameterType|ProduceParameterType)$/.test(String(v?.$type??""));
   const canonical=type.includes("vocal")?"vocal":type.includes("dance")?"dance"
     :type.includes("visual")?"visual"
       :(verifiedEnum&&Number.isInteger(raw)?({1:"vocal",2:"dance",3:"visual"}[raw]??null):null);
@@ -81,7 +81,7 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  const param=session?.setup?.examParameterSnapshot?.root;
  const deckSource=extractList(native,[
   "InitialDeckProduceCardDataList","DeckProduceCardDataList","ProduceCardDataList",
-  "InitialDeckCardList","DeckCardList","ProduceCardList",
+  "InitialDeckCardList","DeckCardList","DeckList","ProduceCardList",
  ]);
  let initialDeck=null;
  if(deckSource){
@@ -103,8 +103,9 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  if(!setting)reasons.push("exact-exam-setting-master-missing");
  const stamina=number(names(param,["Stamina"]));
  const maxStamina=number(names(param,["MaxStamina"]));
- const turnLimit=number(names(param,["LimitTurn"]));
- const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList","ConfigParameterTypeOrderedList"]);
+ const turnLimit=number(names(param,["LimitTurn"]))??number(names(native,["LimitTurn"]));
+ const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList","ConfigParameterTypeOrderedList"])
+  ??extractList(native,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"]);
  const turnParameterTypes=normalizeTurnTypes(turns);
  const initialParameters={
   stamina,maxStamina,turnLimit,turnParameterTypes,
