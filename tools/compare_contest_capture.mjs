@@ -8,24 +8,27 @@ import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
 import { replayObservedContest } from "../web/contest_native_replay.js";
 
 async function main(args) {
-  if(args.length < 1 || args.includes("--help")) {
-    console.error("Usage: node tools/compare_contest_capture.mjs <capture.json> [output.json] [catalog.json] [diff-ref]");
+  const observedCustoms=args.includes("--observed-customs-provisional");
+  const positional=args.filter(x=>x!=="--observed-customs-provisional");
+  if(positional.length < 1 || args.includes("--help")) {
+    console.error("Usage: node tools/compare_contest_capture.mjs <capture.json> [output.json] [catalog.json] [diff-ref] [--observed-customs-provisional]");
     process.exitCode = args.includes("--help") ? 0 : 2;
     return;
   }
-  const source = JSON.parse(await readFile(args[0], "utf8"));
+  const source = JSON.parse(await readFile(positional[0], "utf8"));
   // External diff is explicitly provisional. Always record the immutable source SHA.
   // Passing catalog.json keeps this workflow offline and provider-independent.
-  const output=args[1] || "gakumas-contest-comparison.json";
-  const autoCatalog=!args[2];
+  const output=positional[1] || "gakumas-contest-comparison.json";
+  const autoCatalog=!positional[2];
   const catalog=autoCatalog
-   ?await fetchTemporaryContestCatalog({ref:args[3]||"main"})
-   :JSON.parse(await readFile(args[2],"utf8"));
-  const catalogPath=autoCatalog?join(dirname(output),"gakumas-contest-catalog.json"):args[2];
+   ?await fetchTemporaryContestCatalog({ref:positional[3]||"main"})
+   :JSON.parse(await readFile(positional[2],"utf8"));
+  const catalogPath=autoCatalog?join(dirname(output),"gakumas-contest-catalog.json"):positional[2];
   if(autoCatalog)await writeFile(catalogPath,JSON.stringify(catalog,null,2)+"\n");
   const byId=rows=>new Map((rows??[]).map(x=>[x.id,x]));
   const catalogs={
    examSettings:catalog.examSettings??[],
+   cardCustomizeRuleById:byId(catalog.cardCustomizeRules),
    itemById:byId(catalog.items),itemEffectById:byId(catalog.itemEffects),
    examEffectById:byId(catalog.examEffects),
    examStatusEnchantById:byId(catalog.examStatusEnchants),
@@ -37,7 +40,7 @@ async function main(args) {
   };
   const result = compareContestCapture(source, {
    masterProvenance:catalog.provenance??{provider:"local-unspecified",gameVersionVerified:false},
-   resolveInput: session => normalizeNativeContestSetup(session,{examItemCatalogs:catalogs}),
+   resolveInput: session => normalizeNativeContestSetup(session,{examItemCatalogs:catalogs,allowObservedCustomizations:observedCustoms}),
    simulator: (session,input) => replayObservedContest(session,input,{
     cardById:byId(catalog.cards),
     cardVariantByKey:new Map((catalog.cardVariants??catalog.cards??[]).map(x=>[String(x.id)+"@@"+Number(x.upgradeCount??0),x])),
@@ -47,7 +50,7 @@ async function main(args) {
   await writeFile(output, JSON.stringify(result,null,2)+"\n");
   const s=result.summary;
   console.log(JSON.stringify({
-    output,catalogPath,masterProvenance:result.masterProvenance,
+    output,catalogPath,observedCustomsProvisional:observedCustoms,masterProvenance:result.masterProvenance,
     status:result.status,realDeviceSessions:s.sessions,
     captureComplete:s.capturesComplete,steps:s.totalProgress,turns:s.totalTurns,
     independentSimulatorRuns:s.simulationCompared,simulatorBlocked:s.simulationBlocked,
