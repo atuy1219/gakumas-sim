@@ -1,4 +1,5 @@
 import { officialDescriptionText } from "./official_description.js";
+import { compareContestCapture } from "./contest_capture_compare.js";
 import { createSimulationBackup, parseSimulationBackup, stringifySimulationBackup } from "./simulation_backup.js";
 import { renderSimulationHistory } from "./simulation_history_ui.js";
 import {
@@ -1424,6 +1425,60 @@ $("contest-run").addEventListener("click", () => {
     $("contest-result").hidden = true;
     showError(error);
   }
+});
+
+// One uploaded capture is sufficient for a complete native consistency audit.
+// It is NOT sufficient for independent full-score simulation: missing setup
+// remains explicitly marked instead of substituting observed scores.
+let contestCaptureComparison = null;
+$("contest-capture-file").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const status = $("contest-capture-status");
+  const rows = $("contest-capture-rows");
+  rows.replaceChildren();
+  $("contest-capture-summary").replaceChildren();
+  $("contest-capture-export-report").disabled = true;
+  contestCaptureComparison = null;
+  try {
+    if (file.size > 12 * 1024 * 1024) throw new Error("最大12 MiBのキャプチャーJSONを選択してください。");
+    const capture = JSON.parse(await file.text());
+    const report = compareContestCapture(capture);
+    contestCaptureComparison = report;
+    const s = report.summary;
+    status.textContent = "実機 " + s.sessions + "実行、" + s.totalProgress + "経過、" + s.totalTurns
+      + "ターン復元（完全 " + s.capturesComplete + "/" + s.sessions + "）。独立シミュ比較 "
+      + s.simulationCompared + "件、未実行 " + s.simulationBlocked + "件。";
+    const summary = $("contest-capture-summary");
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "現在のWebコンテストシミュはカード分布Monte Carloです。フルゲームの再実行に必要な初期デッキ・Pアイテム・開始状態・設定・乱数状態が欠ける場合、スコア一致とは判定しません。";
+    summary.append(note);
+    for (const row of report.sessions) {
+      const tr = document.createElement("tr");
+      const values = [
+        String(row.sessionId) + " / " + (row.characterId || "-") + " / seed " + (row.seed ?? "-"),
+        String(row.realDevice.score ?? "-"),
+        row.simulation?.result?.score == null ? "未実行" : String(row.simulation.result.score),
+        row.comparison.status === "mismatch" ? "不一致: " + (row.comparison.firstDivergence?.path ?? "?")
+          : row.comparison.status === "match" ? "一致" : row.realDevice.dataComplete ? "取得成功・再計算不可" : "取得欠損"
+      ];
+      for (const v of values) { const td = document.createElement("td"); td.textContent = v; tr.append(td); }
+      rows.append(tr);
+    }
+    $("contest-capture-export-report").disabled = false;
+  } catch (error) {
+    status.textContent = "読み込み失敗: " + (error?.message || String(error));
+  } finally { event.target.value = ""; }
+});
+$("contest-capture-export-report").addEventListener("click", () => {
+  if (!contestCaptureComparison) return;
+  const blob = new Blob([JSON.stringify(contestCaptureComparison, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = "gakumas-contest-comparison.json";
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 200);
 });
 
 function runtimeCardLabel(card) {
