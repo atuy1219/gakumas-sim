@@ -439,7 +439,9 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         void* field=p.getFields(targetClass,&iterator);
         if(!field)break;
         const char* fieldName=p.fieldName(field);
-        if(!wanted(fieldName,depth))continue;
+        const bool internalValueWrapper=std::strncmp(name,"Obscured`",9)==0||
+            std::strncmp(name,"Raw`",4)==0||std::strncmp(name,"ArraySegment`",13)==0;
+        if(!internalValueWrapper&&!wanted(fieldName,depth))continue;
         // Drop cache-only icon/description internals from each deck card.
         // They consume most of the snapshot budget but cannot reconstruct
         // the card's ID, upgrade level, origin or runtime effects.
