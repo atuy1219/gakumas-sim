@@ -87,6 +87,14 @@ assert.equal(wrong.warnings.length,1);
 assert.equal(wrong.turns.length,1);
 assert.equal(wrong.turns[0].hand[0].id,expectedHand[0].id);
 assert.equal(wrong.result,undefined);
+// A native second play that the simulator cannot perform is a first divergence,
+// not an exception that suppresses the comparison for the entire session.
+const overplay={...neutralSession,turns:[{...neutralSession.turns[0],
+ commands:expectedHand.slice(0,2).map(card=>({commandType:2,card:{id:card.id,baseUpgradeCount:0}}))}]};
+const refused=replayObservedContest(overplay,nativeInput,{cardById:neutralMasters});
+assert.equal(refused.warnings[0].phase,"card-play");
+assert.equal(refused.warnings[0].turn,1);
+assert.equal(refused.turns.length,0);
 const reflectedFields=Object.fromEntries(neutralDeck.map((c,i)=>[i,c]));
 const wrappedDeck={ $type:"List`1",count:3,elements:neutralDeck.map(card=>({
  $type:"ExamCardData",fields:{"<ProduceCardId>k__BackingField":card.id,
@@ -443,4 +451,14 @@ const diagnosticFixture={schemaVersion:2,scope:"contest-gameplay-capture",
 const turnReport=compareContestCapture(diagnosticFixture,{simulator:()=>({
  provenance:"independent-simulator",turns:[{turn:1,score:4}]})});
 assert.equal(turnReport.sessions[0].comparison.turnDiagnostics[0].scoreDelta,-2);
+const overplayComparison=compareContestCapture(diagnosticFixture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[],warnings:[{turn:1,phase:"card-play",
+  native:{id:"card"},simulator:{playsRemaining:0}}]})});
+assert.equal(overplayComparison.summary.simulationCompared,1);
+assert.equal(overplayComparison.summary.simulationBlocked,0);
+assert.equal(overplayComparison.firstDivergence.path,"turns[0].card-play");
+const chronological=compareContestCapture(diagnosticFixture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[{turn:1,score:4}],warnings:[
+  {turn:2,phase:"draw",native:["A"],simulator:["B"]}]})});
+assert.equal(chronological.firstDivergence.path,"turns[0].score");
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
