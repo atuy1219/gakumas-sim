@@ -1398,6 +1398,10 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     const char* lane = verified_setup_origin(return_rva);
     if (!lane) return; // Unknown callsites are not guessed as a real exam.
     if (std::strcmp(lane, "internal-fixed-action-simulator") == 0) return;
+    // The selected auto-play native MoveNext already owns the session on
+    // this thread. Observe only its exact verified SetUpExam callsite.
+    if (std::strcmp(lane, "contest-auto-calculation") == 0)
+        contest_capture::recordSetup(reinterpret_cast<uintptr_t>(sequence));
     const unsigned sample = g_entry_probe_events.fetch_add(1);
     if (sample >= 128) return; // Explicit cap prevents background trace storms.
     const int uid = static_cast<int>(getuid() / 100000);
