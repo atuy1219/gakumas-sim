@@ -268,10 +268,11 @@ using ClassFromType=void*(*)(void*);
 using ElementClass=void*(*)(void*);
 using ValueType=bool(*)(void*);
 using ValueSize=int32_t(*)(void*,uint32_t*);
+using ClassParent=void*(*)(void*);
 struct API {
     GetFields getFields=nullptr;FieldName fieldName=nullptr;FieldOffset fieldOffset=nullptr;
     FieldType fieldType=nullptr;TypeKind typeKind=nullptr;ClassName className=nullptr;
-    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;
+    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;
     bool ready()const{return getFields&&fieldName&&fieldOffset&&fieldType&&typeKind&&className&&classFromType;}
 };
 const API& api(){
@@ -296,6 +297,7 @@ const API& api(){
         p.elementClass=reinterpret_cast<ElementClass>(resolve("il2cpp_class_get_element_class"));
         p.valueType=reinterpret_cast<ValueType>(resolve("il2cpp_class_is_valuetype"));
         p.valueSize=reinterpret_cast<ValueSize>(resolve("il2cpp_class_value_size"));
+        p.classParent=reinterpret_cast<ClassParent>(resolve("il2cpp_class_get_parent"));
         if(existing)dlclose(existing);
         return p;
     }();
@@ -325,15 +327,19 @@ struct Context {
 std::string value(Address where,int type,void* cls,int depth,Context& c,bool& ok);
 std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unboxed=false){
     if(!ptr)return "null";
-    if(depth>3||c.nodes++>=160||c.seen.size()>=160){c.truncated=true;return "null";}
+    if(depth>5||c.nodes++>=220||c.seen.size()>=220){c.truncated=true;return "null";}
     for(Address old:c.seen)if(old==ptr)return "{\"$cycle\":true}";
     c.seen.push_back(ptr);
     const auto& p=api();
-    if(!cls) {
+    // For reference objects, use the actual runtime class instead of a
+    // declared interface/base class. Otherwise IReadOnlyList<T> exposes no
+    // concrete List<T> elements and card inheritance remains incomplete.
+    if(!unboxed){
         Address klass=0;
         if(!read(ptr,0,klass)){ok=false;return "null";}
+        if(!klass){ok=false;return "null";}
         cls=reinterpret_cast<void*>(klass);
-    }
+    }else if(!cls){c.truncated=true;return "null";}
     const char* name=p.className(cls);
     if(!name){ok=false;return "null";}
     if(std::strcmp(name,"String")==0)return string(ptr,ok);
@@ -372,9 +378,15 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
     }
     if(c.remaining<100){c.truncated=true;return "null";}
     std::ostringstream out;out<<"{\"$type\":\""<<name<<"\",\"fields\":{";
-    void* iterator=nullptr;bool first=true;
-    for(unsigned fieldCount=0;fieldCount<180;++fieldCount){
-        void* field=p.getFields(cls,&iterator);
+    bool first=true;unsigned fieldCount=0;
+    void* targetClass=cls;
+    // il2cpp_class_get_fields lists declared fields only. ExamCardData
+    // inherits its ID/metadata from the ProduceCardData parent; inspect
+    // up to six levels, respecting the runtime field offsets.
+    for(unsigned parentDepth=0;targetClass&&parentDepth<6;++parentDepth){
+      void* iterator=nullptr;
+      for(unsigned localField=0;localField<180&&fieldCount<320;++localField,++fieldCount){
+        void* field=p.getFields(targetClass,&iterator);
         if(!field)break;
         const char* fieldName=p.fieldName(field);
         if(!wanted(fieldName,depth))continue;
@@ -397,14 +409,17 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
             out<<*it;
         }
         out<<"\":"<<serialized;
-        if(out.tellp()>16000||c.nodes>=160){c.truncated=true;break;}
+        if(out.tellp()>25000||c.nodes>=220){c.truncated=true;break;}
+      }
+      if(!p.classParent || out.tellp()>25000 || c.nodes>=220)break;
+      targetClass=p.classParent(targetClass);
     }
     out<<"}}";
     c.remaining-=std::min(c.remaining,static_cast<size_t>(out.tellp()));
     return out.str();
 }
 std::string value(Address where,int kind,void* cls,int depth,Context& c,bool& ok){
-    if(depth>4||c.remaining<100){c.truncated=true;return "null";}
+    if(depth>6||c.remaining<100){c.truncated=true;return "null";}
     switch(kind){
         case 0x02:{uint8_t v=0;if(!read(where,0,v)){ok=false;return "null";}return v?"true":"false";}
         case 0x04:case 0x05:{uint8_t v=0;if(!read(where,0,v)){ok=false;return "null";}return std::to_string(v);}
@@ -418,6 +433,10 @@ std::string value(Address where,int kind,void* cls,int depth,Context& c,bool& ok
         case 0x11: // Typed unboxed value; field offsets include a 0x10 boxed header.
             return cls?object(where,cls,depth,c,ok,true):"null";
         case 0x12:case 0x15:case 0x1c:case 0x1d:case 0x14:{
+            // Generic instantiation can be an unboxed value type. Do not
+            // interpret its first bytes as a managed reference pointer.
+            if(kind==0x15 && cls && api().valueType && api().valueType(cls))
+                return object(where,cls,depth,c,ok,true);
             Address ptr=0;if(!read(where,0,ptr)){ok=false;return "null";}
             if(!ptr)return "null";
             const auto& p=api();
