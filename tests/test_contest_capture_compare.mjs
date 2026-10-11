@@ -431,7 +431,16 @@ const verifiedShuffle=normalizeNativeContestSetup({...bonusSession,
 assert.equal(verifiedShuffle.input.randomStateAtStart,87654321);
 assert.equal(verifiedShuffle.input.metadata.verifiedPreShuffle,true);
 assert.equal(bonusSetup.input.metadata.verifiedPreShuffle,false);
-const turnReport=compareContestCapture(capture,{simulator:()=>({
- provenance:"independent-simulator",turns:[{turn:1,score:4},{turn:2,score:7}]})});
+const diagnosticFixture={schemaVersion:2,scope:"contest-gameplay-capture",
+ simulatorInputs:{"92:1":setup},events:[
+ {pid:92,sessionId:1,event:"contest-start",seed:12,dataComplete:true},
+ {pid:92,sessionId:1,event:"contest-progress",step:1,
+  turnsEncoding:"delta",turnStartIndex:0,turnCount:1,
+  turns:[{turn:1,score:6}],score:6,vocal:6,dance:0,visual:0,dataComplete:true},
+ {pid:92,sessionId:1,event:"contest-result",step:1,
+  score:6,vocal:6,dance:0,visual:0,dataComplete:true,recordingComplete:true},
+]};
+const turnReport=compareContestCapture(diagnosticFixture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[{turn:1,score:4}]})});
 assert.equal(turnReport.sessions[0].comparison.turnDiagnostics[0].scoreDelta,-2);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
