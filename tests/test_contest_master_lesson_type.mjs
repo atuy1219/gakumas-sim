@@ -119,3 +119,43 @@ assert.equal(fullPowerTrigger(0),0,
  "FullPowerUp=0 must not match a player outside the full-power stance");
 assert.equal(fullPowerTrigger(3),4,
  "FullPowerUp=0 must match an active full-power stance");
+
+const thresholdItem={id:"pitem-light-purple",effects:[{
+ id:"item-light-effect",effectType:"ProduceItemEffectType_ExamStatusEnchant",
+ effectTurn:-1,effectCount:3,examStatusEnchant:{
+  id:"light-enchant",trigger:{
+   id:"light-trigger",phaseTypes:["ProduceExamPhaseType_ExamCardPlay"],
+   phaseValues:[0],fieldStatusTypes:["ProduceExamFieldStatusType_StaminaUpMultiple"],
+   fieldStatusValues:[800],cardSearch:{
+    id:"active-playing",cardCategories:["ProduceCardCategory_ActiveSkill"],
+    cardPositionType:"ProduceCardPositionType_Playing"
+   },lowerSearchCount:1,
+  },examEffects:[{id:"light-block6",effectType:"ProduceExamEffectType_ExamBlock",effectValue1:6}]
+ }}]};
+function thresholdTest(initialStamina){
+ const cards=[{id:"active-cost",upgradeCount:0},{id:"filler1",upgradeCount:0},{id:"filler2",upgradeCount:0}];
+ const masters=new Map(cards.map(card=>[card.id,{
+  ...card,category:card.id==="active-cost"?"ProduceCardCategory_ActiveSkill":"ProduceCardCategory_MentalSkill",
+  stamina:card.id==="active-cost"?10:0,
+ }]));
+ const st=createTowerTurnState(cards,32,masters,{
+  stamina:initialStamina,initialRandomState:32,
+  drawPerTurn:3,turnLimit:1,turnParameterTypes:["visual"],pItems:[thresholdItem],
+  examRuntimeSettings:{},examScoreSettings:{},captureActionTelemetry:true,
+ });
+ st.exam.maxStamina=100;
+ drawTowerTurn(st,3);
+ const action=playTowerCard(st,st.hand.findIndex(card=>card.id==="active-cost"));
+ return {state:st,action};
+}
+const above=thresholdTest(85);
+assert.equal(above.state.exam.block,6,
+ "Purple light should test 85% pre-cost stamina, not 75% post-cost");
+const triggerPhase=above.action.actionTelemetry.find(x=>x.phase==="before-main-card-effects-after-card-play-triggers");
+assert.equal(triggerPhase.block,6);
+assert.deepEqual(triggerPhase.effects,["元気 +6"]);
+assert.equal(above.action.actionTelemetry[0].stamina,85);
+assert.equal(triggerPhase.stamina,75);
+const below=thresholdTest(79);
+assert.equal(below.state.exam.block,0,
+ "Purple light should not trigger below 80% before the card cost");
