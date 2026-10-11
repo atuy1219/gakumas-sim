@@ -341,7 +341,7 @@ ScannedCardId scanCardIdentity(Address card){
     if(!loaded)return result;
     for(size_t offset=0x10;offset+8<=span;offset+=8){
         Address candidate=0;std::memcpy(&candidate,data+offset,sizeof(candidate));
-        if(candidate<0x1000000000ULL||(candidate&7)!=0)continue;
+        if(candidate<0x10000ULL||(candidate&7)!=0)continue;
         int32_t size=0;
         if(!read(candidate,0x10,size)){
             firstReadFailure=previous;continue;
