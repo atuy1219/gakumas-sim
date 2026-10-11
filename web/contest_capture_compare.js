@@ -198,6 +198,16 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null,
     comparison=compareSession(s,simulation);
     // The post-setup RNG state is NOT an independently captured shuffle
     // starting state. Even an accidental all-field match is provisional.
+    if(input?.metadata?.customizationSource==="observed-turn-hand-provisional"){
+     warnings.push("provisional-customization-reconstructed-from-observed-hands");
+     if(comparison.status==="match")
+      comparison={...comparison,status:"partial-match",completeCoverage:false};
+    }
+    if(input?.metadata && input.metadata.initialDeckCustomizationVerified===false){
+     warnings.push("initial-card-customization-not-fully-verified");
+     if(comparison.status==="match")
+      comparison={...comparison,status:"partial-match",completeCoverage:false};
+    }
     if(masterProvenance && masterProvenance.gameVersionVerified!==true){
      warnings.push("unverified-master-game-version:"+String(masterProvenance.commit??masterProvenance.provider??"unknown"));
      if(comparison.status==="match")
