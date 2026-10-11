@@ -27,8 +27,9 @@ capture.simulatorInputs={"2:1":setup};
 report=compareContestCapture(capture,{simulator:()=>({
  provenance:"independent-simulator",progress:[{score:6},{score:7}],turns:[{turn:1},{turn:2}],result:{score:7}
 })});
-assert.equal(report.status,"match");
-assert.equal(report.complete,true);
+assert.equal(report.status,"partial-match");
+assert.equal(report.complete,false);
+assert.equal(report.summary.simulationPartialMatches,1);
 report=compareContestCapture(capture,{simulator:()=>({
  provenance:"independent-simulator",progress:[{score:6},{score:9}],turns:[{turn:1},{turn:2}],result:{score:7}
 })});
