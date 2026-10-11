@@ -67,11 +67,14 @@ bool bytes(Address a,size_t offset,void* out,size_t size) {
     if(!readBudget) {noteReadFailure("read-budget-exhausted",a,offset,size);return false;}
     --readBudget;
     iovec local{out,size},remote{reinterpret_cast<void*>(a+offset),size};
-    errno=0;
+    // A passive hook must not change errno visible to the game's caller.
+    const int savedErrno=errno;
     const auto n=syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0);
+    const int readErrno=n<0?errno:0;
+    errno=savedErrno;
     if(n!=static_cast<ssize_t>(size)) {
         noteReadFailure(n<0?"memory-read-failed":"short-read",a,offset,size,
-                        n<0?errno:0,n>=0?static_cast<uint64_t>(n):0);
+                        readErrno,n>=0?static_cast<uint64_t>(n):0);
         return false;
     }
     return true;
