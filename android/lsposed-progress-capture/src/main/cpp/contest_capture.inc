@@ -7,7 +7,7 @@ using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0; unsigned steps=0, turnsCaptured=0; bool terminal=false, complete=true; };
+struct Run { uint64_t id=0; Address owner=0, data=0; unsigned steps=0, turnsCaptured=0; bool terminal=false, complete=true, setupRecorded=false; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
@@ -450,6 +450,28 @@ bool emit(const Run& run,const char* event,const std::string& content) {
     if(out){++written;fileBytes+=line.size();}else ++writeFailures;
     status();
     return bool(out);
+}
+// Verified SetUpExam caller (0x07EFD3B4) executes within the original
+// selected contest-auto MoveNext. Capture its real managed parameter/pools
+// without invoking any managed getter or changing the game RNG.
+void recordSetup(Address sequence) {
+    if(!active || active->setupRecorded || !sequence)return;
+    std::lock_guard<std::mutex> guard(mutex);
+    if(!active || active->setupRecorded)return;
+    active->setupRecorded=true;
+    readBudget=8192;firstReadFailure={};readStage.clear();
+    Address parameter=0;
+    bool hasParameter=read(sequence,0x10,parameter)&&parameter;
+    uint32_t randomState=0;
+    const bool randomRead=hasParameter && read(parameter,0x77c,randomState);
+    std::ostringstream content;
+    content<<",\"capturePhase\":\"after-ExamSequence.SetUpExam\",\"setupOrigin\":\"0x07EFD3B4\""
+           <<",\"randomStateObserved\":"<<(randomRead?std::to_string(randomState):"null")
+           <<",\"randomStateProvenance\":\"after-setup-not-necessarily-pre-shuffle\""
+           <<",\"examParameterSnapshot\":"<<(hasParameter?setup_probe::capture(parameter):"null")
+           <<",\"examSequenceSnapshot\":"<<setup_probe::capture(sequence)
+           <<",\"dataComplete\":true";
+    emit(*active,"contest-setup",content.str());
 }
 __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     const Address caller=GAKUMAS_PASSIVE_CALLER_RVA();
