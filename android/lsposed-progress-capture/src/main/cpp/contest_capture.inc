@@ -451,10 +451,18 @@ bool emit(const Run& run,const char* event,const std::string& content) {
     status();
     return bool(out);
 }
+struct BeforeSetup { uint32_t randomState=0; bool available=false; };
+BeforeSetup observeBeforeSetup(Address sequence){
+    if(!active || !sequence)return {};
+    readBudget=16;firstReadFailure={};readStage.clear();
+    Address parameter=0;uint32_t randomState=0;
+    if(!read(sequence,0x10,parameter) || !parameter || !read(parameter,0x77c,randomState))return {};
+    return {randomState,true};
+}
 // Verified SetUpExam caller (0x07EFD3B4) executes within the original
 // selected contest-auto MoveNext. Capture its real managed parameter/pools
 // without invoking any managed getter or changing the game RNG.
-void recordSetup(Address sequence) {
+void recordSetup(Address sequence,BeforeSetup before) {
     if(!active || active->setupRecorded || !sequence)return;
     std::lock_guard<std::mutex> guard(mutex);
     if(!active || active->setupRecorded)return;
@@ -466,6 +474,8 @@ void recordSetup(Address sequence) {
     const bool randomRead=hasParameter && read(parameter,0x77c,randomState);
     std::ostringstream content;
     content<<",\"capturePhase\":\"after-ExamSequence.SetUpExam\",\"setupOrigin\":\"0x07EFD3B4\""
+           <<",\"randomStateBeforeSetUp\":"<<(before.available?std::to_string(before.randomState):"null")
+           <<",\"beforeRandomSource\":\"verified-caller-before-managed-setup\""
            <<",\"randomStateObserved\":"<<(randomRead?std::to_string(randomState):"null")
            <<",\"randomStateProvenance\":\"after-setup-not-necessarily-pre-shuffle\""
            <<",\"examParameterSnapshot\":"<<(hasParameter?setup_probe::capture(parameter):"null")
