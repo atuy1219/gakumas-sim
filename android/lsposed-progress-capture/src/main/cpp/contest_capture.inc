@@ -308,6 +308,9 @@ const API& api(){
 bool wanted(const char* n,int depth){
     if(!n)return false;
     if(depth==0)return true;
+    // v1.5.22 IL2CPP metadata: ExamCardData owns _cardData at +0x10.
+    // This lower-case field is filtered out by the ordinary Card/Id tokens.
+    if(std::strcmp(n,"_cardData")==0)return true;
     const std::string name(n);
     for(const char* word:{"Deck","Card","Item","Drink","Parameter","Setting",
          "Turn","Random","Stamina","Status","Effect","Initial","Plan","Support",
@@ -413,6 +416,10 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
     if(depth>5||c.nodes++>=220||c.seen.size()>=220){c.truncated=true;return "null";}
     for(Address old:c.seen)if(old==ptr)return "{\"$cycle\":true}";
     c.seen.push_back(ptr);
+    // Record only the active recursion path. The same master CardData object
+    // may be referenced by multiple copies of one card in the deck. A
+    // snapshot-global seen set loses their identity after the first copy.
+    struct PopPath{std::vector<Address>& path;~PopPath(){path.pop_back();}} popPath{c.seen};
     const auto& p=api();
     // For reference objects, use the actual runtime class instead of a
     // declared interface/base class. Otherwise IReadOnlyList<T> exposes no
@@ -485,6 +492,16 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         const char* fieldName=p.fieldName(field);
         const bool internalValueWrapper=std::strncmp(name,"Obscured`",9)==0||
             std::strncmp(name,"Raw`",4)==0||std::strncmp(name,"ArraySegment`",13)==0;
+        // CardData is a master reference. We only need its identity here;
+        // fully serializing effect trees for every duplicate card is costly.
+        const bool nestedCardMaster=std::strcmp(name,"ExamCardData")!=0 &&
+            (std::strstr(name,"CardData")!=nullptr || std::strstr(name,"CardMaster")!=nullptr);
+        const bool idField=fieldName&&(
+            std::strcmp(fieldName,"_id")==0||
+            std::strcmp(fieldName,"id")==0||
+            std::strstr(fieldName,"CardId")!=nullptr||
+            std::strstr(fieldName,"<Id>")!=nullptr);
+        if(nestedCardMaster&&!idField)continue;
         if(!internalValueWrapper&&!wanted(fieldName,depth))continue;
         // Drop cache-only icon/description internals from each deck card.
         // They consume most of the snapshot budget but cannot reconstruct
@@ -627,7 +644,7 @@ std::string missingExports() {
 std::string capture(Address data) {
     const auto& p=api();
     if(!p.ready())return "{\"available\":false,\"reason\":\"il2cpp-reflection-exports-unavailable\",\"missingExports\":"+missingExports()+",\"rawLayout\":"+rawLayout(data)+"}";
-    bool ok=true;readBudget=8192;firstReadFailure={};readStage.clear();
+    bool ok=true;readBudget=16384;firstReadFailure={};readStage.clear();
     Context c;
     const std::string root=object(data,nullptr,0,c,ok);
     std::ostringstream out;
