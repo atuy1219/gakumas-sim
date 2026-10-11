@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { compareContestCapture, reconstructContestCapture } from "../web/contest_capture_compare.js";
+import { replayObservedContest, ContestReplayUnsupported } from "../web/contest_native_replay.js";
+import { createTowerTurnState, drawTowerTurn } from "../web/tower_runtime.js";
 
 const capture={schemaVersion:2,scope:"contest-gameplay-capture",moduleVersion:"1.5.17",events:[
  {pid:2,sessionId:1,event:"contest-start",characterId:"hrnm",seed:12,dataComplete:true},
@@ -48,4 +50,38 @@ const old={scope:"contest-gameplay-capture",events:[capture.events[0],
  turns:[{turn:1,score:6,hand:[{id:"card"}]},{turn:2,score:7,hand:[{id:"card2"}]}]},
  capture.events[3]]};
 assert.equal(reconstructContestCapture(old).sessions[0].turns.length,2);
-console.log("contest capture comparison: OK");
+// Confirm that native decisions do not become fake simulator outputs:
+// a fresh runtime must independently shuffle/draw and predict turn values.
+const neutralDeck=["N-A","N-B","N-C"].map(id=>({id,upgradeCount:0}));
+const neutralMasters=new Map(neutralDeck.map(card=>[card.id,card]));
+const nativeInput={
+ initialDeck:neutralDeck,pItems:[],examSettings:{},
+ randomStateAtStart:123,
+ initialParameters:{stamina:100,maxStamina:100,drawPerTurn:3,turnLimit:1,
+  turnParameterTypes:["vocal"]},
+};
+const expectedState=createTowerTurnState(neutralDeck,123,neutralMasters,{
+ initialRandomState:123,stamina:100,turnLimit:1,drawPerTurn:3,
+ turnParameterTypes:["vocal"],examRuntimeSettings:{},examScoreSettings:{},
+});
+const expectedHand=drawTowerTurn(expectedState,3).hand.map(c=>({id:c.id}));
+const neutralSession={start:{seed:123},complete:true,
+ turns:[{turn:1,hand:expectedHand,commands:[]}],
+};
+const predicted=replayObservedContest(neutralSession,nativeInput,{cardById:neutralMasters});
+assert.equal(predicted.provenance,"independent-simulator");
+assert.equal(predicted.replayMode,"observed-actions");
+assert.equal(predicted.decisionSearchVerified,false);
+assert.equal(predicted.turns.length,1);
+assert.equal(predicted.warnings.length,0);
+assert.equal(typeof predicted.result.score,"number");
+assert.throws(()=>replayObservedContest(neutralSession,{
+ ...nativeInput,randomStateAtStart:null,
+},{cardById:neutralMasters}),ContestReplayUnsupported);
+const mismatched={...neutralSession,turns:[{...neutralSession.turns[0],
+ hand:[{id:"N-UNEXPECTED"},...expectedHand.slice(1)]}]};
+const wrong=replayObservedContest(mismatched,nativeInput,{cardById:neutralMasters});
+assert.equal(wrong.warnings.length,1);
+assert.equal(wrong.turns.length,0);
+assert.equal(wrong.result,undefined);
+console.log("contest capture comparison and native action replay: OK");
