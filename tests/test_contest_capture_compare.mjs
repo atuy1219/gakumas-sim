@@ -97,6 +97,9 @@ const normalizedSession={
   nativeInitialState:{available:true,root:{$type:"ExamData",fields:{
    "<DeckProduceCardDataList>k__BackingField":wrappedDeck,
    "<ItemList>k__BackingField":{$type:"List`1",count:0,elements:[]},
+   "<Stamina>k__BackingField":100,
+   "<MaxStamina>k__BackingField":100,
+   "<LimitTurn>k__BackingField":1,
   }}}},
  setup:{randomStateBeforeSetUp:123,examParameterSnapshot:{root:{$type:"ExamParameterModel",fields:{
   "<Stamina>k__BackingField":100,
