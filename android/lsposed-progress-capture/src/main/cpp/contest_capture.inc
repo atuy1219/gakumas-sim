@@ -457,7 +457,11 @@ std::string value(Address where,int kind,void* cls,int depth,Context& c,bool& ok
             }
             return object(ptr,cls,depth+1,c,ok);
         }
-        default:c.truncated=true;return "null";
+        default:
+            c.truncated=true;
+            // The exact IL2CPP type kind is needed to decode generic
+            // Obscured<T> fields without guessing pointer/value layout.
+            return "{\"$unsupportedIl2CppTypeKind\":"+std::to_string(kind)+"}";
     }
 }
 // Even stripped game builds can be diagnosed without guessing field offsets.
@@ -521,7 +525,8 @@ std::string capture(Address data) {
     Context c;
     const std::string root=object(data,nullptr,0,c,ok);
     std::ostringstream out;
-    out<<"{\"available\":"<<(ok?"true":"false")
+    const bool rootDecoded=root.rfind("{\"$type\":",0)==0;
+    out<<"{\"available\":"<<(rootDecoded?"true":"false")
        <<",\"complete\":"<<((ok&&!c.truncated)?"true":"false")
        <<",\"source\":\"passive-il2cpp-metadata-and-readv\",\"root\":"<<root
        <<",\"truncated\":"<<(c.truncated?"true":"false")
