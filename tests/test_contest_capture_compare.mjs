@@ -461,4 +461,25 @@ const chronological=compareContestCapture(diagnosticFixture,{simulator:()=>({
  provenance:"independent-simulator",turns:[{turn:1,score:4}],warnings:[
   {turn:2,phase:"draw",native:["A"],simulator:["B"]}]})});
 assert.equal(chronological.firstDivergence.path,"turns[0].score");
+// Native initial custom counts must be mapped by the master's ordered routes.
+const customRules=new Map(neutralDeck.map(card=>[card.id,{id:card.id,customizeIds:["route-a","route-b"]}]));
+const extraCatalog={examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],
+ itemById:new Map(),itemEffectById:new Map(),cardCustomizeRuleById:customRules};
+const customStart={...nestedCardMasterSession.start,nativeInitialState:{root:{
+ ...nestedCardMasterSession.start.nativeInitialState.root,
+ fields:{...nestedCardMasterSession.start.nativeInitialState.root.fields,
+ "<DeckList>k__BackingField":nestedCardMasterSession.start.nativeInitialState.root.fields["<DeckList>k__BackingField"].map((card,index)=>({
+ ...card,fields:{...card.fields,
+ ...(index===0?{_customizeCountList:{$type:"List"+"\u0060"+"1",count:2,elements:[0,1]}}:{})}})),
+ }}}};
+const customSession={...nestedCardMasterSession,start:customStart,turns:[{
+ turn:1,hand:[{id:neutralDeck[1].id,customizeCounts:[1,0]}]}]};
+const customStrict=normalizeNativeContestSetup(customSession,{examItemCatalogs:extraCatalog});
+assert.deepEqual(customStrict.input.initialDeck[0].customizes,[{id:"route-b",customizeCount:1}]);
+assert.equal(customStrict.input.initialDeck[1].customizes,undefined);
+const customProvisional=normalizeNativeContestSetup(customSession,{
+ examItemCatalogs:extraCatalog,allowObservedCustomizations:true});
+assert.deepEqual(customProvisional.input.initialDeck[1].customizes,[{id:"route-a",customizeCount:1}]);
+assert.equal(customProvisional.input.metadata.initialDeckCustomizationVerified,false);
+assert.equal(customProvisional.candidates.observedCustomizationRecovery.recovered,1);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
