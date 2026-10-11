@@ -267,10 +267,11 @@ using ClassName=const char*(*)(void*);
 using ClassFromType=void*(*)(void*);
 using ElementClass=void*(*)(void*);
 using ValueType=bool(*)(void*);
+using ValueSize=int32_t(*)(void*,uint32_t*);
 struct API {
     GetFields getFields=nullptr;FieldName fieldName=nullptr;FieldOffset fieldOffset=nullptr;
     FieldType fieldType=nullptr;TypeKind typeKind=nullptr;ClassName className=nullptr;
-    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;
+    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;
     bool ready()const{return getFields&&fieldName&&fieldOffset&&fieldType&&typeKind&&className&&classFromType;}
 };
 const API& api(){
@@ -292,6 +293,7 @@ const API& api(){
         p.classFromType=reinterpret_cast<ClassFromType>(resolve("il2cpp_class_from_type"));
         p.elementClass=reinterpret_cast<ElementClass>(resolve("il2cpp_class_get_element_class"));
         p.valueType=reinterpret_cast<ValueType>(resolve("il2cpp_class_is_valuetype"));
+        p.valueSize=reinterpret_cast<ValueSize>(resolve("il2cpp_class_value_size"));
         if(existing)dlclose(existing);
         return p;
     }();
@@ -339,13 +341,26 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         Address arrayClass=0;uint64_t capacity=0;
         if(!read(backing,0,arrayClass)||!read(backing,0x18,capacity)){ok=false;return "null";}
         void* element=p.elementClass(reinterpret_cast<void*>(arrayClass));
-        if(!element||p.valueType(element)||capacity<static_cast<unsigned>(count)){c.truncated=true;return "null";}
+        if(!element||capacity<static_cast<unsigned>(count)){c.truncated=true;return "null";}
+        const bool elemValue=p.valueType(element);
+        uint32_t align=0;
+        const int32_t stride=elemValue&&p.valueSize?p.valueSize(element,&align):8;
+        if(stride<=0||stride>128){c.truncated=true;return "null";}
         std::ostringstream items;
         items<<"{\"$type\":\"List`1\",\"count\":"<<count<<",\"elements\":[";
         for(int i=0;i<count;++i){
-            Address item=0;if(!read(backing,0x20+i*8,item)){ok=false;return "null";}
             if(i)items<<',';
-            items<<object(item,element,depth+1,c,ok);
+            if(elemValue){
+                const Address at=backing+0x20+static_cast<size_t>(i)*stride;
+                const std::string typeName(p.className(element)?p.className(element):"");
+                if(typeName=="Int32"||typeName=="UInt32"){
+                    uint32_t raw=0;if(!read(at,0,raw)){ok=false;return "null";}
+                    items<<raw;
+                }else items<<object(at,element,depth+1,c,ok,true);
+            }else{
+                Address item=0;if(!read(backing,0x20+i*8,item)){ok=false;return "null";}
+                items<<object(item,element,depth+1,c,ok);
+            }
         }
         items<<"]}";
         return items.str();
