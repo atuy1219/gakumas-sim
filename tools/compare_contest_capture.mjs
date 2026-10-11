@@ -1,19 +1,28 @@
 #!/usr/bin/env node
 /** Analyze one exported contest capture; never echo native scores as simulator predictions. */
 import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fetchTemporaryContestCatalog } from "./contest_catalog_provider.mjs";
 import { compareContestCapture } from "../web/contest_capture_compare.js";
 import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
 import { replayObservedContest } from "../web/contest_native_replay.js";
 
 async function main(args) {
   if(args.length < 1 || args.includes("--help")) {
-    console.error("Usage: node tools/compare_contest_capture.mjs <capture.json> [output.json] [catalog.json]");
+    console.error("Usage: node tools/compare_contest_capture.mjs <capture.json> [output.json] [catalog.json] [diff-ref]");
     process.exitCode = args.includes("--help") ? 0 : 2;
     return;
   }
   const source = JSON.parse(await readFile(args[0], "utf8"));
-  // All catalogs must be exact-version masters; never invent missing effects.
-  const catalog=args[2]?JSON.parse(await readFile(args[2],"utf8")):{};
+  // External diff is explicitly provisional. Always record the immutable source SHA.
+  // Passing catalog.json keeps this workflow offline and provider-independent.
+  const output=args[1] || "gakumas-contest-comparison.json";
+  const autoCatalog=!args[2];
+  const catalog=autoCatalog
+   ?await fetchTemporaryContestCatalog({ref:args[3]||"main"})
+   :JSON.parse(await readFile(args[2],"utf8"));
+  const catalogPath=autoCatalog?join(dirname(output),"gakumas-contest-catalog.json"):args[2];
+  if(autoCatalog)await writeFile(catalogPath,JSON.stringify(catalog,null,2)+"\\n");
   const byId=rows=>new Map((rows??[]).map(x=>[x.id,x]));
   const catalogs={
    examSettings:catalog.examSettings??[],
@@ -24,18 +33,22 @@ async function main(args) {
    cardSearchById:byId(catalog.cardSearches),
    cardRandomPoolById:byId(catalog.cardRandomPools),
    cardStatusEnchantById:byId(catalog.cardStatusEnchants),
-   cardPoolById:byId(catalog.cardPools),
+   cardPoolById:new Map((catalog.cardPools??[]).map(x=>[x.id,x.cards??x])),
   };
   const result = compareContestCapture(source, {
+   masterProvenance:catalog.provenance??{provider:"local-unspecified",gameVersionVerified:false},
    resolveInput: session => normalizeNativeContestSetup(session,{examItemCatalogs:catalogs}),
    simulator: (session,input) => replayObservedContest(session,input,{
-    cardById:byId(catalog.cards),examItemCatalogs:catalogs}),
+    cardById:byId(catalog.cards),
+    cardVariantByKey:new Map((catalog.cardVariants??catalog.cards??[]).map(x=>[String(x.id)+"@@"+Number(x.upgradeCount??0),x])),
+    customizeById:new Map((catalog.cardCustomizes??[]).map(x=>[x.id,{id:x.id,levels:new Map((x.levels??[]).map(row=>[Number(row.count),row.level]))}])),
+    growEffectById:byId(catalog.cardGrowEffects),examItemCatalogs:catalogs}),
   });
-  const output=args[1] || "gakumas-contest-comparison.json";
   await writeFile(output, JSON.stringify(result,null,2)+"\n");
   const s=result.summary;
   console.log(JSON.stringify({
-    output,status:result.status,realDeviceSessions:s.sessions,
+    output,catalogPath,masterProvenance:result.masterProvenance,
+    status:result.status,realDeviceSessions:s.sessions,
     captureComplete:s.capturesComplete,steps:s.totalProgress,turns:s.totalTurns,
     independentSimulatorRuns:s.simulationCompared,simulatorBlocked:s.simulationBlocked,
     firstDivergence:result.firstDivergence,
