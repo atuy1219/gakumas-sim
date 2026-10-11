@@ -94,3 +94,28 @@ assert.equal(idolState.playsRemaining,1,
  "Idol unique after-play P-item effect must grant another play");
 
 console.log("contest master trigger lesson, play phases and idol-unique search: OK");
+
+const fullPowerPItem={id:"pitem-full-power",effects:[{
+ id:"e-full",effectType:"ProduceItemEffectType_ExamStatusEnchant",effectCount:1,effectTurn:-1,
+ examStatusEnchant:{id:"ench-full",trigger:{
+  id:"t-full",phaseTypes:["ProduceExamPhaseType_ExamCardPlay"],phaseValues:[0],
+  fieldStatusTypes:["ProduceExamFieldStatusType_FullPowerUp"],fieldStatusValues:[0],
+  lowerSearchCount:1,cardSearch:idolSearch,
+ },examEffects:[{id:"effect-block4",effectType:"ProduceExamEffectType_ExamBlock",effectValue1:4}]},
+}]};
+function fullPowerTrigger(stance){
+ const state=createTowerTurnState(idolDeck,44,idolMasters,{
+  stamina:100,initialRandomState:44,turnLimit:1,drawPerTurn:3,
+  turnParameterTypes:["vocal"],pItems:[fullPowerPItem],
+  examRuntimeSettings:{},examScoreSettings:{},
+ });
+ drawTowerTurn(state,3);
+ state.exam.idolStatusType=stance;
+ state.exam.idolStatusStep=1;
+ playTowerCard(state,state.hand.findIndex(c=>c.id==="idol-special"));
+ return state.exam.block;
+}
+assert.equal(fullPowerTrigger(0),0,
+ "FullPowerUp=0 must not match a player outside the full-power stance");
+assert.equal(fullPowerTrigger(3),4,
+ "FullPowerUp=0 must match an active full-power stance");
