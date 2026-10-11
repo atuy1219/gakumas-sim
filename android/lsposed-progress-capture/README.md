@@ -312,3 +312,18 @@ was absent: library map matching/callback ordering needs further evidence.
 After ownership repair, force-stop/restart the game, check the new JNI_OnLoad
 and native_init log lines and bootstrap/capture files before enabling hook
 mask 128. Default-safe mask remains 0.
+
+### v1.5.1 safety follow-up
+
+The explicit directory repair action also rewrites native_hookmask.txt to **0**,
+owned by the game UID/GID with mode 0600 and restored SELinux context.
+This is deliberate: when the earlier mask 128 file was root-owned and
+unreadable, repairing its ownership without resetting it could unexpectedly
+activate experimental native hooks at next game start. If desired, opt back
+into mask 128 separately after confirming bootstrap_status.json and
+capture_status.json can be created under safe mode. A selected mask alone
+is never proof of hook installation.
+
+JNI_OnUnload is now logged too, so a Java native-library-loaded message and
+/proc/PID/maps reporting no corresponding mapping can be investigated for a
+possible unload or map-probe mismatch. It is not proof of missing Java injection.
