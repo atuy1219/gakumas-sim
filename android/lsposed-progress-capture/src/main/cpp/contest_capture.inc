@@ -306,7 +306,10 @@ bool wanted(const char* n,int depth){
     for(const char* word:{"Deck","Card","Item","Drink","Parameter","Setting",
          "Turn","Random","Stamina","Status","Effect","Initial","Plan","Support",
          "Gimmick","Score","Bonus","Seed","Idol","Character","Hand","Grave","Hold",
-         "Pool","Limit","Vocal","Dance","Visual","Config","Exam"}){
+         "Pool","Limit","Vocal","Dance","Visual","Config","Exam",
+         "Upgrade","Customize","customize","Guid","Number","Origin","Type",
+         "Count","value__","Value","value","_value","m_value","state","State",
+         "Current","Max","Id","id"}){
         if(name.find(word)!=std::string::npos)return true;
     }
     return false;
