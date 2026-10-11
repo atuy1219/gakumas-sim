@@ -431,6 +431,42 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.17: incremental selected-turn history (device verification pending)
+
+The v1.5.16 device export from October 11 had nine completed contest runs
+and 57 selected-progress entries. Turn objects and command/effect history
+decoded in 26 entries; the remaining 31 exhausted the per-event 4,096
+kernel-read budget when earlier turns were repeatedly decoded at every
+step. Readable earlier turns were unchanged across successive steps in this
+sample. Nine final score results were saved; no file write errors or
+8 MiB limit drops occurred.
+
+This build switches progress-event output to **schemaVersion 2** and
+`turnsEncoding: "delta"`. The `turns` array contains **only newly appended
+full turn records**, starting at the zero-based `turnStartIndex` position
+of the original history. The original full history length is `turnCount`.
+To replay a session, collect consecutive progress events, insert their
+`turns` at `turnStartIndex`, and verify the accumulated count reaches
+`turnCount` on each complete event. A result's `dataComplete` remains
+false if any earlier selected-step read was incomplete.
+
+The read budget is still bounded (8,192 kernel reads per selected result).
+The per-session turn cursor advances only after successfully decoding each
+whole turn. If a turn fails to decode, the next selected-step retries it.
+If a progress record cannot be written or hits the file cap, its cursor
+is rolled back so the next event can retry. When the history unexpectedly
+shrinks, the decoder fails closed instead of silently discarding indices.
+The selected indexes, score, evaluation and lifecycle event boundaries
+remain present. The export's outer `schemaVersion` is also 2.
+
+The mode is designed for append-only saved-turn logs. That behavior held in
+the supplied v1.5.16 sample but is not yet proven for every game mode or
+game update. Re-read the new JSON with a schema-aware consumer; legacy
+readers treating `turns` as a complete snapshot will interpret this file
+incorrectly. The native hook does not call synthetic managed methods,
+capture the full RNG stream, or perform simulator parity automatically.
+Validate with a fresh v1.5.17 device capture before declaring complete.
+
 ## v1.5.16: array-shaped turn-history decoding (device result pending)
 
 The on-device v1.5.15 export (PID 7986, Build ID
