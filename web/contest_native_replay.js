@@ -78,7 +78,10 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  for(const attr of ["parameter","review","block","parameterBuff","concentration","fullPower","motivation"]){
   if(own(p,attr))state.exam[attr]=requireNumber(p[attr],"initialParameters."+attr);
  }
- const turns=[],warnings=[],cardActionTrace=[],scoreByType={vocal:0,dance:0,visual:0};
+ const turns=[],warnings=[],cardActionTrace=[],turnPhaseTrace=[],scoreByType={vocal:0,dance:0,visual:0};
+ const snapshot = () => ({score:Number(state.exam.parameter??0),
+  stamina:Number(state.exam.stamina??0),block:Number(state.exam.block??0),
+  review:Number(state.exam.review??0),aggressive:Number(state.exam.aggressive??0)});
  const nativeExtraTurns=Math.max(0,session.turns.length-initialLimit);
  let previousScore=Number(state.exam.parameter??0);
  for(let i=0;i<session.turns.length;i++){
@@ -102,6 +105,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    // earliest independent RNG/deck divergence.
    break;
   }
+  const beforeCards=snapshot();
   const commands=(actual.commands||[]).filter(x=>x.commandType===2&&x.card?.id);
   for(const command of commands){
    const cardId=String(command.card.id);
@@ -140,7 +144,18 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-card-effect:"+state.unsupported.join("|"));
   }
   if(warnings.length)break;
+  const afterCards=snapshot();
   const result=finishTowerTurn(state,{type:state.playsRemaining>0?"skip":"end"});
+  const afterTurn=snapshot();
+  turnPhaseTrace.push({
+   turn:i+1,
+   nativeTurnSummary:{score:Number(actual.score??0),stamina:Number(actual.stamina??0),block:Number(actual.block??0)},
+   afterDrawBeforeCards:beforeCards,
+   afterAllCards:afterCards,
+   afterTurnEffects:afterTurn,
+   nonCardScoreDelta:afterTurn.score-afterCards.score,
+   nativePerCardMetricsAvailable:false,
+  });
   if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-turn-end-effect:"+state.unsupported.join("|"));
   const score=Number(state.exam.parameter??0);
   const scoreType=canonicalTypes[Math.min(i,canonicalTypes.length-1)];
@@ -158,7 +173,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  const prediction={
   provenance:"independent-simulator",
   replayMode:"observed-actions",decisionSearchVerified:false,
-  turns, warnings, cardActionTrace,
+  turns, warnings, cardActionTrace, turnPhaseTrace,
   nativePerCardMetricsAvailable:false,
   extraTurnsObserved:nativeExtraTurns,
   extraTurnsSimulated:Math.max(0,Number(state.turnLimit)-initialLimit),
