@@ -128,7 +128,7 @@ int main(){
             self.assertEqual(progress['score'],12345)
             self.assertTrue(progress['dataComplete'])
             self.assertEqual(progress['turnsContainerShape'],'array-shaped')
-            self.assertEqual(events[3]['turnsContainerShape'],'list-or-unknown')
+            self.assertEqual(events[2]['turnsContainerShape'],'list-or-unknown')
             turn=progress['turns'][0]
             self.assertEqual((turn['turn'],turn['score'],turn['stamina']),(1,12345,27))
             self.assertEqual(turn['hand'][0]['id'],'card')
