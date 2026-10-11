@@ -431,6 +431,16 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.19: v1.5.18 on-device regression and initial-layout diagnostics
+
+The 2026-10-11 v1.5.18 user capture recorded **9 contest sessions, 55 selected-progress events, 95 append-only turns, 9 results and 9 setup events**, with zero incomplete reads, write errors or file-limit drops. All terminal native scores matched the final native progress scores and their Vo/Da/Vi sums. **Every** `nativeInitialState`, `examParameterSnapshot`, and `examSequenceSnapshot` returned `il2cpp-reflection-exports-unavailable`; `randomStateBeforeSetUp` was null in all nine sessions. These are setup-acquisition failures, not failures to save the existing gameplay log.
+
+The nine post-`SetUpExam` RNG states were independently confirmed by advancing XorShift32 from the captured Seed **5, 7 or 9 times**. The Web comparison and downloadable report now include `rngVerification.status` and `advanceSteps` per session, plus `summary.setupRngVerified`. These values prove the **post-setup RNG chain only**; they do not establish the pre-shuffle deck RNG state, full scoring, or contest AI DFS parity.
+
+v1.5.19 first resolves IL2CPP metadata symbols through `dlsym` and the module's existing ELF dynamic-symbol fallback. If required metadata exports are missing, the setup event now includes their names in `missingExports` and a bounded `rawLayout` with a 384-byte root hex dump plus at most 24 valid pointer targets sampled for 64 bytes each. All memory is read through the existing guarded `process_vm_readv` transport; no managed game logic is executed. The raw bytes are **opaque offline evidence** and never treated as a recognized deck or valid simulator inputs.
+
+Device verification of the v1.5.19 setup fallback remains pending. Install this version, fully restart the game, and send **only the resulting `gakumas-contest-capture.json`**. Until the missing native fields can be decoded and the full effects/DFS replay is complete, no true full-score match verdict is issued.
+
 ## v1.5.18: native setup evidence and guarded independent replay
 
 **This is an experimental data-acquisition build, not yet proof of full contest score parity.**
