@@ -8,6 +8,10 @@ on:
     paths:
       - "tools/contest_catalog_provider.mjs"
       - "tools/build_contest_catalog.mjs"
+      - "tools/compare_contest_capture.mjs"
+      - "web/contest_native_setup.js"
+      - "web/contest_native_replay.js"
+      - "web/contest_capture_compare.js"
       - ".github/workflows/contest-catalog.yml"
 
 permissions:
