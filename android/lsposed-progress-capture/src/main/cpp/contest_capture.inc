@@ -12,6 +12,40 @@ bool moveInstalled=false, resultInstalled=false;
 std::atomic<bool> attempted{false};
 thread_local Run* active=nullptr;
 thread_local unsigned readBudget=0;
+// Preserve the first error in each event, including the failed read's context.
+struct ReadFailure {
+    std::string reason, stage;
+    Address address=0;
+    size_t offset=0, requested=0;
+    int sysErrno=0;
+    uint64_t observed=0;
+};
+thread_local ReadFailure firstReadFailure;
+thread_local std::string readStage;
+struct ReadScope {
+    std::string previous;
+    explicit ReadScope(const char* name):previous(readStage) {
+        if(!readStage.empty())readStage+='.';
+        readStage+=name;
+    }
+    ~ReadScope(){readStage=previous;}
+};
+void noteReadFailure(const char* reason,Address a,size_t offset,size_t requested,
+                     int sysErrno=0,uint64_t observed=0) {
+    if(firstReadFailure.reason.empty())
+        firstReadFailure={reason,readStage,a,offset,requested,sysErrno,observed};
+}
+std::string readFailureJson() {
+    if(firstReadFailure.reason.empty())
+        return "{\"reason\":\"decode-incomplete\",\"stage\":\"unknown\"}";
+    const auto& f=firstReadFailure;
+    std::ostringstream s;
+    s<<"{\"reason\":\""<<f.reason<<"\",\"stage\":\""<<f.stage
+     <<"\",\"address\":\"0x"<<std::hex<<f.address<<std::dec
+     <<"\",\"offset\":"<<f.offset<<",\"requestedBytes\":"<<f.requested
+     <<",\"errno\":"<<f.sysErrno<<",\"observed\":"<<f.observed<<"}";
+    return s.str();
+}
 using MoveFn=void(*)(void*,const void*);
 // IL2CPP Nullable<ExamSimulateResult>: 72 bytes, returned through AArch64 x8.
 struct alignas(8) SearchResult { uint64_t words[9]; };
@@ -27,10 +61,20 @@ std::string path(const char* name) {
     #endif
 }
 bool bytes(Address a,size_t offset,void* out,size_t size) {
-    if(!a || a>UINTPTR_MAX-offset || a+offset>UINTPTR_MAX-size || !size || size>4096 || !readBudget)return false;
+    if(!a || a>UINTPTR_MAX-offset || a+offset>UINTPTR_MAX-size || !size || size>4096) {
+        noteReadFailure("invalid-address-or-size",a,offset,size);return false;
+    }
+    if(!readBudget) {noteReadFailure("read-budget-exhausted",a,offset,size);return false;}
     --readBudget;
     iovec local{out,size},remote{reinterpret_cast<void*>(a+offset),size};
-    return syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0)==static_cast<ssize_t>(size);
+    errno=0;
+    const auto n=syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0);
+    if(n!=static_cast<ssize_t>(size)) {
+        noteReadFailure(n<0?"memory-read-failed":"short-read",a,offset,size,
+                        n<0?errno:0,n>=0?static_cast<uint64_t>(n):0);
+        return false;
+    }
+    return true;
 }
 template<class T> bool read(Address a,size_t offset,T& v) {v={};return bytes(a,offset,&v,sizeof(v));}
 template<class T> T local(const SearchResult& r,size_t offset) {
