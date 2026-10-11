@@ -430,6 +430,39 @@ JNI_OnUnload is now logged too, so a Java native-library-loaded message and
 possible unload or map-probe mismatch. It is not proof of missing Java injection.
 
 
+
+## v1.5.15: turn-history read-failure evidence (not a parity fix)
+
+The October 11 v1.5.14 **device export** contains 9 contest runs, 53 selected
+progress records and 9 final results. All 53 progress records contain
+\`turns: null\` and \`dataComplete: false\`, with 53 incomplete reads and zero
+file write failures. Selected actions, scores and end results were captured,
+but no turn log, card/effect/RNG history or simulator comparison was verified.
+
+For each incomplete progress record, v1.5.15 adds \`readFailure\` with
+\`reason\`, \`stage\`, \`address\`, \`offset\`, \`requestedBytes\`, \`errno\`
+and \`observed\`. \`stage: "turns.list.*"\` indicates failure while
+decoding the outer turn-history list, while \`selectedIndexes.array.*\`
+identifies an earlier index-array failure. A bad list count, backing-array
+capacity, short/failed kernel read, read budget and a list mutated during
+a read are reported separately. The first failure is retained even when
+additional optional fields cannot be read. All reads remain bounded,
+passive, and preserve the caller's \`errno\`.
+
+Existing score and index fields and successfully decoded partial objects
+are retained when later fields fail. No speculative pointer-offset fallback
+is attempted; the IL2CPP layout must be confirmed from new device evidence
+before a targeted fix. The boolean \`gameCaptureVerified\` is still hard-coded
+false in this diagnostic path.
+
+To continue, rebuild the Native library into the existing recovered APK
+(requires the exact v1.5.11 base APK, Android SDK/NDK and recovery signing
+key), install v1.5.15, restart the game, run one contest, use "コンテスト記録を保存",
+and inspect the first \`contest-progress.readFailure\`. CI can validate
+the C++ host harness but cannot reproduce real game heap addresses or
+produce the recovered APK without the required local base file. Do not
+interpret a passing CI run as a device capture success.
+
 ## v1.5.14: selected contest progress and results
 
 The launcher now exports `gakumas-contest-capture.json` through Android's file
