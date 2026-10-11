@@ -276,15 +276,23 @@ struct API {
 const API& api(){
     static const API p=[]{
         API p;
-        p.getFields=reinterpret_cast<GetFields>(dlsym(RTLD_DEFAULT,"il2cpp_class_get_fields"));
-        p.fieldName=reinterpret_cast<FieldName>(dlsym(RTLD_DEFAULT,"il2cpp_field_get_name"));
-        p.fieldOffset=reinterpret_cast<FieldOffset>(dlsym(RTLD_DEFAULT,"il2cpp_field_get_offset"));
-        p.fieldType=reinterpret_cast<FieldType>(dlsym(RTLD_DEFAULT,"il2cpp_field_get_type"));
-        p.typeKind=reinterpret_cast<TypeKind>(dlsym(RTLD_DEFAULT,"il2cpp_type_get_type"));
-        p.className=reinterpret_cast<ClassName>(dlsym(RTLD_DEFAULT,"il2cpp_class_get_name"));
-        p.classFromType=reinterpret_cast<ClassFromType>(dlsym(RTLD_DEFAULT,"il2cpp_class_from_type"));
-        p.elementClass=reinterpret_cast<ElementClass>(dlsym(RTLD_DEFAULT,"il2cpp_class_get_element_class"));
-        p.valueType=reinterpret_cast<ValueType>(dlsym(RTLD_DEFAULT,"il2cpp_class_is_valuetype"));
+        // libil2cpp may be loaded RTLD_LOCAL. NOLOAD only returns an already
+        // mapped handle and must never load a second game library.
+        void* existing=dlopen("libil2cpp.so",RTLD_NOW|RTLD_NOLOAD);
+        const auto resolve=[&](const char* symbol)->void* {
+            void* entry=dlsym(RTLD_DEFAULT,symbol);
+            return entry?entry:(existing?dlsym(existing,symbol):nullptr);
+        };
+        p.getFields=reinterpret_cast<GetFields>(resolve("il2cpp_class_get_fields"));
+        p.fieldName=reinterpret_cast<FieldName>(resolve("il2cpp_field_get_name"));
+        p.fieldOffset=reinterpret_cast<FieldOffset>(resolve("il2cpp_field_get_offset"));
+        p.fieldType=reinterpret_cast<FieldType>(resolve("il2cpp_field_get_type"));
+        p.typeKind=reinterpret_cast<TypeKind>(resolve("il2cpp_type_get_type"));
+        p.className=reinterpret_cast<ClassName>(resolve("il2cpp_class_get_name"));
+        p.classFromType=reinterpret_cast<ClassFromType>(resolve("il2cpp_class_from_type"));
+        p.elementClass=reinterpret_cast<ElementClass>(resolve("il2cpp_class_get_element_class"));
+        p.valueType=reinterpret_cast<ValueType>(resolve("il2cpp_class_is_valuetype"));
+        if(existing)dlclose(existing);
         return p;
     }();
     return p;
