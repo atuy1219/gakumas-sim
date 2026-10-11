@@ -1475,7 +1475,8 @@ $("contest-capture-file").addEventListener("change", async (event) => {
           : row.comparison.status === "match" ? "全項目一致"
             : row.comparison.status === "partial-match" ? "暫定一致（未比較項目・乱数開始位置の検証あり）"
               : row.realDevice.dataComplete
-                ? "再計算不可: " + (row.normalization?.reasons?.join(", ") || "初期条件不足")
+                ? "再計算不可: " + (row.warnings.find(w=>w.startsWith("simulator-execution-failed:"))
+                   || row.normalization?.reasons?.join(", ") || "初期条件不足")
                   + (row.rngVerification.status === "match" ? " / RNG +" + row.rngVerification.advanceSteps + "回検証" : "")
                 : "取得欠損"
       ];

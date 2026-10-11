@@ -121,7 +121,7 @@ const fixedSetup=normalizeNativeContestSetup({
  ...normalizedSession,setup:{...normalizedSession.setup,randomStateBeforeSetUp:null}
 },{examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]}});
 assert.equal(fixedSetup.available,false);
-assert.ok(fixedSetup.reasons.includes("pre-setup-random-state-missing"));
+assert.ok(fixedSetup.reasons.includes("initial-shuffle-random-state-unavailable"));
 // Nine real native SetUpExam RNG observations from v1.5.18. Validate the
 // complete XorShift32 chain, not a guessed or copied progress score.
 const nativeSetupRngVectors=[
@@ -332,7 +332,8 @@ for(const [seed,turnLimit,vocal,dance,visual,attributes] of seedTurnVectors){
   ...masterDrawSession,
   start:{...masterDrawSession.start,seed,nativeInitialState:{
    ...masterDrawSession.start.nativeInitialState,root:{$type:"ExamData",fields:nativeFields}}},
-  setup:{...masterDrawSession.setup,randomStateObserved:advanceXorshift32(seed,turnLimit-3),
+  setup:{...masterDrawSession.setup,randomStateBeforeSetUp:null,
+   randomStateObserved:advanceXorshift32(seed,turnLimit-3),
    examParameterSnapshot:{root:{$type:"ExamParameterModel",fields:{
     // Not a turn-target array. Misidentifying this is the v1.5.23 bug.
     "<ConfigParameterTypeOrderedList>k__BackingField":{$type:"List`1",count:3,
@@ -346,6 +347,9 @@ for(const [seed,turnLimit,vocal,dance,visual,attributes] of seedTurnVectors){
   itemById:new Map(),itemEffectById:new Map()}});
  assert.equal(found.available,true,JSON.stringify(found.reasons));
  assert.equal(found.candidates.turnParameterTypesSource,"seed-weights-verified-xorshift32");
+ assert.equal(found.input.metadata.rngProvenance,"verified-seed-post-setup-hypothesis");
+ assert.equal(found.input.metadata.verifiedPreShuffle,false);
+ assert.equal(found.input.randomStateAtStart,advanceXorshift32(seed,turnLimit-3));
  assert.deepEqual(found.input.initialParameters.turnParameterTypes,attributes.map(a=>enumToName[a]));
  // A captured after-setup state that does not match the derivation is not
  // evidence for any particular turn scheduling algorithm.
@@ -355,4 +359,16 @@ for(const [seed,turnLimit,vocal,dance,visual,attributes] of seedTurnVectors){
  assert.equal(rejected.available,false);
  assert.equal(rejected.candidates.turnParameterTypesSource,null);
 }
+// A native thirteenth turn is not an error merely because the *base*
+// turn-attribute vector contains twelve items. But it must have been granted
+// by a simulated card effect; never fake an extra turn to fit the log.
+const missingExtraTurnSession={...neutralSession,
+ turns:[...neutralSession.turns,{turn:2,hand:[],commands:[]}]};
+const noExtraReplay=replayObservedContest(missingExtraTurnSession,nativeInput,{
+ cardById:neutralMasters,
+});
+assert.equal(noExtraReplay.extraTurnsObserved,1);
+assert.equal(noExtraReplay.extraTurnsSimulated,0);
+assert.equal(noExtraReplay.warnings[0].phase,"extra-turn-not-generated");
+assert.equal(noExtraReplay.result,undefined);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
