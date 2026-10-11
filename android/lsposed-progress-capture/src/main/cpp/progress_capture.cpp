@@ -1891,3 +1891,9 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
         getpid(), getuid());
     return JNI_VERSION_1_6;
 }
+
+extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM*, void*) {
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "JNI_OnUnload native shared object unloaded pid=%d uid=%d",
+        getpid(), getuid());
+}
