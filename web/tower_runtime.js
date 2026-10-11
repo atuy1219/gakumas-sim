@@ -3177,6 +3177,33 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     onceOnly: Boolean(card.onceOnly),
     forced,
   };
+  // Optional independent replay telemetry. Captures *simulated* values,
+  // never copies observed native outcomes into the state machine.
+  let priorStep = null;
+  let priorEffectCount = 0;
+  const recordCardPhase = (phase) => {
+    if (!state.captureActionTelemetry) return;
+    const exam = state.exam;
+    const current = {
+      score: Number(exam.parameter ?? 0),
+      stamina: Number(exam.stamina ?? 0),
+      block: Number(exam.block ?? 0),
+      review: Number(exam.review ?? 0),
+      aggressive: Number(exam.aggressive ?? 0),
+      playable: Number(state.playsRemaining ?? 0),
+    };
+    const changes = priorStep ? Object.fromEntries(
+      Object.keys(current).map(key => [key, current[key] - priorStep[key]]),
+    ) : null;
+    event.actionTelemetry ??= [];
+    event.actionTelemetry.push({
+      phase, ...current, delta: changes,
+      effects: (event.effects ?? []).slice(priorEffectCount),
+    });
+    priorStep = current;
+    priorEffectCount = (event.effects ?? []).length;
+  };
+  recordCardPhase("before-card");
   const cardTrigger = checkRuntimeCardTrigger(state, card.playProduceExamTriggerId, card, event);
   if (!cardTrigger.supported) {
     rememberUnsupported(state, `play-trigger:${card.playProduceExamTriggerId}`);
@@ -3194,6 +3221,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   const costChange = state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)));
   if (!ignoreCost) event.cost.push(...payCardCost(state.exam, costChange ? { ...card, temporaryStaminaConsumptionFix: costChange.value } : card));
   if (!ignoreCost && costChange) costChange.count -= 1;
+  recordCardPhase("after-cost");
   const previousPlayingCard = state.playingCard ?? null;
   const previousEffectOwnerCard = state.effectOwnerCard;
   const previousEffectSource = state.effectSource;
@@ -3237,6 +3265,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     // Reuse the eligibility snapshot taken before costs and play triggers.
     const canExecuteCardEffects = !card.isRestrict && cardTrigger.supported && cardTrigger.triggered;
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
+    recordCardPhase("before-main-card-effects-after-card-play-triggers");
     const repeatBuff = state.cardEffectPlayCountBuff;
     const repeatMatches = Boolean(
       canExecuteCardEffects
@@ -3259,10 +3288,13 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
         // first execution; repeat-buff executions keep native effect behavior.
         if (n === 0 && previouslyPlayed && entry.isOncePlayEffect) continue;
         applyCardEffectEntry(state, entry, event, card);
+        recordCardPhase("card-effect-"+n+"-"+String(entry.produceExamEffectId ?? entry.id ?? "unknown"));
       }
     }
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
+    recordCardPhase("after-card-play-triggers");
     resolveFullPowerAfterCard(state, event);
+    recordCardPhase("after-full-power-resolution");
 
     if (![state.hand, state.deck, state.discard, state.lost, state.hold].some((pool) => pool.includes(card))) {
       addRuntimeCardAt(state, card, card.onceOnly ? "Lost" : "Grave", event, "playing");
