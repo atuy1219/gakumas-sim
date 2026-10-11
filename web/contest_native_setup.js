@@ -46,6 +46,7 @@ function elements(value){
 // They are NOT upgrade counts; absence is unknown, not a vector of zeros.
 function resolveCustomizationCounts(id, raw, rules){
  if(!Array.isArray(raw))return {available:false,customizes:[]};
+ if(raw.length===0)return {available:true,customizes:[]};
  const rule=rules?.get?.(id);
  const ids=rule?.customizeIds;
  if(!Array.isArray(ids)||ids.length!==raw.length || !raw.every(n=>Number.isInteger(n)&&n>=0))
