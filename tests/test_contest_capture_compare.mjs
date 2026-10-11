@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { compareContestCapture, reconstructContestCapture } from "../web/contest_capture_compare.js";
+import { compareContestCapture, reconstructContestCapture, verifyContestSetupRng } from "../web/contest_capture_compare.js";
 import { replayObservedContest, ContestReplayUnsupported } from "../web/contest_native_replay.js";
 import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
 import { createTowerTurnState, drawTowerTurn } from "../web/tower_runtime.js";
@@ -118,4 +118,20 @@ const fixedSetup=normalizeNativeContestSetup({
 },{examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]}});
 assert.equal(fixedSetup.available,false);
 assert.ok(fixedSetup.reasons.includes("pre-setup-random-state-missing"));
+// Nine real native SetUpExam RNG observations from v1.5.18. Validate the
+// complete XorShift32 chain, not a guessed or copied progress score.
+const nativeSetupRngVectors=[
+ [32569095,1938114379,7],[1728841425,3550892691,7],
+ [988836711,2398991445,7],[275327106,2834979204,9],
+ [1331584265,1347158072,9],[451864063,1297780487,9],
+ [1983240382,3042704686,5],[1178990414,32525392,5],
+ [714590827,3952157581,5],
+];
+for(const [seed,randomStateObserved,steps] of nativeSetupRngVectors){
+ const verification=verifyContestSetupRng({start:{seed},setup:{randomStateObserved}});
+ assert.equal(verification.status,"match");
+ assert.equal(verification.advanceSteps,steps);
+ assert.equal(verification.verifiedPreShuffle,false);
+}
+assert.equal(verifyContestSetupRng({start:{seed:1},setup:{randomStateObserved:null}}).status,"unavailable");
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
