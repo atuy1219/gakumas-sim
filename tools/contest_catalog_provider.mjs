@@ -2,7 +2,7 @@
 // The capture describes the game; this module never uses captured scores as masters.
 import { createHash } from "node:crypto";
 import { parseProduceCardCatalogYaml } from "../web/engine.js";
-import { parseCustomizeCatalog, parseGrowEffectCatalog } from "../web/memory_judgement.js";
+import { parseCustomizeCatalog, parseGrowEffectCatalog, parseCardMemoryRules } from "../web/memory_judgement.js";
 import {
   parseExamSettingCatalog, parseProduceItemCatalogForExam,
   parseProduceItemEffectCatalog, parseProduceExamStatusEnchantCatalog,
@@ -50,6 +50,8 @@ export function parseContestMasters(textByFile, manifest = {}) {
   }
   const get = key => textByFile[CONTEST_MASTER_FILES[key]];
   const cardVariants = parseProduceCardCatalogYaml(get("cards"));
+  const cardCustomizeRules = [...parseCardMemoryRules(get("cards")).values()]
+    .map(rule=>({id:rule.id,customizeIds:[...rule.customizeIds],maxCustomizeCount:rule.maxCustomizeCount}));
   const items = parseProduceItemCatalogForExam(get("items"));
   const itemEffects = parseProduceItemEffectCatalog(get("itemEffects"));
   const examSettings = parseExamSettingCatalog(get("examSettings"));
@@ -91,7 +93,7 @@ export function parseContestMasters(textByFile, manifest = {}) {
       gameVersionVerified: false,
       disclaimer: "Temporary public YAML masters; equality with the captured game build is NOT verified",
     },
-    cards, cardVariants, items, itemEffects, examSettings,
+    cards, cardVariants, cardCustomizeRules, items, itemEffects, examSettings,
     examEffects, examStatusEnchants, examTriggers, cardSearches,
     cardRandomPools, cardStatusEnchants, cardPools, cardCustomizes, cardGrowEffects,
   };
