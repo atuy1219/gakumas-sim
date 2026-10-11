@@ -148,6 +148,7 @@ public final class DiagnosticActivity extends Activity {
             .setMessage("保存先の所有者がroot:rootになっていると、学マスから"
                 + "診断ファイルを生成できません。診断専用ディレクトリ"
                 + "とフック設定ファイルの所有者・SELinuxラベルのみ修復します。"
+                + "既存のフック設定は安全値0に戻します。"
                 + "ゲームのセーブデータは変更しません。")
             .setPositiveButton("修復する", (dialog, which) -> repairCaptureDirectory())
             .setNegativeButton("キャンセル", null).show());
@@ -247,8 +248,15 @@ public final class DiagnosticActivity extends Activity {
     private void repairCaptureDirectory() {
         worker.execute(() -> {
             try {
-                final String result = runRoot(diagnosticDirectoryRepairCommand());
-                main.post(() -> display.append("\n保存先修復成功: " + result
+                String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
+                String safe = " && uid=$(stat -c %u '/data/user/0/" + GAME + "/files')"
+                    + " && gid=$(stat -c %g '/data/user/0/" + GAME + "/files')"
+                    + " && printf '0\\n' > '" + dir + "/native_hookmask.txt'"
+                    + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
+                    + " && chmod 0600 '" + dir + "/native_hookmask.txt'"
+                    + " && restorecon '" + dir + "/native_hookmask.txt'";
+                final String result = runRoot(diagnosticDirectoryRepairCommand() + safe);
+                main.post(() -> display.append("\n保存先修復成功（フック設定0）: " + result
                     + "\n学マスの完全終了・再起動後に診断を再確認してください。"));
             } catch (Exception error) {
                 main.post(() -> display.append("\n保存先修復失敗: " + error.getMessage()));
