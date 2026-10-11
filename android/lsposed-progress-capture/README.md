@@ -1,6 +1,16 @@
 # Gakumas Progress Capture (LSPosed)
 
-## Current checkpoint: v1.5.4 (device verification pending)
+## Current checkpoint: v1.5.5 (scoped Native execution observed)
+
+User device evidence on 2026-10-11 confirms root visibility, module-local
+self-test (original 46 / detoured 47), and nine SetUpExam replacement executions
+in the current PID with matching v3.4.1 Build ID. All nine returns were
+0x07EFD3B4 (contest-auto calculation); no managed objects were read. This does
+not establish rehearsal classification, other modes, or RNG/card/effect/score
+capture. Old lifecycle/card/trace files are isolated as historical evidence.
+The compact clipboard JSON includes bounded, PID-scoped entry probe samples.
+An empty logcat result does not contradict current Native execution records.
+
 
 
 The v1.5.3 device screenshot could not see the game data, whereas Termux root

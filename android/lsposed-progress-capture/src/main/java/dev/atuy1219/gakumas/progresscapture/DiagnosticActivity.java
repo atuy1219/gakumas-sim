@@ -443,18 +443,40 @@ public final class DiagnosticActivity extends Activity {
         return x;
     }
 
+    private static JSONObject currentRecord(String text, String name,
+        Map<String, String> preflight, JSONObject historical, JSONArray warnings) throws JSONException {
+        if (text.trim().isEmpty()) return null;
+        try {
+            JSONObject record = new JSONObject(text);
+            String scope = DiagnosticEvidence.scope(preflight.get("gamePid"), record.optInt("pid", -1), -1);
+            if ("current-process".equals(scope)) return record;
+            historical.put(name, new JSONObject().put("scope", scope).put("record", record));
+            warnings.put("historical-or-unattributed-source:" + name);
+        } catch (JSONException malformed) {
+            warnings.put("invalid-" + name);
+        }
+        return null;
+    }
+
     private static JSONObject makeReport(String trace, String cards, String sessionJson, String metadataJson,
         Map<String, SourceFile> sources, Map<String, String> preflight) throws Exception {
         JSONArray events = new JSONArray();
         JSONArray warnings = new JSONArray();
         JSONObject traceStart = null;
         JSONObject lastSnapshot = null;
+        JSONObject historical = new JSONObject();
+        int ignoredEvents = 0;
         for (String line : trace.split("\n")) {
             if (line.trim().isEmpty()) continue;
             try {
                 JSONObject event = new JSONObject(line);
                 if (!event.has("event")) {
                     warnings.put("invalid-event-schema");
+                    continue;
+                }
+                if (!"current-process".equals(DiagnosticEvidence.scope(
+                    preflight.get("gamePid"), event.optInt("pid", -1), -1))) {
+                    ignoredEvents++;
                     continue;
                 }
                 events.put(event);
@@ -514,11 +536,8 @@ public final class DiagnosticActivity extends Activity {
             }
         }
 
-        JSONObject cardsPayload = null;
-        if (!cards.trim().isEmpty()) {
-            try { cardsPayload = new JSONObject(cards); }
-            catch (JSONException error) { warnings.put("invalid-produce-cards-json"); }
-        }
+        if (ignoredEvents > 0) warnings.put("ignored-historical-or-unattributed-trace-events:" + ignoredEvents);
+        JSONObject cardsPayload = currentRecord(cards, "produce_cards.json", preflight, historical, warnings);
         if (traceStart == null || !traceStart.optBoolean("hooksInstalled", false)) {
             warnings.put("trace-hooks-not-confirmed");
         }
@@ -529,28 +548,27 @@ public final class DiagnosticActivity extends Activity {
         JSONObject environment = new JSONObject();
         environment.put("origin", "android-module");
         String entryProbeJson = content(sources, "exam_entry_probe_status.json");
-        if (!entryProbeJson.isEmpty()) {
-            try { environment.put("entryProbe", new JSONObject(entryProbeJson)); }
-            catch (JSONException error) { warnings.put("invalid-entry-probe-status"); }
-        }
+        JSONObject probe = currentRecord(entryProbeJson, "exam_entry_probe_status.json", preflight, historical, warnings);
+        if (probe != null) environment.put("entryProbe", probe);
+        // These legacy hooks are unreachable for ALL accepted masks. Preserve
+        // their files as historical evidence, never advertise them as live.
         String hookResolution = content(sources, "exam_lifecycle_status.json");
-        if (!hookResolution.isEmpty()) {
-            try { environment.put("hookResolution", new JSONObject(hookResolution)); }
+        if (!hookResolution.trim().isEmpty()) {
+            try { historical.put("exam_lifecycle_status.json", new JSONObject()
+                .put("scope", "legacy-hooks-disabled").put("record", new JSONObject(hookResolution))); }
             catch (JSONException error) { warnings.put("invalid-hook-resolution"); }
         }
+        environment.put("legacyDetailedCaptureEnabled", false);
         environment.put("nativeBuildId",
             traceStart == null ? JSONObject.NULL : traceStart.optString("libil2cppBuildId", ""));
         environment.put("nativeSessionStarted",
             traceStart == null ? JSONObject.NULL : traceStart.optLong("capturedAtUnixMs"));
         environment.put("captureSha256", sha256(trace));
-        if (!sessionJson.trim().isEmpty()) {
-            try { environment.put("session", new JSONObject(sessionJson)); }
-            catch (JSONException error) { warnings.put("invalid-session-status"); }
-        }
-        if (!metadataJson.trim().isEmpty()) {
-            try { environment.put("runtimeMetadataInventory", new JSONObject(metadataJson)); }
-            catch (JSONException error) { warnings.put("invalid-runtime-metadata-inventory"); }
-        }
+        JSONObject session = currentRecord(sessionJson, "exam_session_status.json", preflight, historical, warnings);
+        if (session != null) environment.put("session", session);
+        JSONObject inventory = currentRecord(metadataJson, "exam_runtime_inventory.json", preflight, historical, warnings);
+        if (inventory != null) environment.put("runtimeMetadataInventory", inventory);
+        environment.put("historicalRecords", historical);
         for (String config : new String[]{"bootstrap_status.json", "capture_status.json", "native_bootstrap_status.json", "native_self_test.json"}) {
             String text = content(sources, config);
             if (!text.trim().isEmpty()) {
@@ -565,19 +583,44 @@ public final class DiagnosticActivity extends Activity {
         nativeInit.put("gameCaptureVerified", false);
         try {
             JSONObject state = nativeStatus.isEmpty() ? new JSONObject() : new JSONObject(nativeStatus);
-            String pid = String.valueOf(state.optInt("pid", -1));
-            boolean current = pid.equals(preflight.get("gamePid"));
+            int pid = state.optInt("pid", -1);
+            int uid = state.optInt("uid", -1);
+            String scope = DiagnosticEvidence.scope(preflight.get("gamePid"), pid, pid);
+            boolean current = "current-process".equals(scope);
+            boolean lastRun = "last-known-run".equals(scope);
+            nativeInit.put("recordedPid", pid);
+            nativeInit.put("recordScope", scope);
             nativeInit.put("currentProcess", current);
-            nativeInit.put("status", !current ? "stale-or-unobserved"
-                : !state.optBoolean("jniLoaded") ? "jni-not-observed"
-                : state.optBoolean("nativeApiAccepted") ? "native-api-accepted" : "jni-loaded-native-api-missing");
+            String initialization = !state.optBoolean("jniLoaded") ? "jni-not-observed"
+                : state.optBoolean("nativeApiAccepted") ? "native-api-accepted" : "jni-loaded-native-api-missing";
+            nativeInit.put("status", pid <= 0 ? "unobserved" : current ? initialization
+                : (lastRun ? "last-run-" : "historical-") + initialization);
             if (!selfTestStatus.isEmpty()) {
                 JSONObject test = new JSONObject(selfTestStatus);
-                nativeInit.put("selfTest", current && pid.equals(String.valueOf(test.optInt("pid", -2)))
-                    ? test.optString("status", "unverified") : "stale");
+                boolean passed = state.optBoolean("jniLoaded") && state.optBoolean("nativeApiAccepted")
+                    && DiagnosticEvidence.selfTestPassed(test.optString("status"), test.optString("scope"),
+                        test.optBoolean("selfTestTouchesGameFunctions", true),
+                        test.optInt("pid", -2), pid, test.optInt("uid", -2), uid,
+                        test.optBoolean("installed"), test.optBoolean("backupAvailable"),
+                        test.optInt("replacementCalls", -1), test.optInt("baseline", Integer.MIN_VALUE),
+                        test.optInt("originalResult", Integer.MAX_VALUE), test.optInt("detouredResult", Integer.MIN_VALUE));
+                nativeInit.put("recordedSelfTestPassed", passed);
+                String result = passed ? "passed" : "passed".equals(test.optString("status"))
+                    ? "invalid-evidence" : test.optString("status", "unverified");
+                boolean sameRun = pid > 0 && pid == test.optInt("pid", -2) && uid == test.optInt("uid", -2);
+                nativeInit.put("selfTest", !sameRun ? "unattributed-or-other-run"
+                    : current ? result : (lastRun ? "last-run-" : "historical-") + result);
             }
         } catch (JSONException malformed) {
             warnings.put("invalid-native-initialization-status");
+        }
+        if (!entryProbeJson.isEmpty()) {
+            try {
+                JSONObject record = new JSONObject(entryProbeJson);
+                record.put("recordScope", DiagnosticEvidence.scope(preflight.get("gamePid"),
+                    record.optInt("pid", -1), nativeInit.optInt("recordedPid", -1)));
+                environment.put("entryProbeRecord", record);
+            } catch (JSONException malformed) { warnings.put("invalid-entry-probe-status"); }
         }
         environment.put("nativeInitialization", nativeInit);
         report.put("sources", fileStatuses(sources));
@@ -692,7 +735,7 @@ public final class DiagnosticActivity extends Activity {
                 if (liveFiles.isEmpty()) {
                     fileSummary.append("\n診断: 全ファイルを取得できません。未生成か、保存先へのアクセス不能かを切り分ける必要があります。");
                     if ("none".equals(lastPreflight.get("gamePid"))) {
-                        fileSummary.append("学マスが起動していません。起動後に再確認してください。");
+                        fileSummary.append("診断では学マスPIDを検出できていません。起動状態を確認してください。");
                     } else if ("no".equals(lastPreflight.get("moduleLibraryMapped"))) {
                         fileSummary.append("ゲームプロセス内にNativeモジュールが確認できません。");
                         fileSummary.append("APK内直接ロードではmapsにSO名が出ない場合があります。初期化JSON／ログを確認してください。");
@@ -723,13 +766,19 @@ public final class DiagnosticActivity extends Activity {
                     String entryProbes = content(sources, "exam_entry_probes.jsonl");
                     if (!entryProbes.isEmpty()) {
                         JSONArray probeEvents = new JSONArray();
+                        JSONObject initEvidence = report.getJSONObject("environment").getJSONObject("nativeInitialization");
+                        String probePid = lastPreflight.get("gamePid");
+                        boolean priorRun = "none".equals(probePid);
+                        if (priorRun) probePid = String.valueOf(initEvidence.optInt("recordedPid", -1));
+                        report.put("entryProbeEventScope", priorRun ? "last-known-run" : "current-process");
                         for (String line : entryProbes.split("\\r?\\n")) {
                             if (line.trim().isEmpty()) continue;
                             try {
                                 JSONObject event = new JSONObject(line);
-                                // The JSONL is retained across restarts. Old or
-                                // pre-v1.5.2 untagged events cannot prove this run.
-                                if (String.valueOf(event.optInt("pid", -1)).equals(lastPreflight.get("gamePid")))
+                                // Last-run samples remain useful when stopped,
+                                // but are explicitly distinct from current ones.
+                                if (event.optInt("pid", -1) > 0
+                                    && String.valueOf(event.optInt("pid", -1)).equals(probePid))
                                     probeEvents.put(event);
                             }
                             catch (JSONException malformed) {
@@ -751,7 +800,11 @@ public final class DiagnosticActivity extends Activity {
                     JSONObject init = report.getJSONObject("environment").getJSONObject("nativeInitialization");
                     fileSummary.append("\nNative初期化: ").append(init.optString("status"))
                         .append("\nNative自己テスト: ").append(init.optString("selfTest", "未実行"))
+                        .append("\n記録PID: ").append(init.optInt("recordedPid", -1))
+                        .append(" / ").append(init.optString("recordScope", "unobserved"))
                         .append("\n（ゲーム関数のログ取得・正常動作は別途検証が必要）\n");
+                    if ("none".equals(lastPreflight.get("gamePid")))
+                        fileSummary.append("学マスPIDは今回の検査では未検出です。last-runは最後の実行記録です。\n");
                     StringBuilder message = new StringBuilder(fileSummary);
                     message.append("\n診断ステータス: ").append(comparison.getString("status")).append("\n");
                     message.append("RNG比較件数: ").append(comparison.getInt("comparedRandomCalls")).append("\n");
@@ -766,11 +819,19 @@ public final class DiagnosticActivity extends Activity {
                         .optJSONObject("hookResolution");
                     JSONObject probe = report.getJSONObject("environment")
                         .optJSONObject("entryProbe");
+                    JSONObject recordedProbe = report.getJSONObject("environment").optJSONObject("entryProbeRecord");
+                    if (recordedProbe != null) {
+                        message.append("SetUpExam記録: ").append(recordedProbe.optString("recordScope"))
+                            .append(" / PID ").append(recordedProbe.optInt("pid", -1))
+                            .append(" / callsObserved=").append(recordedProbe.optInt("callsObserved", 0))
+                            .append(" / recordedSamples=").append(recordedProbe.optInt("recordedSamples", 0)).append("\n");
+                    }
                     if (probe != null) {
                         message.append("SetUpExam呼出元プローブ: ")
                             .append(probe.optBoolean("installed", false) ? "installed" : "unverified")
                             .append("\n");
                     }
+                    message.append("旧詳細フック（StartExam等）: 無効。保存ファイルは現在の稼働証拠に使用しません。\n");
                     if (hooks != null) {
                         message.append("ExamSequence.StartExam: ")
                             .append(hooks.optBoolean("startInstalled", false) ? "installed" : "unverified")
@@ -863,9 +924,13 @@ public final class DiagnosticActivity extends Activity {
                 JSONObject environment = report.optJSONObject("environment");
                 if (environment != null) {
                     for (String name : new String[]{"nativeInitialization", "bootstrap_status.json",
-                        "capture_status.json", "native_bootstrap_status.json", "native_self_test.json"}) {
+                        "capture_status.json", "native_bootstrap_status.json", "native_self_test.json", "entryProbeRecord"}) {
                         if (environment.has(name)) compact.put(name, environment.get(name));
                     }
+                }
+                if (report.has("entryProbeEvents")) {
+                    compact.put("entryProbeEvents", report.get("entryProbeEvents"));
+                    compact.put("entryProbeEventScope", report.optString("entryProbeEventScope"));
                 }
                 if (report.has("injectionLogcat"))
                     compact.put("injectionLogcat", report.get("injectionLogcat"));

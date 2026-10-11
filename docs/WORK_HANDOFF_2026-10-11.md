@@ -1,6 +1,6 @@
 # Work引き継ぎ — 学園アイドルマスター3.4.1 / Native Capture / 2026-10-11
 
-> **最新チェックポイント: v1.5.4 / versionCode 27。** §10が以下の旧版動作説明より優先。実機未接続のためNative自己テスト・ゲームフック・モード別取得の実測確認は未完了。PRはDraftを維持する。
+> **最新確認版: v1.5.5 / versionCode 28。Root参照・モジュール自己テスト・SetUpExamの9回実行をユーザー実機記録で確認。** §11/§12が以下の旧版動作説明より優先。Native自己テストはユーザー実機記録で成功を確認。SetUpExamの動的呼出は確認済み。モード別分類・乱数/カード/効果/スコア取得の実測確認は未完了。PRはDraftを維持する。
 
 > この資料は、新しいChatGPT Workセッションが過去のチャットを参照できなくても継続できるように作成したもの。事実（static verified / on-device observed）、仮説、未検証を区別する。APKのビルド成功を実機機能の完成と混同しないこと。
 
@@ -175,3 +175,37 @@ ExamSequence.StartExam（token 0x060050A9 / RVA 0x080A5354）は実際の試験�
 - 公開前にPython 60テスト、実SDK35/NDK r27c/JDK17でローカルAPKビルドと署名検証。su選択のキャッシュ、scan/read/config共通フラグ、未対応help、失敗したglobalコマンドの非再試行、実ProcessBuilderへの引数と出力をホストで検証。
 - ホストのsuは模擬実装でありAndroidのsetns/KernelSU/Clipboard UIの実動作検証ではない。Termuxと診断アプリの差にnamespaceが関与する有力証拠はあるが、原因の具体的mountと修正の実機成功は未確定。
 - v1.5.4で設定を変更せず、初期化ログ取得→「初期化JSONをコピー」をユーザーから受け取る。まず現在PIDのJNIロードとNative API登録を照合し、それから256自己テストへ進む。乱数・カード・効果・得点の各モード実機取得は未完了、PRはDraft維持。
+
+
+## 11. v1.5.4の実機成功（ユーザー12:24報告）
+
+- su -M -c、Root/init namespaceとも `mnt:[4026533108]`。保存先がexistsとなり、所有者10537:10537、mode700、SELinux Enforcingで初期化ファイルを取得できた。参照障害の解消を実機で確認した。
+- Native記録PID11340/UID10537/observedAtUnixMs1791688963233。JNI loaded=true、Native API accepted=true、effectiveHookMask=256/read。SOの実際のdladdr経路はbase.apk!/lib/arm64-v8a/libgakumas_progress_capture.so。mapsにSO名が見えないだけで未注入と断定してはいけない根拠を実機で得た。
+- self-test: installed/backupAvailable=true、replacementCalls=1、baseline=46、original=46、detoured=47、status=passed、scope=module-local-pure-function。**モジュール内の本物のNative detourとbackupの実行成功を確認した。ゲーム関数のフック成功ではない。**
+- 診断時はgamePid=none。PID11340の記録は最後に観測した実行証拠であり、現在の稼働を証明しない。PIDが未検出の理由（手動終了、OS終了、クラッシュ、検出失敗等）は情報不足で未確定。
+- captureのactual Build IDは77fda4e2a21f23954e2349b83fc113ede408f70b。expectedのc94...は旧カード用であり表示が誤解を招く。128のSetUpExamは別の77...照合を既に使っていた。
+- StartExam/Dispose/SetExamEndComplete installed、inventory109等の画面表示は旧ファイルに由来し、今回のmask256では稼働しない。古い資料を現行成功にしてしまう診断表示を修正する必要がある。
+
+## 12. v1.5.5の変更とローカル検証（§13で実機確認へ更新）
+
+ユーザー最新方針: 「成功したやつ以外はgithubに上げる必要はない」。今後、実機で未確認のコード/APK・試行ダンプをGitHubに上げない。ローカルAPKで確認し、確認できた変更だけ公開する。v1.5.5は§13の成功記録を受領したため確認済み範囲としてGitHubへ反映する。次の新しいゲームフックはローカル検証APKに留める。
+
+- ゲームPID未検出でも、Native初期化と自己テストをlast-runとして保持する。currentProcess=falseは維持し、自己テストのpid/uid/scope/backup/置換回数と数値を再検証する。偽のpassed、別PIDの結果を採用しない。
+- PIDの無い旧lifecycle、inventory、カード、traceを現行比較から隔離する。旧詳細フックは現在受理するどのmaskでも無効。古いStartExam installed表示を出さない。資料はhistoricalRecords等に保持する。PID再利用対策の開始時刻トークンは依然未実装。
+- expectedBuildId表示を3.4.1の77...へ修正。旧c94...定数はLegacyCardBuildIdとして旧RVA用のまま保持し、RVAを77...へ流用しない。buildIdCheck pending/matched/mismatchを明記。mask256のphaseはmodule-self-test-only、128は実際のprobe設置結果を表示し、mismatchでは設置しない。
+- 既存128のRVA/ABI/caller whitelistは変更していない。元APKから16メソッド/20 BL参照を再照合し、実機actual Build IDも同じと確認した。**ゲームABIの動的検証はこれから。**
+- 初期化コピーJSONにentryProbeRecordと最大128件のPID別entryProbeEventsを含める。ゲームPID未検出時は最後のNative記録PIDのサンプルとしてタグを付け、他PID/無印の古いイベントを混ぜない。managed objectsは読まない、modeVerifiedはfalseのまま。
+- ローカルPython 64テスト、Native -Wall/-Wextra/-Werror、SDK35/NDK r27c/JDK17 APKビルドと署名検証。新しいレポート回帰テストは本番makeReportを実行し、Android Process.myUidだけをstub、実org.jsonでPID未検出の今回のケース・別PID・不正backup・古いinstalled/card/RNGの隔離を確認した。本番Native JSON生成関数をホスト実行し、Build ID一致/不一致/未検出を確認。Android UI/SELinux/Dobbyの新ビルド実動作とは区別する。
+- 次の実機: ローカル版を適用し、128を明示選択・学マス完全終了/起動、まずコンテストリハーサル1回のみ観測。初期化ログとコピーJSONからprobe installed/callsObserved/recordedSamples/返り先RVA/現在PIDを照合。現在の状態で無理にモード確定や詳細取得へ進めない。終了操作無しでgamePidが消えた場合はその事実も確認する。
+
+
+## 13. v1.5.5 SetUpExamの実機動作成功（ユーザー12:44報告）
+
+- 現在gamePid=2385/UID10537/user0、mask128/read、JNI loadedとNative API accepted=true、currentProcess=true。Build IDはexpected/actualとも77fda4e2a21f23954e2349b83fc113ede408f70b/matched。
+- ExamSequence.SetUpExam（token060050A4/RVA080A1E90）はinstalled、callsObserved=9、recordedSamples=9。9件すべて現在PID2385/TID8748、callerReturnRva=07EFD3B4、contest-auto-calculation。1791690199772〜1791690202168ms。単なるinstalledではなく、置換関数経由のゲーム関数実行と元関数復帰後のファイル書込を確認。
+- 9件のsequenceアドレスは8種類で同一アドレスの再利用がある。次のセッション管理にはアドレスに加え単調増加generationが必要。参加者/味方敵/セット数はこの記録だけでは判定しない。
+- リハーサル1回を依頼後の記録だが、ユーザーは今回の操作種別を明言していない。rehearsal/modeを確定しない。modeVerified=false/managedObjectsRead=falseを維持。
+- 自己テストファイルは別PID31065/mask256でpassed。現在PID2385/mask128ではnot-requested。unattributed-or-other-runは意図した隔離であり自己テスト失敗ではない。
+- injectionLogcatが空でも、同じPIDのNative API登録と9件の実行記録が存在する。適用範囲/API不備を示す証拠ではない。「適用範囲/API確認」は空ログだけに基づく一般案内であり、このケースでは不適切。次のローカル版で文言を修正。
+- 成功確認済みv1.5.5のコード・テスト・短い証拠要約のみGitHubへ反映。APK/元ゲームバイナリ/生ダンプはコミットしない。PRはDraftを維持。
+- RNG/card/effect/score、オーディション/上位リプレイ/ドル道、実際のコンテスト/リハーサル区別、終了検知は依然未確認。

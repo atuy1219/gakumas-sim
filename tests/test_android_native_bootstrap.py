@@ -1,6 +1,8 @@
 """Host regressions for mask safety, self-test verdicts and root repair scope."""
 from pathlib import Path
+import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +13,50 @@ ANDROID = ROOT / "android/lsposed-progress-capture/src/main"
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_actual_native_status_builder_reports_target_build_and_pending_check(self):
+        native = (ANDROID / "cpp/progress_capture.cpp").read_text()
+        start = native.index("void write_status(")
+        end = native.index("\n\nvoid write_snapshot", start)
+        builder = native[start:end].strip()
+        target = re.search(r'constexpr const char\* kV341BuildId = "([0-9a-f]+)";', native).group(1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "status.cpp"
+            source.write_text(r'''
+#include <atomic>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <unistd.h>
+const char* kTargetPackage = "com.bandainamcoent.idolmaster_gakuen";
+std::atomic<unsigned> g_hook_mask{256};
+std::atomic<bool> g_native_api_accepted{true};
+std::string g_mask_read_status="read";
+std::string process_name() { return kTargetPackage; }
+std::string json_escape(const std::string& value) { return value; }
+bool atomic_write(const std::string&, const std::string& value) { std::cout << value; return true; }
+''' + 'const char* kV341BuildId="' + target + '";\n' + builder + r'''
+int main() {
+    write_status("module-self-test-only", kV341BuildId);
+    write_status("waiting-for-libil2cpp");
+    write_status("entry-probe-build-mismatch", "c94ab574cfe2d62da43ec6167db4d96d429b18f8");
+}
+''')
+            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
+                            str(source), "-o", str(root / "status")], check=True)
+            output = subprocess.check_output([str(root / "status")], text=True)
+            decoder = json.JSONDecoder()
+            values = []
+            while output.strip():
+                output = output.lstrip()
+                value, count = decoder.raw_decode(output)
+                values.append(value)
+                output = output[count:]
+            self.assertEqual([v["buildIdCheck"] for v in values], ["matched", "pending", "mismatch"])
+            self.assertTrue(all(v["expectedBuildId"] == "77fda4e2a21f23954e2349b83fc113ede408f70b" for v in values))
+            self.assertTrue(all(v["gameCaptureVerified"] is False for v in values))
+            self.assertEqual(values[0]["phase"], "module-self-test-only")
+
     def test_masks_and_self_test_require_actual_detour_and_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

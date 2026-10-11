@@ -27,7 +27,8 @@
 namespace {
 
 constexpr const char* kTargetPackage = "com.bandainamcoent.idolmaster_gakuen";
-constexpr const char* kExpectedBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
+// Old card RVAs must never be assigned to the v3.4.1 image.
+constexpr const char* kLegacyCardBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
 constexpr const char* kV341BuildId = "77fda4e2a21f23954e2349b83fc113ede408f70b";
 // Verified by global-metadata.dat v31 token -> Assembly-CSharp.dll
 // Il2CppCodeGenModule.methodPointers -> ELF R_AARCH64_RELATIVE.
@@ -429,7 +430,10 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"maskReadStatus\": \"" << json_escape(g_mask_read_status) << "\",\n"
         << "  \"nativeApiAccepted\": " << (g_native_api_accepted.load() ? "true" : "false") << ",\n"
         << "  \"libil2cppBuildId\": \"" << json_escape(build_id) << "\",\n"
-        << "  \"expectedBuildId\": \"" << kExpectedBuildId << "\",\n"
+        << "  \"expectedBuildId\": \"" << kV341BuildId << "\",\n"
+        << "  \"buildIdCheck\": \"" << (build_id.empty() ? "pending" :
+            build_id == kV341BuildId ? "matched" : "mismatch") << "\",\n"
+        << "  \"gameCaptureVerified\": false,\n"
         << "  \"hooks\": {"
         << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
         << "\"internalMergeFrom\":" << (merge_ok ? "true" : "false") << ","
@@ -1237,7 +1241,7 @@ uintptr_t hooked_move_play_card(
 }
 
 bool install_seed_trace_hooks(const ImageInfo& image) {
-    if (!image.base || image.build_id != kExpectedBuildId) return false;
+    if (!image.base || image.build_id != kLegacyCardBuildId) return false;
     g_il2cpp_base.store(image.base);
 
     bool ok = true;
@@ -1834,7 +1838,11 @@ void install_il2cpp_hooks() {
     // Only install native game hooks when explicitly enabled. A tombstone
     // during ExamSequence.StartExam requires isolating hooks individually.
     if (!hook_enabled(128)) {
-        write_status("safe-mode-no-native-hooks", image.build_id);
+        write_status(hook_enabled(256) ? "module-self-test-only" : "safe-mode-no-game-hooks", image.build_id);
+        return;
+    }
+    if (image.build_id != kV341BuildId) {
+        write_status("entry-probe-build-mismatch", image.build_id);
         return;
     }
     if (image.build_id == kV341BuildId && (g_hook_mask.load() & 31))
@@ -1842,7 +1850,8 @@ void install_il2cpp_hooks() {
     if (image.build_id == kV341BuildId && hook_enabled(128))
         install_scoped_exam_probe(image);
     if (!hook_enabled(32)) {
-        write_status("lifecycle-only-no-detailed-hooks", image.build_id);
+        write_status(g_entry_probe_installed.load() ? "scoped-exam-entry-probe-installed"
+            : "scoped-exam-entry-probe-failed", image.build_id);
         return;
     }
 
@@ -1859,7 +1868,7 @@ void install_il2cpp_hooks() {
     bool merge_ok = false;
     bool seed_trace_ok = false;
 
-    if (image.build_id == kExpectedBuildId) {
+    if (image.build_id == kLegacyCardBuildId) {
         g_use_runtime_getters = false;
         // Exact ELF used during the original analysis: retain the verified RVAs.
         get_card_address = image.base + kRvaGetProduceCardData;
@@ -1937,7 +1946,7 @@ void install_il2cpp_hooks() {
     write_status(
         (get_ok && deck_ok)
             ? (seed_trace_ok ? "hooks-installed-seed-trace" :
-               (image.build_id == kExpectedBuildId ? "hooks-installed-trace-partial" : "hooks-installed"))
+               (image.build_id == kLegacyCardBuildId ? "hooks-installed-trace-partial" : "hooks-installed"))
             : "hook-install-failed",
         image.build_id,
         get_ok,
