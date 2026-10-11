@@ -129,12 +129,13 @@ function compareSession(s,pred){
   completeCoverage,differences,firstDivergence:differences[0]||null,compared};
 }
 /* simulator(s,input) MUST run the independent engine; never echo native observations. */
-export function compareContestCapture(capture,{simulator=null}={}){
+export function compareContestCapture(capture,{simulator=null,resolveInput=null}={}){
  const normalized=reconstructContestCapture(capture),sessions=[];
  let compared=0,mismatches=0,matched=0,blocked=0,partial=0;
  for(const s of normalized.sessions){
   const inputs=object(capture.simulatorInputs)?capture.simulatorInputs:{};
-  const input=inputs[s.key]||inputs[String(s.sessionId)]||s.start?.simulatorInputs||{};
+  const normalizedSetup=typeof resolveInput==="function"?resolveInput(s):null;
+  const input=inputs[s.key]||inputs[String(s.sessionId)]||s.start?.simulatorInputs||normalizedSetup?.input||{};
   const missing=REQUIRED.filter(k=>!Object.hasOwn(input,k)||input[k]===null);
   const warnings=[...s.warnings];
   let simulation=null,comparison={status:"unavailable",differences:[],firstDivergence:null,compared:false};
@@ -149,6 +150,7 @@ export function compareContestCapture(capture,{simulator=null}={}){
   else {blocked++;warnings.push(missing.length?"simulator-input-missing:"+missing.join(","):"simulator-runner-not-connected");}
   sessions.push({pid:s.pid,sessionId:s.sessionId,characterId:s.start?.characterId||null,seed:s.start?.seed??null,
     nativeSetup:s.setup??null,setupCandidates:extractSetupCandidates(s),
+    normalization:normalizedSetup?{available:normalizedSetup.available,reasons:normalizedSetup.reasons,candidates:normalizedSetup.candidates}:null,
     realDevice:{score:s.result?.score??null,result:s.result,progress:s.progress,turns:s.turns,dataComplete:s.complete},
     simulation,comparison,warnings});
  }
