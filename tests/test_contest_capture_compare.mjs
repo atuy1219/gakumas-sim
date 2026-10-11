@@ -261,4 +261,47 @@ const missingNestedMaster={
 assert.ok(normalizeNativeContestSetup(missingNestedMaster,{
  examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]},
 }).reasons.includes("native-deck-not-recognized"));
+// The real p_exam_setting-1 master supplies turnStartDistribute=3.
+// No first-hand inference or globally hardcoded draw count is allowed.
+const masterDrawSession={
+ ...deviceShape,
+ setup:{...deviceShape.setup,examParameterSnapshot:{
+  ...deviceShape.setup.examParameterSnapshot,
+  root:{$type:"ExamParameterModel",fields:{
+   "_turnTargetStatusParameterTypeList":{$type:"List`1",count:1,
+    elements:[{$type:"ProduceParameterType",fields:{value__:1}}]},
+  }},
+ }},
+};
+const masterDraw=normalizeNativeContestSetup(masterDrawSession,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],
+  itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(masterDraw.available,true,JSON.stringify(masterDraw.reasons));
+assert.equal(masterDraw.input.initialParameters.drawPerTurn,3);
+assert.equal(masterDraw.candidates.drawPerTurnProvenance,"exact-exam-setting-master");
+const masterDrawMissing=normalizeNativeContestSetup(masterDrawSession,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}],
+  itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(masterDrawMissing.available,false);
+assert.ok(masterDrawMissing.reasons.includes("exact-initial-parameters-missing"));
+// A native array containing nulls is an incomplete capture, not a legal
+// turn distribution. The adapter must fail closed instead of shifting turns.
+const truncatedTurns={
+ ...masterDrawSession,
+ setup:{...masterDrawSession.setup,examParameterSnapshot:{
+  ...masterDrawSession.setup.examParameterSnapshot,root:{$type:"ExamParameterModel",fields:{
+   "_turnTargetStatusParameterTypeList":{$type:"List`1",count:2,
+    elements:[{$type:"ProduceParameterType",fields:{value__:1}},null]},
+  }},
+ }},
+};
+const truncatedResult=normalizeNativeContestSetup(truncatedTurns,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],
+  itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(truncatedResult.available,false);
+assert.ok(truncatedResult.reasons.includes("exact-initial-parameters-missing"));
+assert.equal(truncatedResult.candidates.rawTurnTargetsDecoded,1);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
