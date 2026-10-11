@@ -431,6 +431,16 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.23: resolve real device ExamCardData._cardData
+
+The v1.5.22 real-device capture on 2026-10-11 recorded **9 complete contest sessions, 53 selected-progress events and 95 delta turns**, with no transport/write failures or drops. Nine native setup RNG states were independently matched by XorShift32 with 7, 9, 5 advances by team respectively. All initial deck lengths (16–19), session P-item lists (2–5, 34 item references total), initial stamina/max-stamina (39–43), and real scores were preserved.
+
+The new one-time `$cardClassInventory` **identified the cause of missing card IDs**. The runtime `ExamCardData` is exactly **248 bytes** and inherits only `System.Object`; it has **no inherited card-ID field**. Its first declared field is the class reference **`_cardData` at byte offset 0x10, IL2CPP kind 18**. Earlier `wanted()` filtering checked case-sensitive `Card` and `Id` tokens, silently rejecting the lower-case `_cardData` field. Scanning the direct `ExamCardData` object for a UTF-16 `p_card-` string consequently matched zero cards.
+
+v1.5.23 explicitly accepts `_cardData`, dereferences it via passive IL2CPP metadata, and serializes its master-card ID fields. It avoids recursing through the full resolved card-effect tree for every duplicate. Recursive-cycle checks now track only the **current object ancestry** rather than suppressing repeated master references across sibling cards. The JS normalizer handles `ExamCardData.fields._cardData.fields._id` (or the equivalent CardId/Id backing fields) and continues to fail closed if the ID cannot be read. The native read budget increases to 16 KiB per root to accommodate the new lookups. Production card and contest gameplay methods are not invoked.
+
+Regression tests now explicitly verify `wanted("_cardData",2)` and normalize nested master IDs, including a negative missing-ID case. This is a **predicted correction based on metadata**; the actual runtime class of `_cardData` and whether it contains the desired ID must be proven in the next v1.5.23 contest capture. Neither full-score simulator parity nor independent card-selection/DFS equivalence is claimed.
+
 ## v1.5.22: real-device v1.5.21 card-layout verification
 
 The v1.5.21 capture uploaded on 2026-10-11 contains **9 completed contest sessions, 53 progress events, 95 contiguous turn records, 9 native setups, 9 results, zero gameplay write/read errors**. All 9 independent post-setup RNG states match Seed-based XorShift32 after 5, 7 or 9 advancements; this is not evidence of an independently computed score.
