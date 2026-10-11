@@ -126,6 +126,9 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"])
   ??extractList(native,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"]);
  let turnParameterTypes=normalizeTurnTypes(turns);
+ // A partial native list must never be promoted to an exact stage schedule.
+ if(turnParameterTypes && (!Number.isInteger(turnLimit) || turnParameterTypes.length!==turnLimit))
+  turnParameterTypes=null;
  let turnTypeSource=turnParameterTypes?"native-exact-turn-target-list":null;
  const seed=session?.start?.seed;
  const observedAfterSetup=session?.setup?.randomStateObserved;
@@ -164,18 +167,29 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  };
  if(![stamina,maxStamina,turnLimit,initialParameters.drawPerTurn].every(Number.isFinite)||!turnParameterTypes)
   reasons.push("exact-initial-parameters-missing");
- // The state was recorded immediately before SetUpExam; it is not proven
- // to equal the pre-shuffle state until opening-hand parity confirms it.
- const randomState=session?.setup?.randomStateBeforeSetUp;
- if(!Number.isInteger(randomState)||randomState<0||randomState>0xffffffff)
-  reasons.push("pre-setup-random-state-missing");
+ // After SetUpExam the exact game RNG is observable even when the
+ // ExamParameterModel has not yet been bound at the *entry* callsite.
+ // Reusing that state for the first deck shuffle is a diagnostic HYPOTHESIS:
+ // it is never described as a verified native pre-shuffle observation.
+ const beforeState=session?.setup?.randomStateBeforeSetUp;
+ const observedState=session?.setup?.randomStateObserved;
+ const isUint32=n=>Number.isInteger(n)&&n>=0&&n<=0xffffffff;
+ const nativeBeforeAvailable=isUint32(beforeState);
+ const verifiedSetupRng=isUint32(seed)&&isUint32(observedState)&&
+  Number.isInteger(turnLimit)&&turnLimit>3&&
+  advanceXorshift32(seed,turnLimit-3)===(observedState>>>0);
+ const randomState=nativeBeforeAvailable?beforeState:verifiedSetupRng?observedState:null;
+ const randomStateStage=nativeBeforeAvailable?"before-SetUpExam":
+  verifiedSetupRng?"after-SetUpExam-hypothesis":null;
+ if(randomState===null)reasons.push("initial-shuffle-random-state-unavailable");
  return {
   available:reasons.length===0,
   reasons,
   input:reasons.length===0?{
    initialDeck,pItems,examSettings:setting,initialParameters,
    randomStateAtStart:randomState,
-   metadata:{source:"native-passive-reflection",randomStateStage:"before-SetUpExam",verifiedPreShuffle:false,
+   metadata:{source:"native-passive-reflection",randomStateStage,verifiedPreShuffle:false,
+    rngProvenance:nativeBeforeAvailable?"captured-before-setup":"verified-seed-post-setup-hypothesis",
     turnParameterTypesSource:turnTypeSource,independentDecisionSearch:false},
   }:null,
   candidates:{deckCount:deckSource?.length??null,
@@ -192,7 +206,10 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
    drawPerTurnProvenance:Number.isInteger(nativeDraw)&&nativeDraw>0?"native-parameter":
     Number.isInteger(masterDraw)&&masterDraw>0?"exact-exam-setting-master":null,
    pItemIds:pItemIds??null,
-   randomStateBeforeSetUp:randomState??null,settingId:settingId??null,
+   randomStateBeforeSetUp:beforeState??null,
+   candidateInitialShuffleState:randomState,
+   candidateShuffleStateStage:randomStateStage,
+   verifiedSetupRng,settingId:settingId??null,
    parameterKeys:plain(param?.fields)?Object.keys(param.fields):[]},
  };
 }

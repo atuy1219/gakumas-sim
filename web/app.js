@@ -1444,6 +1444,7 @@ $("contest-capture-file").addEventListener("change", async (event) => {
   contestCaptureComparison = null;
   try {
     if (file.size > 12 * 1024 * 1024) throw new Error("最大12 MiBのキャプチャーJSONを選択してください。");
+    await Promise.all([catalogInitialization,examItemInitialization]);
     const capture = JSON.parse(await file.text());
     const report = compareContestCapture(capture, {
       resolveInput: (session) => normalizeNativeContestSetup(session, { examItemCatalogs }),
@@ -1462,7 +1463,7 @@ $("contest-capture-file").addEventListener("change", async (event) => {
     const summary = $("contest-capture-summary");
     const note = document.createElement("p");
     note.className = "hint";
-    note.textContent = "現在のWebコンテストシミュはカード分布Monte Carloです。フルゲームの再実行に必要な初期デッキ・Pアイテム・開始状態・設定・乱数状態が欠ける場合、スコア一致とは判定しません。";
+    note.textContent = "実機で観測した行動を独立エンジンで再実行して差分を検査します。SetUpExam後の乱数状態をシャッフル開始候補に使う場合は仮説検証であり、初手一致まで保証しません。AI自身の行動選択再現とは別です。";
     summary.append(note);
     for (const row of report.sessions) {
       const tr = document.createElement("tr");
@@ -1472,7 +1473,7 @@ $("contest-capture-file").addEventListener("change", async (event) => {
         row.simulation?.result?.score == null ? "未実行" : String(row.simulation.result.score),
         row.comparison.status === "mismatch" ? "不一致: " + (row.comparison.firstDivergence?.path ?? "?")
           : row.comparison.status === "match" ? "全項目一致"
-            : row.comparison.status === "partial-match" ? "検証できた項目は一致（未比較項目あり）"
+            : row.comparison.status === "partial-match" ? "暫定一致（未比較項目・乱数開始位置の検証あり）"
               : row.realDevice.dataComplete
                 ? "再計算不可: " + (row.normalization?.reasons?.join(", ") || "初期条件不足")
                   + (row.rngVerification.status === "match" ? " / RNG +" + row.rngVerification.advanceSteps + "回検証" : "")

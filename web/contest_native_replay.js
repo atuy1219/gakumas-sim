@@ -38,8 +38,12 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  const stamina=requireNumber(p.stamina,"initialParameters.stamina");
  const maxStamina=requireNumber(p.maxStamina,"initialParameters.maxStamina");
  const turnTypes=p.turnParameterTypes;
- if(!Array.isArray(turnTypes)||turnTypes.length<session.turns.length)
-  throw new ContestReplayUnsupported("turn-parameter-types-missing");
+ const initialLimit=requireNumber(p.turnLimit,"turnLimit");
+ if(!Array.isArray(turnTypes)||turnTypes.length!==initialLimit)
+  throw new ContestReplayUnsupported("base-turn-parameter-types-missing-or-incomplete");
+ // Real card effects can add turns (e.g. 私がスター). Native clamps the
+ // extra-turn parameter type to the final normal turn's type.
+ // DO NOT require this list to equal the observed number of turns.
  const canonicalTypes=turnTypes.map(normalizeType);
  const masters=new Map(cardById);
  for(const [id,master] of Object.entries(input.cardMasters||{}))masters.set(id,master);
@@ -71,11 +75,17 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   if(own(p,attr))state.exam[attr]=requireNumber(p[attr],"initialParameters."+attr);
  }
  const turns=[],warnings=[],scoreByType={vocal:0,dance:0,visual:0};
+ const nativeExtraTurns=Math.max(0,session.turns.length-initialLimit);
  let previousScore=Number(state.exam.parameter??0);
  for(let i=0;i<session.turns.length;i++){
   const actual=session.turns[i];
   if(Number(actual.turn)!==i+1)throw new ContestReplayUnsupported("nonconsecutive-turn:"+actual.turn);
   const draw=drawTowerTurn(state,options.drawPerTurn);
+  if(draw.ended || state.ended){
+   warnings.push({turn:i+1,phase:"extra-turn-not-generated",
+    nativeTurns:session.turns.length,simulatorTurnLimit:state.turnLimit});
+   break;
+  }
   if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-turn-start-effect:"+state.unsupported.join("|"));
   const observedHand=(actual.hand??[]).map(x=>x.id);
   const simulatedHand=(draw.hand??[]).map(x=>x.id);
@@ -101,7 +111,8 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   const result=finishTowerTurn(state,{type:state.playsRemaining>0?"skip":"end"});
   if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-turn-end-effect:"+state.unsupported.join("|"));
   const score=Number(state.exam.parameter??0);
-  scoreByType[canonicalTypes[i]]+=(score-previousScore);
+  const scoreType=canonicalTypes[Math.min(i,canonicalTypes.length-1)];
+  scoreByType[scoreType]+=(score-previousScore);
   previousScore=score;
   turns.push({
    turn:i+1,score,
@@ -114,6 +125,10 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   provenance:"independent-simulator",
   replayMode:"observed-actions",decisionSearchVerified:false,
   turns, warnings,
+  extraTurnsObserved:nativeExtraTurns,
+  extraTurnsSimulated:Math.max(0,Number(state.turnLimit)-initialLimit),
+  rngProvenance:input.metadata?.rngProvenance??"unknown",
+  verifiedPreShuffle:input.metadata?.verifiedPreShuffle===true,
   // Only publish a predicted final result if every native turn was simulated.
   ...(warnings.length===0&&turns.length===session.turns.length?{result:{score:previousScore,
     vocal:scoreByType.vocal,dance:scoreByType.dance,visual:scoreByType.visual}}:{}),

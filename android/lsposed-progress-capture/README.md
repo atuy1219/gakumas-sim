@@ -431,6 +431,38 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## Contest parity follow-up: seed-derived schedule, extra turns and bounded replay
+
+The independent observed-action replay now accepts game-card extra turns:
+`turnParameterTypes` must cover the **base** `LimitTurn`, not every
+captured turn. Extra turns use the native final-turn attribute clamp, but
+must arise from simulated effects (`extra_turn`, e.g. 私がスター).
+If no extra-turn effect executes, replay reports
+`extra-turn-not-generated` and never fabricates a turn.
+
+A missing `randomStateBeforeSetUp` does not imply an unobservable game RNG.
+The post-`SetUpExam` state is reproducible from the captured Seed after
+`LimitTurn - 3` XorShift32 words on the observed contest sessions.
+It is now a clearly labeled **diagnostic shuffle-start hypothesis**,
+permitted only if that exact chain matches. The simulator uses its own
+shuffle and effect calculations and stops at the earliest mismatch.
+This does **not** establish pre-shuffle-state or complete score parity.
+
+The capture upload UI waits for card and exam item catalogs before
+normalizing/replaying. Module version strings in exported captures are read
+from installed package metadata rather than a stale hardcoded constant.
+
+### Safety boundary
+The module's native contest observer uses passive memory reads and forwards
+game calls once; the game function trampoline necessarily writes hook code
+to process memory. It also creates bounded diagnostics under the target
+app's private `files/gakumas-sim/` directory. The exported JSON is saved
+only after a user-initiated Android document-picker action.
+No anti-cheat bypass, cloak, or write of game score/card/seed values is
+implemented. Root+LSPosed injection can still violate game policy or
+trigger detection; no no-ban guarantee exists. Safe mode mask=0 installs
+no game-function hooks; a contest capture requires opting into hooks.
+
 ## v1.5.24: exact turn targets and pre-setup RNG provenance
 
 Real v1.5.23 evidence (nine sessions) resolved 163/163 deck master IDs,

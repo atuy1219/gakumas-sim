@@ -122,6 +122,21 @@ function compareFields(diffs,actual,pred,base,fields){
 }
 function compareSession(s,pred){
  const differences=[];
+ // A first mismatch found inside the independent replay must outrank the
+ // incidental "turns.length" difference caused by stopping at that point.
+ for(const warning of pred?.warnings??[]){
+  if(warning?.turn && warning?.phase){
+   differences.push({path:"turns["+(warning.turn-1)+"]."+warning.phase,
+    realDevice:warning.native??warning.nativeTurns??null,
+    simulation:warning.simulator??warning.simulatorTurnLimit??warning.available??null,
+    reason:"independent-replay-first-divergence"});
+   break;
+  }
+ }
+ if(Number.isInteger(pred?.extraTurnsObserved)&&Number.isInteger(pred?.extraTurnsSimulated)
+   && pred.extraTurnsObserved!==pred.extraTurnsSimulated && !differences.length)
+  differences.push({path:"extraTurns",realDevice:pred.extraTurnsObserved,
+    simulation:pred.extraTurnsSimulated});
  if(Array.isArray(pred?.progress)){
   if(s.progress.length!==pred.progress.length)differences.push({path:"progress.length",realDevice:s.progress.length,simulation:pred.progress.length});
   for(let i=0;i<Math.min(s.progress.length,pred.progress.length);i++)compareFields(differences,s.progress[i],pred.progress[i],"progress["+i+"]",PROGRESS);
@@ -161,6 +176,13 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null}
     simulation=simulator(s,input);
     if(simulation?.provenance!=="independent-simulator")throw new Error("independent-simulator provenance is required");
     comparison=compareSession(s,simulation);
+    // The post-setup RNG state is NOT an independently captured shuffle
+    // starting state. Even an accidental all-field match is provisional.
+    if(input?.metadata?.verifiedPreShuffle!==true){
+     warnings.push("unverified-pre-shuffle-rng:"+String(input?.metadata?.rngProvenance??"unknown"));
+     if(comparison.status==="match")
+      comparison={...comparison,status:"partial-match",completeCoverage:false};
+    }
    }catch(err){warnings.push("simulator-execution-failed:"+String(err?.message||err));simulation=null;}
   }
   if(comparison.compared){compared++;if(comparison.status==="mismatch")mismatches++;else if(comparison.status==="match")matched++;else partial++;}
