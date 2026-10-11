@@ -15,6 +15,7 @@ class CaptureTests(unittest.TestCase):
         source = r'''
 #include <atomic>
 #include <cassert>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -130,6 +131,11 @@ int main(){
             self.assertFalse(events[6]['recordingComplete'])
             self.assertFalse(events[8]['dataComplete'])
             self.assertIsNone(events[8]['turns'])
+            self.assertEqual(events[8]['readFailure']['reason'],'list-count-out-of-range')
+            self.assertEqual(events[8]['readFailure']['stage'],'turns.list')
+            self.assertEqual(events[8]['readFailure']['observed'],129)
+            self.assertEqual(events[8]['readFailure']['offset'],0x18)
             self.assertFalse(events[9]['dataComplete'])
+            self.assertEqual(events[9]['readFailure']['reason'],'list-count-out-of-range')
             status=json.loads((p/'contest_capture_status.json').read_text())
             self.assertEqual(status['limitDrops'],3)
