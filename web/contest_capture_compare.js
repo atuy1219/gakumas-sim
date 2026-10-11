@@ -1,3 +1,4 @@
+import { xorshift32 } from "./simulation.js";
 /* Contest capture v1/v2 reconstruction and honest independent-simulator comparison.
  * A native capture is evidence, NEVER the simulator's predicted output. */
 const FIELDS=["score","vocal","dance","visual"];
@@ -86,6 +87,22 @@ export function extractSetupCandidates(session){
  return {available:fields.length>0,fields:fields.slice(0,240),
    snapshots:snapshots.filter(x=>object(x[1])).map(([name,snapshot])=>({name,available:snapshot.available===true,complete:snapshot.complete===true,truncated:snapshot.truncated===true}))};
 }
+// Exact independent RNG-chain validation; this does not claim pre-shuffle
+// state recovery, correct gameplay scores, or native action-selection parity.
+export function verifyContestSetupRng(session,maxSteps=128){
+ const seed=session?.start?.seed, observed=session?.setup?.randomStateObserved;
+ if(!Number.isInteger(seed)||seed<0||seed>0xffffffff||
+    !Number.isInteger(observed)||observed<0||observed>0xffffffff)
+  return {status:"unavailable",reason:"seed-or-after-setup-state-missing"};
+ let state=seed>>>0;
+ for(let step=0;step<=maxSteps;step++){
+  if(state===(observed>>>0))return {status:"match",seed,observed,advanceSteps:step,
+   phase:"after-ExamSequence.SetUpExam",verifiedPreShuffle:false};
+  state=xorshift32(state);
+ }
+ return {status:"unmatched",seed,observed,maximumAdvanceSteps:maxSteps,
+  phase:"after-ExamSequence.SetUpExam",verifiedPreShuffle:false};
+}
 function diffInto(out,path,a,b){
  if(out.length>=100||equal(a,b))return;
  if(Array.isArray(a)&&Array.isArray(b)){
@@ -149,13 +166,15 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null}
   if(comparison.compared){compared++;if(comparison.status==="mismatch")mismatches++;else if(comparison.status==="match")matched++;else partial++;}
   else {blocked++;warnings.push(missing.length?"simulator-input-missing:"+missing.join(","):"simulator-runner-not-connected");}
   sessions.push({pid:s.pid,sessionId:s.sessionId,characterId:s.start?.characterId||null,seed:s.start?.seed??null,
-    nativeSetup:s.setup??null,setupCandidates:extractSetupCandidates(s),
+    nativeSetup:s.setup??null,setupCandidates:extractSetupCandidates(s),rngVerification:verifyContestSetupRng(s),
     normalization:normalizedSetup?{available:normalizedSetup.available,reasons:normalizedSetup.reasons,candidates:normalizedSetup.candidates}:null,
     realDevice:{score:s.result?.score??null,result:s.result,progress:s.progress,turns:s.turns,dataComplete:s.complete},
     simulation,comparison,warnings});
  }
  const complete=sessions.filter(s=>s.realDevice.dataComplete).length;
  const summary={sessions:sessions.length,capturesComplete:complete,
+  setupRngVerified:sessions.filter(s=>s.rngVerification.status==="match").length,
+  setupRngUnmatched:sessions.filter(s=>s.rngVerification.status==="unmatched").length,
   totalProgress:sessions.reduce((n,s)=>n+s.realDevice.progress.length,0),
   totalTurns:sessions.reduce((n,s)=>n+s.realDevice.turns.length,0),
   simulationCompared:compared,simulationMatches:matched,simulationPartialMatches:partial,simulationMismatches:mismatches,simulationBlocked:blocked};
