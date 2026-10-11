@@ -333,14 +333,12 @@ ScannedCardId scanCardIdentity(Address card){
     ScannedCardId result;
     unsigned char data[768]={};
     const ReadFailure previous=firstReadFailure;
-    const unsigned before=readBudget;
     bool loaded=bytes(card,0,data,sizeof(data));
     const size_t span=loaded?sizeof(data):256;
     if(!loaded) loaded=bytes(card,0,data,256);
     // A failed optional probe must not make the parent snapshot a failure.
     firstReadFailure=previous;
     if(!loaded)return result;
-    (void)before;
     for(size_t offset=0x10;offset+8<=span;offset+=8){
         Address candidate=0;std::memcpy(&candidate,data+offset,sizeof(candidate));
         if(candidate<0x1000000000ULL||(candidate&7)!=0)continue;
@@ -451,7 +449,7 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
            std::strstr(fieldName,"Enchant")||
           (std::strstr(fieldName,"Icon")||std::strstr(fieldName,"Internal")||
            std::strstr(fieldName,"Description")||
-           std::strstr(fieldName,"Cache")))continue;
+           std::strstr(fieldName,"Cache"))))continue;
         const size_t offset=p.fieldOffset(field);
         if(offset<0x10||offset>0x2000)continue;
         void* ft=p.fieldType(field);
