@@ -122,9 +122,11 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
       commandIndex:cardActionTrace.filter(x=>x.turn===i+1).length,
       cardId,upgradeCount:Number(command.card.baseUpgradeCount??0),
       nativePerCardMetricsAvailable:false,
+      nativeMetricsUnavailableReason:"only-turn-result-is-recorded-by-passive-native-hook",
       simulated:{
-        before:beginning ? {score:beginning.score,stamina:beginning.stamina,block:beginning.block,review:beginning.review,aggressive:beginning.aggressive}:null,
-        after:ending ? {score:ending.score,stamina:ending.stamina,block:ending.block,review:ending.review,aggressive:ending.aggressive}:null,
+        cardCostEvents:[...(event.cost??[])],
+        before:beginning ? {score:beginning.score,stamina:beginning.stamina,block:beginning.block,review:beginning.review,aggressive:beginning.aggressive,staminaConsumptionDown:beginning.staminaConsumptionDown}:null,
+        after:ending ? {score:ending.score,stamina:ending.stamina,block:ending.block,review:ending.review,aggressive:ending.aggressive,staminaConsumptionDown:ending.staminaConsumptionDown}:null,
         scoreGained:beginning&&ending?ending.score-beginning.score:null,
         blockDelta:beginning&&ending?ending.block-beginning.block:null,
         staminaDelta:beginning&&ending?ending.stamina-beginning.stamina:null,
