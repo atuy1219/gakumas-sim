@@ -1239,7 +1239,10 @@ function triggerFieldStatusesMatch(state, trigger, context = {}) {
       current = masterFieldStatusValue(state, type);
     }
     if (current === null) return false;
-    const expected = Number(values[index] ?? 1);
+    const rawExpected = Number(values[index] ?? 1);
+    // FullPowerUp=0 is an existence test. It must never match no stance.
+    const expected = type === "ProduceExamFieldStatusType_FullPowerUp" && rawExpected === 0
+      ? 1 : rawExpected;
     const check = String(checks[index] ?? "ProduceExamTriggerCheckType_Unknown");
     const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple"
       || type === "ProduceExamFieldStatusType_RemainingTurn"
