@@ -431,6 +431,37 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.16: array-shaped turn-history decoding (device result pending)
+
+The on-device v1.5.15 export (PID 7986, Build ID
+`77fda4e2a21f23954e2349b83fc113ede408f70b`) recorded nine
+completed selected auto-play sessions and 54 progress entries. All 54 report
+`invalid-address-or-size` at `turns.list.backing-length` for
+`address: 0x0`. The first read of the outer container succeeded,
+but interpreting +0x10 as a List<T>._items reference produced NULL.
+This contradicts a populated List<T> at that address and agrees with a
+one-dimensional IL2CPP array (null bounds pointer at +0x10, positive length at
++0x18). The runtime object's class identity is not proven by this alone.
+
+v1.5.16 inspects the observed header without calling managed methods:
+- A non-null +0x10 reference continues through the original List<T> reader.
+- A null +0x10 reference and a positive, bounded 64-bit length at +0x18
+  uses the bounded SZARRAY reader. It sets
+  `turnsContainerShape: "array-shaped"`, not a proven type name.
+- Unrecognized shapes retain List validation and the prior structured
+  `readFailure` instead of trying arbitrary pointer offsets.
+- Nested turn fields remain strict, bounded, read-only. Another failure
+  such as value-type inline elements or a wrong field layout may appear
+  once the outer container succeeds.
+
+The source-level C++ harness exercises both shapes and selected-game-result
+forwarding. No on-device success, full RNG trace, exact move list, or
+simulation parity should be inferred until a fresh v1.5.16 export confirms
+them. CI builds a source-based APK whose signing certificate/DEX can differ
+from the byte-pinned local recovered build; reinstall and re-enable the
+LSPosed scope if Android refuses the update. The old failed recordings remain
+evidence but cannot be retroactively filled with turn objects.
+
 ## v1.5.15: turn-history read-failure evidence (not a parity fix)
 
 The October 11 v1.5.14 **device export** contains 9 contest runs, 53 selected
