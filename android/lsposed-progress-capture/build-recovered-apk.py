@@ -12,7 +12,7 @@ import zipfile
 BASE_SHA = '4e562d1521fc7027a599554d0b92a9bca948dd4e76bc36ee77c7d5c800bcfee6'
 NATIVE_ENTRY = 'lib/arm64-v8a/libgakumas_progress_capture.so'
 
-def package_apk(base_apk, manifest_apk, library, unsigned_apk):
+def package_apk(base_apk, manifest_apk, library, unsigned_apk, export_dex=None):
     with zipfile.ZipFile(base_apk) as old, zipfile.ZipFile(manifest_apk) as manifest, zipfile.ZipFile(unsigned_apk, 'w') as z:
         # Preserve aapt2's storage choices: Android R+ rejects compressed resources.arsc.
         if manifest.getinfo('resources.arsc').compress_type != zipfile.ZIP_STORED:
@@ -23,6 +23,8 @@ def package_apk(base_apk, manifest_apk, library, unsigned_apk):
             if name == 'classes.dex' or name.startswith('META-INF/xposed/'):
                 z.writestr(name, old.read(name), compress_type=zipfile.ZIP_DEFLATED)
         z.writestr(NATIVE_ENTRY, library.read_bytes(), compress_type=zipfile.ZIP_STORED)
+        if export_dex is not None:
+            z.writestr('classes2.dex', export_dex.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
 
 def verify_apk_layout(apk):
     """Check storage and actual data offsets; zipalign ignores compressed entries."""
@@ -72,10 +74,15 @@ def main():
     library=out/'libgakumas_progress_capture.so'
     run([compiler,'-std=c++17','-O2','-fPIC','-fvisibility=hidden','-ffunction-sections','-fdata-sections',
          '-shared','-static-libstdc++','-Wl,--gc-sections','-Wl,--build-id=sha1',root/'src/main/cpp/progress_capture.cpp','-ldl','-llog','-o',library])
+    classes=out/'capture-export-classes';classes.mkdir(exist_ok=True)
+    dex_out=out/'capture-export-dex';dex_out.mkdir(exist_ok=True)
+    java_sources=list((root/'src/export/java').rglob('*.java'))
+    run(['javac','-source','8','-target','8','-classpath',platform,'-d',classes,*java_sources])
+    run([tools/'d8','--min-api','23','--lib',platform,'--output',dex_out,*classes.rglob('*.class')])
     base=out/'manifest.apk'; unsigned=out/'unsigned.apk'; aligned=out/'aligned.apk'
     run([tools/'aapt2','link','-I',platform,'--manifest',root/'AndroidManifest.xml',
          '--min-sdk-version','23','--target-sdk-version','35','-o',base])
-    package_apk(a.base_apk, base, library, unsigned)
+    package_apk(a.base_apk, base, library, unsigned, dex_out/'classes.dex')
     run([tools/'zipalign','-P','16','-f','4',unsigned,aligned])
     key=a.keystore.resolve();key.parent.mkdir(parents=True,exist_ok=True)
     if not key.exists():
@@ -94,10 +101,12 @@ def main():
         for name in old.namelist():
             if name.startswith('META-INF/xposed/'):assert old.read(name)==new.read(name)
         dex=hashlib.sha256(new.read('classes.dex')).hexdigest()
+        export_dex=hashlib.sha256(new.read('classes2.dex')).hexdigest()
     record=dict(versionName=version_name,versionCode=version_code,scope='local-validation-only',onDeviceVerified=False,
                 githubPushed=False,ciRun=False,baseApkSha256=BASE_SHA,
                 apkSha256=hashlib.sha256(final.read_bytes()).hexdigest(),bytes=final.stat().st_size,
                 nativeSha256=hashlib.sha256(library.read_bytes()).hexdigest(),dexSha256=dex,dexByteIdenticalTo='1.5.11',
+                captureExportDexSha256=export_dex,
                 maskConfigurationRewritten=False,existingMaskToRetain=7808,
                 signingKey='new-recovery-key; original key not recovered',signatureVerificationPassed=True,
                 zipAlign16KiBPassed=True,apkEntryLayout=layout,

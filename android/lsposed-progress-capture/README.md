@@ -428,3 +428,32 @@ is never proof of hook installation.
 JNI_OnUnload is now logged too, so a Java native-library-loaded message and
 /proc/PID/maps reporting no corresponding mapping can be investigated for a
 possible unload or map-probe mismatch. It is not proof of missing Java injection.
+
+
+## v1.5.14: selected contest progress and results
+
+The launcher now exports `gakumas-contest-capture.json` through Android's file
+picker. Capture is event driven, uses the existing mask 7808, and records only
+GetSearchResult returns consumed by the contest auto-play async state machine.
+The two exact-build hooks forward each original call once and preserve the
+72-byte Nullable result ABI. No synthetic game calls or periodic polling are added.
+
+Records contain session seed and IDs, selected indexes, score and attributes,
+and selected turn history (stamina, hand, statuses, effects, commands). A final
+per-player auto-play result is emitted only after a selected terminal result
+and natural async completion. Cancellation is reported as `contest-stopped`.
+These are per-player calculation records, not the server's contest victory or
+ranking response. `gameCaptureVerified` remains false until on-device evidence.
+
+Game-owned files are `contest_capture.jsonl` and `contest_capture_status.json`
+in `files/gakumas-sim/`. One previous-process JSONL is retained. Limits are
+64 sessions, 128 selected steps per session and 8 MiB per process; dropped records
+and incomplete reads are exposed. The old diagnostic observation budget does
+not stop this separate capture. Unknown data is null and marked incomplete.
+
+The old diagnostic DEX is preserved; a separate DEX provides manual file export.
+Build with `build-recovered-apk.py`, the exact recovered v1.5.11 base APK and
+recovery signing key. Resources stay uncompressed and 4-byte aligned; the native
+library remains 16-KiB aligned. Static audit: `tools/verify_contest_capture.py`.
+Host hook/serializer tests: `tests/test_contest_capture.py`; mock only the kernel
+read transport and use ASan/UBSan. Real-device operation is not yet verified.

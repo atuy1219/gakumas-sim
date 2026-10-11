@@ -1366,6 +1366,7 @@ const char* verified_setup_origin(uintptr_t return_rva) {
 }
 
 #include "scoped_runtime.inc"
+#include "contest_capture.inc"
 
 void write_entry_probe_status(bool installed) {
     const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
@@ -1853,6 +1854,7 @@ void install_il2cpp_hooks() {
     if (image.build_id == kV341BuildId && hook_enabled(128))
         install_scoped_exam_probe(image);
     passive::install(image);
+    contest_capture::install(image);
     write_status(g_entry_probe_installed.load() ? (hook_enabled(512)
         ? "scoped-mode-lifecycle-probe-installed" : "scoped-exam-entry-probe-installed")
         : "scoped-exam-entry-probe-failed", image.build_id);
