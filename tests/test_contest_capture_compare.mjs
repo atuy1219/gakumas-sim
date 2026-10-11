@@ -82,6 +82,7 @@ const mismatched={...neutralSession,turns:[{...neutralSession.turns[0],
  hand:[{id:"N-UNEXPECTED"},...expectedHand.slice(1)]}]};
 const wrong=replayObservedContest(mismatched,nativeInput,{cardById:neutralMasters});
 assert.equal(wrong.warnings.length,1);
-assert.equal(wrong.turns.length,0);
+assert.equal(wrong.turns.length,1);
+assert.equal(wrong.turns[0].hand[0].id,expectedHand[0].id);
 assert.equal(wrong.result,undefined);
 console.log("contest capture comparison and native action replay: OK");
