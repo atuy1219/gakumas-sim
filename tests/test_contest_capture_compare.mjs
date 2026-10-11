@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { compareContestCapture, reconstructContestCapture } from "../web/contest_capture_compare.js";
 import { replayObservedContest, ContestReplayUnsupported } from "../web/contest_native_replay.js";
+import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
 import { createTowerTurnState, drawTowerTurn } from "../web/tower_runtime.js";
 
 const capture={schemaVersion:2,scope:"contest-gameplay-capture",moduleVersion:"1.5.17",events:[
@@ -85,4 +86,36 @@ assert.equal(wrong.warnings.length,1);
 assert.equal(wrong.turns.length,1);
 assert.equal(wrong.turns[0].hand[0].id,expectedHand[0].id);
 assert.equal(wrong.result,undefined);
-console.log("contest capture comparison and native action replay: OK");
+const reflectedFields=Object.fromEntries(neutralDeck.map((c,i)=>[i,c]));
+const wrappedDeck={ $type:"List`1",count:3,elements:neutralDeck.map(card=>({
+ $type:"ExamCardData",fields:{"<ProduceCardId>k__BackingField":card.id,
+ "<UpgradeCount>k__BackingField":0},
+}))};
+const normalizedSession={
+ ...neutralSession,
+ start:{...neutralSession.start,settingId:"p_exam_setting-1",
+  nativeInitialState:{available:true,root:{$type:"ExamData",fields:{
+   "<DeckProduceCardDataList>k__BackingField":wrappedDeck,
+   "<ItemList>k__BackingField":{$type:"List`1",count:0,elements:[]},
+  }}}},
+ setup:{randomStateBeforeSetUp:123,examParameterSnapshot:{root:{$type:"ExamParameterModel",fields:{
+  "<Stamina>k__BackingField":100,
+  "<MaxStamina>k__BackingField":100,
+  "<LimitTurn>k__BackingField":1,
+  "<CardDrawCountPerTurn>k__BackingField":3,
+  "<TurnParameterTypeList>k__BackingField":{$type:"List`1",count:1,elements:["Vocal"]},
+ }}}},
+};
+const normalized=normalizeNativeContestSetup(normalizedSession,{
+ examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}],itemById:new Map(),itemEffectById:new Map()},
+});
+assert.equal(normalized.available,true,JSON.stringify(normalized.reasons));
+assert.deepEqual(normalized.input.initialDeck,neutralDeck);
+assert.equal(normalized.input.randomStateAtStart,123);
+assert.equal(normalized.input.pItems.length,0);
+const fixedSetup=normalizeNativeContestSetup({
+ ...normalizedSession,setup:{...normalizedSession.setup,randomStateBeforeSetUp:null}
+},{examItemCatalogs:{examSettings:[{id:"p_exam_setting-1"}]}});
+assert.equal(fixedSetup.available,false);
+assert.ok(fixedSetup.reasons.includes("pre-setup-random-state-missing"));
+console.log("contest capture comparison, setup normalization and independent action replay: OK");
