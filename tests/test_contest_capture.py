@@ -59,7 +59,7 @@ struct Obj { alignas(8) unsigned char data[1024]={}; Obj(){regions[(uintptr_t)da
  template<class T>void put(size_t o,T v){memcpy(data+o,&v,sizeof(v));}
  uintptr_t addr(){return (uintptr_t)data;}
 };
-Obj machine,owner,exam,turnLog,secondTurn,turnArray,turnList,selectArray,selectList,card,cardArray,cardList,cardName,cardIdentity,commandLog,cmd,commandArray,commandList;
+Obj sequence,parameter, machine,owner,exam,turnLog,secondTurn,turnArray,turnList,selectArray,selectList,card,cardArray,cardList,cardName,cardIdentity,commandLog,cmd,commandArray,commandList;
 SearchResult payload{}; unsigned moved=0,returned=0; bool finish=false;
 const void* methodInfo=(void*)0x1234;
 template<class T>void resultPut(size_t offset,T v){memcpy((char*)&payload+offset,&v,sizeof(v));}
@@ -79,6 +79,9 @@ int main(){
  card.put<uintptr_t>(0x98,cardIdentity.addr());
  readBudget=8192;firstReadFailure={};
  assert(setup_probe::wanted("_cardData",2));
+ assert(setup_probe::keepSetupParameterField("_turnTargetStatusParameterTypeList"));
+ assert(setup_probe::keepSetupParameterField("<TurnTargetStatusParameterTypeList>k__BackingField"));
+ assert(!setup_probe::keepSetupParameterField("_irrelevantObscuredValue"));
  const auto captured=setup_probe::scanCardIdentity(card.addr(),nullptr);
  assert(captured.found && captured.offset==0x98 && !captured.ambiguous);
  assert(captured.json.find("\\u0070\\u005f")!=std::string::npos);
@@ -87,6 +90,19 @@ int main(){
  assert(setup_probe::capture(exam.addr()).find("il2cpp_class_get_fields")!=std::string::npos);
  machine.put<int32_t>(0,-1);machine.put(0x20,owner.addr());machine.put(0x28,exam.addr());
  exam.put<int32_t>(0x10,2);exam.put<uint32_t>(0x14,42);
+ // Before SetUpExam the sequence may have no ParameterModel yet. Preserve
+ // the exact failure stage and independent ExamData seed, never invent state.
+ Run setupRun;setupRun.id=999;active=&setupRun;
+ auto unbound=observeBeforeSetup(sequence.addr(),exam.addr());
+ assert(!unbound.available && unbound.examSeedAvailable && unbound.examSeed==42);
+ assert(!unbound.sequenceParameterPresent &&
+        strcmp(unbound.unavailableReason,"sequence-parameter-not-yet-bound")==0);
+ sequence.put<uintptr_t>(0x10,parameter.addr());
+ parameter.put<uint32_t>(0x77c,0x12345678);
+ auto bound=observeBeforeSetup(sequence.addr(),exam.addr());
+ assert(bound.available && bound.randomState==0x12345678);
+ assert(bound.sequenceParameterPresent && bound.examSeed==42);
+ active=nullptr;
  turnLog.put<int32_t>(0x10,1);turnLog.put<int32_t>(0x14,12345);turnLog.put<int32_t>(0x28,27);
  secondTurn.put<int32_t>(0x10,2);secondTurn.put<int32_t>(0x14,12345);secondTurn.put<int32_t>(0x28,25);
  cardName.put<int32_t>(0x10,4);uint16_t name[4]={'c','a','r','d'};memcpy(cardName.data+0x14,name,8);

@@ -431,6 +431,28 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.24: exact turn targets and pre-setup RNG provenance
+
+Real v1.5.23 evidence (nine sessions) resolved 163/163 deck master IDs,
+but every ExamParameterModel snapshot omitted the turn-target array despite
+objectsVisited=12 and truncated=false. The field was named
+`_turnTargetStatusParameterTypeList`; our uppercase `TurnTarget...`
+allowlist never matched its lower-case initial. v1.5.24 matches verified
+metadata names case-insensitively and retains rejection of partial arrays.
+
+All nine `randomStateBeforeSetUp` observations were null, while
+`randomStateObserved` after the original setup was readable.
+Rather than guess that either seed or after-setup state is the
+pre-shuffle state, the capture now reports
+`beforeRandomUnavailableReason`, `beforeSequenceParameterReadable`,
+`beforeSequenceParameterPresent`, `afterSequenceParameterPresent`,
+and `seedBeforeSetUp` read directly from the passed ExamData. The
+diagnostic changes are read-only and do not add game hooks.
+If the ParameterModel is not bound before SetUpExam, its RNG state cannot
+be observed at that point using the existing sequence pointer. The
+post-setup state remains recorded independently, and shuffle-start
+parity still needs real-device verification.
+
 ## v1.5.23: resolve real device ExamCardData._cardData
 
 The v1.5.22 real-device capture on 2026-10-11 recorded **9 complete contest sessions, 53 selected-progress events and 95 delta turns**, with no transport/write failures or drops. Nine native setup RNG states were independently matched by XorShift32 with 7, 9, 5 advances by team respectively. All initial deck lengths (16–19), session P-item lists (2–5, 34 item references total), initial stamina/max-stamina (39–43), and real scores were preserved.

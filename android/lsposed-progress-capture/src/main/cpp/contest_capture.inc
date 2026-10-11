@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <dlfcn.h>
 // Selected auto-play results only. No polling, synthetic getters or DFS leaf logs.
 namespace contest_capture {
@@ -323,6 +324,20 @@ bool wanted(const char* n,int depth){
     }
     return false;
 }
+// IL2CPP fields can be _turnTarget... or <TurnTarget...>k__BackingField.
+// The previous case-sensitive filter silently discarded the real v1.5.23
+// turn-target list even though the snapshot was not truncated.
+bool keepSetupParameterField(const char* name){
+    if(!name)return false;
+    std::string field(name);
+    std::transform(field.begin(),field.end(),field.begin(),
+      [](unsigned char c){return static_cast<char>(std::tolower(c));});
+    for(const char* part:{"turntargetstatusparametertypelist",
+                          "configparametertypeorderedlist","drawcard",
+                          "carddraw","turnstartdistribute","random","settingid"})
+        if(field.find(part)!=std::string::npos)return true;
+    return false;
+}
 struct Context {
     unsigned nodes=0;
     size_t remaining=65536;
@@ -509,17 +524,8 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
         // Recursing those redundant wrappers exhausted the 220-node cap
         // before the last 1-11 target entries. Capture only setup-specific
         // fields from this model to preserve the complete exact turn order.
-        if(std::strcmp(name,"ExamParameterModel")==0){
-            const std::string field=fieldName?fieldName:"";
-            if(field.find("TurnTargetStatusParameterTypeList")==std::string::npos &&
-               field.find("ConfigParameterTypeOrderedList")==std::string::npos &&
-               field.find("DrawCard")==std::string::npos &&
-               field.find("CardDraw")==std::string::npos &&
-               field.find("TurnStartDistribute")==std::string::npos &&
-               field.find("Random")==std::string::npos &&
-               field.find("SettingId")==std::string::npos)
-                continue;
-        }
+        if(std::strcmp(name,"ExamParameterModel")==0 &&
+           !keepSetupParameterField(fieldName))continue;
         // Drop cache-only icon/description internals from each deck card.
         // They consume most of the snapshot budget but cannot reconstruct
         // the card's ID, upgrade level, origin or runtime effects.
@@ -698,13 +704,35 @@ bool emit(const Run& run,const char* event,const std::string& content) {
     status();
     return bool(out);
 }
-struct BeforeSetup { uint32_t randomState=0; bool available=false; };
-BeforeSetup observeBeforeSetup(Address sequence){
-    if(!active || !sequence)return {};
+struct BeforeSetup {
+    uint32_t randomState=0, examSeed=0;
+    bool available=false, examSeedAvailable=false;
+    bool sequenceParameterReadable=false, sequenceParameterPresent=false;
+    const char* unavailableReason="not-observed";
+};
+BeforeSetup observeBeforeSetup(Address sequence,Address examData){
+    BeforeSetup before;
+    if(!active){before.unavailableReason="no-active-contest";return before;}
     readBudget=16;firstReadFailure={};readStage.clear();
-    Address parameter=0;uint32_t randomState=0;
-    if(!read(sequence,0x10,parameter) || !parameter || !read(parameter,0x77c,randomState))return {};
-    return {randomState,true};
+    // ExamData is the actual SetUpExam argument. Its Seed is independent
+    // of whether ExamSequence has bound its new ParameterModel yet.
+    if(examData)before.examSeedAvailable=read(examData,0x14,before.examSeed);
+    if(!sequence){before.unavailableReason="sequence-null";return before;}
+    Address parameter=0;
+    before.sequenceParameterReadable=read(sequence,0x10,parameter);
+    if(!before.sequenceParameterReadable){
+        before.unavailableReason="sequence-parameter-unreadable";return before;
+    }
+    before.sequenceParameterPresent=parameter!=0;
+    if(!parameter){
+        before.unavailableReason="sequence-parameter-not-yet-bound";return before;
+    }
+    if(!read(parameter,0x77c,before.randomState)){
+        before.unavailableReason="parameter-random-state-unreadable";return before;
+    }
+    before.available=true;
+    before.unavailableReason="none";
+    return before;
 }
 // Verified SetUpExam caller (0x07EFD3B4) executes within the original
 // selected contest-auto MoveNext. Capture its real managed parameter/pools
@@ -723,6 +751,11 @@ void recordSetup(Address sequence,BeforeSetup before) {
     content<<",\"capturePhase\":\"after-ExamSequence.SetUpExam\",\"setupOrigin\":\"0x07EFD3B4\""
            <<",\"randomStateBeforeSetUp\":"<<(before.available?std::to_string(before.randomState):"null")
            <<",\"beforeRandomSource\":\"verified-caller-before-managed-setup\""
+           <<",\"beforeRandomUnavailableReason\":\""<<before.unavailableReason<<"\""
+           <<",\"seedBeforeSetUp\":"<<(before.examSeedAvailable?std::to_string(before.examSeed):"null")
+           <<",\"beforeSequenceParameterReadable\":"<<(before.sequenceParameterReadable?"true":"false")
+           <<",\"beforeSequenceParameterPresent\":"<<(before.sequenceParameterPresent?"true":"false")
+           <<",\"afterSequenceParameterPresent\":"<<(hasParameter?"true":"false")
            <<",\"randomStateObserved\":"<<(randomRead?std::to_string(randomState):"null")
            <<",\"randomStateProvenance\":\"after-setup-not-necessarily-pre-shuffle\""
            <<",\"examParameterSnapshot\":"<<(hasParameter?setup_probe::capture(parameter):"null")

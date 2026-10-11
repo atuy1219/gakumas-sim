@@ -1391,7 +1391,8 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     const unsigned call = g_entry_probe_calls.fetch_add(1);
     const bool selectedContest = base && returned >= base && returned-base == 0x07EFD3B4;
     const contest_capture::BeforeSetup beforeState = selectedContest
-        ? contest_capture::observeBeforeSetup(reinterpret_cast<uintptr_t>(sequence))
+        ? contest_capture::observeBeforeSetup(reinterpret_cast<uintptr_t>(sequence),
+                                             reinterpret_cast<uintptr_t>(data))
         : contest_capture::BeforeSetup{};
     // Always forward once. Passive binding reads only the verified reference.
     g_original_sequence_setup(sequence, data, method);
