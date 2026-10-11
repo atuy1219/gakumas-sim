@@ -36,6 +36,8 @@ void ensure_parent_dir(const std::string&){}
 bool atomic_write(const std::string& p,const std::string& s){std::ofstream o(p);o<<s;return bool(o);}
 bool hook_enabled(unsigned v){return (g_hook_mask.load()&v)!=0;}
 struct ImageInfo {uintptr_t base;std::string build_id;};
+ImageInfo find_il2cpp_image(){return {};}
+void* resolve_export(const ImageInfo&,const char*){return nullptr;}
 bool install_hook(uintptr_t,void*,void**){return false;}
 bool blocked=false;
 std::map<uintptr_t,size_t> regions;
@@ -71,6 +73,8 @@ void gameMove(void* self,const void* m){assert(self==machine.data && m==methodIn
 void pointerList(Obj& l,Obj& a,uintptr_t p){l.put(0x10,a.addr());l.put<int32_t>(0x18,1);a.put<uint64_t>(0x18,1);a.put(0x20,p);}
 int main(){
  originalMove=gameMove;originalResult=gameResult;
+ assert(setup_probe::capture(exam.addr()).find("rawLayout")!=std::string::npos);
+ assert(setup_probe::capture(exam.addr()).find("il2cpp_class_get_fields")!=std::string::npos);
  machine.put<int32_t>(0,-1);machine.put(0x20,owner.addr());machine.put(0x28,exam.addr());
  exam.put<int32_t>(0x10,2);exam.put<uint32_t>(0x14,42);
  turnLog.put<int32_t>(0x10,1);turnLog.put<int32_t>(0x14,12345);turnLog.put<int32_t>(0x28,27);
