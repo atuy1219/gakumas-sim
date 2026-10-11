@@ -173,7 +173,7 @@ function compareSession(s,pred){
   completeCoverage,differences,firstDivergence:differences[0]||null,turnDiagnostics,compared};
 }
 /* simulator(s,input) MUST run the independent engine; never echo native observations. */
-export function compareContestCapture(capture,{simulator=null,resolveInput=null}={}){
+export function compareContestCapture(capture,{simulator=null,resolveInput=null,masterProvenance=null}={}){
  const normalized=reconstructContestCapture(capture),sessions=[];
  let compared=0,mismatches=0,matched=0,blocked=0,partial=0;
  for(const s of normalized.sessions){
@@ -190,6 +190,11 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null}
     comparison=compareSession(s,simulation);
     // The post-setup RNG state is NOT an independently captured shuffle
     // starting state. Even an accidental all-field match is provisional.
+    if(masterProvenance && masterProvenance.gameVersionVerified!==true){
+     warnings.push("unverified-master-game-version:"+String(masterProvenance.commit??masterProvenance.provider??"unknown"));
+     if(comparison.status==="match")
+      comparison={...comparison,status:"partial-match",completeCoverage:false};
+    }
     if(input?.metadata?.verifiedPreShuffle!==true){
      warnings.push("unverified-pre-shuffle-rng:"+String(input?.metadata?.rngProvenance??"unknown"));
      if(comparison.status==="match")
@@ -229,7 +234,7 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null}
  return {schemaVersion:1,scope:"gakumas-contest-comparison",captureModuleVersion:capture.moduleVersion||null,
   status:!sessions.length?"no-sessions":mismatches?"mismatch":blocked?"simulation-unavailable":partial?"partial-match":"match",
   complete:blocked===0&&sessions.length>0&&complete===sessions.length&&mismatches===0&&partial===0,
-  summary,firstDivergence:sessions.find(s=>s.comparison.firstDivergence)?.comparison.firstDivergence||null,
+  summary,masterProvenance,firstDivergence:sessions.find(s=>s.comparison.firstDivergence)?.comparison.firstDivergence||null,
   sessions,warnings:normalized.warnings,
   note:"Native self-consistency checks are not an independent gameplay simulation; incomplete simulator inputs block true parity."};
 }
