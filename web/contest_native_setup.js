@@ -171,6 +171,11 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  // ExamParameterModel has not yet been bound at the *entry* callsite.
  // Reusing that state for the first deck shuffle is a diagnostic HYPOTHESIS:
  // it is never described as a verified native pre-shuffle observation.
+ // A future v3.4.1 hook may prove this phase; old post-setup
+ // observations are not proof of the initial shuffle RNG state.
+ const preShuffleState=session?.setup?.randomStateBeforeInitialShuffle;
+ const verifiedPreShuffle=session?.setup?.preShuffleStateVerified===true &&
+  Number.isInteger(preShuffleState)&&preShuffleState>=0&&preShuffleState<=0xffffffff;
  const beforeState=session?.setup?.randomStateBeforeSetUp;
  const observedState=session?.setup?.randomStateObserved;
  const isUint32=n=>Number.isInteger(n)&&n>=0&&n<=0xffffffff;
@@ -178,18 +183,37 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  const verifiedSetupRng=isUint32(seed)&&isUint32(observedState)&&
   Number.isInteger(turnLimit)&&turnLimit>3&&
   advanceXorshift32(seed,turnLimit-3)===(observedState>>>0);
- const randomState=nativeBeforeAvailable?beforeState:verifiedSetupRng?observedState:null;
- const randomStateStage=nativeBeforeAvailable?"before-SetUpExam":
+ const randomState=verifiedPreShuffle?preShuffleState:
+  nativeBeforeAvailable?beforeState:verifiedSetupRng?observedState:null;
+ const randomStateStage=verifiedPreShuffle?"verified-before-initial-shuffle":
+  nativeBeforeAvailable?"before-SetUpExam":
   verifiedSetupRng?"after-SetUpExam-hypothesis":null;
  if(randomState===null)reasons.push("initial-shuffle-random-state-unavailable");
+ // ExamData provides final per-attribute battle multipliers. The account's
+ // separate support bonus is not present in this capture. Multiplying an
+ // arbitrary support bonus a second time would double-count it.
+ const bonusFields={
+  vocal:"VocalBonusPermil",dance:"DanceBonusPermil",visual:"VisualBonusPermil"};
+ const bonusValues=Object.fromEntries(Object.entries(bonusFields).map(
+  ([type,name])=>[type,number(names(native,[name]))]));
+ const parameterBonus=Object.values(bonusValues).every(
+  value=>Number.isInteger(value)&&value>=0)
+  ?Object.fromEntries(Object.entries(bonusValues).map(
+    ([type,bonusPermil])=>[type,{bonusPermil}])):null;
+ const supportBonus={percent:null,source:"account-support-bonus-not-captured",
+  treatment:parameterBonus?"use-native-final-attribute-multipliers":"unknown"};
  return {
   available:reasons.length===0,
   reasons,
   input:reasons.length===0?{
    initialDeck,pItems,examSettings:setting,initialParameters,
    randomStateAtStart:randomState,
-   metadata:{source:"native-passive-reflection",randomStateStage,verifiedPreShuffle:false,
-    rngProvenance:nativeBeforeAvailable?"captured-before-setup":"verified-seed-post-setup-hypothesis",
+   ...(parameterBonus?{parameterBonus}:{}),supportBonus,
+   metadata:{source:"native-passive-reflection",randomStateStage,verifiedPreShuffle,
+    rngProvenance:verifiedPreShuffle?"captured-at-verified-shuffle-entry":
+     nativeBeforeAvailable?"captured-before-setup":"verified-seed-post-setup-hypothesis",
+    scoreBonusProvenance:parameterBonus?"native-battle-bonus-permil":"not-observed",
+    supportBonusSeparatelyVerified:false,
     turnParameterTypesSource:turnTypeSource,independentDecisionSearch:false},
   }:null,
   candidates:{deckCount:deckSource?.length??null,
@@ -209,6 +233,10 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
    randomStateBeforeSetUp:beforeState??null,
    candidateInitialShuffleState:randomState,
    candidateShuffleStateStage:randomStateStage,
+   verifiedPreShuffle,
+   nativeAttributeBonusPermil:parameterBonus?bonusValues:null,
+   supportBonus,
+   genericSnapshotTruncated:session?.start?.nativeInitialState?.truncated===true,
    verifiedSetupRng,settingId:settingId??null,
    parameterKeys:plain(param?.fields)?Object.keys(param.fields):[]},
  };

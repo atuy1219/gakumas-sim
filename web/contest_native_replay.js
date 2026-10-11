@@ -56,6 +56,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   stamina,drawPerTurn:requireNumber(p.drawPerTurn,"drawPerTurn"),
   turnLimit:requireNumber(p.turnLimit,"turnLimit"),
   pItems:input.pItems,turnParameterTypes:canonicalTypes,
+  // The native values represent final per-attribute battle multipliers.
+  // Support bonus is NOT applied again on top of these captured values.
+  ...(input.parameterBonus?{parameterBonus:input.parameterBonus}:{}),
   examRuntimeSettings:input.examSettings,examScoreSettings:input.examSettings,
   cardVariantByKey,
   itemById:examItemCatalogs.itemById,
@@ -112,10 +115,12 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-turn-end-effect:"+state.unsupported.join("|"));
   const score=Number(state.exam.parameter??0);
   const scoreType=canonicalTypes[Math.min(i,canonicalTypes.length-1)];
-  scoreByType[scoreType]+=(score-previousScore);
+  const addedScore=score-previousScore;
+  scoreByType[scoreType]+=addedScore;
   previousScore=score;
   turns.push({
-   turn:i+1,score,
+   turn:i+1,score,addedScore,
+   vocal:scoreByType.vocal,dance:scoreByType.dance,visual:scoreByType.visual,
    stamina:Number(state.exam.stamina??0),
    block:Number(state.exam.block??0),
    hand:simulatedHand.map(id=>({id})),
@@ -129,6 +134,14 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   extraTurnsSimulated:Math.max(0,Number(state.turnLimit)-initialLimit),
   rngProvenance:input.metadata?.rngProvenance??"unknown",
   verifiedPreShuffle:input.metadata?.verifiedPreShuffle===true,
+  scoreBonusEvidence:{
+   nativeAttributeBonusPermil:input.parameterBonus?
+    Object.fromEntries(Object.entries(input.parameterBonus).map(
+     ([type,item])=>[type,item?.bonusPermil??null])):null,
+   accountSupportBonusPercent:input.supportBonus?.percent??null,
+   supportBonusAppliedSeparately:false,
+   provenance:input.metadata?.scoreBonusProvenance??"unknown",
+  },
   // Only publish a predicted final result if every native turn was simulated.
   ...(warnings.length===0&&turns.length===session.turns.length?{result:{score:previousScore,
     vocal:scoreByType.vocal,dance:scoreByType.dance,visual:scoreByType.visual}}:{}),
