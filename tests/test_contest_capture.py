@@ -57,7 +57,7 @@ struct Obj { alignas(8) unsigned char data[1024]={}; Obj(){regions[(uintptr_t)da
  template<class T>void put(size_t o,T v){memcpy(data+o,&v,sizeof(v));}
  uintptr_t addr(){return (uintptr_t)data;}
 };
-Obj machine,owner,exam,turnLog,turnArray,turnList,selectArray,selectList,card,cardArray,cardList,cardName,commandLog,cmd,commandArray,commandList;
+Obj machine,owner,exam,turnLog,secondTurn,turnArray,turnList,selectArray,selectList,card,cardArray,cardList,cardName,commandLog,cmd,commandArray,commandList;
 SearchResult payload{}; unsigned moved=0,returned=0; bool finish=false;
 const void* methodInfo=(void*)0x1234;
 template<class T>void resultPut(size_t offset,T v){memcpy((char*)&payload+offset,&v,sizeof(v));}
@@ -74,6 +74,7 @@ int main(){
  machine.put<int32_t>(0,-1);machine.put(0x20,owner.addr());machine.put(0x28,exam.addr());
  exam.put<int32_t>(0x10,2);exam.put<uint32_t>(0x14,42);
  turnLog.put<int32_t>(0x10,1);turnLog.put<int32_t>(0x14,12345);turnLog.put<int32_t>(0x28,27);
+ secondTurn.put<int32_t>(0x10,2);secondTurn.put<int32_t>(0x14,12345);secondTurn.put<int32_t>(0x28,25);
  cardName.put<int32_t>(0x10,4);uint16_t name[4]={'c','a','r','d'};memcpy(cardName.data+0x14,name,8);
  card.put(0x10,cardName.addr());card.put<int32_t>(0x18,2);
  pointerList(cardList,cardArray,card.addr());turnLog.put(0x38,cardList.addr());
@@ -91,7 +92,10 @@ int main(){
  result(owner.data,methodInfo);assert(written==0 && returned==1);
  resultPut<uintptr_t>(40,turnArray.addr());
  move(machine.data,methodInfo);assert(written==2 && active==nullptr && moved==1 && returned==2);
- // Keep exercising the original List<T> branch on subsequent events.
+ // The next selected step appends one immutable turn. The event must
+ // contain only that suffix, not the earlier turn already captured.
+ turnArray.put<uint64_t>(0x18,2);turnArray.put(0x28,secondTurn.addr());
+ turnList.put<int32_t>(0x18,2);
  resultPut<uintptr_t>(40,turnList.addr());
  // Another game callsite forwards but never adds a selected-progress record.
  testCaller=0xdead;move(machine.data,methodInfo);assert(written==2 && returned==3 && moved==2);
@@ -129,6 +133,14 @@ int main(){
             self.assertTrue(progress['dataComplete'])
             self.assertEqual(progress['turnsContainerShape'],'array-shaped')
             self.assertEqual(events[2]['turnsContainerShape'],'list-or-unknown')
+            self.assertEqual(events[1]['turnsEncoding'],'delta')
+            self.assertEqual(events[1]['turnStartIndex'],0)
+            self.assertEqual(events[1]['turnCount'],1)
+            self.assertEqual(events[2]['turnsEncoding'],'delta')
+            self.assertEqual(events[2]['turnStartIndex'],1)
+            self.assertEqual(events[2]['turnCount'],2)
+            self.assertEqual([t['turn'] for t in events[2]['turns']],[2])
+            self.assertEqual(events[1]['schemaVersion'],2)
             turn=progress['turns'][0]
             self.assertEqual((turn['turn'],turn['score'],turn['stamina']),(1,12345,27))
             self.assertEqual(turn['hand'][0]['id'],'card')
