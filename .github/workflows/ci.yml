@@ -25,6 +25,7 @@ jobs:
           for file in web/*.js; do
             node --check "$file"
           done
+          node --check tools/compare_contest_capture.mjs
       - name: Web tests
         run: |
           node tests/test_web.mjs
