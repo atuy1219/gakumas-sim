@@ -42,6 +42,6 @@ jobs:
         with:
           name: gakumas-progress-capture-apk
           path: |
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.5.2.apk
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.5.2.apk.sha256
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v*.apk
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v*.apk.sha256
           if-no-files-found: error
