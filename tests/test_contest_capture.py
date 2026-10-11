@@ -78,6 +78,7 @@ int main(){
  std::memcpy(cardIdentity.data+0x14,nativeCardId.data(),nativeCardId.size()*2);
  card.put<uintptr_t>(0x98,cardIdentity.addr());
  readBudget=8192;firstReadFailure={};
+ assert(setup_probe::wanted("_cardData",2));
  const auto captured=setup_probe::scanCardIdentity(card.addr(),nullptr);
  assert(captured.found && captured.offset==0x98 && !captured.ambiguous);
  assert(captured.json.find("\\u0070\\u005f")!=std::string::npos);
