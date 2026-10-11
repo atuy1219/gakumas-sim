@@ -86,8 +86,13 @@ int main(){
  resultPut<uint8_t>(0,1);resultPut<uintptr_t>(8,selectArray.addr());resultPut<uintptr_t>(40,turnList.addr());
  resultPut<int32_t>(32,987);resultPut<int32_t>(48,12345);resultPut<int32_t>(52,4000);resultPut<int32_t>(56,5000);resultPut<int32_t>(60,3345);
  // Outside active auto-play, even matching callsite must only forward.
+ // v1.5.15 on-device evidence: zero bounds at +0x10 and a nonzero
+ // element count at +0x18. Treat this as an SZARRAY-shaped container.
  result(owner.data,methodInfo);assert(written==0 && returned==1);
+ resultPut<uintptr_t>(40,turnArray.addr());
  move(machine.data,methodInfo);assert(written==2 && active==nullptr && moved==1 && returned==2);
+ // Keep exercising the original List<T> branch on subsequent events.
+ resultPut<uintptr_t>(40,turnList.addr());
  // Another game callsite forwards but never adds a selected-progress record.
  testCaller=0xdead;move(machine.data,methodInfo);assert(written==2 && returned==3 && moved==2);
  testCaller=0x07EFD634;finish=true;resultPut<uint8_t>(64,1);
@@ -121,6 +126,9 @@ int main(){
             progress=events[1]
             self.assertEqual(progress['selectedIndexes'],[2,0])
             self.assertEqual(progress['score'],12345)
+            self.assertTrue(progress['dataComplete'])
+            self.assertEqual(progress['turnsContainerShape'],'array-shaped')
+            self.assertEqual(events[3]['turnsContainerShape'],'list-or-unknown')
             turn=progress['turns'][0]
             self.assertEqual((turn['turn'],turn['score'],turn['stamina']),(1,12345,27))
             self.assertEqual(turn['hand'][0]['id'],'card')
