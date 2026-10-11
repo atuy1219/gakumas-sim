@@ -431,6 +431,22 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.18: native setup evidence and guarded independent replay
+
+**This is an experimental data-acquisition build, not yet proof of full contest score parity.**
+On the pinned v3.4.1 IL2CPP Build ID, a selected auto-play session now records:
+
+- `contest-start.nativeInitialState`: passive `ExamData` field inventory obtained through bounded `process_vm_readv` plus `il2cpp_class_get_fields` metadata. The module does not call managed gameplay methods.
+- `contest-setup` (only the verified caller RVA `0x07EFD3B4` inside natural selected auto-play): `randomStateBeforeSetUp`, `randomStateObserved` after `ExamSequence.SetUpExam`, and `examParameterSnapshot` / `examSequenceSnapshot` with typed field names and list data.
+- A snapshot includes `available`, `complete`, `truncated` and `readFailure` metadata when appropriate. Missing exports/unknown value-type arrays fail closed; observations never become fabricated fields.
+
+The app's exported `gakumas-contest-capture.json` contains all these events in the **same JSON**; no second diagnostics file is normally required. The existing turn-delta replay remains compatible with schema v2.
+
+`web/contest_native_setup.js` resolves **only recognized, fully evidenced** deck, item, turn setting, stamina, and random-state inputs. `web/contest_native_replay.js` then runs a fresh `tower_runtime` state, advances its own RNG, draws its own cards, and applies the captured **decisions** through the simulator. It reports the first divergent hand, turn score, stamina, block, or terminal score without substituting actual device results for predicted values. This validates **action/effect replay**, not independent AI action selection/DFS. The existing strict comparator classifies partial coverage as `partial-match` and never as complete parity.
+
+Current limitations: card and item master catalogs must be loaded and match the game version; reflection field shapes still need on-device confirmation. The pre-SetUp random state is not necessarily the exact pre-shuffle state. Unsupported effects, incomplete setup, undecoded enum/list shapes, and unresolved initial-state fields intentionally produce `simulation-unavailable` rather than 'match'. Exact DFS search/evaluation replay is still unsupported for full-effect contests.
+
+After installing v1.5.18 and restarting the game, submit only a fresh `gakumas-contest-capture.json`; the new setup field inventory identifies the missing normalization fields if the automatic replay remains blocked.
 ## v1.5.17: incremental selected-turn history (device verification pending)
 
 The v1.5.16 device export from October 11 had nine completed contest runs
