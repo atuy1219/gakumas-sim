@@ -149,7 +149,8 @@ function compareSession(s,pred){
  const compared=(
   (Array.isArray(pred?.progress)&&pred.progress.length>0&&pred.progress.some(p=>object(p)&&PROGRESS.some(k=>Object.hasOwn(p,k))))||
   (Array.isArray(pred?.turns)&&pred.turns.length>0&&pred.turns.some(t=>object(t)&&TURN.some(k=>Object.hasOwn(t,k))))||
-  (object(pred?.result)&&FIELDS.some(k=>Object.hasOwn(pred.result,k)))
+  (object(pred?.result)&&FIELDS.some(k=>Object.hasOwn(pred.result,k)))||
+  differences.some(d=>d.reason==="independent-replay-first-divergence")
  );
  const completeCoverage=compared && object(pred?.result) &&
   FIELDS.every(k=>Object.hasOwn(pred.result,k)) &&
@@ -169,8 +170,15 @@ function compareSession(s,pred){
     .map(c=>({id:c.card.id,guid:c.card.guid??null,upgradeCount:c.card.baseUpgradeCount??null})),
    nativeStatuses:real.statuses??null};
  }):[];
+ // Report the earliest turn mismatch rather than a later draw warning that
+ // happened to be added before earlier score/status differences.
+ const turnPosition=diff=>{
+  const match=String(diff.path??"").match(/^turns\[(\d+)\]/);
+  return match?Number(match[1]):Number.POSITIVE_INFINITY;
+ };
+ const firstDivergence=[...differences].sort((left,right)=>turnPosition(left)-turnPosition(right))[0]??null;
  return {status:!compared?"not-comparable":differences.length?"mismatch":completeCoverage?"match":"partial-match",
-  completeCoverage,differences,firstDivergence:differences[0]||null,turnDiagnostics,compared};
+  completeCoverage,differences,firstDivergence,turnDiagnostics,compared};
 }
 /* simulator(s,input) MUST run the independent engine; never echo native observations. */
 export function compareContestCapture(capture,{simulator=null,resolveInput=null,masterProvenance=null}={}){
