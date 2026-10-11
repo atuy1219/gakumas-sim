@@ -92,20 +92,47 @@ std::string stringField(Address a,size_t offset,bool& ok) {
     Address p=0;if(!read(a,offset,p)){ok=false;return "null";}return string(p,ok);
 }
 template<class T> bool array(Address a,unsigned cap,std::vector<T>& items) {
+    ReadScope scope("array");
     if(!a){items.clear();return true;}
-    uint64_t n=0;if(!read(a,0x18,n) || n>cap)return false;
+    uint64_t n=0;
+    {ReadScope header("length");if(!read(a,0x18,n))return false;}
+    if(n>cap){noteReadFailure("array-length-out-of-range",a,0x18,sizeof(n),0,n);return false;}
     items.resize(n);
+    ReadScope data("elements");
     return !n || bytes(a,0x20,items.data(),n*sizeof(T));
 }
 template<class T> bool list(Address a,unsigned cap,std::vector<T>& items) {
+    ReadScope scope("list");
     if(!a){items.clear();return true;}
     Address backing=0, again=0;int32_t count=0,after=0,version=0,versionAfter=0;
-    if(!read(a,0x10,backing) || !read(a,0x18,count) || !read(a,0x1c,version) || count<0 || unsigned(count)>cap)return false;
-    uint64_t capacity=0;if(count && (!read(backing,0x18,capacity) || capacity<unsigned(count)))return false;
+    {
+        ReadScope header("header");
+        if(!read(a,0x10,backing) || !read(a,0x18,count) || !read(a,0x1c,version))return false;
+    }
+    if(count<0 || unsigned(count)>cap){
+        noteReadFailure("list-count-out-of-range",a,0x18,sizeof(count),0,static_cast<uint32_t>(count));
+        return false;
+    }
+    uint64_t capacity=0;
+    if(count){
+        ReadScope length("backing-length");
+        if(!read(backing,0x18,capacity))return false;
+        if(capacity<unsigned(count)){
+            noteReadFailure("list-capacity-too-small",backing,0x18,sizeof(capacity),0,capacity);
+            return false;
+        }
+    }
     items.resize(count);
-    if(count && !bytes(backing,0x20,items.data(),count*sizeof(T)))return false;
-    return read(a,0x10,again) && read(a,0x18,after) && read(a,0x1c,versionAfter) &&
-        again==backing && count==after && version==versionAfter;
+    {ReadScope elements("elements");if(count && !bytes(backing,0x20,items.data(),count*sizeof(T)))return false;}
+    {
+        ReadScope stable("stability-check");
+        if(!read(a,0x10,again) || !read(a,0x18,after) || !read(a,0x1c,versionAfter))return false;
+    }
+    if(again!=backing || count!=after || version!=versionAfter){
+        noteReadFailure("list-changed-during-read",a,0x10,0);
+        return false;
+    }
+    return true;
 }
 std::string integers(Address a,bool asList,unsigned cap,bool& ok) {
     std::vector<int32_t> values;
@@ -196,19 +223,25 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     std::lock_guard<std::mutex> guard(mutex);++selectedCalls;
     active->terminal=local<uint8_t>(r,64)!=0;
     if(active->steps>=kStepLimit){++drops;status();return r;}
-    ++active->steps;readBudget=4096;bool ok=true;
+    ++active->steps;readBudget=4096;firstReadFailure={};readStage.clear();bool ok=true;
     const bool terminal=local<uint8_t>(r,64)!=0;active->terminal=terminal;
     std::ostringstream s;s<<",\"score\":"<<local<int32_t>(r,48)<<",\"vocal\":"<<local<int32_t>(r,52)
       <<",\"dance\":"<<local<int32_t>(r,56)<<",\"visual\":"<<local<int32_t>(r,60)
       <<",\"evaluationScore\":"<<local<int32_t>(r,32)<<",\"selectedPathEnded\":"<<(terminal?"true":"false")
-      <<",\"selectedIndexes\":"<<integers(local<Address>(r,8),false,256,ok)
-      <<",\"turns\":"<<objectList(local<Address>(r,40),128,turn,ok)
-      <<",\"dataComplete\":"<<(ok?"true":"false");
-    if(!ok){++failures;active->complete=false;}emit(*active,"contest-progress",s.str());return r;
+      <<",\"selectedIndexes\":";
+    {ReadScope scope("selectedIndexes");s<<integers(local<Address>(r,8),false,256,ok);}
+    s<<",\"turns\":";
+    {ReadScope scope("turns");s<<objectList(local<Address>(r,40),128,turn,ok);}
+    s<<",\"dataComplete\":"<<(ok?"true":"false");
+    if(!ok){
+        ++failures;active->complete=false;
+        s<<",\"readFailure\":"<<readFailureJson();
+    }
+    emit(*active,"contest-progress",s.str());return r;
 }
 __attribute__((noinline)) void move(void* self,const void* method) {
     Run current;Address machine=reinterpret_cast<Address>(self),owner=0,data=0;int32_t state=0;
-    {std::lock_guard<std::mutex> guard(mutex);++moveCalls;readBudget=4096;
+    {std::lock_guard<std::mutex> guard(mutex);++moveCalls;readBudget=4096;firstReadFailure={};readStage.clear();
       if(read(machine,0,state)&&read(machine,0x20,owner)&&read(machine,0x28,data)&&owner&&data){
         if(state!=-2){
         auto i=runs.find(machine);
