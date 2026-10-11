@@ -431,6 +431,16 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.20: real-device v1.5.19 inherited-card discovery
+
+The 2026-10-11 v1.5.19 contest capture recorded **9 sessions, 54 selected-progress records, 9 setup records, 9 results and 95 contiguous delta turns**. Each `contest-start.nativeInitialState` successfully resolved the actual IL2CPP `ExamData` runtime type, with `DeckList` sizes 16–19 and `LimitTurn` values 8, 10 or 12. `ExamParameterModel._turnTargetStatusParameterTypeList` exposed the exact numeric `ProduceParameterType` enum. Nine independent XorShift32 post-setup checks passed with 5, 7 and 9 advancements respectively. Native gameplay recording still had zero read/write failures.
+
+However, each `ExamCardData` entry contained only fields declared on the derived class; the inherited card-ID fields were absent. `IReadOnlyList<T>` fields were empty because the reader used the declared interface type instead of the concrete runtime type. Encoded `Obscured<T>` parameters were incomplete, and optional invalid child pointers caused `available:false` despite a valid decoded `ExamParameterModel` root.
+
+v1.5.20 walks up to six runtime IL2CPP class parents using `il2cpp_class_get_parent`, reads reference objects by their actual object-header class (including List<T> implementation types), and treats generic instantiated value types as unboxed when IL2CPP reports value-type semantics. The decoder permits additional nested parameter levels while retaining bounded nodes, memory reads and snapshot bytes. It omits redundant card icon/cache fields so inherited identity takes priority. A successfully decoded root now remains `available:true` even when optional child fields fail, with `complete:false` and `readFailure` identifying missing data. Unsupported nested type-kind codes are reported rather than silently replaced by arbitrary values. No gameplay methods are called.
+
+The browser input normalizer now recognizes the **observed** `ExamData.DeckList`, `_baseUpgradeCount`, `_fixedDeckOrder`, `ProduceParameterType` enum and `ExamData.LimitTurn` fields. Missing ID, stamina, settings, draw-per-turn, P-items or verified pre-shuffle RNG still correctly block a full-score parity verdict. The v1.5.20 code and host/JS tests do **not** prove on-device inherited field extraction yet; submit a new `gakumas-contest-capture.json` from v1.5.20 for that validation.
+
 ## v1.5.19: v1.5.18 on-device regression and initial-layout diagnostics
 
 The 2026-10-11 v1.5.18 user capture recorded **9 contest sessions, 55 selected-progress events, 95 append-only turns, 9 results and 9 setup events**, with zero incomplete reads, write errors or file-limit drops. All terminal native scores matched the final native progress scores and their Vo/Da/Vi sums. **Every** `nativeInitialState`, `examParameterSnapshot`, and `examSequenceSnapshot` returned `il2cpp-reflection-exports-unavailable`; `randomStateBeforeSetUp` was null in all nine sessions. These are setup-acquisition failures, not failures to save the existing gameplay log.
