@@ -23,7 +23,7 @@ function normalizeType(type){
 function normalizeCard(card){
  return {id:String(card?.id??card?.produceCardId??""),upgradeCount:Number(card?.upgradeCount??0)};
 }
-export function replayObservedContest(session,input,{cardById=new Map(),cardVariantByKey=new Map(),examItemCatalogs={}}={}){
+export function replayObservedContest(session,input,{cardById=new Map(),cardVariantByKey=new Map(),customizeById=new Map(),growEffectById=new Map(),examItemCatalogs={}}={}){
  if(!session?.start||!Array.isArray(session.turns)||!session.turns.length)
   throw new ContestReplayUnsupported("no-complete-native-turn-history");
  if(!session.complete)throw new ContestReplayUnsupported("incomplete-native-capture");
@@ -60,7 +60,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   // Support bonus is NOT applied again on top of these captured values.
   ...(input.parameterBonus?{parameterBonus:input.parameterBonus}:{}),
   examRuntimeSettings:input.examSettings,examScoreSettings:input.examSettings,
-  cardVariantByKey,
+  cardVariantByKey,customizeById,growEffectById,
   itemById:examItemCatalogs.itemById,
   examEffectById:examItemCatalogs.examEffectById??new Map(),
   examStatusEnchantById:examItemCatalogs.examStatusEnchantById??new Map(),
