@@ -516,7 +516,13 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
             std::strcmp(fieldName,"id")==0||
             std::strstr(fieldName,"CardId")!=nullptr||
             std::strstr(fieldName,"<Id>")!=nullptr);
-        if(nestedCardMaster&&!idField)continue;
+        // A managed card master may hold per-instance customization counts.
+        // Inspect only fields explicitly named for customization, without
+        // invoking getters or traversing unrelated effect trees.
+        const bool customizeField=fieldName&&(
+            std::strstr(fieldName,"Customize")!=nullptr||
+            std::strstr(fieldName,"customize")!=nullptr);
+        if(nestedCardMaster&&!idField&&!customizeField)continue;
         if(!internalValueWrapper&&!wanted(fieldName,depth))continue;
         // The ExamData start snapshot already holds cards, P-items, stamina
         // and the seed in plain text. ExamParameterModel has dozens of
@@ -533,7 +539,8 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
             bool essential=false;
             for(const char* field:{"_cardData","_guid","_fixedDeckOrder",
                      "_baseUpgradeCount","_tmpUpgradeCount",
-                     "_supportUpgradeIdList","_statusEffect"}){
+                     "_supportUpgradeIdList","_statusEffect",
+                     "_customizeCountList","_customizeCounts"}){
                 if(std::strcmp(fieldName,field)==0){essential=true;break;}
             }
             if(!essential)continue;
