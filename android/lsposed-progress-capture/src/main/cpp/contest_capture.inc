@@ -4,7 +4,7 @@ using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0; unsigned steps=0; bool terminal=false, complete=true; };
+struct Run { uint64_t id=0; Address owner=0, data=0; unsigned steps=0, turnsCaptured=0; bool terminal=false, complete=true; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
@@ -208,33 +208,50 @@ std::string turn(Address a,bool& ok) {
 // shape (bounds=nullptr, max_length), not a populated List<T> object.
 // The previous serializer dereferenced +0x10 as List<T>._items and
 // failed at NULL+0x18. Probe both representations without calling the game.
-std::string turnHistory(Address a,bool& ok,bool& arrayShaped) {
+// ExamSimulateResult includes all previous turns on each selected step.
+// Serialize each stable turn once per session; later steps report the total
+// history length and only the appended contiguous suffix. On a partial read,
+// retain the index of the first missing turn so a subsequent step can retry.
+std::string turnHistory(Address a,unsigned& nextIndex,bool& ok,
+                        bool& arrayShaped,unsigned& turnCount) {
     ReadScope scope("turns");
-    if(!a) {ok=false;noteReadFailure("missing-turn-history",a,0,0);return "null";}
-    Address items=0;
-    uint64_t sizeWord=0;
+    if(!a){ok=false;noteReadFailure("missing-turn-history",a,0,0);return "null";}
+    Address items=0;uint64_t sizeWord=0;
     {
         ReadScope header("container-header");
-        if(!read(a,0x10,items) || !read(a,0x18,sizeWord)) {
-            ok=false;return "null";
-        }
+        if(!read(a,0x10,items)||!read(a,0x18,sizeWord)){ok=false;return "null";}
     }
-    // Zero bounds pointer plus a positive 64-bit length is a normal
-    // one-dimensional IL2CPP array. A malformed List<T> with _items==null
-    // and _size>0 is indistinguishable without a class metadata lookup;
-    // retain the shape in the exported record instead of claiming a type.
-    if(!items && sizeWord>0 && sizeWord<=128) {
+    std::vector<Address> values;
+    if(!items && sizeWord>0 && sizeWord<=128){
         arrayShaped=true;
         ReadScope shape("array-shaped");
-        std::vector<Address> values;
         if(!array(a,128,values)){ok=false;return "null";}
-        return serializeObjects(values,turn,ok);
+    }else{
+        ReadScope shape("list-shaped");
+        if(!list(a,128,values)){ok=false;return "null";}
     }
-    // A genuine List<T> has an _items array and a _size at +0x18.
-    return objectList(a,128,turn,ok);
+    turnCount=static_cast<unsigned>(values.size());
+    if(nextIndex>turnCount){
+        noteReadFailure("turn-history-shrank",a,0x18,sizeof(sizeWord),0,turnCount);
+        ok=false;return "null";
+    }
+    std::ostringstream s;s<<'[';
+    bool wrote=false;
+    for(unsigned i=nextIndex;i<turnCount;++i){
+        const auto indexLabel="index-"+std::to_string(i);
+        ReadScope itemScope(indexLabel.c_str());
+        bool turnOk=true;
+        const std::string record=turn(values[i],turnOk);
+        if(!turnOk){ok=false;break;}
+        if(wrote)s<<',';
+        s<<record;
+        wrote=true;++nextIndex;
+    }
+    s<<']';return s.str();
 }
+
 void status() {
-    std::ostringstream s;s<<"{\"schemaVersion\":1,\"pid\":"<<getpid()<<",\"hookMask\":"<<g_hook_mask.load()
+    std::ostringstream s;s<<"{\"schemaVersion\":2,\"pid\":"<<getpid()<<",\"hookMask\":"<<g_hook_mask.load()
       <<",\"moveNextInstalled\":"<<(moveInstalled?"true":"false")<<",\"searchResultInstalled\":"<<(resultInstalled?"true":"false")
       <<",\"moveCalls\":"<<moveCalls<<",\"selectedResultCalls\":"<<selectedCalls<<",\"sessions\":"<<nextId
       <<",\"recordsWritten\":"<<written<<",\"incompleteReads\":"<<failures<<",\"writeFailures\":"<<writeFailures
@@ -242,16 +259,17 @@ void status() {
       <<",\"scope\":\"selected-contest-auto-play-data\",\"gameCaptureVerified\":false,\"syntheticGameCalls\":false}";
     atomic_write(path("contest_capture_status.json"),s.str());
 }
-void emit(const Run& run,const char* event,const std::string& content) {
+bool emit(const Run& run,const char* event,const std::string& content) {
     std::ostringstream s;s<<"{\"schemaVersion\":1,\"pid\":"<<getpid()<<",\"tid\":"<<gettid()
       <<",\"observedAtUnixMs\":"<<unix_time_ms()<<",\"sessionId\":"<<run.id
       <<",\"event\":\""<<event<<"\",\"step\":"<<run.steps<<",\"source\":\"natural-selected-auto-play\","
       <<"\"gameCaptureVerified\":false,\"rngCaptured\":false,\"syntheticGameCalls\":false,"
       <<"\"libil2cppBuildId\":\""<<kV341BuildId<<"\""<<content<<"}\n";
-    const auto line=s.str();if(fileBytes+line.size()>kFileLimit){++drops;status();return;}
+    const auto line=s.str();if(fileBytes+line.size()>kFileLimit){++drops;status();return false;}
     std::ofstream out(path("contest_capture.jsonl"),std::ios::app|std::ios::binary);out<<line;out.flush();
     if(out){++written;fileBytes+=line.size();}else ++writeFailures;
     status();
+    return bool(out);
 }
 __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     const Address caller=GAKUMAS_PASSIVE_CALLER_RVA();
@@ -260,23 +278,30 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     std::lock_guard<std::mutex> guard(mutex);++selectedCalls;
     active->terminal=local<uint8_t>(r,64)!=0;
     if(active->steps>=kStepLimit){++drops;status();return r;}
-    ++active->steps;readBudget=4096;firstReadFailure={};readStage.clear();bool ok=true;
+    ++active->steps;readBudget=8192;firstReadFailure={};readStage.clear();bool ok=true;
     const bool terminal=local<uint8_t>(r,64)!=0;active->terminal=terminal;
     std::ostringstream s;s<<",\"score\":"<<local<int32_t>(r,48)<<",\"vocal\":"<<local<int32_t>(r,52)
       <<",\"dance\":"<<local<int32_t>(r,56)<<",\"visual\":"<<local<int32_t>(r,60)
       <<",\"evaluationScore\":"<<local<int32_t>(r,32)<<",\"selectedPathEnded\":"<<(terminal?"true":"false")
       <<",\"selectedIndexes\":";
     {ReadScope scope("selectedIndexes");s<<integers(local<Address>(r,8),false,256,ok);}
-    s<<",\"turns\":";
+    const unsigned before=active->turnsCaptured;
+    unsigned historyCount=0;
+    s<<",\"turnsEncoding\":\"delta\",\"turnStartIndex\":"<<before<<",\"turns\":";
     bool turnsArrayShaped=false;
-    s<<turnHistory(local<Address>(r,40),ok,turnsArrayShaped);
-    s<<",\"turnsContainerShape\":\""<<(turnsArrayShaped?"array-shaped":"list-or-unknown")<<"\"";
+    s<<turnHistory(local<Address>(r,40),active->turnsCaptured,ok,turnsArrayShaped,historyCount);
+    s<<",\"turnCount\":"<<historyCount
+     <<",\"turnsContainerShape\":\""<<(turnsArrayShaped?"array-shaped":"list-or-unknown")<<"\"";
     s<<",\"dataComplete\":"<<(ok?"true":"false");
     if(!ok){
         ++failures;active->complete=false;
         s<<",\"readFailure\":"<<readFailureJson();
     }
-    emit(*active,"contest-progress",s.str());return r;
+    if(!emit(*active,"contest-progress",s.str())){
+        // A dropped event must not silently advance the replay cursor.
+        active->turnsCaptured=before;active->complete=false;
+    }
+    return r;
 }
 __attribute__((noinline)) void move(void* self,const void* method) {
     Run current;Address machine=reinterpret_cast<Address>(self),owner=0,data=0;int32_t state=0;
