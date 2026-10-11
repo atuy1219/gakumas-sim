@@ -68,6 +68,17 @@ export function parseContestMasters(textByFile, manifest = {}) {
   for (const [name, rows] of Object.entries({cardVariants,items,itemEffects,examSettings,examEffects,examTriggers})) {
     if (!rows.length) throw new Error("Required master parser returned zero records: " + name);
   }
+  // Exclude display-only description ASTs. They expand the snapshot by >150 MB
+  // but have no effect on replay logic; keep all gameplay effect IDs intact.
+  for(const rows of [cardVariants,items,itemEffects,examSettings,examEffects,
+    examStatusEnchants,examTriggers,cardSearches,cardRandomPools,
+    cardStatusEnchants,cardGrowEffects]){
+    for(const row of rows){
+      for(const key of Object.keys(row)){
+        if(key.endsWith("DescriptionParts")||key==="produceDescriptions")delete row[key];
+      }
+    }
+  }
   const cards = [...new Map([...cardVariants].sort((a,b)=>b.upgradeCount-a.upgradeCount).map(c=>[c.id,c])).values()];
   return {
     schemaVersion: 1,
