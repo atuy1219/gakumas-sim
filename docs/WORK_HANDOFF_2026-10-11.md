@@ -201,6 +201,15 @@ ExamSequence.StartExam（token 0x060050A9 / RVA 0x080A5354）は実際の試験�
 
 ## 13. v1.5.5 SetUpExamの実機動作成功（ユーザー12:44報告）
 
+### 追加の成功記録（v1.5.6ローカルAPK、2026-10-11）
+
+ユーザー提供の現在PID14785・mask640のコピーJSONで、参照取得と自然なモードgetterの動作を確認した。9世代すべてExamType=2（Contest）・IsReplay=false、bindingFailures/writeFailures/errnoは0。記録28件は対応付け9・ExamType9・Replay9・アドレス再利用1。世代1と4で同じSequenceアドレスを別のParameter参照へ分離できた。
+
+終了イベントはなく8件の対応が残るため、終了検知の成功とは報告しない。この版はfalseのIsEndExam呼出回数を記録しておらず、呼出0とfalseのみの実行を区別できない。本番かリハーサルかは操作名が未提示。乱数・カード・効果・スコア、オーディション/上位リプレイ/ドル道は未確認。現在PIDのNative呼出記録があるため、SO名のmaps一致noや空logcatだけで未注入・適用範囲/API不備とは判定しない。
+
+GitHubコードはv1.5.5のまま。追加フックはローカル実機検証を続け、成功後に反映する。ここには成功記録と確認範囲だけ保存し、APK・元ゲームバイナリ・生dumpは追加しない。
+
+
 - 現在gamePid=2385/UID10537/user0、mask128/read、JNI loadedとNative API accepted=true、currentProcess=true。Build IDはexpected/actualとも77fda4e2a21f23954e2349b83fc113ede408f70b/matched。
 - ExamSequence.SetUpExam（token060050A4/RVA080A1E90）はinstalled、callsObserved=9、recordedSamples=9。9件すべて現在PID2385/TID8748、callerReturnRva=07EFD3B4、contest-auto-calculation。1791690199772〜1791690202168ms。単なるinstalledではなく、置換関数経由のゲーム関数実行と元関数復帰後のファイル書込を確認。
 - 9件のsequenceアドレスは8種類で同一アドレスの再利用がある。次のセッション管理にはアドレスに加え単調増加generationが必要。参加者/味方敵/セット数はこの記録だけでは判定しない。
