@@ -145,6 +145,7 @@ const deviceShape={
      "_baseUpgradeCount":0,"_fixedDeckOrder":i}
    })),
    "<LimitTurn>k__BackingField":1,
+   "<ItemList>k__BackingField":{$type:"List`1",count:0,elements:[]},
   }}},
  },
  setup:{...normalizedSession.setup,examParameterSnapshot:{available:true,complete:false,
