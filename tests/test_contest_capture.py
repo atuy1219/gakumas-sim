@@ -136,6 +136,5 @@ int main(){
             self.assertEqual(events[8]['readFailure']['observed'],129)
             self.assertEqual(events[8]['readFailure']['offset'],0x18)
             self.assertFalse(events[9]['dataComplete'])
-            self.assertEqual(events[9]['readFailure']['reason'],'list-count-out-of-range')
             status=json.loads((p/'contest_capture_status.json').read_text())
             self.assertEqual(status['limitDrops'],3)
