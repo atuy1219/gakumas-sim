@@ -431,6 +431,18 @@ possible unload or map-probe mismatch. It is not proof of missing Java injection
 
 
 
+## v1.5.22: real-device v1.5.21 card-layout verification
+
+The v1.5.21 capture uploaded on 2026-10-11 contains **9 completed contest sessions, 53 progress events, 95 contiguous turn records, 9 native setups, 9 results, zero gameplay write/read errors**. All 9 independent post-setup RNG states match Seed-based XorShift32 after 5, 7 or 9 advancements; this is not evidence of an independently computed score.
+
+The newly expanded `ExamData` capture recovered every initial deck length (16–19), all **34** session-scoped native P-item IDs (prefix `pitem_`), native initial stamina/max stamina and original 8/10/12 turn limits. Yet **zero** `$scannedCardId` entries succeeded (none were ambiguous). `il2cpp_class_get_parent` is present, but the inherited ID field still does not appear in the inventory. `Obscured<T>` runtime values are encrypted and must never be mistaken for stamina.
+
+v1.5.22 obtains `il2cpp_class_instance_size` and scans exactly the size of each card object, bounded by 4096 bytes; it no longer assumes 768 bytes is the object size. The first `ExamCardData` record in each snapshot also includes a metadata-only `$cardClassInventory` (runtime byte size, up to 8 parent class names, with declared field names, offsets, and type kinds). This identifies whether `ProduceCardId` is actually stored in a base field, elsewhere, or synthesized by a property. No managed getter is called. The class inventory is emitted only once per setup snapshot, avoiding repeated huge logs.
+
+The web setup normalizer now consumes native `pitem_` IDs and the in-field `$scannedCardId` only when non-ambiguous. It reads unencrypted `ExamData.Stamina`, `ExamData.MaxStamina`, and `ExamData.LimitTurn`, **not** the encrypted `ExamParameterModel.Obscured<T>.Raw<T>` values. Candidate diagnostics preserve native deck count, number of IDs acquired, P-item IDs, and initial vitals even when replay is blocked.
+
+Real-device ID recovery and the exact pre-shuffle random state still await verification; do not claim full independent gameplay/DFS parity. Upgrade the module, restart the game, and submit a single `gakumas-contest-capture.json` again. The new `$cardClassInventory` should determine the next concrete fix without guessing field layout.
+
 ## v1.5.21: device v1.5.20 card identity, protected-value, and ArraySegment diagnostics
 
 The 2026-10-11 device v1.5.20 capture contains **9 sessions, 52 selected-progress events, 95 native turn logs, 9 results, 9 setup records** with zero read failures, write failures and drops. The native result score equals the terminal progress score and Vo+Da+Vi in each session. Each `ExamData.DeckList` has 16–19 real cards; 11–12 were previously decoded due to the nested effects/tree byte cap. The IL2CPP `ExamParameterModel` now includes 89 fields, `_random.state`, 8/10/12-turn attribution, and Obscured<T> stamina; the latter contains **encrypted/raw values**, not direct stamina. No independent full-score comparison is supported for this data.
