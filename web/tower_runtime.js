@@ -3200,6 +3200,8 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       block: Number(exam.block ?? 0),
       review: Number(exam.review ?? 0),
       aggressive: Number(exam.aggressive ?? 0),
+      staminaConsumptionDown: Number(exam.staminaConsumptionDown ?? 0),
+      staminaConsumptionDownFix: Number(exam.staminaConsumptionDownFix ?? 0),
       playable: Number(state.playsRemaining ?? 0),
     };
     const changes = priorStep ? Object.fromEntries(
