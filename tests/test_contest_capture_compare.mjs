@@ -482,4 +482,10 @@ const customProvisional=normalizeNativeContestSetup(customSession,{
 assert.deepEqual(customProvisional.input.initialDeck[1].customizes,[{id:"route-a",customizeCount:1}]);
 assert.equal(customProvisional.input.metadata.initialDeckCustomizationVerified,false);
 assert.equal(customProvisional.candidates.observedCustomizationRecovery.recovered,1);
+const emptyObservations={...customSession,turns:[{turn:1,
+ hand:[{id:neutralDeck[1].id,customizeCounts:[]}]}]};
+const emptyRecovered=normalizeNativeContestSetup(emptyObservations,{
+ examItemCatalogs:extraCatalog,allowObservedCustomizations:true});
+assert.deepEqual(emptyRecovered.input.initialDeck[1].customizes,[]);
+assert.equal(emptyRecovered.candidates.observedCustomizationRecovery.unmapped,0);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
