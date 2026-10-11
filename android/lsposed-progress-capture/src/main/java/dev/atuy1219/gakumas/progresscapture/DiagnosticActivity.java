@@ -141,6 +141,17 @@ public final class DiagnosticActivity extends Activity {
         logs.setText("LSPosed初期化ログを取得");
         logs.setOnClickListener(v -> collectInjectionLogs());
         root.addView(logs);
+        Button repair = new Button(this);
+        repair.setText("診断ファイル保存先の権限を修復");
+        repair.setOnClickListener(v -> new AlertDialog.Builder(this)
+            .setTitle("学マスの診断ファイル保存先を修復")
+            .setMessage("保存先の所有者がroot:rootになっていると、学マスから"
+                + "診断ファイルを生成できません。診断専用ディレクトリ"
+                + "とフック設定ファイルの所有者・SELinuxラベルのみ修復します。"
+                + "ゲームのセーブデータは変更しません。")
+            .setPositiveButton("修復する", (dialog, which) -> repairCaptureDirectory())
+            .setNegativeButton("キャンセル", null).show());
+        root.addView(repair);
 
         ScrollView scrolling = new ScrollView(this);
         display = new TextView(this);
@@ -211,18 +222,51 @@ public final class DiagnosticActivity extends Activity {
             .show();
     }
 
+    private static String diagnosticDirectoryRepairCommand() {
+        // Use only the fixed game-private diagnostic directory; never chown
+        // a game data root or follow an untrusted symlink.
+        String parent = "/data/user/0/" + GAME + "/files";
+        String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
+        return "p='" + parent + "'; d='" + dir + "'; "
+            + "test -d \"$p\" || exit 30; "
+            + "test ! -L \"$d\" || exit 31; "
+            + "uid=$(stat -c %u \"$p\") || exit 32; "
+            + "gid=$(stat -c %g \"$p\") || exit 33; "
+            + "[ \"$uid\" -ge 10000 ] || exit 34; "
+            + "[ \"$gid\" -ge 10000 ] || exit 35; "
+            + "mkdir -p \"$d\" && chown \"$uid:$gid\" \"$d\" "
+            + "&& chmod 0700 \"$d\" || exit 36; "
+            + "if [ -f \"$d/native_hookmask.txt\" ]; then "
+            + "test ! -L \"$d/native_hookmask.txt\" || exit 37; "
+            + "chown \"$uid:$gid\" \"$d/native_hookmask.txt\" "
+            + "&& chmod 0600 \"$d/native_hookmask.txt\" || exit 38; fi; "
+            + "restorecon -R \"$d\" || exit 39; "
+            + "stat -c 'repaired-dir %u:%g %a %n' \"$d\"";
+    }
+
+    private void repairCaptureDirectory() {
+        worker.execute(() -> {
+            try {
+                final String result = runRoot(diagnosticDirectoryRepairCommand());
+                main.post(() -> display.append("\n保存先修復成功: " + result
+                    + "\n学マスの完全終了・再起動後に診断を再確認してください。"));
+            } catch (Exception error) {
+                main.post(() -> display.append("\n保存先修復失敗: " + error.getMessage()));
+            }
+        });
+    }
+
     private void saveHookMode(int mask) {
         worker.execute(() -> {
             try {
                 String dir = TRACE_DIR.substring(0, TRACE_DIR.length() - 1);
-                String gameFiles = "/data/user/0/" + GAME + "/files";
-                String cmd = "mkdir -p '" + dir + "'"
-                    + " && uid=$(stat -c %u '" + gameFiles + "')"
-                    + " && gid=$(stat -c %g '" + gameFiles + "')"
-                    + " && chown \"$uid:$gid\" '" + dir + "'"
+                String cmd = diagnosticDirectoryRepairCommand()
+                    + " && uid=$(stat -c %u '/data/user/0/" + GAME + "/files')"
+                    + " && gid=$(stat -c %g '/data/user/0/" + GAME + "/files')"
                     + " && printf '%s\\n' " + mask + " > '" + dir + "/native_hookmask.txt'"
                     + " && chown \"$uid:$gid\" '" + dir + "/native_hookmask.txt'"
-                    + " && chmod 0600 '" + dir + "/native_hookmask.txt'";
+                    + " && chmod 0600 '" + dir + "/native_hookmask.txt'"
+                    + " && restorecon '" + dir + "/native_hookmask.txt'";
                 runRoot(cmd);
                 main.post(() -> display.append(
                     "\\n\\nフック設定を " + mask
