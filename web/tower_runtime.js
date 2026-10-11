@@ -693,6 +693,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     turnOpen: false,
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
+    captureActionTelemetry: options.captureActionTelemetry === true,
     pItemEffectRemainingCounts: new Map(),
     supportCards: Array.isArray(options.supportCards)
       ? options.supportCards.map((item) => ({ ...item }))
