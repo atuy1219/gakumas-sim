@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { payCardCost } from "../web/exam_effects.js";
 import { createTowerTurnState, drawTowerTurn, playTowerCard } from "../web/tower_runtime.js";
 
 const deck=["cardA","cardB","cardC"].map(id=>({id,upgradeCount:0}));
@@ -159,3 +160,17 @@ assert.equal(triggerPhase.stamina,75);
 const below=thresholdTest(79);
 assert.equal(below.state.exam.block,0,
  "Purple light should not trigger below 80% before the card cost");
+
+// Captured contest #4 T1: prior 仕切り直し+ grants 4 turns of
+// 50% stamina reduction, which must also modify 気分転換's forceStamina.
+const directExam={stamina:36,maxStamina:42,block:15,staminaConsumptionDown:4};
+const directEvents=payCardCost(directExam,{
+ id:"p_card-02-act-0_010",stamina:0,forceStamina:5,
+ costType:"ExamCostType_Unknown",costValue:0,
+});
+assert.equal(directExam.stamina,33);
+assert.equal(directExam.block,15,"forceStamina must not consume Genki");
+assert.ok(directEvents.includes("直接体力消費 3"));
+const noBuff={stamina:36,maxStamina:42,block:15,staminaConsumptionDown:0};
+payCardCost(noBuff,{stamina:0,forceStamina:5});
+assert.equal(noBuff.stamina,31,"unmodified direct stamina cost remains 5");
