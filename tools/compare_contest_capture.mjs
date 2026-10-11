@@ -22,7 +22,7 @@ async function main(args) {
    ?await fetchTemporaryContestCatalog({ref:args[3]||"main"})
    :JSON.parse(await readFile(args[2],"utf8"));
   const catalogPath=autoCatalog?join(dirname(output),"gakumas-contest-catalog.json"):args[2];
-  if(autoCatalog)await writeFile(catalogPath,JSON.stringify(catalog,null,2)+"\\n");
+  if(autoCatalog)await writeFile(catalogPath,JSON.stringify(catalog,null,2)+"\n");
   const byId=rows=>new Map((rows??[]).map(x=>[x.id,x]));
   const catalogs={
    examSettings:catalog.examSettings??[],
