@@ -503,6 +503,23 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unbo
             std::strstr(fieldName,"<Id>")!=nullptr);
         if(nestedCardMaster&&!idField)continue;
         if(!internalValueWrapper&&!wanted(fieldName,depth))continue;
+        // The ExamData start snapshot already holds cards, P-items, stamina
+        // and the seed in plain text. ExamParameterModel has dozens of
+        // encrypted Obscured<T> fields before its turn-target vector.
+        // Recursing those redundant wrappers exhausted the 220-node cap
+        // before the last 1-11 target entries. Capture only setup-specific
+        // fields from this model to preserve the complete exact turn order.
+        if(std::strcmp(name,"ExamParameterModel")==0){
+            const std::string field=fieldName?fieldName:"";
+            if(field.find("TurnTargetStatusParameterTypeList")==std::string::npos &&
+               field.find("ConfigParameterTypeOrderedList")==std::string::npos &&
+               field.find("DrawCard")==std::string::npos &&
+               field.find("CardDraw")==std::string::npos &&
+               field.find("TurnStartDistribute")==std::string::npos &&
+               field.find("Random")==std::string::npos &&
+               field.find("SettingId")==std::string::npos)
+                continue;
+        }
         // Drop cache-only icon/description internals from each deck card.
         // They consume most of the snapshot budget but cannot reconstruct
         // the card's ID, upgrade level, origin or runtime effects.
