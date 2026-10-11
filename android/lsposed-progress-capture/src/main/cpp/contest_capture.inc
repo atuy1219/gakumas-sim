@@ -308,7 +308,7 @@ struct Context {
     std::vector<Address> seen;
 };
 std::string value(Address where,int type,void* cls,int depth,Context& c,bool& ok);
-std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok){
+std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok,bool unboxed=false){
     if(!ptr)return "null";
     if(depth>3||c.nodes++>=160||c.seen.size()>=160){c.truncated=true;return "null";}
     for(Address old:c.seen)if(old==ptr)return "{\"$cycle\":true}";
@@ -356,7 +356,8 @@ std::string object(Address ptr,void* cls,int depth,Context& c,bool& ok){
         if(!ft)continue;
         const int kind=p.typeKind(ft);
         void* nested=p.classFromType(ft);
-        const std::string serialized=value(ptr+offset,kind,nested,depth+1,c,ok);
+        const Address fieldAddress = ptr+(unboxed?offset-0x10:offset);
+        const std::string serialized=value(fieldAddress,kind,nested,depth+1,c,ok);
         if(!first)out<<',';
         first=false;
         out<<'"';
@@ -386,8 +387,8 @@ std::string value(Address where,int kind,void* cls,int depth,Context& c,bool& ok
         case 0x0c:{float v=0;if(!read(where,0,v)){ok=false;return "null";}return std::isfinite(v)?std::to_string(v):"null";}
         case 0x0d:{double v=0;if(!read(where,0,v)){ok=false;return "null";}return std::isfinite(v)?std::to_string(v):"null";}
         case 0x0e:{Address v=0;if(!read(where,0,v)){ok=false;return "null";}return string(v,ok);}
-        case 0x11: // Unboxed managed value type: do not interpret it as an object pointer.
-            c.truncated=true;return "null";
+        case 0x11: // Typed unboxed value; field offsets include a 0x10 boxed header.
+            return cls?object(where,cls,depth,c,ok,true):"null";
         case 0x12:case 0x15:case 0x1c:case 0x1d:case 0x14:{
             Address ptr=0;if(!read(where,0,ptr)){ok=false;return "null";}
             if(!ptr)return "null";
