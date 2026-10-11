@@ -70,6 +70,7 @@ public final class DiagnosticActivity extends Activity {
     // Accessed only on the single-thread worker.
     private final Map<String, SourceFile> sourceCache = new LinkedHashMap<>();
     private final Map<String, String> lastPreflight = new LinkedHashMap<>();
+    private String resolvedTraceDir = TRACE_DIR;
     private final Set<String> previouslyObtained = new LinkedHashSet<>();
     private volatile String lastScreenState = "";
     // Explicitly requested only; never continuously read logcat during polling.
@@ -233,6 +234,17 @@ public final class DiagnosticActivity extends Activity {
     private void configureNativeMask(int mask, String success) {
         worker.execute(() -> {
             try {
+                scanRootFiles();
+                sourceCache.clear();
+                String gameUser = lastPreflight.get("gameUser");
+                if (gameUser != null && !"unavailable".equals(gameUser)
+                    && !gameUser.equals(lastPreflight.get("diagnosticUser")))
+                    throw new IllegalStateException("学マスと診断アプリのAndroidユーザーが異なります。"
+                        + "同じユーザー領域で診断してください。設定は変更していません。");
+                if ("game-process-root-read-only".equals(lastPreflight.get("tracePathKind")))
+                    throw new IllegalStateException("Rootの通常パスから学マス保存先が見えません。"
+                        + "ゲームプロセス経由の読取のみ可能です。初期化ログを含む診断JSONを"
+                        + "書き出してください。設定は変更していません。");
                 final String result = runRoot(DiagnosticStorage.configure(GAME_FILES, mask, SOURCE_FILES));
                 main.post(() -> display.append("\n" + success + ": " + result
                     + "\n学マスの完全終了・再起動後に診断を再確認してください。"));
@@ -245,15 +257,19 @@ public final class DiagnosticActivity extends Activity {
     private void collectInjectionLogs() {
         worker.execute(() -> {
             try {
-                // Filter by this module's exact Android Log tag. Avoid
-                // exporting unrelated account, network or game log lines.
-                String command = "logcat -d -v brief -s GakumasCapture:V 2>&1 | tail -n 48";
+                // Explicit action only. Export our tag and AVCs mentioning
+                // fixed capture names; do not export unrelated game logs.
+                String command = "logcat -d -v brief -s GakumasCapture:V 2>&1 | tail -n 48; "
+                    + "printf '\\n--- capture-file AVC (empty does not prove no denial) ---\\n'; "
+                    + "logcat -b all -d -v brief 2>/dev/null | grep -F 'avc: denied' "
+                    + "| grep -E 'gakumas-sim|gakumas_progress_capture|bootstrap_status\\.json|native_hookmask\\.txt' "
+                    + "| tail -n 24";
                 String logs = runRoot(command).trim();
                 if (logs.length() > 16000)
                     logs = logs.substring(logs.length() - 16000);
-                if (logs.isEmpty())
+                if (logs.isEmpty() || logs.startsWith("--- capture-file AVC"))
                     logs = "(GakumasCaptureのログは確認できませんでした。"
-                        + "LSPosedの適用範囲とAPIバージョンを確認してください。)";
+                        + "LSPosedの適用範囲とAPIバージョンを確認してください。)\n" + logs;
                 lastInjectionLog = logs;
                 final String toDisplay = logs;
                 main.post(() -> {
@@ -322,65 +338,30 @@ public final class DiagnosticActivity extends Activity {
                 result.write(buffer, 0, length);
             }
         }
-        if (process.waitFor() != 0) {
-            throw new IllegalStateException(result.toString("UTF-8").trim());
+        int exit = process.waitFor();
+        if (exit != 0) {
+            throw new IllegalStateException("su終了コード " + exit + ": " + result.toString("UTF-8").trim());
         }
         return result.toString("UTF-8");
     }
 
     private Map<String, SourceFile> scanRootFiles() throws Exception {
-        // One root shell probes ALL paths. Missing files are not errors.
-        // The script contains only fixed, predefined names.
-        StringBuilder command = new StringBuilder("id -u; for name in");
-        for (String name : SOURCE_FILES) command.append(" ").append(name);
-        command.append("; do f='").append(TRACE_DIR).append("'\"$name\"; ");
-        command.append("if [ -f \"$f\" ]; then stat -c \"$name|%s|%Y\" \"$f\" ");
-        command.append("|| echo \"$name|ERROR\"; else echo \"$name|MISSING\"; fi; done; ");
-        command.append("echo '@gamePid|'$(pidof ").append(GAME).append(" 2>/dev/null || echo none); ");
-        command.append("if [ -d '").append(GAME_DATA).append("' ]; ");
-        command.append("then echo '@targetDataDir|exists'; else echo '@targetDataDir|missing'; fi; ");
-        command.append("echo \"@hookMask|$(cat '" + TRACE_DIR + "'native_hookmask.txt 2>/dev/null || echo 0)\"; ");
-        command.append("if [ -d '").append(TRACE_DIR).append("' ]; then ");
-        command.append("echo '@captureDirectory|exists'; ");
-        command.append("stat -c '@captureDirectoryOwner|%u:%g %a' '").append(TRACE_DIR)
-            .append("' 2>/dev/null; ");
-        command.append("else echo '@captureDirectory|missing'; fi; ");
-        command.append("stat -c '@gameFilesOwner|%u:%g %a' '")
-            .append(GAME_FILES).append("' 2>/dev/null; ");
-        command.append("p=$(pidof ").append(GAME).append(" 2>/dev/null | cut -d ' ' -f 1); ");
-        command.append("if [ -n \"$p\" ] && [ -r \"/proc/$p/maps\" ]; then ");
-        command.append("if grep -Fq 'libgakumas_progress_capture.so' \"/proc/$p/maps\"; ");
-        command.append("then echo '@moduleLibraryMapped|yes'; ");
-        command.append("else echo '@moduleLibraryMapped|no'; fi; ");
-        command.append("if grep -Fq 'libil2cpp.so' \"/proc/$p/maps\"; ");
-        command.append("then echo '@il2cppLibraryMapped|yes'; ");
-        command.append("else echo '@il2cppLibraryMapped|no'; fi; ");
-        command.append("else echo '@moduleLibraryMapped|game-not-running-or-maps-inaccessible'; fi; ");
-        command.append("for d in /data/user/*/").append(GAME).append("; do ");
-        command.append("[ -d \"$d\" ] && echo \"@candidateDataDir|$d\"; done");
-        String[] lines = runRoot(command.toString()).split("\\r?\\n");
-        if (lines.length == 0 || !"0".equals(lines[0].trim())) {
-            throw new SecurityException("KernelSUのsu権限が必要です: " +
-                (lines.length > 0 ? lines[0] : "no root output"));
-        }
+        DiagnosticScan.Result scan = DiagnosticScan.parse(runRoot(DiagnosticScan.command(
+            android.os.Process.myUid() / 100000, getApplicationInfo().sourceDir, SOURCE_FILES)));
         lastPreflight.clear();
-        lastPreflight.put("rootUid", lines[0].trim());
+        lastPreflight.putAll(scan.preflight);
+        resolvedTraceDir = DiagnosticScan.traceDirectory(android.os.Process.myUid() / 100000, scan);
         Map<String, SourceFile> files = new LinkedHashMap<>();
         for (String name : SOURCE_FILES) files.put(name, new SourceFile(name));
-        for (int i = 1; i < lines.length; i++) {
-            String[] parts = lines[i].trim().split("\\|", 3);
-            if (parts.length < 2) continue;
-            if (parts[0].startsWith("@")) {
-                String key = parts[0].substring(1);
-                if ("candidateDataDir".equals(key)) {
-                    String previous = lastPreflight.get(key);
-                    lastPreflight.put(key, previous == null ? parts[1] : previous + "; " + parts[1]);
-                } else lastPreflight.put(key, parts[1]);
-                continue;
-            }
+        for (String[] parts : scan.files.values()) {
             SourceFile info = files.get(parts[0]);
             if (info == null) continue;
             if ("MISSING".equals(parts[1])) continue;
+            if ("INACCESSIBLE".equals(parts[1])) {
+                info.status = "inaccessible";
+                info.detail = "保存先を参照できません（未生成とは判定できません）";
+                continue;
+            }
             if ("ERROR".equals(parts[1]) || parts.length != 3) {
                 info.status = "error";
                 info.detail = "ファイルの状態を取得できません";
@@ -398,17 +379,19 @@ public final class DiagnosticActivity extends Activity {
         return files;
     }
 
-    private static String readRootFile(String basename) throws Exception {
+    private String readRootFile(String basename) throws Exception {
         boolean trusted = false;
         for (String name : SOURCE_FILES) if (name.equals(basename)) trusted = true;
         if (!trusted) throw new SecurityException("Unexpected filename");
-        return runRoot("cat " + TRACE_DIR + basename);
+        return runRoot("cat '" + resolvedTraceDir + basename + "'");
     }
 
     private Map<String, SourceFile> readAvailableFiles() throws Exception {
         String previousPid = lastPreflight.get("gamePid");
+        String previousTraceDir = resolvedTraceDir;
         Map<String, SourceFile> files = scanRootFiles();
-        if (!String.valueOf(lastPreflight.get("gamePid")).equals(previousPid)) sourceCache.clear();
+        if (!String.valueOf(lastPreflight.get("gamePid")).equals(previousPid)
+            || !resolvedTraceDir.equals(previousTraceDir)) sourceCache.clear();
         for (SourceFile info : files.values()) {
             if (!"available".equals(info.status) && !"empty".equals(info.status)) continue;
             SourceFile prior = sourceCache.get(info.name);
@@ -664,6 +647,25 @@ public final class DiagnosticActivity extends Activity {
                     fileSummary.append("検出したユーザー領域: ")
                         .append(lastPreflight.get("candidateDataDir")).append("\n");
                 }
+                fileSummary.append("ゲームUID／Androidユーザー: ")
+                    .append(lastPreflight.get("gameUid")).append(" / ")
+                    .append(lastPreflight.get("gameUser")).append("\n");
+                fileSummary.append("診断アプリのAndroidユーザー: ")
+                    .append(lastPreflight.get("diagnosticUser")).append("\n");
+                fileSummary.append("期待するゲームデータ: ")
+                    .append(lastPreflight.get("expectedDataDir")).append("\n");
+                fileSummary.append("実際の読取先: ").append(resolvedTraceDir).append("\n");
+                fileSummary.append("読取経路: ").append(lastPreflight.get("tracePathKind")).append("\n");
+                fileSummary.append("SELinuxモード: ").append(lastPreflight.get("selinuxMode")).append("\n");
+                fileSummary.append("Rootから見えるゲームデータ: ")
+                    .append(lastPreflight.get("targetDataDirDetails")).append("\n");
+                fileSummary.append("ゲームプロセスから見えるfiles: ")
+                    .append(lastPreflight.get("gameProcessFilesDetails")).append("\n");
+                fileSummary.append("Root／ゲームのmount namespace: ")
+                    .append(lastPreflight.get("rootMountNamespace")).append(" / ")
+                    .append(lastPreflight.get("gameMountNamespace")).append("\n");
+                if ("game-process-root-read-only".equals(lastPreflight.get("tracePathKind")))
+                    fileSummary.append("通常パスは見えないため、ゲームプロセス経由で読み取りました。修復・設定変更は通常パスが参照できる環境で行う必要があります。\n");
                 fileSummary.append("\n");
                 for (SourceFile info : sources.values()) {
                     if ("obtained".equals(info.status)) {
@@ -674,7 +676,7 @@ public final class DiagnosticActivity extends Activity {
                     } else if ("empty".equals(info.status)) {
                         fileSummary.append("空ファイル  ").append(info.name).append("\n");
                     } else if ("missing".equals(info.status)) {
-                        fileSummary.append("未生成  ").append(info.name).append("\n");
+                        fileSummary.append("未検出  ").append(info.name).append("\n");
                     } else {
                         fileSummary.append("取得失敗  ").append(info.name).append(": ")
                             .append(info.detail).append("\n");
@@ -684,7 +686,7 @@ public final class DiagnosticActivity extends Activity {
                 previouslyObtained.addAll(liveFiles);
                 if (!acquired.isEmpty()) main.post(() -> notifyNewFiles(acquired));
                 if (liveFiles.isEmpty()) {
-                    fileSummary.append("\n診断: 全ファイル未生成です。");
+                    fileSummary.append("\n診断: 全ファイルを取得できません。未生成か、保存先へのアクセス不能かを切り分ける必要があります。");
                     if ("none".equals(lastPreflight.get("gamePid"))) {
                         fileSummary.append("学マスが起動していません。起動後に再確認してください。");
                     } else if ("no".equals(lastPreflight.get("moduleLibraryMapped"))) {
@@ -800,8 +802,32 @@ public final class DiagnosticActivity extends Activity {
                 }
             } catch (Exception error) {
                 String explanation = "ファイル一覧の検査に失敗しました: " + error.getMessage()
-                    + "\nRoot権限、学マス側のフォルダ、SELinux拒否を確認してください。";
-                main.post(() -> display.setText(explanation));
+                    + "\nエラーも診断JSONとして書き出せます。初期化ログを取得して書き出してください。";
+                // Never export a previous successful scan after a failed one.
+                sourceCache.clear();
+                lastPreflight.clear();
+                lastPreflight.put("scanComplete", "no");
+                lastPreflight.put("scanError", String.valueOf(error.getMessage()));
+                lastDigest = "";
+                latestReport = null;
+                try {
+                    Map<String, SourceFile> failed = new LinkedHashMap<>();
+                    for (String name : SOURCE_FILES) {
+                        SourceFile file = new SourceFile(name);
+                        file.status = "error";
+                        file.detail = "一覧検査失敗のため取得状態は不明";
+                        failed.put(name, file);
+                    }
+                    JSONObject report = makeReport("", "", "", "", failed,
+                        new LinkedHashMap<>(lastPreflight));
+                    if (!lastInjectionLog.isEmpty()) report.put("injectionLogcat", lastInjectionLog);
+                    latestReport = report.toString(2);
+                } catch (Exception reportError) {
+                    explanation += "\nエラーJSON作成失敗: " + reportError.getMessage();
+                }
+                lastScreenState = explanation;
+                final String shown = explanation;
+                main.post(() -> display.setText(shown));
             } finally {
                 checking = false;
             }

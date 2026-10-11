@@ -1,6 +1,27 @@
 # Gakumas Progress Capture (LSPosed)
 
-## Current checkpoint: v1.5.2 (device verification pending)
+## Current checkpoint: v1.5.3 (device verification pending)
+
+The v1.5.2 device report showed root UID 0 and an active IL2CPP process,
+but all capture paths were unseen. An unmatched candidate-directory glob
+returned exit 1, incorrectly throwing away a completed root scan. v1.5.3 fixes
+that shell exit and adds execution regressions using the production scan script.
+A missing/unreadable mask is no longer displayed as a configured mask 0.
+
+Diagnostics export the game's UID/Android user, expected and selected paths,
+mount namespace IDs, directory ownership/context/error text, and SELinux mode.
+If the ordinary path is unseen but the SAME user's active game-process root
+exposes its files, only fixed diagnostic files are read there. Configuration
+and ownership repair refuse that read-only fallback and a different game user.
+No namespace entry, user switching or SELinux disabling is performed. A scan
+failure replaces old report data with an exportable error report. The explicit
+initialization-log button also collects bounded AVC lines mentioning fixed
+capture names; no matching log lines does not establish absence of denials.
+
+**The user's latest report does not prove files were never generated or Native
+was never loaded. The reason paths are unseen and Native execution both remain
+unverified on device.** First export v1.5.3 diagnostics and initialization logs
+with mask 0. Continue the hook test sequence below only after storage/init works.
 
 Only masks **0**, **128**, **256**, and **384** are accepted now. Legacy
 bits 1–127 are rejected, including the detailed RNG/card and unconditional

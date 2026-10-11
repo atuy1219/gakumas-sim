@@ -1,6 +1,6 @@
 # Work引き継ぎ — 学園アイドルマスター3.4.1 / Native Capture / 2026-10-11
 
-> **最新チェックポイント: v1.5.2 / versionCode 25。** §8が以下の旧版動作説明より優先。実機未接続のためNative自己テスト・ゲームフック・モード別取得の実測確認は未完了。PRはDraftを維持する。
+> **最新チェックポイント: v1.5.3 / versionCode 26。** §9が以下の旧版動作説明より優先。実機未接続のためNative自己テスト・ゲームフック・モード別取得の実測確認は未完了。PRはDraftを維持する。
 
 > この資料は、新しいChatGPT Workセッションが過去のチャットを参照できなくても継続できるように作成したもの。事実（static verified / on-device observed）、仮説、未検証を区別する。APKのビルド成功を実機機能の完成と混同しないこと。
 
@@ -137,3 +137,22 @@ ExamSequence.StartExam（token 0x060050A9 / RVA 0x080A5354）は実際の試験�
 4. 詳細実装ではsequence/parameter/参加者/試行別に状態を分離し、予測と固定シミュレーションを除外。乱数・カード・効果・Pアイテム・得点の取得と比較は未完了。三系統の完成報告・PRマージは不可。
 
 ユーザー追加方針: ローカルのコードチェック・テスト・APKビルドをGitHub更新より先に完了し、CIを試行錯誤の代用にしない。公開コミットはコード・必要な回帰テスト・再現スクリプト・要点の資料に絞る。元バイナリと巨大な途中ダンプはコミットしない。
+
+
+## 9. v1.5.2実機報告への対応: v1.5.3
+
+ユーザーからRoot UID 0、gamePid 24540、IL2CPP mapped=yes、moduleLibraryMapped=no、targetDataDir/captureDirectory=missing、hookMask=0、全対象ファイルMISSINGという一覧と「ファイル一覧の検査に失敗しました」を受領した。
+
+### 確認できた不具合と修正
+- 一覧シェルの末尾は候補パスに対する `[ -d "$d" ] && echo ...`。候補が見えない場合の最終終了コード1をrunRootが例外に変えていた。Root UID 0の成功出力が例外メッセージへ丸ごと入る原因をローカルで再現した。候補の欠落を正常分岐にし、root UIDとscanCompleteを明示検証する。
+- 未参照パスを未生成と断定せずinaccessibleとして保存。設定ファイルの読取失敗を0と表示せずunreadable-or-missingとする。実機報告のhookMask=0は旧UIの代替値の可能性があり、実設定0の証拠ではない。起動中ゲームのUID/user、期待パス、lsの実エラーと所有者/SELinux context、Root/game/initのmount namespace、SELinux modeを保存する。
+- 同一Androidユーザーのみ、Rootから通常filesが見えず `/proc/PID/root/data/user/USER/GAME/files` が見える場合は固定診断ファイルを読み取る。書込修復・mask変更には使用しない。ゲームが別userなら設定変更を拒否する。
+- 一覧検査自体が失敗しても、以前の成功レポートを破棄しerrorレポートをエクスポートできる。初期化ログ取得ボタンではGakumasCaptureと固定診断名に一致するAVCだけを件数制限して採取する。AVC無しはSELinux拒否無しの証明ではない。
+- ホストで本番Javaから生成したシェルを実行。候補なし・全ファイルなしで終了0、同一userの読取fallback、別userを選ばないこと、存在するファイルのstat、非root拒否、CRLF/pipe解析、固定パス以外の読取先拒否を検証した。chown/SELinux/Android UIの実動作をホストテストと混同しない。
+
+### 次に必要な実機証拠
+- この表示だけでは実際のファイル未生成、注入失敗、mount namespaceによる不可視、別Androidユーザー、SELinux拒否のどれかは確定できない。moduleLibraryMapped=noもAPK内ロードを否定できない。Nativeフック成功の実測証拠は依然ない。
+- v1.5.3でmask0のまま学マスを起動し「LSPosed初期化ログを取得」→診断JSONを書き出す。preflightの具体値とJNI_OnLoad/native_init/Javaロードログを照合してから修復方法を決める。通常パスが不可視のままchmod/chownを広げない。
+- Native自己テスト256、SetUpExam128、詳細モード分類と乱数・カード・効果・スコア取得は依然実機未確認。§8の静的照合結果を保持し、PRはDraftを維持する。
+
+今回の公開前ローカル検証: Python 57テスト（一覧シェル実行とパス検証を含む）、SDK35/NDK r27c/JDK17でAPKビルド、v2/v3署名確認。前回配布v1.5.2と同じローカル署名鍵を使用。GitHubへの更新は検証完了後の1コミットにまとめ、CIの手動試行は行わない。Nativeコードとモード別フックの追加はこの更新では行っていない。
