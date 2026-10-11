@@ -1,6 +1,8 @@
 // Conservative translator for passively observed IL2CPP setup objects.
 // Nothing is guessed from the native score, first observed hand, or final result.
 import { resolveProduceItems } from "./exam_effects.js";
+import { calculateWeightedTurnParameterTypes } from "./turn_parameters.js";
+import { advanceXorshift32 } from "./simulation.js";
 
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
 const unwrapName=s=>String(s??"").replace(/^<([^>]+)>k__BackingField$/,"$1").replace(/^_/,"").toLowerCase();
@@ -119,9 +121,38 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
  const stamina=number(names(native,["Stamina"]));
  const maxStamina=number(names(native,["MaxStamina"]));
  const turnLimit=number(names(native,["LimitTurn"]));
- const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList","ConfigParameterTypeOrderedList"])
+ // ConfigParameterTypeOrderedList is an ordering of three *weights*, NOT
+ // the full turn-target list. In v1.5.23 it contained three ValueTuple entries.
+ const turns=extractList(param,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"])
   ??extractList(native,["TurnTargetStatusParameterTypeList","TurnParameterTypeList"]);
- const turnParameterTypes=normalizeTurnTypes(turns);
+ let turnParameterTypes=normalizeTurnTypes(turns);
+ let turnTypeSource=turnParameterTypes?"native-exact-turn-target-list":null;
+ const seed=session?.start?.seed;
+ const observedAfterSetup=session?.setup?.randomStateObserved;
+ const vocal=number(names(native,["VocalConfigParameter"]));
+ const dance=number(names(native,["DanceConfigParameter"]));
+ const visual=number(names(native,["VisualConfigParameter"]));
+ // Verified on 9 native v1.5.23 contest sessions: the game consumes
+ // exactly (turnLimit - 3) XorShift32 words while scheduling the base
+ // turns. This reproduces all 90 observed base turn attributes.
+ // Never substitute a native hand, score, or captured turn actions.
+ // A malformed *present* native turn list is NOT repaired by this fallback.
+ const seedTurnRngVerified=turns===undefined&&Number.isInteger(turnLimit)&&turnLimit>3&&
+  Number.isInteger(seed)&&seed>=0&&seed<=0xffffffff&&
+  Number.isInteger(observedAfterSetup)&&observedAfterSetup>=0&&observedAfterSetup<=0xffffffff&&
+  [vocal,dance,visual].every(v=>Number.isInteger(v)&&v>0)&&
+  advanceXorshift32(seed,turnLimit-3)===(observedAfterSetup>>>0);
+ if(!turnParameterTypes&&seedTurnRngVerified){
+  try{
+   const derived=calculateWeightedTurnParameterTypes({turn:turnLimit,vocal,dance,visual},seed);
+   if(derived.length===turnLimit){
+    turnParameterTypes=derived.map(t=>t.toLowerCase());
+    turnTypeSource="seed-weights-verified-xorshift32";
+   }
+  }catch{
+   // Unsupported or inconsistent master data must fail closed.
+  }
+ }
  // ExamSetting p_exam_setting-1 declares turnStartDistribute: 3. Read it
  // from the exact loaded master, not a constant or the observed first hand.
  const nativeDraw=number(names(param,["CardDrawCountPerTurn","DrawCardCount","TurnStartDistribute"]));
@@ -145,13 +176,16 @@ export function normalizeNativeContestSetup(session,{examItemCatalogs={}}={}){
    initialDeck,pItems,examSettings:setting,initialParameters,
    randomStateAtStart:randomState,
    metadata:{source:"native-passive-reflection",randomStateStage:"before-SetUpExam",verifiedPreShuffle:false,
-    independentDecisionSearch:false},
+    turnParameterTypesSource:turnTypeSource,independentDecisionSearch:false},
   }:null,
   candidates:{deckCount:deckSource?.length??null,
    identifiedDeckCards:deckSource?.filter(card=>extractCard(card)!==null).length??null,
    initialStamina:stamina??null,initialMaxStamina:maxStamina??null,
    initialTurnLimit:turnLimit??null,
    turnParameterTypes:turnParameterTypes??null,
+   turnParameterTypesSource:turnTypeSource,
+   seedTurnRngVerified,
+   turnConfigWeights:{vocal:vocal??null,dance:dance??null,visual:visual??null},
    rawTurnTargetCount:turns?.length??null,
    rawTurnTargetsDecoded:turns?.filter(v=>v!==null&&v!==undefined).length??null,
    drawPerTurn:drawPerTurn??null,

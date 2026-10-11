@@ -3,6 +3,7 @@ import { compareContestCapture, reconstructContestCapture, verifyContestSetupRng
 import { replayObservedContest, ContestReplayUnsupported } from "../web/contest_native_replay.js";
 import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
 import { createTowerTurnState, drawTowerTurn } from "../web/tower_runtime.js";
+import { advanceXorshift32 } from "../web/simulation.js";
 
 const capture={schemaVersion:2,scope:"contest-gameplay-capture",moduleVersion:"1.5.17",events:[
  {pid:2,sessionId:1,event:"contest-start",characterId:"hrnm",seed:12,dataComplete:true},
@@ -304,4 +305,54 @@ const truncatedResult=normalizeNativeContestSetup(truncatedTurns,{
 assert.equal(truncatedResult.available,false);
 assert.ok(truncatedResult.reasons.includes("exact-initial-parameters-missing"));
 assert.equal(truncatedResult.candidates.rawTurnTargetsDecoded,1);
+
+// Nine observed v1.5.23 contest seeds: all 90 base-turn attributes and
+// nine post-SetUpExam RNG states were independently reproduced.
+const seedTurnVectors=[
+ [437227396,10,178,312,401,[3,2,2,3,3,3,1,1,2,3]],
+ [240264658,10,178,312,401,[3,3,2,3,3,2,1,1,2,3]],
+ [1038966591,10,178,312,401,[3,3,1,2,3,3,2,1,2,3]],
+ [1171610728,12,178,312,401,[3,3,3,3,2,2,1,3,2,1,2,3]],
+ [509769912,12,178,312,401,[3,3,3,2,3,3,1,2,2,1,2,3]],
+ [690258658,12,178,312,401,[3,2,3,3,1,2,3,3,2,1,2,3]],
+ [1220720477,8,401,312,178,[1,3,2,1,1,3,2,1]],
+ [1749525210,8,401,312,178,[1,1,1,2,3,3,2,1]],
+ [1047967221,8,401,312,178,[1,3,1,2,1,3,2,1]],
+];
+const enumToName={1:"vocal",2:"dance",3:"visual"};
+for(const [seed,turnLimit,vocal,dance,visual,attributes] of seedTurnVectors){
+ const nativeFields={
+  ...masterDrawSession.start.nativeInitialState.root.fields,
+  "<LimitTurn>k__BackingField":turnLimit,
+  "<VocalConfigParameter>k__BackingField":vocal,
+  "<DanceConfigParameter>k__BackingField":dance,
+  "<VisualConfigParameter>k__BackingField":visual,
+ };
+ const session={
+  ...masterDrawSession,
+  start:{...masterDrawSession.start,seed,nativeInitialState:{
+   ...masterDrawSession.start.nativeInitialState,root:{$type:"ExamData",fields:nativeFields}}},
+  setup:{...masterDrawSession.setup,randomStateObserved:advanceXorshift32(seed,turnLimit-3),
+   examParameterSnapshot:{root:{$type:"ExamParameterModel",fields:{
+    // Not a turn-target array. Misidentifying this is the v1.5.23 bug.
+    "<ConfigParameterTypeOrderedList>k__BackingField":{$type:"List`1",count:3,
+     elements:[{$type:"ValueTuple`2",fields:{Item1:{$cycle:true},Item2:401}},
+               {$type:"ValueTuple`2",fields:{Item1:{$cycle:true},Item2:312}},
+               {$type:"ValueTuple`2",fields:{Item1:{$cycle:true},Item2:178}}]},
+   }}}},
+ };
+ const found=normalizeNativeContestSetup(session,{examItemCatalogs:{
+  examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],
+  itemById:new Map(),itemEffectById:new Map()}});
+ assert.equal(found.available,true,JSON.stringify(found.reasons));
+ assert.equal(found.candidates.turnParameterTypesSource,"seed-weights-verified-xorshift32");
+ assert.deepEqual(found.input.initialParameters.turnParameterTypes,attributes.map(a=>enumToName[a]));
+ // A captured after-setup state that does not match the derivation is not
+ // evidence for any particular turn scheduling algorithm.
+ const bad={...session,setup:{...session.setup,randomStateObserved:0xffffffff}};
+ const rejected=normalizeNativeContestSetup(bad,{examItemCatalogs:{
+  examSettings:[{id:"p_exam_setting-1",turnStartDistribute:3}],itemById:new Map(),itemEffectById:new Map()}});
+ assert.equal(rejected.available,false);
+ assert.equal(rejected.candidates.turnParameterTypesSource,null);
+}
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
