@@ -877,7 +877,7 @@ function nativeSchedulerHooks(state, runtimeEvent) {
 function currentNativeLessonType(state) {
   if (String(state?.lessonType ?? "")) return String(state.lessonType);
   const parameterType = String(currentTowerScoreContext(state).parameterType ?? "");
-  return parameterType ? `ProduceStepLessonType_${parameterType}Lesson` : "ProduceStepLessonType_Unknown";
+  return parameterType ? `ProduceStepLessonType_Lesson${parameterType[0].toUpperCase()}${parameterType.slice(1).toLowerCase()}` : "ProduceStepLessonType_Unknown";
 }
 
 function withNativeTransition(runtimeEvent, dispatch) {
@@ -1198,7 +1198,9 @@ function lessonTypeMatches(expectedInput, actualInput) {
 function masterPhaseValue(state, phaseType, context) {
   switch (String(phaseType ?? "")) {
     case "ProduceExamPhaseType_StartPlay":
-      return 0; // Phase count is not the current turn number.
+    case "ProduceExamPhaseType_ExamCardPlay":
+    case "ProduceExamPhaseType_ExamCardPlayAfter":
+      return 0; // These phase values are zero; they are not turn numbers.
     case "ProduceExamPhaseType_ExamStartExam":
       return Number(state.turn ?? 0) === 0 ? 1 : 0;
     case "ProduceExamPhaseType_ExamTurnCheck":
