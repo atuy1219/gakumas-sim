@@ -80,7 +80,7 @@ platform 35, NDK r27c or newer, JDK, `zip`, and `keytool`.
 ```
 
 
-## v1.5.0: native diagnostic and single-file export
+## v1.5.1: native diagnostic and single-file export
 
 A launcher activity, **学マス実機診断**, is now included in the same LSPosed APK.
 Open it after enabling the module for the game's process. It requests read-only
@@ -145,7 +145,7 @@ signed with different keys cannot be installed as upgrades over one another;
 uninstall a previously signed variant if required, then re-enable the LSPosed
 scope. This is a diagnostic build, not a signed production release.
 
-## v1.5.0 event-driven capture
+## v1.5.1 event-driven capture
 
 The native hooks now stay installed but suppress high-frequency RNG/card-pool writes while idle. The first exam deck shuffle, initial-card setup or draw starts a capture session. This applies to the Tower, Contest and audition/exam paths through the same ExamCardMoveController; the numeric native ExamType is always retained. Tower=5 is validated against the reference ELF; contest and audition labels are only used when runtime IsContest/IsAudition getters confirm them, otherwise the mode is exam-unknown.
 
@@ -153,11 +153,11 @@ The session switches to stopped when native ExamParameterModel.Dispose is availa
 
 For new game Build IDs, the module searches IL2CPP runtime metadata for required exam methods and derives native field offsets by semantic managed field names. If layout, classes or methods cannot be confirmed it refuses to install unsafe trace hooks and reports this in capture_status.json. The new user-supplied ELF is stripped (Build ID 77fda4e2a21f23954e2349b83fc113ede408f70b) so actual runtime metadata/hook success must still be tested on device; compatibility is NOT guaranteed by a successful APK build.
 
-## v1.5.0: encrypted metadata runtime inventory
+## v1.5.1: encrypted metadata runtime inventory
 
 Game client 3.4.1 ships a global-metadata.dat without the standard IL2CPP header. The updated module records names/parameter counts and field offsets of relevant Exam/Contest/Audition/Tower classes from the decrypted live IL2CPP runtime in exam_runtime_inventory.json, not from the on-disk file. This is included in the Android diagnostic JSON export. Runtime reflection and actual native hook behavior still require on-device verification.
 
-## v1.5.0: capture-file availability notifications
+## v1.5.1: capture-file availability notifications
 
 The Android diagnostic activity no longer treats a missing `exam_seed_trace.jsonl` as a root permission failure. A single `su` scan checks each fixed source (`bootstrap_status.json`, `capture_status.json`, `exam_session_status.json`, `exam_runtime_inventory.json`, `produce_cards.json`, `exam_seed_trace.jsonl`) and reports obtained, empty, not yet created, or read-error separately. Existing files are read only when their size/mtime changes, reducing repeated shell operations.
 
@@ -165,7 +165,7 @@ While the diagnostic activity is open, newly obtainable files produce one aggreg
 
 The exported diagnostic JSON contains a `sources` object with each file's read status and size, and includes capture/bootstrap status content when readable, allowing failed hook setup to be investigated even if no native trace exists.
 
-## v1.5.0: all-files-missing forensic preflight
+## v1.5.1: all-files-missing forensic preflight
 
 When all six capture files are missing, the diagnostic view now shows root UID, PID of the target game process, whether /data/user/0 contains the target game app data directory, and any matching /data/user/* directory (secondary Android user/profile). The same information appears in exported diagnostic JSON under preflight. This distinguishes unavailable injection/bootstrap from a wrong Android profile and a game that is not running. All missing source files remain explicitly unverified.
 
@@ -208,12 +208,12 @@ transformation script, reproducible tests and findings are committed. Future
 game releases require independent validation of their Build ID, XOR key and
 decoded metadata, even if the file name is identical.
 
-The existing v1.5.0 runtime metadata reflection is still a fallback. However,
+The existing v1.5.1 runtime metadata reflection is still a fallback. However,
 for this matching Gakumas build offline metadata parsing should be favored for
 research and native hook signature discovery; it avoids relying on a successful
 LSPosed injection merely to list metadata.
 
-## v1.5.0: exact-build native exam/contest lifecycle hooks
+## v1.5.1: exact-build native exam/contest lifecycle hooks
 
 For libil2cpp.so Build ID **77fda4e2a21f23954e2349b83fc113ede408f70b**
 (Gakumas 3.4.1), deobfuscated metadata v31 method tokens have now been
@@ -244,7 +244,7 @@ over the previous end-of-turn zero heuristic.
 Build APK and test using the repo's GitHub Actions. Always re-enable the
 LSPosed scope after uninstalling an older debug-signed build.
 
-## v1.5.0: game SIGSEGV and controlled hook bisect
+## v1.5.1: game SIGSEGV and controlled hook bisect
 
 Reported tombstone (2026-10-11 02:39:46 JST, libil2cpp Build ID 77fda4e2...): SIGSEGV at ELF PC 0x06397D8C, instruction ldrb w8,[x23,#0x132] with x23=0x203D2000 (unmapped). Native stack contains ExamSequence.StartExam descendants. This proves an invalid runtime type/class pointer, not a conclusive link to one particular hook. Treat previous always-on v1.4.0 hooks as unsafe until narrowed down.
 
@@ -256,11 +256,11 @@ The diagnostic JSON's preflight reports the chosen file's mask, and exam_lifecyc
 
 **Fresh debug key per CI build:** Uninstall previous APK if Android rejects the different signature; after reinstall, re-enable the LSPosed scope and force-stop/restart the game.
 
-## v1.5.0: restored native hook option list
+## v1.5.1: restored native hook option list
 
 Fixes Android AlertDialog where simultaneously specifying a warning message and list items can hide all seven mode options. The main dialog now displays the complete options list (0, 1, 3, 7, 31, 63, 127) without a message. Choosing a nonzero mask triggers a *separate* explicit crash-risk confirmation before the root-assisted config write; zero/safe mode applies directly. This UI bug is separate from the v1.4.0 native crash. Existing v1.4.1 safe-by-default behavior remains.
 
-## v1.5.0: forensic diagnosis when all capture files are missing
+## v1.5.1: forensic diagnosis when all capture files are missing
 
 The user's v1.4.1 game stays running with configured hookmask 127 but NONE of the diagnostic sources, even bootstrap_status.json or capture_status.json, exist. Hookmask 127 reflects desired settings only, not successful hook installation. User reports API 102 is supported, so API compatibility is not the target of this investigation.
 
@@ -272,10 +272,43 @@ If no module is mapped and no Java bootstrap file exists after starting the game
 
 Keep the default-safe hookmask 0 and the staged options introduced in v1.4.1. Do not infer that lack of a crash under hookmask 127 proves native hook success.
 
-## v1.5.0: exact-callsite scope probe based on supplied APK
+## v1.5.1: exact-callsite scope probe based on supplied APK
 
 The caller relationships for three user-requested mode families have been reconstructed from the supplied APK metadata and the matching native-build ELF. See `docs/gakumas-v341-mode-hook-scope.md` and machine-readable `tools/gakumas_v341_user_mode_entrypoints.json`. The old unconditional ExamSequence.StartExam capture misclassifies internal forecasts and play-log simulation as fresh user exams; mode-specific entrypoints and replay/rehearsal context need separate tracking. ContestUtility is also reused by Angya; Tour/Competition rehearsal are not the same as Contest rehearsal.
 
 A **new experimental mask 128**, independent of legacy masks 1..127, installs only one exact-Build-ID hook on ExamSequence.SetUpExam (RVA 0x080A1E90; metadata token 0x060050A4). The wrapper calls the original with its verified void/one-argument calling convention and logs **only** code-callsite return RVA and a conservative lane classification. It never dereferences managed objects or resets the global exam session. Audited callsites: Contest auto calculation, play-log replay and interactive ExamScreenPresenter initialization. Internal fixed-action simulation is explicitly excluded. Unknown callers are excluded. Up to 128 observations written to `exam_entry_probes.jsonl`; installation outcome `exam_entry_probe_status.json`. The Android diagnostic export includes both. Default mask remains 0. Selecting 128 carries a native-hook crash risk, and full mode identification/score parity still require real gameplay evidence.
 
 Importantly, older masks 1..127 are retained **for crash regression only**, labelled unsafe, and must not be treated as a complete user-mode capture strategy. Static RVA/caller provenance is not a substitute for on-device injection/SELinux verification.
+
+## v1.5.1: filesystem ownership root-cause fix and independent native activation proof
+
+The user's on-device v1.5.0 screenshot showed Root UID 0, Gakumas PID 7508,
+configured mask 128, loaded libil2cpp, **capture directory owned by 0:0,
+mode 755**, every source (including bootstrap_status.json) absent, and
+a **GakumasCapture: native-library-loaded** log from that game PID.
+This is direct evidence that the directory is inaccessible for writes to
+a nonroot game UID; the diagnostic app may previously have created it as
+root via mkdir -p. The game also cannot read a root-owned 0600 hook mask
+reliably, meaning displayed config 128 did not prove native receipt of 128.
+
+- New diagnostic button 「診断ファイル保存先の権限を修復」 with a
+  confirmation dialog. Root-enabled repair is deliberately limited to
+  game-private **files/gakumas-sim/** and its native_hookmask.txt; verifies
+  parent dir owner is an Android app UID/GID >=10000, rejects symlinks,
+  chowns the diagnostic directory to the game's own UID/GID, chmods
+  directory 0700 and mask 0600, restores the directory's SELinux label
+  with restorecon. It never touches other game data.
+- The hook-mode save path also runs that same repair before writing the mask
+  to avoid recreating a root-owned directory.
+- Native shared library now prints both JNI_OnLoad and native_init
+  enter/accept/reject states into the existing GakumasCapture log tag,
+  independent of writable directories. Android NDK links liblog.
+  This lets the next on-device export distinguish Java System.loadLibrary
+  success from successful Xposed native_init callback invocation.
+
+Caution: moduleLibraryMapped=no conflicts with Java native-library-loaded
+from the same pid. This does **not** justify a claim that LSPosed injection
+was absent: library map matching/callback ordering needs further evidence.
+After ownership repair, force-stop/restart the game, check the new JNI_OnLoad
+and native_init log lines and bootstrap/capture files before enabling hook
+mask 128. Default-safe mask remains 0.
