@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { compareContestCapture, reconstructContestCapture, verifyContestSetupRng } from "../web/contest_capture_compare.js";
 import { replayObservedContest, ContestReplayUnsupported } from "../web/contest_native_replay.js";
 import { normalizeNativeContestSetup } from "../web/contest_native_setup.js";
-import { createTowerTurnState, drawTowerTurn } from "../web/tower_runtime.js";
+import { createTowerTurnState, drawTowerTurn, playTowerCard, finishTowerTurn } from "../web/tower_runtime.js";
 import { advanceXorshift32 } from "../web/simulation.js";
 
 const capture={schemaVersion:2,scope:"contest-gameplay-capture",moduleVersion:"1.5.17",events:[
@@ -371,4 +371,40 @@ assert.equal(noExtraReplay.extraTurnsObserved,1);
 assert.equal(noExtraReplay.extraTurnsSimulated,0);
 assert.equal(noExtraReplay.warnings[0].phase,"extra-turn-not-generated");
 assert.equal(noExtraReplay.result,undefined);
+// Actual card p_card-02-men-3_002 (私がスター) grants +1 turn.
+// Verify the engine handles a real parsed master effect and the observed
+// action replay accepts the resulting turn without inventing any score.
+const starId="p_card-02-men-3_002";
+const starDeck=[starId,"p_card-TEST-B","p_card-TEST-C"].map(id=>({id,upgradeCount:0}));
+const starMasters=new Map(starDeck.map(card=>[card.id,{...card}]));
+starMasters.set(starId,{...starDeck[0],name:"私がスター",
+ playEffects:[
+  {produceExamEffectId:"e_effect-exam_extra_turn-1"},
+  {produceExamEffectId:"e_effect-exam_playable_value_add-1"},
+ ]});
+const starOpts={initialRandomState:44,stamina:100,turnLimit:1,drawPerTurn:3,
+ turnParameterTypes:["vocal"],examRuntimeSettings:{},examScoreSettings:{}};
+const starState=createTowerTurnState(starDeck,44,starMasters,starOpts);
+const opening=drawTowerTurn(starState,3).hand.map(c=>({id:c.id}));
+const starIndex=starState.hand.findIndex(c=>c.id===starId);
+assert.ok(starIndex>=0);
+playTowerCard(starState,starIndex);
+assert.equal(starState.turnLimit,2);
+finishTowerTurn(starState,{type:starState.playsRemaining>0?"skip":"end"});
+const extraOpening=drawTowerTurn(starState,3).hand.map(c=>({id:c.id}));
+assert.equal(starState.turn,2);
+const starSession={start:{seed:44},complete:true,turns:[
+ {turn:1,hand:opening,commands:[{commandType:2,card:{id:starId,baseUpgradeCount:0}}]},
+ {turn:2,hand:extraOpening,commands:[]},
+]};
+const starInput={initialDeck:starDeck,pItems:[],examSettings:{},
+ randomStateAtStart:44,
+ initialParameters:{stamina:100,maxStamina:100,drawPerTurn:3,turnLimit:1,
+ turnParameterTypes:["vocal"]}};
+const starReplay=replayObservedContest(starSession,starInput,{cardById:starMasters});
+assert.equal(starReplay.extraTurnsObserved,1);
+assert.equal(starReplay.extraTurnsSimulated,1);
+assert.equal(starReplay.warnings.length,0);
+assert.equal(starReplay.turns.length,2);
+assert.ok(starReplay.result);
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
