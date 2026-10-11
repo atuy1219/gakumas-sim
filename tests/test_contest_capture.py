@@ -59,7 +59,7 @@ struct Obj { alignas(8) unsigned char data[1024]={}; Obj(){regions[(uintptr_t)da
  template<class T>void put(size_t o,T v){memcpy(data+o,&v,sizeof(v));}
  uintptr_t addr(){return (uintptr_t)data;}
 };
-Obj machine,owner,exam,turnLog,secondTurn,turnArray,turnList,selectArray,selectList,card,cardArray,cardList,cardName,commandLog,cmd,commandArray,commandList;
+Obj machine,owner,exam,turnLog,secondTurn,turnArray,turnList,selectArray,selectList,card,cardArray,cardList,cardName,cardIdentity,commandLog,cmd,commandArray,commandList;
 SearchResult payload{}; unsigned moved=0,returned=0; bool finish=false;
 const void* methodInfo=(void*)0x1234;
 template<class T>void resultPut(size_t offset,T v){memcpy((char*)&payload+offset,&v,sizeof(v));}
@@ -73,6 +73,14 @@ void gameMove(void* self,const void* m){assert(self==machine.data && m==methodIn
 void pointerList(Obj& l,Obj& a,uintptr_t p){l.put(0x10,a.addr());l.put<int32_t>(0x18,1);a.put<uint64_t>(0x18,1);a.put(0x20,p);}
 int main(){
  originalMove=gameMove;originalResult=gameResult;
+ const std::u16string nativeCardId=u"p_card-00-men-3_003";
+ cardIdentity.put<int32_t>(0x10,static_cast<int32_t>(nativeCardId.size()));
+ std::memcpy(cardIdentity.data+0x14,nativeCardId.data(),nativeCardId.size()*2);
+ card.put<uintptr_t>(0x98,cardIdentity.addr());
+ const auto captured=setup_probe::scanCardIdentity(card.addr());
+ assert(captured.found && captured.offset==0x98 && !captured.ambiguous);
+ assert(captured.json.find("\\u0070\\u005f")!=std::string::npos);
+
  assert(setup_probe::capture(exam.addr()).find("rawLayout")!=std::string::npos);
  assert(setup_probe::capture(exam.addr()).find("il2cpp_class_get_fields")!=std::string::npos);
  machine.put<int32_t>(0,-1);machine.put(0x20,owner.addr());machine.put(0x28,exam.addr());
