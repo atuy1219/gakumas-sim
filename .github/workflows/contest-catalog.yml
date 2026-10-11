@@ -23,6 +23,13 @@ jobs:
           node-version: "22"
       - name: Fetch pinned provisional diff snapshot
         run: node tools/build_contest_catalog.mjs gakumas-contest-catalog.json main
+      - name: Archive offline replay source
+        run: tar -czf contest-simulator-source.tar.gz web tools
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contest-simulator-source
+          path: contest-simulator-source.tar.gz
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: gakumas-contest-catalog-provisional
