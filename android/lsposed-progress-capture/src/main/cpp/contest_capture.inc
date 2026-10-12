@@ -807,8 +807,67 @@ void collectHandLists(Address object,int depth,std::vector<Address>& seen,std::v
         }
     }
 }
-std::string selectedHandJson(Address sequence){
+// The actual v3.4.1 ExamSequence owns an ExamDataStore. Its typed
+// <HandList>/<DeckList>/<GraveList>/<LostList>/<HoldList> fields are the
+// authoritative ordered containers in the native setup snapshot. Do not infer
+// draw order from a guessed ExamHandModel child or from selected turn logs.
+std::string selectedPoolJson(Address store,const char* field) {
+    ReadScope scope(field);
+    Address address=0;
+    if(!store||!namedRef(store,{field},address)||!address)
+        return "{\"available\":false,\"reason\":\"pool-field-unavailable\",\"cards\":null}";
+    const auto& api=setup_probe::api();
+    Address klass=0;
+    if(!read(address,0,klass)||!klass||!api.className||
+       std::strcmp(api.className(reinterpret_cast<void*>(klass)),"List\x60""1")!=0)
+        return "{\"available\":false,\"reason\":\"not-a-managed-list\",\"cards\":null}";
+    std::vector<Address> values;
+    if(!list(address,128,values))
+        return "{\"available\":false,\"reason\":\"list-read-incomplete\",\"cards\":null}";
+    std::ostringstream s;s<<"{\"available\":true,\"count\":"<<values.size()<<",\"cards\":[";
+    for(size_t i=0;i<values.size();++i){
+        bool ok=true;
+        const auto card=liveCard(values[i],ok);
+        if(i)s<<',';
+        s<<card;
+        if(!ok)
+            return "{\"available\":false,\"reason\":\"card-identity-unverified\",\"count\":"+
+                   std::to_string(values.size())+",\"cards\":null}";
+    }
+    s<<"],\"source\":\"ExamDataStore.typed-list\"}";
+    return s.str();
+}
+std::string selectedPoolsJson(Address sequence,Address parameter) {
     const ReadFailure oldFailure=firstReadFailure;
+    Address store=0;
+    std::ostringstream s;
+    if(!sequence||!namedRef(sequence,{"_dataStore"},store)||!store){
+        firstReadFailure=oldFailure;
+        return "{\"available\":false,\"reason\":\"ExamDataStore-unavailable\"}";
+    }
+    s<<"{\"available\":true,\"source\":\"selected-ExamSequence._dataStore\","
+      <<"\"hand\":"<<selectedPoolJson(store,"<HandList>k__BackingField")
+      <<",\"deck\":"<<selectedPoolJson(store,"<DeckList>k__BackingField")
+      <<",\"grave\":"<<selectedPoolJson(store,"<GraveList>k__BackingField")
+      <<",\"lost\":"<<selectedPoolJson(store,"<LostList>k__BackingField")
+      <<",\"hold\":"<<selectedPoolJson(store,"<HoldList>k__BackingField");
+    uint32_t rng=0;
+    const bool hasRandom=parameter&&read(parameter,0x77c,rng);
+    s<<",\"randomStateObserved\":"<<(hasRandom?std::to_string(rng):"null")
+      <<",\"randomStateSource\":\"ExamParameterModel+0x77c-v3.4.1-unverified-at-draw-boundary\"}";
+    firstReadFailure=oldFailure;
+    return s.str();
+}
+std::string selectedHandJson(Address sequence){
+    // Prefer the exact data-store list used by native ExamSequence.
+    const ReadFailure oldFailure=firstReadFailure;
+    Address store=0;
+    if(sequence&&namedRef(sequence,{"_dataStore"},store)&&store){
+        const auto hand=selectedPoolJson(store,"<HandList>k__BackingField");
+        firstReadFailure=oldFailure;
+        return hand;
+    }
+    // Legacy host fixtures expose an ExamHandModel instead.
     Address hand=0;std::string value;
     if(!namedRef(sequence,{"_hand"},hand)||!hand)
         value="{\"available\":false,\"reason\":\"hand-field-missing\",\"cards\":null}";
@@ -817,7 +876,7 @@ std::string selectedHandJson(Address sequence){
         collectHandLists(hand,0,seen,lists);
         if(lists.size()==1)
             value="{\"available\":true,\"cards\":"+lists.front()+
-                  ",\"source\":\"selected-hand-typed-il2cpp-list\",\"turnResultParityVerified\":false}";
+                  ",\"source\":\"legacy-selected-hand-model\",\"turnResultParityVerified\":false}";
         else
             value="{\"available\":false,\"reason\":\""+std::string(lists.empty()?"no-typed-card-list":"ambiguous-card-lists")+
                   "\",\"cards\":null}";
