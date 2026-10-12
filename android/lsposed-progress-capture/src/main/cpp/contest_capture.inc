@@ -1445,7 +1445,12 @@ __attribute__((noinline)) uintptr_t drawCard(
           <<",\"contextParameterMatched\":"<<(contextMatched?"true":"false")
           <<",\"contextSignatureVerified\":false"
           <<",\"turnResultParityVerified\":false,\"cardEffectsComplete\":false";
-    if(emit(*selectedRun,"contest-draw",fields.str()))++drawSamples;
+    // emit() persists status immediately; count this attempt first so the
+    // on-device drawSamples counter is not one sample behind.
+    ++drawSamples;
+    if(!emit(*selectedRun,"contest-draw",fields.str())){
+        --drawSamples;status();
+    }
     return result;
 }
 void installSelectedHooks(Address controller){
