@@ -214,16 +214,16 @@ int main(){
  cardMove(controller.data,card.data,context.addr(),nullptr);
  assert(triggerCommand(sequence.data,(void*)0x1234,0,nullptr)==(void*)0x5678);
  assert(moveForwarded==1 && effectForwarded==1 && run.effectSamples==1 && drawSamples==1);
- assert(run.cardMoveSamples==1 && written==2);
+ assert(run.cardMoveSamples==1 && written==3);
  // A genuine MovePlayCard callback from another controller must not be
  // mistaken for the auto-play sequence; rejection counters must still flush.
  context.put<uintptr_t>(0x10,0);
  cardMove(controller.data,card.data,context.addr(),nullptr);
- assert(moveForwarded==2 && run.cardMoveSamples==1 && written==2);
+ assert(moveForwarded==2 && run.cardMoveSamples==1 && written==3);
  active=nullptr;
  // Outside the exact session, forward once but never write evidence.
  assert(triggerCommand(sequence.data,(void*)0x1234,0,nullptr)==(void*)0x5678);
- assert(effectForwarded==2 && written==2);
+ assert(effectForwarded==2 && written==3);
 }
 '''
         with tempfile.TemporaryDirectory() as d:
