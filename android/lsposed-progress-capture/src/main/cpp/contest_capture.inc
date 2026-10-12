@@ -1383,7 +1383,7 @@ __attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t context,
     Address parameter=0;bool readable=false;
     const bool trace=active&&active->setupRecorded&&self&&context;
     if(trace){readBudget=64;firstReadFailure={};readStage.clear();
-        readable=namedRef(context,{"<Parameter>k__BackingField","_parameter"},parameter);}
+        readable=namedRef(context,{"<ExamParameter>k__BackingField"},parameter);}
     originalCardMove(self,card,context,method);
     if(!trace)return;
     std::lock_guard<std::mutex> guard(mutex);++cardMoveCalls;
@@ -1425,10 +1425,11 @@ __attribute__((noinline)) uintptr_t drawCard(
     }
     ++drawMatched;readBudget=2048;firstReadFailure={};readStage.clear();
     Address parameter=0;
-    // The v3.4.1 DrawCard third argument is not proven to be
-    // ExamEffectCalculateContext. Do not discard otherwise genuine calls from
-    // the exact selected controller merely because this optional lookup fails.
-    const bool contextReadable=a2&&namedRef(a2,{"<Parameter>k__BackingField","_parameter"},parameter);
+    // ROM v3.4.1: DrawCard(int, ExamEffectCalculateContext, bool) at 0x827cff0.
+    // ExamEffectCalculateContext.get_ExamParameter at 0x802b584 loads [x0,#0x10].
+    // Retain observations when the selected controller matches, even if a
+    // transient context is unreadable.
+    const bool contextReadable=a2&&namedRef(a2,{"<ExamParameter>k__BackingField"},parameter);
     if(contextReadable)++drawContextReadable;
     const bool contextMatched=contextReadable&&parameter==selectedRun->parameter;
     if(contextMatched)++drawContextParameterMatched;
@@ -1443,7 +1444,7 @@ __attribute__((noinline)) uintptr_t drawCard(
           <<",\"controllerIdentityMatched\":true"
           <<",\"contextParameterReadable\":"<<(contextReadable?"true":"false")
           <<",\"contextParameterMatched\":"<<(contextMatched?"true":"false")
-          <<",\"contextSignatureVerified\":false"
+          <<",\"contextSignatureVerified\":true"
           <<",\"turnResultParityVerified\":false,\"cardEffectsComplete\":false";
     // emit() persists status immediately; count this attempt first so the
     // on-device drawSamples counter is not one sample behind.
