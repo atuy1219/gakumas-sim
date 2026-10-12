@@ -8,12 +8,14 @@ using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0, commandListSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
+struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0, commandListSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; int32_t latestStamina=0,latestBlock=0,latestTurn=0; uint64_t staminaGetterCalls=0,blockGetterCalls=0,turnGetterCalls=0; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
 bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false, drawInstalled=false;
 bool selectedHooksAttempted=false;
+bool numericGetterHooksAttempted=false,staminaGetterInstalled=false,blockGetterInstalled=false,turnGetterInstalled=false;
+uint64_t naturalStaminaGetterCalls=0,naturalBlockGetterCalls=0,naturalTurnGetterCalls=0;
 bool moveCardNativeInstalled=false,recycleNativeInstalled=false,shuffleNativeInstalled=false;
 bool createIdNativeInstalled=false,createSearchNativeInstalled=false,cardCommandNativeInstalled=false,commandListFinishInstalled=false;
 uint64_t drawCalls=0,drawMatched=0,drawSamples=0,drawContextReadable=0,drawContextParameterMatched=0,moveContextReadable=0;
@@ -330,10 +332,11 @@ using ValueSize=int32_t(*)(void*,uint32_t*);
 using ClassParent=void*(*)(void*);
 using InstanceSize=int32_t(*)(void*);
 using MethodFromName=const void*(*)(void*,const char*,int);
+using MethodReturnType=void*(*)(const void*);
 struct API {
     GetFields getFields=nullptr;FieldName fieldName=nullptr;FieldOffset fieldOffset=nullptr;
     FieldType fieldType=nullptr;TypeKind typeKind=nullptr;ClassName className=nullptr;
-    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;InstanceSize instanceSize=nullptr;MethodFromName methodFromName=nullptr;
+    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;InstanceSize instanceSize=nullptr;MethodFromName methodFromName=nullptr;MethodReturnType methodReturnType=nullptr;
     bool ready()const{return getFields&&fieldName&&fieldOffset&&fieldType&&typeKind&&className&&classFromType;}
 };
 const API& api(){
@@ -361,6 +364,7 @@ const API& api(){
         p.classParent=reinterpret_cast<ClassParent>(resolve("il2cpp_class_get_parent"));
         p.instanceSize=reinterpret_cast<InstanceSize>(resolve("il2cpp_class_instance_size"));
         p.methodFromName=reinterpret_cast<MethodFromName>(resolve("il2cpp_class_get_method_from_name"));
+        p.methodReturnType=reinterpret_cast<MethodReturnType>(resolve("il2cpp_method_get_return_type"));
         if(existing)dlclose(existing);
         return p;
     }();
@@ -1042,6 +1046,71 @@ std::string selectedHandJson(Address sequence){
     firstReadFailure=oldFailure;
     return value;
 }
+// Natural managed getter returns are observed only after the game's original
+// method runs. No getters are invoked by the module, and IL2CPP return kinds
+// are validated before installing a hook. These are decoded results produced
+// by the GAME, not raw Obscured<T> backing bytes.
+using NumericGetterFn=int32_t(*)(void*,const void*);
+NumericGetterFn originalStaminaGetter=nullptr,originalBlockGetter=nullptr,originalTurnGetter=nullptr;
+__attribute__((noinline)) int32_t staminaGetter(void* self,const void* method){
+    const int32_t value=originalStaminaGetter(self,method);
+    ++naturalStaminaGetterCalls;
+    if(active&&active->setupRecorded&&active->parameter==reinterpret_cast<Address>(self)){
+        active->latestStamina=value;++active->staminaGetterCalls;
+    }
+    return value;
+}
+__attribute__((noinline)) int32_t blockGetter(void* self,const void* method){
+    const int32_t value=originalBlockGetter(self,method);
+    ++naturalBlockGetterCalls;
+    if(active&&active->setupRecorded&&active->parameter==reinterpret_cast<Address>(self)){
+        active->latestBlock=value;++active->blockGetterCalls;
+    }
+    return value;
+}
+__attribute__((noinline)) int32_t turnGetter(void* self,const void* method){
+    const int32_t value=originalTurnGetter(self,method);
+    ++naturalTurnGetterCalls;
+    if(active&&active->setupRecorded&&active->parameter==reinterpret_cast<Address>(self)){
+        active->latestTurn=value;++active->turnGetterCalls;
+    }
+    return value;
+}
+std::string gameGetterValuesJson(const Run& run) {
+    std::ostringstream out;
+    out<<"{\"provenance\":\"natural-managed-getter-return-only\","
+       <<"\"additionalGameCalls\":false,"
+       <<"\"stamina\":"<<(run.staminaGetterCalls?std::to_string(run.latestStamina):"null")
+       <<",\"block\":"<<(run.blockGetterCalls?std::to_string(run.latestBlock):"null")
+       <<",\"turn\":"<<(run.turnGetterCalls?std::to_string(run.latestTurn):"null")
+       <<",\"staminaSamples\":"<<run.staminaGetterCalls
+       <<",\"blockSamples\":"<<run.blockGetterCalls
+       <<",\"turnSamples\":"<<run.turnGetterCalls
+       <<",\"valuesNotGuaranteedSameInstant\":true}";
+    return out.str();
+}
+void installNumericGetterHooks(Address parameter){
+    if(numericGetterHooksAttempted||!parameter)return;
+    numericGetterHooksAttempted=true;
+    const auto& api=setup_probe::api();
+    if(!api.methodFromName||!api.methodReturnType||!api.typeKind)return;
+    Address klass=0;if(!read(parameter,0,klass)||!klass)return;
+    const auto install=[&](const char* name,void* replacement,void** original)->bool {
+        const void* info=api.methodFromName(reinterpret_cast<void*>(klass),name,0);
+        if(!info)return false;
+        void* type=api.methodReturnType(info);
+        if(!type||api.typeKind(type)!=0x08)return false; // System.Int32 only
+        Address code=0;
+        return read(reinterpret_cast<Address>(info),0,code)&&code&&
+               install_hook(code,replacement,original);
+    };
+    staminaGetterInstalled=install("get_Stamina",reinterpret_cast<void*>(staminaGetter),
+                                   reinterpret_cast<void**>(&originalStaminaGetter));
+    blockGetterInstalled=install("get_Block",reinterpret_cast<void*>(blockGetter),
+                                 reinterpret_cast<void**>(&originalBlockGetter));
+    turnGetterInstalled=install("get_CurrentTurn",reinterpret_cast<void*>(turnGetter),
+                                reinterpret_cast<void**>(&originalTurnGetter));
+}
 void installSelectedHooks(Address controller);
 
 void status() {
@@ -1072,6 +1141,12 @@ void status() {
       <<",\"createSearchNativeInstalled\":"<<(createSearchNativeInstalled?"true":"false")
       <<",\"cardCommandNativeInstalled\":"<<(cardCommandNativeInstalled?"true":"false")
       <<",\"commandListFinishInstalled\":"<<(commandListFinishInstalled?"true":"false")
+      <<",\"naturalStaminaGetterCalls\":"<<naturalStaminaGetterCalls
+      <<",\"naturalBlockGetterCalls\":"<<naturalBlockGetterCalls
+      <<",\"naturalTurnGetterCalls\":"<<naturalTurnGetterCalls
+      <<",\"staminaGetterInstalled\":"<<(staminaGetterInstalled?"true":"false")
+      <<",\"blockGetterInstalled\":"<<(blockGetterInstalled?"true":"false")
+      <<",\"turnGetterInstalled\":"<<(turnGetterInstalled?"true":"false")
       <<",\"nativeMetricReadFailures\":"<<metricReadFailures
       <<",\"limitDrops\":"<<drops<<",\"fileBytes\":"<<fileBytes<<",\"fileByteLimit\":"<<kFileLimit
       <<",\"scope\":\"selected-contest-auto-play-data\",\"gameCaptureVerified\":false,\"syntheticGameCalls\":false}";
@@ -1138,6 +1213,7 @@ void recordSetup(Address sequence,BeforeSetup before) {
     const bool randomRead=hasParameter && read(parameter,0x77c,randomState);
     active->parameter=hasParameter?parameter:0;
     if(hasController)installSelectedHooks(controller);
+    if(hasParameter)installNumericGetterHooks(parameter);
     std::ostringstream content;
     content<<",\"capturePhase\":\"after-ExamSequence.SetUpExam\",\"setupOrigin\":\"0x07EFD3B4\""
            <<",\"randomStateBeforeSetUp\":"<<(before.available?std::to_string(before.randomState):"null")
@@ -1665,6 +1741,7 @@ __attribute__((noinline)) void commandListMoveNext(uintptr_t stateMachine,uintpt
           <<",\"completionSuccessVerified\":false"
           <<",\"cardUseCompletionVerified\":false"
           <<",\"poolState\":"<<selectedPoolsJson(sequence,selected->parameter)
+          <<",\"naturalGameGetterValues\":"<<gameGetterValuesJson(*selected)
           <<",\"metrics\":"<<sampleJson(sampleStatus(sequence))
           <<",\"cardEffectsComplete\":false";
     ++selected->commandListSamples;
@@ -1801,6 +1878,7 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     // Read the selected sequence after this natural selected-result callback.
     // This is a post-search-step observation, NOT a proven end-of-card-effects
     // callback: the DFS may have restored or cloned state by this point.
+    s<<",\"naturalGameGetterValues\":"<<gameGetterValuesJson(*active);
     s<<",\"postSelectedState\":{\"capturePhase\":\"after-selected-result-return\","
       <<"\"poolState\":"<<selectedPoolsJson(active->sequence,active->parameter)
       <<",\"metrics\":"<<sampleJson(sampleStatus(active->sequence))
