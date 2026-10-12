@@ -1803,3 +1803,39 @@ console.log("native effect per search count tests: ok");
   assert.equal(timerState.exam.block, 18, "Turn 3 must fire the 2-turn timer once");
   assert.equal(timerState.timers.length, 0, "completed reservations must be consumed");
 }
+
+
+// Regression from native contest capture 1.5.34: a multi-card DeckFirst
+// command must retain the selected order. Repeated unshift previously reversed
+// the first two cards and caused a turn-6 draw mismatch.
+{
+ const moveEffect={
+  id:"TEST-BATCH-DECK-FIRST",effectType:"ProduceExamEffectType_ExamCardMove",
+  produceCardSearchId:"test-deck-grave-targets",
+  movePositionType:"ProduceCardMovePositionType_DeckFirst",
+  pickRangeType:"ProducePickRangeType_All",pickCountMin:2,pickCountMax:2,
+ };
+ const cards=["MOVE","A","B","C"].map(id=>({
+  id,isInitial:id==="MOVE",
+  playMovePositionType:"ProduceCardMovePositionType_Grave",
+  playEffects:id==="MOVE"?[{produceExamTriggerId:"",produceExamEffectId:moveEffect.id}]:[],
+ }));
+ const masters=new Map(cards.map(card=>[card.id,card]));
+ const st=createTowerTurnState(cards.map(card=>({
+  id:card.id,upgradeCount:0,fixedDeckOrder:0
+ })),191,masters,{
+  examEffectById:new Map([[moveEffect.id,moveEffect]]),
+  cardSearchById:new Map([["test-deck-grave-targets",{
+   id:"test-deck-grave-targets",
+   cardPositionType:"ProduceCardPositionType_DeckGrave",
+   produceCardIds:["B","C"],limitCount:2,
+  }]]),
+ });
+ drawTowerTurn(st,1);
+ const all=[...st.hand,...st.deck];
+ const card=id=>all.find(x=>x.id===id);
+ st.hand=[card("MOVE")];st.deck=[card("A"),card("B")];st.discard=[card("C")];
+ playTowerCard(st,0);
+ assert.deepEqual(st.deck.map(x=>x.id),["B","C","A"],
+  "DeckFirst native batch insertion must preserve target selection order");
+}
