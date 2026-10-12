@@ -132,6 +132,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
     const event=playTowerCard(state,pos);
     const steps=event.actionTelemetry??[];
     const beginning=steps[0]??null;
+    const completed=steps.find(step=>
+      step.phase==="after-main-card-effects-before-after-card-play-triggers")
+      ??steps.at(-1)??null;
     const ending=steps.at(-1)??null;
     cardActionTrace.push({
       turn:i+1,
@@ -145,10 +148,14 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
       simulated:{
         cardCostEvents:[...(event.cost??[])],
         before:beginning ? {score:beginning.score,stamina:beginning.stamina,block:beginning.block,review:beginning.review,aggressive:beginning.aggressive,staminaConsumptionDown:beginning.staminaConsumptionDown}:null,
-        after:ending ? {score:ending.score,stamina:ending.stamina,block:ending.block,review:ending.review,aggressive:ending.aggressive,staminaConsumptionDown:ending.staminaConsumptionDown}:null,
-        scoreGained:beginning&&ending?ending.score-beginning.score:null,
-        blockDelta:beginning&&ending?ending.block-beginning.block:null,
-        staminaDelta:beginning&&ending?ending.stamina-beginning.stamina:null,
+        // Native completion is before deferred AFTER_CARD_PLAY triggers.
+        // Reporting the final post-trigger state here fabricates differences
+        // when a P-item changes stamina after the card-use completion hook.
+        after:completed ? {score:completed.score,stamina:completed.stamina,block:completed.block,review:completed.review,aggressive:completed.aggressive,staminaConsumptionDown:completed.staminaConsumptionDown}:null,
+        scoreGained:beginning&&completed?completed.score-beginning.score:null,
+        blockDelta:beginning&&completed?completed.block-beginning.block:null,
+        staminaDelta:beginning&&completed?completed.stamina-beginning.stamina:null,
+        afterDeferredTriggers:ending ? {score:ending.score,stamina:ending.stamina,block:ending.block}:null,
         phases:steps,
       },
     });
