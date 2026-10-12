@@ -230,10 +230,13 @@ int main(){
  context.put<uintptr_t>(0x10,0);
  cardMove(controller.data,card.data,context.addr(),nullptr);
  assert(moveForwarded==2 && run.cardMoveSamples==1 && written==3);
+ // Even when the third argument does not match, record a selected-controller draw.
+ assert(drawCard(controller.addr(),1,context.addr(),0,0,0,0,0)==0x5A && draws==2);
+ assert(drawSamples==2 && written==4);
  active=nullptr;
  // Outside the exact session, forward once but never write evidence.
  assert(triggerCommand(sequence.data,(void*)0x1234,0,nullptr)==(void*)0x5678);
- assert(effectForwarded==2 && written==3);
+ assert(effectForwarded==2 && written==4);
 }
 '''
         with tempfile.TemporaryDirectory() as d:
@@ -248,8 +251,13 @@ int main(){
                            env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0'))
             events=[json.loads(line) for line in (root/'contest_capture.jsonl').read_text().splitlines()]
             self.assertEqual([x['event'] for x in events],
-                             ['contest-draw','contest-card-move','contest-card-command-snapshot'])
-            draw,move,effect=events
+                             ['contest-draw','contest-card-move','contest-card-command-snapshot','contest-draw'])
+            draw,move,effect,unverified_draw=events
+            self.assertTrue(unverified_draw["controllerIdentityMatched"])
+            self.assertTrue(unverified_draw["contextParameterReadable"])
+            self.assertFalse(unverified_draw["contextParameterMatched"])
+            self.assertTrue(unverified_draw["beforePools"]["hand"]["available"])
+            self.assertEqual(unverified_draw["afterPools"]["deck"]["count"],0)
             self.assertTrue(draw["beforeHand"]["available"])
             self.assertEqual(draw["beforeHand"]["cards"],[])
             self.assertTrue(draw["afterHand"]["available"])
@@ -312,9 +320,9 @@ int main(){
             self.assertEqual(status['triggerCommandCalls'],1)
             self.assertEqual(status['cardMoveCalls'],2)
             self.assertEqual(status['drawCalls'],1)
-            self.assertEqual(status['drawSamples'],1)
-            self.assertEqual(status['drawControllerMatched'],1)
-            self.assertEqual(status['drawContextReadable'],1)
+            self.assertEqual(status['drawSamples'],2)
+            self.assertEqual(status['drawControllerMatched'],2)
+            self.assertEqual(status['drawContextReadable'],2)
             self.assertEqual(status['drawContextParameterMatched'],1)
             self.assertEqual(status['cardMoveControllerReadable'],2)
             self.assertEqual(status['cardMoveControllerMatched'],2)
