@@ -95,7 +95,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  for(const attr of ["parameter","review","block","parameterBuff","concentration","fullPower","motivation"]){
   if(own(p,attr))state.exam[attr]=requireNumber(p[attr],"initialParameters."+attr);
  }
- const turns=[],warnings=[],cardActionTrace=[],turnPhaseTrace=[],recycleEvents=[],scoreByType={vocal:0,dance:0,visual:0};
+ const turns=[],warnings=[],cardActionTrace=[],turnPhaseTrace=[],recycleEvents=[],rngTrace=[],scoreByType={vocal:0,dance:0,visual:0};
+ const rng=(turn,phase)=>rngTrace.push({turn,phase,state:state.randomState>>>0});
+ rng(0,"initial-post-shuffle");
  const recordRecycles=(observations,turn,phase)=>{
   for(const event of observations??[])recycleEvents.push({
    turn,phase,recycleCount:event.recycleCount??null,randomState:event.randomState??null,
@@ -111,7 +113,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  for(let i=0;i<session.turns.length;i++){
   const actual=session.turns[i];
   if(Number(actual.turn)!==i+1)throw new ContestReplayUnsupported("nonconsecutive-turn:"+actual.turn);
+  rng(i+1,"before-turn-draw");
   const draw=drawTowerTurn(state,options.drawPerTurn);
+  rng(i+1,"after-turn-draw");
   recordRecycles(draw.recycleEvents,i+1,"draw");
   if(draw.ended || state.ended){
    warnings.push({turn:i+1,phase:"extra-turn-not-generated",
@@ -137,7 +141,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    const {index:pos,upgradeFallback}=findNativeReplayCardIndex(state.hand,command.card);
    if(pos<0){warnings.push({turn:i+1,phase:"card-selection",cardId,available:state.hand.map(x=>x.id)});break;}
    try {
+    rng(i+1,"before-card:"+cardId);
     const event=playTowerCard(state,pos);
+    rng(i+1,"after-card:"+cardId);
     recordRecycles(event.recycleEvents,i+1,"card:"+cardId);
     const steps=event.actionTelemetry??[];
     const beginning=steps[0]??null;
@@ -182,7 +188,9 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   }
   if(warnings.length)break;
   const afterCards=snapshot();
+  rng(i+1,"before-turn-finish");
   const result=finishTowerTurn(state,{type:state.playsRemaining>0?"skip":"end"});
+  rng(i+1,"after-turn-finish");
   const afterTurn=snapshot();
   turnPhaseTrace.push({
    turn:i+1,
@@ -210,7 +218,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  const prediction={
   provenance:"independent-simulator",
   replayMode:"observed-actions",decisionSearchVerified:false,
-  turns, warnings, cardActionTrace, turnPhaseTrace,recycleEvents,
+  turns, warnings, cardActionTrace, turnPhaseTrace,recycleEvents,rngTrace,
   nativePerCardMetricsAvailable:false,
   extraTurnsObserved:nativeExtraTurns,
   extraTurnsSimulated:Math.max(0,Number(state.turnLimit)-initialLimit),
