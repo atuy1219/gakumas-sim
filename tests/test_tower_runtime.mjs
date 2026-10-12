@@ -1745,7 +1745,6 @@ assert.equal(run(2), 4, "two matches run the chained effect twice");
 console.log("native effect per search count tests: ok");
 }
 
-
 // Native EffectTimerEffectExecutor delay regression (ELF RVA 0x0804D768).
 // The native constructor reads get_EffectValue1 rather than get_EffectTurn;
 // an effect with effectValue1=2 and effectTurn=0 must fire on the second
