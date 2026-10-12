@@ -1280,7 +1280,7 @@ void emitCardObservation(Run& run,const char* event,Address sequence,Address exp
     if(!run.setupRecorded||!run.sequence||run.sequence!=sequence)return;
     ++cardSnapshotSequenceMatched;
     if(run.effectSamples+run.cardMoveSamples>=kNativeCardSamplesPerSession){++drops;return;}
-    readBudget=768;firstReadFailure={};readStage.clear();
+    readBudget=2048;firstReadFailure={};readStage.clear();
     Address controller=0,playing=0,parameter=0;
     const bool match=namedRef(sequence,{"<Parameter>k__BackingField"},parameter)&&parameter==run.parameter;
     if(!match)return;
@@ -1323,8 +1323,9 @@ void emitCardObservation(Run& run,const char* event,Address sequence,Address exp
          <<",\"metrics\":"<<sampleJson(sample)<<",\"changes\":"<<change.str()
          <<",\"statusEffectChanges\":"<<statusDeltas
          <<",\"parameterStatusChanges\":"<<parameterDeltas
+         <<",\"poolStateAtObservation\":"<<selectedPoolsJson(sequence,run.parameter)
          <<",\"cardEffectsComplete\":false"
-         <<",\"provenance\":\"native-effect-boundary-not-full-card-resolution\""
+         <<",\"provenance\":\"native-command-builder-boundary-not-card-completion\""
          <<",\"dataComplete\":"<<((sample.rawNumbers&&cardOk)?"true":"false");
     if(!sample.rawNumbers)++metricReadFailures;
     // emit() also persists the counters; update them before emitting so
@@ -1473,7 +1474,14 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     s<<turnHistory(local<Address>(r,40),active->turnsCaptured,ok,turnsArrayShaped,historyCount);
     s<<",\"turnCount\":"<<historyCount
      <<",\"turnsContainerShape\":\""<<(turnsArrayShaped?"array-shaped":"list-or-unknown")<<"\"";
-    s<<",\"dataComplete\":"<<(ok?"true":"false");
+    // Read the selected sequence after this natural selected-result callback.
+    // This is a post-search-step observation, NOT a proven end-of-card-effects
+    // callback: the DFS may have restored or cloned state by this point.
+    s<<",\"postSelectedState\":{\"capturePhase\":\"after-selected-result-return\","
+      <<"\"poolState\":"<<selectedPoolsJson(active->sequence,active->parameter)
+      <<",\"metrics\":"<<sampleJson(sampleStatus(active->sequence))
+      <<",\"cardEffectsComplete\":false,\"cardUseCompletionVerified\":false}"
+      <<",\"dataComplete\":"<<(ok?"true":"false");
     if(!ok){
         ++failures;active->complete=false;
         s<<",\"readFailure\":"<<readFailureJson();
