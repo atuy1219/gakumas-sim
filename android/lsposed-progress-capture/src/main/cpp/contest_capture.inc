@@ -1275,7 +1275,8 @@ std::string sampleJson(const NativeStatusSample& s) {
        <<",\"parameterStatusFields\":"<<parameterFieldsJson(s.parameterFields)<<"}";
     return out.str();
 }
-void emitCardObservation(Run& run,const char* event,Address sequence,Address explicitCard) {
+void emitCardObservation(Run& run,const char* event,Address sequence,Address explicitCard,
+                         const std::string& beforeCommandPools="null") {
     // Owner identity is validated at setup; do not mix forecast/clone
     // sequences with the auto-play sequence or invoke a game getter.
     ++cardSnapshotAttempts;
@@ -1325,6 +1326,7 @@ void emitCardObservation(Run& run,const char* event,Address sequence,Address exp
          <<",\"metrics\":"<<sampleJson(sample)<<",\"changes\":"<<change.str()
          <<",\"statusEffectChanges\":"<<statusDeltas
          <<",\"parameterStatusChanges\":"<<parameterDeltas
+         <<",\"poolStateBeforeCommandBuild\":"<<beforeCommandPools
          <<",\"poolStateAtObservation\":"<<selectedPoolsJson(sequence,run.parameter)
          <<",\"cardEffectsComplete\":false"
          <<",\"provenance\":\"native-command-builder-boundary-not-card-completion\""
@@ -1354,12 +1356,24 @@ void emitCardObservation(Run& run,const char* event,Address sequence,Address exp
 // Called after the game's *natural* effect-difference log update. Nothing is
 // executed a second time; the output is measured at this exact callback stage.
 __attribute__((noinline)) void* triggerCommand(void* self,void* commandList,uint32_t mode,const void* method){
-    // Call original once and preserve the returned managed List pointer.
+    // Observe only this selected sequence. Most calls belong to DFS clones and
+    // must not be serialized as if they were the selected path.
+    Run* selectedRun=active;
+    const bool selected=selectedRun&&selectedRun->setupRecorded&&
+                        selectedRun->sequence==reinterpret_cast<Address>(self);
+    std::string beforeCommandPools="null";
+    if(selected){
+        std::lock_guard<std::mutex> guard(mutex);
+        readBudget=2048;firstReadFailure={};readStage.clear();
+        beforeCommandPools=selectedPoolsJson(selectedRun->sequence,selectedRun->parameter);
+    }
+    // No effect invocation is added. Native function is forwarded exactly once.
     void* result=originalTriggerCommand(self,commandList,mode,method);
     if(!active||!self)return result;
     std::lock_guard<std::mutex> guard(mutex);++triggerCommandCalls;
-    emitCardObservation(*active,"contest-card-command-snapshot",
-                        reinterpret_cast<Address>(self),0);
+    if(selected&&active==selectedRun)
+        emitCardObservation(*selectedRun,"contest-card-command-snapshot",
+                            reinterpret_cast<Address>(self),0,beforeCommandPools);
     if(triggerCommandCalls<=8 || (triggerCommandCalls&(triggerCommandCalls-1))==0)status();
     return result;
 }
