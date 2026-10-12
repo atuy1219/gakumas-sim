@@ -818,8 +818,10 @@ std::string selectedPoolJson(Address store,const char* field) {
         return "{\"available\":false,\"reason\":\"pool-field-unavailable\",\"cards\":null}";
     const auto& api=setup_probe::api();
     Address klass=0;
+    const char* listType=nullptr;
     if(!read(address,0,klass)||!klass||!api.className||
-       std::strcmp(api.className(reinterpret_cast<void*>(klass)),"List\x60""1")!=0)
+       !(listType=api.className(reinterpret_cast<void*>(klass)))||
+       std::strcmp(listType,"List\x60""1")!=0)
         return "{\"available\":false,\"reason\":\"not-a-managed-list\",\"cards\":null}";
     std::vector<Address> values;
     if(!list(address,128,values))
