@@ -249,7 +249,7 @@ int main(){
  context.put<uintptr_t>(0x40,holdList.addr());
  deckList.put<int32_t>(0x18,1);
  Run evidence{};evidence.id=2;evidence.setupRecorded=true;
- evidence.parameter=parameter.addr();evidence.controller=controller.addr();
+ evidence.parameter=parameter.addr();evidence.controller=controller.addr();evidence.sequence=sequence.addr();
  active=&evidence;
  const auto probe=beginMutation(controller.addr(),context.addr());
  assert(probe.active && probe.selectedContext && probe.contextVerified);
@@ -257,6 +257,18 @@ int main(){
  finishMutation(probe,"ExamCardMoveController.MoveCard");
  assert(evidence.mutationSamples==1 && evidence.candidateMutationSamples==0);
  assert(written==5);
+ // A completed UniTask command-list state machine is a separate post-command
+ // boundary, not proof that every subsequent card trigger has completed.
+ Obj commandState;
+ commandState.put<int32_t>(0,-1);
+ commandState.put<uintptr_t>(0x18,sequence.addr());
+ unsigned completedOriginalCalls=0;
+ originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){
+     int32_t done=-2;std::memcpy(reinterpret_cast<void*>(sm),&done,sizeof(done));
+ };
+ commandListMoveNext(commandState.addr(),0);
+ ++completedOriginalCalls;
+ assert(completedOriginalCalls==1 && evidence.commandListSamples==1 && written==6);
  active=nullptr;
 }
 '''
@@ -272,8 +284,13 @@ int main(){
                            env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0'))
             events=[json.loads(line) for line in (root/'contest_capture.jsonl').read_text().splitlines()]
             self.assertEqual([x['event'] for x in events],
-                             ['contest-draw','contest-card-move','contest-card-command-snapshot','contest-draw','contest-native-mutation'])
-            draw,move,effect,unverified_draw,mutation=events
+                             ['contest-draw','contest-card-move','contest-card-command-snapshot','contest-draw','contest-native-mutation','contest-command-list-complete'])
+            draw,move,effect,unverified_draw,mutation,completion=events
+            self.assertTrue(completion["commandListCompleted"])
+            self.assertEqual(completion["completionState"],-2)
+            self.assertFalse(completion["cardEffectsComplete"])
+            self.assertFalse(completion["cardUseCompletionVerified"])
+            self.assertTrue(completion["poolState"]["hand"]["available"])
             self.assertTrue(mutation["selectedContextMatched"])
             self.assertTrue(mutation["contextClassVerified"])
             self.assertEqual(mutation["beforePools"]["deck"]["count"],1)
