@@ -47,6 +47,27 @@ jobs:
                 warnings:s.warnings?.filter(w=>/simulator|failed|native-capture|missing|unverified-pre-shuffle/.test(w)).slice(0,4)
               }))
             },null,2));
+            for(const s of report.sessions){
+              const cmp=s.comparison;
+              console.log("DIAGNOSTIC SESSION "+s.sessionId+" "+JSON.stringify({
+                normalization:s.normalization,
+                nativePItems:s.nativeSetup?.nativePItemIds??null,
+                firstDivergence:cmp?.firstDivergence,
+                firstCardDifferences:(cmp?.cardDiagnostics??[]).filter(d=>d.mismatchedFields?.length).slice(0,5),
+                cardCount:(cmp?.cardDiagnostics??[]).length,
+                firstTenActions:(cmp?.cardDiagnostics??[]).slice(0,10).map(d=>({
+                  turn:d.turn,card:d.cardId,
+                  real:d.realDevice,sim:d.simulation,mismatch:d.mismatchedFields
+                })),
+                turns:(cmp?.turnDiagnostics??[]).map(d=>({
+                  turn:d.turn,native:d.nativeScore,sim:d.simulationScore,
+                  scoreDelta:d.scoreDelta,mismatches:d.mismatchedFields,
+                  cards:d.nativeCards
+                })).slice(0,15),
+                warnings:s.simulation?.warnings??[],
+                pitems:s.normalization?.candidates?.pItemIds??[],
+              }));
+            }
             if(!report.summary.simulationCompared)process.exitCode=1;
           }
           NODE
