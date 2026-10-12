@@ -23,6 +23,26 @@ uint64_t cardSnapshotAttempts=0,cardSnapshotParameterMatched=0,cardSnapshotSeque
 constexpr unsigned kNativeCardSamplesPerSession=512;
 std::atomic<bool> attempted{false};
 thread_local Run* active=nullptr;
+// The exact ELF's ExamSequence.ExecuteCardCommandImpl (0x080A5BB0) receives
+// the concrete ExamCardData in x2. GetTriggerEffectListCommand runs inside it,
+// before CardController.PlayingCard has necessarily been populated.
+// Preserve the argument only for the lifetime of this native call: never
+// retain a managed pointer beyond the command builder.
+struct CardCommandFrame {
+    Address sequence=0,context=0,card=0;
+    CardCommandFrame* previous=nullptr;
+};
+thread_local CardCommandFrame* currentCardCommand=nullptr;
+struct ScopedCardCommand {
+    CardCommandFrame frame;
+    ScopedCardCommand(Address sequence,Address context,Address card) {
+        frame={sequence,context,card,currentCardCommand};
+        currentCardCommand=&frame;
+    }
+    ~ScopedCardCommand(){currentCardCommand=frame.previous;}
+    ScopedCardCommand(const ScopedCardCommand&)=delete;
+    ScopedCardCommand& operator=(const ScopedCardCommand&)=delete;
+};
 thread_local unsigned readBudget=0;
 // Preserve the first error in each event, including the failed read's context.
 struct ReadFailure {
@@ -1296,7 +1316,7 @@ std::string statusDeltasJson(const StatusFields& before,const StatusFields& afte
 struct NativeStatusSample {
     int32_t scoreVocal=0,scoreDance=0,scoreVisual=0,stamina=0,block=0,turn=0;
     int32_t review=0,aggressive=0;
-    bool rawNumbers=false,reviewAvailable=false,aggressiveAvailable=false;
+    bool rawNumbers=false,backingStorageReadable=false,reviewAvailable=false,aggressiveAvailable=false;
     bool listComplete=false,statusMetadataAvailable=false;
     std::vector<NativeEffectStatus> statuses;
     ParameterStatusFields parameterFields;
@@ -1327,7 +1347,11 @@ NativeStatusSample sampleStatus(Address sequence) {
     if(ok){
         s.scoreVocal=raw[0];s.scoreDance=raw[1];s.scoreVisual=raw[2];
         s.stamina=raw[3];s.block=raw[4];s.turn=raw[5];
-        s.rawNumbers=false; // Obscured<T> storage is unverified encoded data
+        // The ELF confirms these Obscured<int> backing fields, but an encoded
+        // backing value is NOT yet proof of the managed getter's actual result.
+        // Export the evidence separately, never mislabel it as a real score.
+        s.backingStorageReadable=true;
+        s.rawNumbers=false;
     }
     Address effects=0,list=0;
     if(!read(parameter,0x390,effects)||!effects||!read(effects,0x10,list)||!list)
@@ -1370,6 +1394,14 @@ NativeStatusSample sampleStatus(Address sequence) {
 std::string sampleJson(const NativeStatusSample& s) {
     std::ostringstream out;
     out<<"{\"source\":\"native-process-vm-readv\",\"getterBytecodeVerified\":false"
+       <<",\"obscuredBackingStorage\":{\"readable\":"<<(s.backingStorageReadable?"true":"false")
+       <<",\"vocal\":"<<(s.backingStorageReadable?std::to_string(s.scoreVocal):"null")
+       <<",\"dance\":"<<(s.backingStorageReadable?std::to_string(s.scoreDance):"null")
+       <<",\"visual\":"<<(s.backingStorageReadable?std::to_string(s.scoreVisual):"null")
+       <<",\"stamina\":"<<(s.backingStorageReadable?std::to_string(s.stamina):"null")
+       <<",\"block\":"<<(s.backingStorageReadable?std::to_string(s.block):"null")
+       <<",\"turn\":"<<(s.backingStorageReadable?std::to_string(s.turn):"null")
+       <<",\"decoded\":false}"
        <<",\"turnResultParityVerified\":false"
        <<",\"score\":"<<(s.rawNumbers?std::to_string(static_cast<int64_t>(s.scoreVocal)+s.scoreDance+s.scoreVisual):"null")
        <<",\"scoreVocal\":"<<(s.rawNumbers?std::to_string(s.scoreVocal):"null")
@@ -1483,9 +1515,15 @@ __attribute__((noinline)) void* triggerCommand(void* self,void* commandList,uint
     void* result=originalTriggerCommand(self,commandList,mode,method);
     if(!active||!self)return result;
     std::lock_guard<std::mutex> guard(mutex);++triggerCommandCalls;
-    if(selected&&active==selectedRun)
+    if(selected&&active==selectedRun) {
+        // The card command's actual x2 argument is more authoritative than
+        // CardController.PlayingCard, which can be null during command construction.
+        const Address sequence=reinterpret_cast<Address>(self);
+        const Address explicitCard=(currentCardCommand &&
+            currentCardCommand->sequence==sequence)?currentCardCommand->card:0;
         emitCardObservation(*selectedRun,"contest-card-command-snapshot",
-                            reinterpret_cast<Address>(self),0,beforeCommandPools);
+                            sequence,explicitCard,beforeCommandPools);
+    }
     if(triggerCommandCalls<=8 || (triggerCommandCalls&(triggerCommandCalls-1))==0)status();
     return result;
 }
@@ -1542,7 +1580,10 @@ __attribute__((noinline)) void cardCommandNative(uintptr_t self,uintptr_t positi
     readBudget=48;firstReadFailure={};readStage.clear();
     const auto identity=inspectContext(context);
     const auto probe=beginMutation(identity.controller,context);
-    originalCardCommandNative(self,position,card,useCount,context,method);
+    {
+        ScopedCardCommand commandScope(self,context,card);
+        originalCardCommandNative(self,position,card,useCount,context,method);
+    }
     finishMutation(probe,"ExamSequence.ExecuteCardCommandImpl",card);
 }
 
