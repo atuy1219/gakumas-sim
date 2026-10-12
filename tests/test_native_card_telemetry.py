@@ -320,7 +320,7 @@ int main(){
             self.assertEqual(status['effectSamples'],1)
             self.assertEqual(status['triggerCommandCalls'],1)
             self.assertEqual(status['cardMoveCalls'],2)
-            self.assertEqual(status['drawCalls'],1)
+            self.assertEqual(status['drawCalls'],2)
             self.assertEqual(status['drawSamples'],2)
             self.assertEqual(status['drawControllerMatched'],2)
             self.assertEqual(status['drawContextReadable'],2)
