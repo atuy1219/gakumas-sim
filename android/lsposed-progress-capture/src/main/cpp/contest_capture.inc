@@ -2,8 +2,6 @@
 #include <cmath>
 #include <cctype>
 #include <dlfcn.h>
-#include <initializer_list>
-#include <set>
 // Selected auto-play results only. No polling, synthetic getters or DFS leaf logs.
 namespace contest_capture {
 using Address = uintptr_t;
@@ -273,10 +271,11 @@ using ValueType=bool(*)(void*);
 using ValueSize=int32_t(*)(void*,uint32_t*);
 using ClassParent=void*(*)(void*);
 using InstanceSize=int32_t(*)(void*);
+using MethodFromName=const void*(*)(void*,const char*,int);
 struct API {
     GetFields getFields=nullptr;FieldName fieldName=nullptr;FieldOffset fieldOffset=nullptr;
     FieldType fieldType=nullptr;TypeKind typeKind=nullptr;ClassName className=nullptr;
-    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;InstanceSize instanceSize=nullptr;
+    ClassFromType classFromType=nullptr;ElementClass elementClass=nullptr;ValueType valueType=nullptr;ValueSize valueSize=nullptr;ClassParent classParent=nullptr;InstanceSize instanceSize=nullptr;MethodFromName methodFromName=nullptr;
     bool ready()const{return getFields&&fieldName&&fieldOffset&&fieldType&&typeKind&&className&&classFromType;}
 };
 const API& api(){
@@ -303,6 +302,7 @@ const API& api(){
         p.valueSize=reinterpret_cast<ValueSize>(resolve("il2cpp_class_value_size"));
         p.classParent=reinterpret_cast<ClassParent>(resolve("il2cpp_class_get_parent"));
         p.instanceSize=reinterpret_cast<InstanceSize>(resolve("il2cpp_class_instance_size"));
+        p.methodFromName=reinterpret_cast<MethodFromName>(resolve("il2cpp_class_get_method_from_name"));
         if(existing)dlclose(existing);
         return p;
     }();
@@ -1346,13 +1346,20 @@ void installSelectedHooks(Address controller){
     if(selectedHooksAttempted||!controller)return;
     selectedHooksAttempted=true;
     // Actual v3.4.1 MethodInfo pointers from runtime metadata, not old RVAs.
-    const RuntimeMethod draw=resolve_object_method(reinterpret_cast<void*>(controller),"DrawCard",3);
-    const RuntimeMethod move=resolve_object_method(reinterpret_cast<void*>(controller),"MovePlayCard",2);
-    if(draw.address)
-        drawInstalled=install_hook(draw.address,reinterpret_cast<void*>(drawCard),
+    const auto& api=setup_probe::api();
+    if(!api.methodFromName)return;
+    Address klass=0;if(!read(controller,0,klass)||!klass)return;
+    const auto resolve=[&](const char* name,int count)->Address{
+        const void* info=api.methodFromName(reinterpret_cast<void*>(klass),name,count);
+        Address target=0;
+        return info&&read(reinterpret_cast<Address>(info),0,target)?target:0;
+    };
+    const Address draw=resolve("DrawCard",3),move=resolve("MovePlayCard",2);
+    if(draw)
+        drawInstalled=install_hook(draw,reinterpret_cast<void*>(drawCard),
                                    reinterpret_cast<void**>(&originalDraw));
-    if(move.address)
-        cardMoveInstalled=install_hook(move.address,reinterpret_cast<void*>(cardMove),
+    if(move)
+        cardMoveInstalled=install_hook(move,reinterpret_cast<void*>(cardMove),
                                        reinterpret_cast<void**>(&originalCardMove));
 }
 
