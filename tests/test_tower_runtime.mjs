@@ -1838,3 +1838,33 @@ console.log("native effect per search count tests: ok");
  assert.deepEqual(st.deck.map(x=>x.id),["B","C","A"],
   "DeckFirst native batch insertion must preserve target selection order");
 }
+
+
+// Native contest session 6: a random 1_1 card move with no matching cards
+// skips the pick-count roll entirely (ExamParameterModel RNG unchanged).
+{
+ const effect={
+  id:"TEST-EMPTY-NATIVE-SEARCH",effectType:"ProduceExamEffectType_ExamCardMove",
+  produceCardSearchId:"test-empty-sleepy-search",
+  movePositionType:"ProduceCardMovePositionType_Lost",
+  pickRangeType:"ProducePickRangeType_Random",pickCountMin:1,pickCountMax:1,
+ };
+ const trigger={
+  id:"TEST-EMPTY-TRIGGER",isInitial:true,
+  playMovePositionType:"ProduceCardMovePositionType_Grave",
+  playEffects:[{produceExamTriggerId:"",produceExamEffectId:effect.id}],
+ };
+ const st=createTowerTurnState([{id:trigger.id,upgradeCount:0,fixedDeckOrder:0}],
+  193,new Map([[trigger.id,trigger]]),{
+   examEffectById:new Map([[effect.id,effect]]),
+   cardSearchById:new Map([["test-empty-sleepy-search",{
+    id:"test-empty-sleepy-search",cardPositionType:"ProduceCardPositionType_DeckGrave",
+    produceCardIds:["p_card-00-acc-0_002"],
+   }]]),
+  });
+ drawTowerTurn(st,1);
+ const before=st.randomState>>>0;
+ playTowerCard(st,0);
+ assert.equal(st.randomState>>>0,before,
+  "empty native card search must not consume RNG");
+}
