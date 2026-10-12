@@ -2,17 +2,21 @@
 #include <cmath>
 #include <cctype>
 #include <dlfcn.h>
+#include <initializer_list>
+#include <set>
 // Selected auto-play results only. No polling, synthetic getters or DFS leaf logs.
 namespace contest_capture {
 using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
+struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
-bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false;
+bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false, drawInstalled=false;
+bool selectedHooksAttempted=false;
+uint64_t drawCalls=0,drawMatched=0,drawSamples=0,moveContextReadable=0;
 uint64_t triggerCommandCalls=0, cardMoveCalls=0, effectSamples=0, cardMoveSamples=0, metricReadFailures=0;
 uint64_t cardMoveControllerReadable=0,cardMoveControllerMatched=0,cardMoveParameterMatched=0;
 uint64_t cardSnapshotAttempts=0,cardSnapshotParameterMatched=0,cardSnapshotSequenceMatched=0;
@@ -163,13 +167,7 @@ std::string statusEffect(Address a,bool& ok) {
     return "{\"type\":"+std::to_string(v[0])+",\"value\":"+std::to_string(v[1])+",\"turn\":"+
         std::to_string(v[2])+",\"isPassingTurnStart\":"+(passing?"true":"false")+"}";
 }
-std::string liveCard(Address a,bool& ok) {
-    if(!a)return "null";
-    Address data=0;int32_t base=0,tmp=0;
-    if(!read(a,0x10,data) || !read(a,0x24,base) || !read(a,0x28,tmp)){ok=false;return "null";}
-    return "{\"id\":"+stringField(data,0x18,ok)+",\"guid\":"+stringField(a,0x18,ok)+
-        ",\"baseUpgradeCount\":"+std::to_string(base)+",\"temporaryUpgradeCount\":"+std::to_string(tmp)+"}";
-}
+std::string liveCard(Address a,bool& ok);
 std::string command(Address a,bool& ok) {
     if(!a){ok=false;return "null";}
     int32_t turn=0,phase=0;Address select=0,card=0,item=0,drink=0,cmd=0;uint8_t cost=0,selectLog=0;
@@ -706,12 +704,130 @@ std::string capture(Address data) {
 }
 } // namespace setup_probe
 
+bool namedOffset(Address object,std::initializer_list<const char*> names,bool reference,size_t& at){
+    const auto& p=setup_probe::api();
+    if(!object||!p.ready()||!p.classParent||!p.instanceSize)return false;
+    Address klass=0;if(!read(object,0,klass)||!klass)return false;
+    for(void* cls=reinterpret_cast<void*>(klass);cls;cls=p.classParent(cls)){
+        void* iterator=nullptr;
+        for(unsigned i=0;i<256;++i){
+            void* field=p.getFields(cls,&iterator);if(!field)break;
+            const char* name=p.fieldName(field);if(!name)continue;
+            bool matches=false;
+            for(const char* request:names)if(std::strcmp(request,name)==0){matches=true;break;}
+            if(!matches)continue;
+            void* type=p.fieldType(field);const int kind=type?p.typeKind(type):-1;
+            if(reference?(kind!=0x12&&kind!=0x15&&kind!=0x1c):kind!=0x08)continue;
+            const size_t offset=p.fieldOffset(field);
+            const int32_t length=p.instanceSize(cls);
+            if(offset<0x10||length<=0||offset+(reference?8:4)>static_cast<size_t>(length))continue;
+            at=offset;return true;
+        }
+    }
+    return false;
+}
+bool namedRef(Address object,std::initializer_list<const char*> names,Address& out){
+    out=0;size_t at=0;
+    return namedOffset(object,names,true,at)&&read(object,at,out);
+}
+bool namedInt(Address object,std::initializer_list<const char*> names,int32_t& out){
+    out=0;size_t at=0;
+    return namedOffset(object,names,false,at)&&read(object,at,out);
+}
+bool validCard(Address object){
+    const auto& p=setup_probe::api();
+    Address klass=0;if(!read(object,0,klass)||!klass||!p.className)return false;
+    const char* name=p.className(reinterpret_cast<void*>(klass));
+    return name&&std::strcmp(name,"ExamCardData")==0;
+}
+std::string liveCard(Address card,bool& ok){
+    if(!card){ok=false;return "null";}
+    Address master=0,id=0,guid=0;int32_t base=0,temp=0;
+    if(!validCard(card)||!namedRef(card,{"_cardData"},master)||!master||
+       !namedRef(master,{"_id"},id)||!id||!namedRef(card,{"_guid"},guid)||
+       !namedInt(card,{"_baseUpgradeCount"},base)||
+       !namedInt(card,{"_tmpUpgradeCount"},temp)){
+        ok=false;return "null";
+    }
+    int32_t length=0;char16_t prefix[7]={};
+    if(!read(id,0x10,length)||length<8||length>120||
+       !bytes(id,0x14,prefix,sizeof(prefix))||
+       std::memcmp(prefix,u"p_card-",sizeof(prefix))!=0){ok=false;return "null";}
+    return "{\"id\":"+string(id,ok)+",\"guid\":"+string(guid,ok)+
+           ",\"baseUpgradeCount\":"+std::to_string(base)+
+           ",\"temporaryUpgradeCount\":"+std::to_string(temp)+"}";
+}
+// Traverse the selected hand object's typed fields, not arbitrary pointer offsets.
+// A list is accepted only when its backing array element is ExamCardData.
+void collectHandLists(Address object,int depth,std::set<Address>& seen,std::vector<std::string>& lists){
+    if(!object||depth>3||seen.size()>48||!seen.insert(object).second)return;
+    const auto& p=setup_probe::api();
+    Address klass=0;if(!read(object,0,klass)||!klass||!p.className)return;
+    void* cls=reinterpret_cast<void*>(klass);
+    const char* name=p.className(cls);if(!name)return;
+    if(std::strcmp(name,"List\x60""1")==0){
+        Address backing=0,arrayClass=0;
+        if(!read(object,0x10,backing)||!backing||!read(backing,0,arrayClass)||
+           !arrayClass||!p.elementClass)return;
+        void* elem=p.elementClass(reinterpret_cast<void*>(arrayClass));
+        const char* elemName=elem?p.className(elem):nullptr;
+        if(!elemName||std::strcmp(elemName,"ExamCardData")!=0)return;
+        std::vector<Address> cards;
+        if(!list(object,64,cards))return;
+        std::ostringstream value;value<<'[';
+        for(size_t i=0;i<cards.size();++i){
+            if(!cards[i])return;
+            bool okay=true;const auto info=liveCard(cards[i],okay);
+            if(!okay||info=="null")return;
+            if(i)value<<',';
+            value<<info;
+        }
+        value<<']';lists.push_back(value.str());return;
+    }
+    const std::string type(name);
+    if(type.find("Hand")==std::string::npos&&type.find("CardPool")==std::string::npos)return;
+    for(void* parent=cls;parent&&p.classParent;parent=p.classParent(parent)){
+        void* iter=nullptr;
+        for(unsigned i=0;i<160;++i){
+            void* field=p.getFields(parent,&iter);if(!field)break;
+            void* ft=p.fieldType(field);int kind=ft?p.typeKind(ft):-1;
+            if(kind!=0x12&&kind!=0x15&&kind!=0x1c)continue;
+            const size_t at=p.fieldOffset(field);
+            const int32_t size=p.instanceSize?p.instanceSize(parent):0;
+            if(at<0x10||size<=0||at+8>static_cast<size_t>(size))continue;
+            Address next=0;if(read(object,at,next)&&next)collectHandLists(next,depth+1,seen,lists);
+        }
+    }
+}
+std::string selectedHandJson(Address sequence){
+    const ReadFailure oldFailure=firstReadFailure;
+    Address hand=0;std::string value;
+    if(!namedRef(sequence,{"_hand"},hand)||!hand)
+        value="{\"available\":false,\"reason\":\"hand-field-missing\",\"cards\":null}";
+    else{
+        std::set<Address> seen;std::vector<std::string> lists;
+        collectHandLists(hand,0,seen,lists);
+        if(lists.size()==1)
+            value="{\"available\":true,\"cards\":"+lists.front()+
+                  ",\"source\":\"selected-hand-typed-il2cpp-list\",\"turnResultParityVerified\":false}";
+        else
+            value="{\"available\":false,\"reason\":\""+std::string(lists.empty()?"no-typed-card-list":"ambiguous-card-lists")+
+                  "\",\"cards\":null}";
+    }
+    firstReadFailure=oldFailure;
+    return value;
+}
+void installSelectedHooks(Address controller);
+
 void status() {
     std::ostringstream s;s<<"{\"schemaVersion\":2,\"pid\":"<<getpid()<<",\"hookMask\":"<<g_hook_mask.load()
       <<",\"moveNextInstalled\":"<<(moveInstalled?"true":"false")<<",\"searchResultInstalled\":"<<(resultInstalled?"true":"false")
       <<",\"moveCalls\":"<<moveCalls<<",\"selectedResultCalls\":"<<selectedCalls<<",\"sessions\":"<<nextId
       <<",\"recordsWritten\":"<<written<<",\"incompleteReads\":"<<failures<<",\"writeFailures\":"<<writeFailures
       <<",\"cardMoveInstalled\":"<<(cardMoveInstalled?"true":"false")
+       <<",\"drawInstalled\":"<<(drawInstalled?"true":"false")
+       <<",\"drawCalls\":"<<drawCalls<<",\"drawControllerMatched\":"<<drawMatched
+       <<",\"drawSamples\":"<<drawSamples<<",\"cardMoveContextReadable\":"<<moveContextReadable
       <<",\"effectDifferenceInstalled\":false,\"effectDifferenceCalls\":0"
       <<",\"triggerCommandInstalled\":"<<(triggerCommandInstalled?"true":"false")
       <<",\"triggerCommandCalls\":"<<triggerCommandCalls<<",\"cardMoveCalls\":"<<cardMoveCalls
@@ -780,10 +896,14 @@ void recordSetup(Address sequence,BeforeSetup before) {
     active->sequence=sequence;
     readBudget=8192;firstReadFailure={};readStage.clear();
     Address parameter=0;
-    bool hasParameter=read(sequence,0x10,parameter)&&parameter;
+    bool hasParameter=namedRef(sequence,{"<Parameter>k__BackingField"},parameter)&&parameter;
+    Address controller=0;
+    const bool hasController=namedRef(sequence,{"<CardController>k__BackingField"},controller)&&controller;
+    active->controller=hasController?controller:0;
     uint32_t randomState=0;
     const bool randomRead=hasParameter && read(parameter,0x77c,randomState);
     active->parameter=hasParameter?parameter:0;
+    if(hasController)installSelectedHooks(controller);
     std::ostringstream content;
     content<<",\"capturePhase\":\"after-ExamSequence.SetUpExam\",\"setupOrigin\":\"0x07EFD3B4\""
            <<",\"randomStateBeforeSetUp\":"<<(before.available?std::to_string(before.randomState):"null")
@@ -793,6 +913,7 @@ void recordSetup(Address sequence,BeforeSetup before) {
            <<",\"beforeSequenceParameterReadable\":"<<(before.sequenceParameterReadable?"true":"false")
            <<",\"beforeSequenceParameterPresent\":"<<(before.sequenceParameterPresent?"true":"false")
            <<",\"afterSequenceParameterPresent\":"<<(hasParameter?"true":"false")
+            <<",\"selectedControllerMetadataResolved\":"<<(hasController?"true":"false")
            <<",\"randomStateObserved\":"<<(randomRead?std::to_string(randomState):"null")
            <<",\"randomStateProvenance\":\"after-setup-not-necessarily-pre-shuffle\""
            <<",\"examParameterSnapshot\":"<<(hasParameter?setup_probe::capture(parameter):"null")
@@ -1007,7 +1128,7 @@ struct NativeStatusSample {
 NativeStatusSample sampleStatus(Address sequence) {
     NativeStatusSample s;
     Address parameter=0;
-    if(!sequence || !read(sequence,0x10,parameter) || !parameter)return s;
+    if(!sequence || !namedRef(sequence,{"<Parameter>k__BackingField"},parameter) || !parameter)return s;
     s.parameterFields=inspectParameterStatuses(parameter,s.parameterMetadataAvailable);
     int32_t raw[6]={};
     const size_t offsets[]={0x570,0x58c,0x5a8,0x1cc,0x248,0x144};
@@ -1023,7 +1144,7 @@ NativeStatusSample sampleStatus(Address sequence) {
     if(ok){
         s.scoreVocal=raw[0];s.scoreDance=raw[1];s.scoreVisual=raw[2];
         s.stamina=raw[3];s.block=raw[4];s.turn=raw[5];
-        s.rawNumbers=true;
+        s.rawNumbers=false; // Obscured<T> storage is unverified encoded data
     }
     Address effects=0,list=0;
     if(!read(parameter,0x390,effects)||!effects||!read(effects,0x10,list)||!list)
@@ -1065,7 +1186,7 @@ NativeStatusSample sampleStatus(Address sequence) {
 }
 std::string sampleJson(const NativeStatusSample& s) {
     std::ostringstream out;
-    out<<"{\"source\":\"native-process-vm-readv\",\"getterBytecodeVerified\":true"
+    out<<"{\"source\":\"native-process-vm-readv\",\"getterBytecodeVerified\":false"
        <<",\"turnResultParityVerified\":false"
        <<",\"score\":"<<(s.rawNumbers?std::to_string(static_cast<int64_t>(s.scoreVocal)+s.scoreDance+s.scoreVisual):"null")
        <<",\"scoreVocal\":"<<(s.rawNumbers?std::to_string(s.scoreVocal):"null")
@@ -1092,14 +1213,15 @@ void emitCardObservation(Run& run,const char* event,Address sequence,Address exp
     if(run.effectSamples+run.cardMoveSamples>=kNativeCardSamplesPerSession){++drops;return;}
     readBudget=768;firstReadFailure={};readStage.clear();
     Address controller=0,playing=0,parameter=0;
-    const bool match=read(sequence,0x10,parameter)&&parameter==run.parameter;
+    const bool match=namedRef(sequence,{"<Parameter>k__BackingField"},parameter)&&parameter==run.parameter;
     if(!match)return;
     ++cardSnapshotParameterMatched;
-    if(!explicitCard && read(sequence,0x58,controller)&&controller)
-        read(controller,0x48,playing);
+    if(!explicitCard && namedRef(sequence,{"<CardController>k__BackingField"},controller)&&controller)
+        namedRef(controller,{"<PlayingCard>k__BackingField"},playing);
     else playing=explicitCard;
     bool cardOk=true;
     const std::string card=playing?liveCard(playing,cardOk):"null";
+    if(!playing)cardOk=false;
     const NativeStatusSample sample=sampleStatus(sequence);
     const bool isMove=std::strcmp(event,"contest-card-move")==0;
     if(isMove)++run.cardActionSerial;
@@ -1169,29 +1291,69 @@ __attribute__((noinline)) void* triggerCommand(void* self,void* commandList,uint
     if(triggerCommandCalls<=8 || (triggerCommandCalls&(triggerCommandCalls-1))==0)status();
     return result;
 }
-// MovePlayCard records the move boundary, NOT completion of card effects.
-__attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t arg,const void* method){
-    originalCardMove(self,card,arg,method);
-    if(!active||!self)return;
+// Card movement is not completion of effects. Validate the context BEFORE
+// forwarding, because IL2CPP may reuse the calculation context afterwards.
+__attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t context,const void* method){
+    Address parameter=0;bool readable=false;
+    const bool trace=active&&active->setupRecorded&&self&&context;
+    if(trace){readBudget=64;firstReadFailure={};readStage.clear();
+        readable=namedRef(context,{"<Parameter>k__BackingField","_parameter"},parameter);}
+    originalCardMove(self,card,context,method);
+    if(!trace)return;
     std::lock_guard<std::mutex> guard(mutex);++cardMoveCalls;
-    Address controller=0;
-    readBudget=64;firstReadFailure={};readStage.clear();
-    // ROM: ExamSequence.get_CardController RVA 0x080A19BC returns [x0+#0x58];
-    // get_PlayingCard RVA 0x080A19A4 then dereferences controller +0x48.
-    if(active->sequence && read(active->sequence,0x58,controller)){
-        ++cardMoveControllerReadable;
-        if(controller==reinterpret_cast<Address>(self)){
-            ++cardMoveControllerMatched;
-            Address parameter=0;
-            if(read(active->sequence,0x10,parameter)&&parameter==active->parameter)
-                ++cardMoveParameterMatched;
-            emitCardObservation(*active,"contest-card-move",active->sequence,
-                                reinterpret_cast<Address>(card));
-        }
-    }
-    // Rejection diagnostics must be exported even when no snapshot is written.
-    // Throttle disk writes to the first 8 and power-of-two call counts.
+    if(active->controller)++cardMoveControllerReadable;
+    const bool controllerMatched=reinterpret_cast<Address>(self)==active->controller;
+    if(controllerMatched)++cardMoveControllerMatched;
+    if(readable)++moveContextReadable;
+    const bool parameterMatched=readable&&parameter==active->parameter;
+    if(parameterMatched)++cardMoveParameterMatched;
+    if(controllerMatched&&parameterMatched)
+        emitCardObservation(*active,"contest-card-move",active->sequence,
+                            reinterpret_cast<Address>(card));
     if(cardMoveCalls<=8 || (cardMoveCalls&(cardMoveCalls-1))==0)status();
+}
+using DrawFn=uintptr_t(*)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,
+                          uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+DrawFn originalDraw=nullptr;
+// Read-only before/after observations. No game getter or extra draw is called.
+__attribute__((noinline)) uintptr_t drawCard(
+    uintptr_t a0,uintptr_t a1,uintptr_t a2,uintptr_t a3,
+    uintptr_t a4,uintptr_t a5,uintptr_t a6,uintptr_t a7){
+    const bool selected=active&&active->setupRecorded&&active->controller==a0;
+    std::string before="null";
+    if(selected){std::lock_guard<std::mutex> guard(mutex);
+        readBudget=2048;firstReadFailure={};readStage.clear();
+        before=selectedHandJson(active->sequence);}
+    const uintptr_t result=originalDraw(a0,a1,a2,a3,a4,a5,a6,a7);
+    if(!active)return result;
+    std::lock_guard<std::mutex> guard(mutex);++drawCalls;
+    if(!selected){if(drawCalls<=8||(drawCalls&(drawCalls-1))==0)status();return result;}
+    ++drawMatched;readBudget=2048;firstReadFailure={};readStage.clear();
+    Address parameter=0;
+    if(!namedRef(a2,{"<Parameter>k__BackingField","_parameter"},parameter)||
+       parameter!=active->parameter)return result;
+    if(drawSamples>=kNativeCardSamplesPerSession){++drops;return result;}
+    const auto after=selectedHandJson(active->sequence);
+    std::ostringstream fields;
+    fields<<",\"capturePhase\":\"after-DrawCard\""
+          <<",\"requestedCount\":"<<static_cast<int32_t>(a1)
+          <<",\"beforeHand\":"<<before<<",\"afterHand\":"<<after
+          <<",\"turnResultParityVerified\":false,\"cardEffectsComplete\":false";
+    if(emit(*active,"contest-draw",fields.str()))++drawSamples;
+    return result;
+}
+void installSelectedHooks(Address controller){
+    if(selectedHooksAttempted||!controller)return;
+    selectedHooksAttempted=true;
+    // Actual v3.4.1 MethodInfo pointers from runtime metadata, not old RVAs.
+    const RuntimeMethod draw=resolve_object_method(reinterpret_cast<void*>(controller),"DrawCard",3);
+    const RuntimeMethod move=resolve_object_method(reinterpret_cast<void*>(controller),"MovePlayCard",2);
+    if(draw.address)
+        drawInstalled=install_hook(draw.address,reinterpret_cast<void*>(drawCard),
+                                   reinterpret_cast<void**>(&originalDraw));
+    if(move.address)
+        cardMoveInstalled=install_hook(move.address,reinterpret_cast<void*>(cardMove),
+                                       reinterpret_cast<void**>(&originalCardMove));
 }
 
 __attribute__((noinline)) SearchResult result(void* self,const void* method) {
@@ -1276,9 +1438,7 @@ void install(const ImageInfo& image) {
     triggerCommandInstalled=install_hook(image.base+0x080A67B8,
         reinterpret_cast<void*>(triggerCommand),
         reinterpret_cast<void**>(&originalTriggerCommand));
-    cardMoveInstalled=install_hook(image.base+0x08280800,
-        reinterpret_cast<void*>(cardMove),
-        reinterpret_cast<void**>(&originalCardMove));
+    // DrawCard/MovePlayCard are installed from live MethodInfo in recordSetup().
     std::lock_guard<std::mutex> guard(mutex);status();
 }
 } // namespace contest_capture
