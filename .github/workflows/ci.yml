@@ -68,3 +68,14 @@ jobs:
             package.json
           if-no-files-found: error
           retention-days: 1
+
+      - name: Build pinned native replay catalog
+        run: node tools/build_contest_catalog.mjs gakumas-contest-catalog.json 1f07db111068a65defc13bd44e3e8957ca4baca4
+      - name: Export pinned native replay catalog
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr93-master-catalog-20261013
+          path: gakumas-contest-catalog.json
+          if-no-files-found: warn
+          retention-days: 1
