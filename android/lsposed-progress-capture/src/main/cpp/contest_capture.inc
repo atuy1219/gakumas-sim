@@ -926,7 +926,7 @@ MutationProbe beginMutation(Address controller,Address context){
     if(p.selectedContext)
         p.active=p.run->mutationSamples<kMutationSelectedCap;
     else
-        p.active=p.run->candidateMutationSamples<kMutationCandidateCap;
+        p.active=p.contextVerified&&p.run->candidateMutationSamples<kMutationCandidateCap;
     if(p.active)p.before=contextPoolsJson(context);
     return p;
 }
