@@ -273,6 +273,7 @@ int main(){
             self.assertEqual(draw["afterPools"]["hold"]["count"],0)
             self.assertTrue(draw["contextParameterMatched"])
             self.assertFalse(draw["contextSignatureVerified"])
+            self.assertEqual(effect["poolStateBeforeCommandBuild"]["hand"]["cards"][0]["id"],"p_card-01-act-1_001")
             self.assertEqual(effect["poolStateAtObservation"]["hand"]["cards"][0]["id"],"p_card-01-act-1_001")
             self.assertEqual(move['card']['id'],'p_card-01-act-1_001')
             self.assertEqual(effect['card']['guid'],'guid-001')
