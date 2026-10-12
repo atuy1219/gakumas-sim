@@ -1,0 +1,59 @@
+name: Native contest capture parity
+
+on:
+  push:
+    branches:
+      - feature/contest-native-comparison
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Replay nine anonymized native sessions against independent simulator
+        run: |
+          node tools/compare_contest_capture.mjs \
+            tests/fixtures/contest-native-sanitized-v1534.json \
+            /tmp/contest-native-parity.json "" main \
+            --observed-customs-provisional
+      - name: Show first differences in every session
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,existsSync} from "node:fs";
+          const path="/tmp/contest-native-parity.json";
+          if(!existsSync(path)){ console.error("Replay did not produce a report"); process.exitCode=1; }
+          else {
+            const report=JSON.parse(readFileSync(path,"utf8"));
+            console.log(JSON.stringify({
+              status:report.status,summary:report.summary,master:report.masterProvenance,
+              sessions:report.sessions.map(s=>({
+                id:s.sessionId,seed:s.seed,nativeScore:s.realDevice?.score,
+                normalization:s.normalization?.reasons,
+                setupRng:s.rngVerification?.status,
+                status:s.comparison?.status,
+                firstDivergence:s.comparison?.firstDivergence,
+                nativeCardMetricsVerified:s.comparison?.nativeCardMetricsVerified,
+                nativeCardMetricsCompared:s.comparison?.nativeCardMetricsCompared,
+                scheduled:s.comparison?.scheduledNativeCardActions,
+                warnings:s.warnings?.filter(w=>/simulator|failed|native-capture|missing|unverified-pre-shuffle/.test(w)).slice(0,4)
+              }))
+            },null,2));
+            if(!report.summary.simulationCompared)process.exitCode=1;
+          }
+          NODE
+      - name: Upload independent replay report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contest-native-parity-v1534
+          path: /tmp/contest-native-parity.json
+          if-no-files-found: warn
