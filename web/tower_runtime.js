@@ -2061,13 +2061,13 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   }
   // ExamLoopTaskAsync 0x8070394 marks statuses after draw/StartOfTurn
   // and before StartPlay. Additions during card play have not passed it.
-  // Statuses gained by StartPlay P-items have passed this turn's start;
-  // statuses gained later by played cards have not.
-  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
-  markNativeStatusTurnStart(state.exam);
+  // Scheduler/playable count flags must retain their original pre-StartPlay
+  // timing; only scalar status lifetime flags are marked after StartPlay.
   for (const registration of state.effectScheduler.registrations) registration.metadata.isPassingTurnStart = true;
   if (state.cardEffectPlayCountBuff) state.cardEffectPlayCountBuff.isPassingTurnStart = true;
   if (state.playableAddStatus) state.playableAddStatus.isPassingTurnStart = true;
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
+  markNativeStatusTurnStart(state.exam);
   state.turnStartEffects = [...phaseEvent.effects];
   return {
     turn: state.turn,
