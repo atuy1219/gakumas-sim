@@ -283,7 +283,8 @@ function createState(cards, masters) {
   return createTowerTurnState(cards.map((id) => ({ id })), 1, byId, { stamina: 20 });
 }
 
-// Native turn end converts Review into a Lesson score before Review spends one turn.
+// Native turn end converts Review into a Lesson score. Its natural duration
+// is spent at the NEXT turn boundary, not after the scoring callback.
 const reviewState = createState(["review-filler"], [masterCard("review-filler")]);
 reviewState.turnParameterTypes = ["Vocal"];
 reviewState.parameterBonus = {
@@ -296,7 +297,7 @@ drawTowerTurn(reviewState, 1);
 finishTowerTurn(reviewState, { type: "skip" });
 assert.equal(reviewState.exam.parameter, 8);
 assert.equal(reviewState.exam.parameterVocal, 8);
-assert.equal(reviewState.exam.review, 4);
+assert.equal(reviewState.exam.review, 5);
 assert.match(reviewState.history[0].turnEndEffects.join(" / "), /好印象ターン終了スコア \+8/);
 
 // ReviewMultiple and ReviewCountAdd are finite native statuses. They affect the
@@ -314,7 +315,7 @@ applyParsedExamEffect(
 drawTowerTurn(reviewBoostState, 1);
 finishTowerTurn(reviewBoostState, { type: "skip" });
 assert.equal(reviewBoostState.exam.parameter, 16, "ceil(5 × 1.5) fires twice");
-assert.equal(reviewBoostState.exam.review, 4);
+assert.equal(reviewBoostState.exam.review, 5);
 assert.ok(Math.abs(reviewBoostState.exam.reviewMultiple - 1.5) < 1e-6);
 assert.equal(reviewBoostState.exam.reviewCountAdd, 1);
 assert.deepEqual(

@@ -16,8 +16,10 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
   for (const s of [original, resume(original)]) {
     finishTowerTurn(s); assert.equal(s.exam[field], 6, field);
     drawTowerTurn(s); grant(s, type, 2); finishTowerTurn(s);
-    assert.equal(s.exam[field], field === 'parameterBuffMultiplePerTurn' ? 5 : 7, `${field}: regrant must not reset the flag`);
-    drawTowerTurn(s); finishTowerTurn(s); assert.equal(s.exam[field], field === 'parameterBuffMultiplePerTurn' ? 4 : 6);
+    assert.equal(s.exam[field], field === 'review' ? 8 : field === 'parameterBuffMultiplePerTurn' ? 5 : 7,
+      `${field}: regrant must not reset the flag`);
+    drawTowerTurn(s); finishTowerTurn(s);
+    assert.equal(s.exam[field], field === 'review' ? 7 : field === 'parameterBuffMultiplePerTurn' ? 4 : 6);
   }
 }
 // Additive rows with equal remaining duration are the same native status.
@@ -39,15 +41,18 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
   drawTowerTurn(s); finishTowerTurn(s);
   assert.equal(s.exam.reviewAdditivePermil, 0); assert.equal(s.exam.scoreTimedStatuses.length, 0);
 }
-// StartOfTurn additions have passed the native marker; StartPlay additions
-// and card plays occur after the marker and are exempt on their first turn.
+// Both StartOfTurn and StartPlay item review survive the granting turn;
+// ReviewStatusEffect.SpendTurn runs at the next eligible turn boundary.
+// Card/drink review grants stay unmarked until the following StartPlay.
 {
   const effect = {id: 'gain', effectType: 'ProduceExamEffectType_ExamReview', effectValue1: 3};
   const item = phase => ({id: phase, effects: [{id: phase, effectType: 'ProduceItemEffectType_ExamStatusEnchant', effectCount: 1,
     examStatusEnchant: {id: phase, trigger: {id: phase, phaseTypes: [`ProduceExamPhaseType_${phase}`]}, examEffects: [effect]}}]});
-  for (const [phase, expected] of [['ExamStartTurn', 2], ['StartPlay', 3]]) {
+  for (const phase of ['ExamStartTurn', 'StartPlay']) {
     const s = setup({pItems: [item(phase)]}); drawTowerTurn(s); finishTowerTurn(s);
-    assert.equal(s.exam.review, expected, phase);
+    assert.equal(s.exam.review, 3, phase + ': no end-turn Review spend');
+    drawTowerTurn(s);
+    assert.equal(s.exam.review, 2, phase + ': spend marked Review at next turn start');
   }
 }
 // Native PlayableValueAdd consumption:
@@ -133,8 +138,8 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
 {
   const s = setup(); drawTowerTurn(s); grant(s, 'ExamReview', 10);
   finishTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 0);
-  drawTowerTurn(s); finishTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 1);
-  drawTowerTurn(s);
+  drawTowerTurn(s); finishTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 0);
+  drawTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 1);
   const score = {id: 'dependent-score', effectType: 'ProduceExamEffectType_ExamLessonFix', effectValue1: 7};
   s.examEffectById.set(score.id, score);
   s.examTriggerById.set('review-change', {id: 'review-change', phaseTypes: ['ProduceExamPhaseType_ExamStatusChange'],

@@ -1496,11 +1496,14 @@ export function payCardCost(exam, card) {
     );
   }
 
-  // forceStamina is a direct/fixed stamina cost: it bypasses Genki and the
-  // normal stamina-consumption multiplier path.
+  // forceStamina bypasses Genki, but not stamina-consumption modifiers.
+  // Native observed example: 仕切り直し+ halves 気分転換's direct 5 to 3.
   if (direct > 0) {
-    exam.stamina = Math.max(0, Number(exam.stamina ?? 0) - direct);
-    events.push(`直接体力消費 ${direct}`);
+    const adjusted = calculateNativeStaminaDamage(exam, direct, {
+      penetrate: true, applyFixed: true,
+    });
+    exam.stamina = Math.max(0, Number(exam.stamina ?? 0) - adjusted.staminaDamage);
+    events.push(`直接体力消費 ${adjusted.staminaDamage}`);
   }
 
 
