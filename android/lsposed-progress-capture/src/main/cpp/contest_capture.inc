@@ -173,9 +173,14 @@ std::string command(Address a,bool& ok) {
        !read(a,0x30,item)||!read(a,0x38,drink)||!read(a,0x40,cmd)||!read(a,0x48,phase)||!read(a,0x4c,cost)){
         ok=false;return "null";
     }
+    bool identityOk=true;
+    const std::string verifiedCard=card?liveCard(card,identityOk):"null";
+    // A stale/unknown card layout must not suppress independently verified
+    // score, hand, or turn history. It is reported as unverified separately.
     std::ostringstream s;s<<"{\"turn\":"<<turn<<",\"phase\":"<<phase<<",\"selectIndexes\":"<<integers(select,false,64,ok)
       <<",\"isSelectLog\":"<<(selectLog?"true":"false")<<",\"costFailed\":"<<(cost?"true":"false")
-      <<",\"card\":"<<liveCard(card,ok)<<",\"itemId\":"<<(item?stringField(item,0x10,ok):"null")
+      <<",\"card\":"<<verifiedCard<<",\"cardIdentityVerified\":"<<(identityOk?"true":"false")
+      <<",\"itemId\":"<<(item?stringField(item,0x10,ok):"null")
       <<",\"drinkId\":"<<(drink?stringField(drink,0x10,ok):"null");
     int32_t type=0,index=0,position=0,remaining=0;
     if(cmd && read(cmd,0x10,type)&&read(cmd,0x18,index)&&read(cmd,0x1c,position)&&read(cmd,0x64,remaining))
