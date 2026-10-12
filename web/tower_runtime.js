@@ -2562,13 +2562,17 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       event.effects.push(`継続効果を追加: ${parsed.enchantId}`);
       return;
     case "ExamEffectTimer": {
+      // Native EffectTimerEffectExecutor..ctor (v3.4.1 RVA 0x0804D768)
+      // reads IExamEffect.get_EffectValue1 (virtual slot 2) as the delay.
+      // EffectTurn is unrelated to the wait and is often zero in the masters.
+      const delay = Math.max(1, Math.trunc(Number(parsed.value1) || 1));
       const childId = parsed.chainEffectId || parsed.chainEffectIds?.[0];
       const master = state.examEffectById?.get?.(String(childId ?? ""));
       state.timers.push({
-        turn: Math.max(1, turn), count: Math.max(1, Number(parsed.count) || 1),
+        turn: delay, count: Math.max(1, Number(parsed.count) || 1),
         child: master ? parseExamEffectMaster(master) : parseExamEffectId(childId), id: parsed.id,
       });
-      event.effects.push(`${Math.max(1, turn)}ターン後に効果発動`);
+      event.effects.push(`${delay}ターン後に効果発動`);
       return;
     }
     case "ExamLessonFix": {
