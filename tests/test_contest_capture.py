@@ -72,6 +72,20 @@ void gameMove(void* self,const void* m){assert(self==machine.data && m==methodIn
 }
 void pointerList(Obj& l,Obj& a,uintptr_t p){l.put(0x10,a.addr());l.put<int32_t>(0x18,1);a.put<uint64_t>(0x18,1);a.put(0x20,p);}
 int main(){
+ // Frame identity must follow the innermost real native card command and
+ // must be released even when command generation recursively nests.
+ assert(currentCardCommand==nullptr);
+ {
+   ScopedCardCommand outer(0x111,0x222,0x333);
+   assert(currentCardCommand && currentCardCommand->sequence==0x111);
+   assert(currentCardCommand->context==0x222 && currentCardCommand->card==0x333);
+   {
+     ScopedCardCommand inner(0x444,0x555,0x666);
+     assert(currentCardCommand->sequence==0x444 && currentCardCommand->card==0x666);
+   }
+   assert(currentCardCommand->sequence==0x111 && currentCardCommand->card==0x333);
+ }
+ assert(currentCardCommand==nullptr);
  originalMove=gameMove;originalResult=gameResult;
  const std::u16string nativeCardId=u"p_card-00-men-3_003";
  cardIdentity.put<int32_t>(0x10,static_cast<int32_t>(nativeCardId.size()));
