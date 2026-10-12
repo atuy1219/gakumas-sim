@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import org.json.JSONArray;
@@ -21,6 +22,7 @@ public final class CaptureExportActivity extends Activity {
         try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
         catch (Exception ignored) { return "unknown"; }
     }
+    private static final String GAME_FILES = "/data/user/0/com.bandainamcoent.idolmaster_gakuen/files";
     private static final String ROOT = "/data/user/0/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/";
     private TextView statusView;
     private byte[] pending;
@@ -35,6 +37,12 @@ public final class CaptureExportActivity extends Activity {
         statusView = new TextView(this);
         statusView.setText("Gakumas Progress Capture v" + moduleVersion()
             + "\n\n保存済み詳細ログ取得を選び、学マスを再起動してください。\n詳細→詳細ログを開いたあと、この画面で詳細ログを保存できます。");
+        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
+        scroll.addView(layout); setContentView(scroll);
+        Button activate = new Button(this); activate.setText("詳細ログ取得モードに切り替える");
+        activate.setOnClickListener(v -> activateDetail()); layout.addView(activate);
+        Button detailStatus = new Button(this); detailStatus.setText("詳細ログの取得状況を確認");
+        detailStatus.setOnClickListener(v -> refreshDetail()); layout.addView(detailStatus);
         layout.addView(statusView);
         Button save = new Button(this); save.setText("コンテスト記録を保存");
         save.setOnClickListener(v -> prepareExport(false)); layout.addView(save);
@@ -44,8 +52,6 @@ public final class CaptureExportActivity extends Activity {
         detail.setOnClickListener(v -> prepareExport(false, true)); layout.addView(detail);
         Button previousDetail = new Button(this); previousDetail.setText("前回起動分の詳細ログを保存");
         previousDetail.setOnClickListener(v -> prepareExport(true, true)); layout.addView(previousDetail);
-        Button detailStatus = new Button(this); detailStatus.setText("詳細ログの取得状況を確認");
-        detailStatus.setOnClickListener(v -> refreshDetail()); layout.addView(detailStatus);
         Button refresh = new Button(this); refresh.setText("記録状況を確認");
         refresh.setOnClickListener(v -> refresh()); layout.addView(refresh);
         Button diagnostics = new Button(this); diagnostics.setText("診断画面を開く");
@@ -54,13 +60,17 @@ public final class CaptureExportActivity extends Activity {
             intent.setClassName(this, "dev.atuy1219.gakumas.progresscapture.DiagnosticActivity");
             startActivity(intent);
         });
-        layout.addView(diagnostics); setContentView(layout);
+        layout.addView(diagnostics);
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
-        if (!filename.matches("(?:contest_capture|detail_log_capture)(?:_status\\.json|(?:\\.previous)?\\.jsonl)"))
+        if (!filename.equals("native_bootstrap_status.json") && !filename.matches("(?:contest_capture|detail_log_capture)(?:_status\\.json|(?:\\.previous)?\\.jsonl)"))
             throw new IllegalArgumentException("Invalid recording name");
-        Process process = new ProcessBuilder("su", "-M", "-c", "cat '" + ROOT + filename + "'")
+        return rootCommand("cat '" + ROOT + filename + "'", limit);
+    }
+
+    private static byte[] rootCommand(String command, int limit) throws Exception {
+        Process process = new ProcessBuilder("su", "-M", "-c", command)
                 .redirectErrorStream(true).start();
         Thread watchdog = new Thread(() -> {
             try { Thread.sleep(15000); process.destroy(); }
@@ -78,12 +88,37 @@ public final class CaptureExportActivity extends Activity {
         } finally { watchdog.interrupt(); process.destroy(); }
     }
 
+    private void activateDetail() {
+        if (busy) return; busy = true;
+        new Thread(() -> {
+            try {
+                String command = DiagnosticStorage.configure(GAME_FILES, 8192,
+                    new String[]{"detail_log_capture.jsonl", "detail_log_capture_status.json"});
+                rootCommand(command, 65536);
+                runOnUiThread(() -> statusView.setText("詳細ログ取得モード（8192）を設定しました。\n"
+                    + "学マスを完全終了して再起動し、詳細→詳細ログを開いてください。\n"
+                    + "その後、上の取得状況ボタンで実際に有効になったモードを確認できます。"));
+            } catch (Exception e) { showError(e); }
+            finally { runOnUiThread(() -> busy = false); }
+        }).start();
+    }
+
     private void refreshDetail() {
         if (busy) return; busy = true;
         new Thread(() -> {
             try {
+                JSONObject boot = new JSONObject(new String(readRoot("native_bootstrap_status.json", 65536), StandardCharsets.UTF_8));
+                int actualMask = boot.optInt("effectiveHookMask", -1);
+                if (actualMask != 8192 || !boot.optBoolean("nativeApiAccepted")) {
+                    String message = "学マスが現在読み込んでいるモード: " + actualMask
+                        + "\nNativeモジュール受付: " + boot.optBoolean("nativeApiAccepted")
+                        + "\n詳細ログ取得モードに切り替え、学マスを完全終了して再起動してください。";
+                    runOnUiThread(() -> statusView.setText(message)); return;
+                }
                 JSONObject s = new JSONObject(new String(readRoot("detail_log_capture_status.json", 65536), StandardCharsets.UTF_8));
-                String text = "保存済み詳細ログの取得状況\n"
+                if (boot.getLong("pid") != s.getLong("pid"))
+                    throw new Exception("詳細ログの取得状況は以前の起動分です。診断画面で初期化ログを保存してください。");
+                String text = "保存済み詳細ログの取得状況\n現在のモード: " + actualMask + "\n"
                     + "保存データ読込: " + s.optBoolean("loadInstalled")
                     + "\nコンテスト詳細画面: " + s.optBoolean("competitionInstalled")
                     + "\n詳細ログ画面: " + s.optBoolean("overlayInstalled")

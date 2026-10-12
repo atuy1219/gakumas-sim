@@ -1,3 +1,15 @@
+## v1.5.35: accessible readback controls and current-mode diagnostics
+
+The exporter now scrolls in small/floating windows. Detail-mode activation and
+its status button appear above the potentially long status text. Activation
+writes the same guarded fixed-path configuration as the diagnostic screen.
+Status checks the native bootstrap's actual mode and PID before showing detail
+hook counts, so old contest counters cannot imply that readback is enabled.
+After setting the mode, completely close/restart the game and open a detail log.
+This repairs UI/diagnosis; it does not establish on-device readback coverage.
+
+---
+
 ## v1.5.34: saved detail-log readback (experimental)
 
 Choose **保存済み詳細ログ取得**, restart the game, then open
