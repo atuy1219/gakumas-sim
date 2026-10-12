@@ -14,7 +14,7 @@ export function reconstructContestCapture(capture){
   const e=capture.events[i];
   if(!object(e)||!Number.isSafeInteger(e.pid)||!Number.isSafeInteger(e.sessionId)){warnings.push("events["+i+"]:invalid-session-identity");continue;}
   const key=e.pid+":"+e.sessionId;
-  if(!sessions.has(key))sessions.set(key,{key,pid:e.pid,sessionId:e.sessionId,start:null,setup:null,progress:[],result:null,turns:[],warnings:[],complete:true});
+  if(!sessions.has(key))sessions.set(key,{key,pid:e.pid,sessionId:e.sessionId,start:null,setup:null,progress:[],result:null,turns:[],cardActions:[],warnings:[],complete:true});
   const s=sessions.get(key);
   if(e.dataComplete===false){s.complete=false;s.warnings.push("step-"+e.step+":native-read-incomplete");}
   if(e.event==="contest-start"){
@@ -22,6 +22,8 @@ export function reconstructContestCapture(capture){
   }else if(e.event==="contest-setup"){
    if(s.setup){s.warnings.push("multiple-setup-snapshots");}
    s.setup=e;
+  }else if(e.event==="contest-card-use-complete"){
+   s.cardActions.push(e);
   }else if(e.event==="contest-progress"){
    const prev=s.progress.at(-1);
    if(prev&&e.step!==prev.step+1){s.complete=false;s.warnings.push("noncontiguous-progress-step:"+prev.step+"->"+e.step);}
@@ -120,8 +122,86 @@ function compareFields(diffs,actual,pred,base,fields){
   else diffInto(diffs,base+"."+field,actual[field],pred[field]);
  }
 }
+
+/** V1.5.34+ stores verified score/stamina/block before and after each card.
+ * The selected turn log includes commandType=4 scheduled/automatic card actions;
+ * these must not be mistaken for user-selected commandType=2 plays. */
+export function extractNativeCardActions(session){
+ const selected=(session.turns??[]).flatMap(turn=>
+  (turn.selectedPlayedCards??[]).map(action=>({turn:turn.turn,...action})));
+ return (session.cardActions??[]).map((event,index)=>{
+  const decision=selected[index]??null, before=event.beforeMetrics,after=event.metrics;
+  const aligned=decision!==null&&decision.card?.id===event.card?.id&&
+   Number(decision.turn)===Number(after?.turn);
+  const verified=aligned&&event.selectedLineageVerified===true&&
+   event.completionBoundaryVerified===true&&event.cardUseCompletionVerified===true&&
+   event.cardEffectsComplete===true&&before?.available===true&&after?.available===true&&
+   Number(before.turn)===Number(after.turn)&&
+   ["score","stamina","block"].every(k=>Number.isFinite(before[k])&&Number.isFinite(after[k]));
+  return {index,turn:Number(after?.turn??decision?.turn??0),
+   cardId:event.card?.id??null,
+   commandType:decision?.commandType??null,
+   verified,alignmentVerified:aligned,cardActionSerial:event.cardActionSerial??null,
+   before:before?.available?{score:before.score,stamina:before.stamina,block:before.block,
+    vocal:before.scoreVocal,dance:before.scoreDance,visual:before.scoreVisual,
+    statusEffects:before.statusEffects??null}:null,
+   after:after?.available?{score:after.score,stamina:after.stamina,block:after.block,
+    vocal:after.scoreVocal,dance:after.scoreDance,visual:after.scoreVisual,
+    statusEffects:after.statusEffects??null}:null,
+   ...(verified?{delta:{score:after.score-before.score,
+    stamina:after.stamina-before.stamina,block:after.block-before.block}}:{}),
+  };
+ });
+}
+
+function compareNativeCardActions(session,pred){
+ const native=extractNativeCardActions(session);
+ const observedManual=native.filter(a=>a.verified&&a.commandType===2);
+ const simulated=Array.isArray(pred?.cardActionTrace)?pred.cardActionTrace:[];
+ const diagnostics=[],differences=[];
+ const perTurnIndex=new Map();
+ for(let i=0;i<Math.min(observedManual.length,simulated.length);i++){
+  const a=observedManual[i],b=simulated[i];
+  const cardIndex=perTurnIndex.get(a.turn)??0;
+  perTurnIndex.set(a.turn,cardIndex+1);
+  const base="turns["+(a.turn-1)+"].cards["+cardIndex+"]";
+  const measured={
+   cardId:a.cardId,turn:a.turn,
+   beforeScore:a.before.score,afterScore:a.after.score,scoreGained:a.delta.score,
+   beforeStamina:a.before.stamina,afterStamina:a.after.stamina,
+   staminaDelta:a.delta.stamina,
+   beforeBlock:a.before.block,afterBlock:a.after.block,blockDelta:a.delta.block,
+  };
+  const predicted={
+   cardId:b.cardId,turn:b.turn,
+   beforeScore:b.simulated?.before?.score,afterScore:b.simulated?.after?.score,
+   scoreGained:b.simulated?.scoreGained,
+   beforeStamina:b.simulated?.before?.stamina,afterStamina:b.simulated?.after?.stamina,
+   staminaDelta:b.simulated?.staminaDelta,
+   beforeBlock:b.simulated?.before?.block,afterBlock:b.simulated?.after?.block,
+   blockDelta:b.simulated?.blockDelta,
+  };
+  const fields=Object.keys(measured).filter(k=>predicted[k]!==undefined);
+  const mismatchedFields=fields.filter(k=>measured[k]!==predicted[k]);
+  for(const field of mismatchedFields)differences.push({
+   path:base+"."+field,realDevice:measured[field],simulation:predicted[field],
+   reason:"verified-native-per-card-telemetry"});
+  diagnostics.push({turn:a.turn,cardIndex,cardId:a.cardId,
+   verifiedNative:true,comparedFields:fields,mismatchedFields,
+   realDevice:measured,simulation:predicted});
+ }
+ const scheduled=native.filter(a=>a.verified&&a.commandType!==2);
+ return {native,diagnostics,differences,
+  nativeVerified:native.filter(a=>a.verified).length,
+  nativeTotal:native.length,compared:diagnostics.length,
+  scheduledActions:scheduled.map(a=>({turn:a.turn,cardId:a.cardId,
+   commandType:a.commandType,scoreGained:a.delta.score})),
+  comparisonLimited:simulated.length<observedManual.length};
+}
+
 function compareSession(s,pred){
- const differences=[];
+ const perCard=compareNativeCardActions(s,pred);
+ const differences=[...perCard.differences];
  // A first mismatch found inside the independent replay must outrank the
  // incidental "turns.length" difference caused by stopping at that point.
  for(const warning of pred?.warnings??[]){
@@ -178,7 +258,12 @@ function compareSession(s,pred){
  };
  const firstDivergence=[...differences].sort((left,right)=>turnPosition(left)-turnPosition(right))[0]??null;
  return {status:!compared?"not-comparable":differences.length?"mismatch":completeCoverage?"match":"partial-match",
-  completeCoverage,differences,firstDivergence,turnDiagnostics,compared};
+  completeCoverage,differences,firstDivergence,turnDiagnostics,
+  cardDiagnostics:perCard.diagnostics,nativePerCardMetricsAvailable:perCard.nativeVerified>0,
+  nativeCardMetricsVerified:perCard.nativeVerified,nativeCardMetricsTotal:perCard.nativeTotal,
+  nativeCardMetricsCompared:perCard.compared,
+  scheduledNativeCardActions:perCard.scheduledActions,
+  cardComparisonLimited:perCard.comparisonLimited,compared};
 }
 /* simulator(s,input) MUST run the independent engine; never echo native observations. */
 export function compareContestCapture(capture,{simulator=null,resolveInput=null,masterProvenance=null}={}){
@@ -231,7 +316,7 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null,
     nativeSetup:s.setup??null,setupCandidates:extractSetupCandidates(s),rngVerification:verifyContestSetupRng(s),
     normalization:normalizedSetup?{available:normalizedSetup.available,reasons:normalizedSetup.reasons,candidates:normalizedSetup.candidates}:null,
     realDevice:{score:s.result?.score??null,result:s.result,progress:s.progress,turns:s.turns,dataComplete:s.complete},
-    simulation,comparison,
+    nativeCardActions:extractNativeCardActions(s),simulation,comparison,
     scoreBonusEvidence:{
      nativeAttributeBonusPermil:normalizedSetup?.candidates?.nativeAttributeBonusPermil??null,
      accountSupportBonus:input?.supportBonus??normalizedSetup?.candidates?.supportBonus??null,
@@ -247,6 +332,8 @@ export function compareContestCapture(capture,{simulator=null,resolveInput=null,
   totalProgress:sessions.reduce((n,s)=>n+s.realDevice.progress.length,0),
   totalTurns:sessions.reduce((n,s)=>n+s.realDevice.turns.length,0),
   simulationCompared:compared,simulationMatches:matched,simulationPartialMatches:partial,simulationMismatches:mismatches,simulationBlocked:blocked,
+  nativeCardMetricsVerified:sessions.reduce((n,s)=>n+s.nativeCardActions.filter(a=>a.verified).length,0),
+  nativeCardMetricsTotal:sessions.reduce((n,s)=>n+s.nativeCardActions.length,0),
   nativeAttributeBonusCaptures:sessions.filter(s=>s.scoreBonusEvidence.nativeAttributeBonusPermil!==null).length,
   separatelyVerifiedAccountSupportBonuses:sessions.filter(s=>s.scoreBonusEvidence.separateAccountSupportPercentVerified).length};
  return {schemaVersion:1,scope:"gakumas-contest-comparison",captureModuleVersion:capture.moduleVersion||null,
