@@ -1,0 +1,42 @@
+name: Temporary contest master snapshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/contest-native-comparison
+    paths:
+      - "tools/contest_catalog_provider.mjs"
+      - "tools/build_contest_catalog.mjs"
+      - "tools/compare_contest_capture.mjs"
+      - "web/contest_native_setup.js"
+      - "web/contest_native_replay.js"
+      - "web/contest_capture_compare.js"
+      - ".github/workflows/contest-catalog.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Fetch reproducible SHA-pinned provisional diff snapshot
+        run: node tools/build_contest_catalog.mjs gakumas-contest-catalog.json 1f07db111068a65defc13bd44e3e8957ca4baca4
+      - name: Archive offline replay source
+        run: tar -czf contest-simulator-source.tar.gz web tools
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contest-simulator-source
+          path: contest-simulator-source.tar.gz
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gakumas-contest-catalog-provisional
+          path: gakumas-contest-catalog.json
+          if-no-files-found: error
+          retention-days: 7

@@ -25,6 +25,9 @@ jobs:
           for file in web/*.js; do
             node --check "$file"
           done
+          node --check tools/compare_contest_capture.mjs
+          node --check tools/contest_catalog_provider.mjs
+          node --check tools/build_contest_catalog.mjs
       - name: Web tests
         run: |
           node tests/test_web.mjs
@@ -51,3 +54,6 @@ jobs:
           node tests/test_review_turn_boundary.mjs
           node tests/test_card_play_aggressive_boundary.mjs
           node tests/test_native_parity_effects.mjs
+          node tests/test_contest_native_upgrade.mjs
+          node tests/test_contest_capture_compare.mjs
+          node tests/test_contest_catalog_provider.mjs
