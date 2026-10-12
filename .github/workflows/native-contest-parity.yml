@@ -71,6 +71,38 @@ jobs:
             if(!report.summary.simulationCompared)process.exitCode=1;
           }
           NODE
+      - name: Diagnose master and execution phases at first native differences
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          const report=JSON.parse(readFileSync("/tmp/contest-native-parity.json","utf8"));
+          const catalog=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
+          const byId=rows=>new Map((rows??[]).map(x=>[x.id,x]));
+          const cards=byId(catalog.cards),items=byId(catalog.items),effects=byId(catalog.examEffects);
+          const itemEffects=byId(catalog.itemEffects),variants=catalog.cardVariants??[];
+          const sample=[[1,6,"p_card-01-ido-3_200"],[2,1,"p_card-01-act-1_001"],[3,1,"p_card-01-ido-3_202"],
+            [5,5,"p_card-02-men-2_060"],[6,1,"p_card-02-men-0_011"],[7,2,"p_card-03-men-3_058"],
+            [8,2,"p_card-03-sup-3_162"],[9,1,"p_card-00-act-0_001"]];
+          for(const [sessionId,turn,id] of sample){
+            const s=report.sessions.find(s=>s.sessionId===sessionId);
+            const native=s.nativeCardActions??[];
+            const action=s.simulation?.cardActionTrace?.find(a=>a.turn===turn&&a.cardId===id);
+            const variant=variants.filter(x=>x.id===id);
+            const pItems=s.normalization?.candidates?.pItemIds??[];
+            const result={
+             s:sessionId,t:turn,cardId:id,cardVariants:variant.map(v=>({id:v.id,upgrade:v.upgradeCount,
+              name:v.name,stamina:v.stamina,forceStamina:v.forceStamina,playEffects:v.playEffects,
+              moveEffects:v.moveProduceExamEffectIds,costType:v.costType,costValue:v.costValue,
+              enchant:v.produceCardStatusEnchantId})),
+             pItems:pItems.map(id=>({id,
+              item:items.get(id),effect:itemEffects.get(id)})),
+             native:native.filter(a=>a.turn===turn&&a.cardId===id).map(a=>({before:a.before,after:a.after})),
+             sim:action?.simulated,
+             turnPhases:s.simulation?.turnPhaseTrace?.find(x=>x.turn===turn)
+            };
+            console.log("DETAILED_SESSION "+sessionId+" "+JSON.stringify(result).slice(0,26000));
+          }
+          NODE
       - name: Upload independent replay report
         if: always()
         uses: actions/upload-artifact@v4
