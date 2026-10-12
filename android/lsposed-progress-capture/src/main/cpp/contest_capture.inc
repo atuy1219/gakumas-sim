@@ -8,7 +8,7 @@ using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
+struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
@@ -860,6 +860,98 @@ std::string selectedPoolsJson(Address sequence,Address parameter) {
     firstReadFailure=oldFailure;
     return s.str();
 }
+// Exact v3.4.1 ROM: ExamEffectCalculateContext stores ExamParameter at
+// +0x10, CardController at +0x18, then Hand/Deck/Grave/Lost/Hold at
+// +0x20/+0x28/+0x30/+0x38/+0x40 (getter RVAs 0x802b584..0x802b614).
+// This context belongs to the *specific* effect evaluation. A cloned search
+// candidate must not be silently labeled the selected rehearsal path.
+struct ContextIdentity {
+    bool verified=false;
+    Address parameter=0,controller=0;
+};
+ContextIdentity inspectContext(Address ctx){
+    ContextIdentity identity;
+    if(!ctx)return identity;
+    const auto& p=setup_probe::api();
+    if(!p.className)return identity;
+    Address cls=0;
+    if(!read(ctx,0,cls)||!cls)return identity;
+    const char* className=p.className(reinterpret_cast<void*>(cls));
+    if(!className||std::strcmp(className,"ExamEffectCalculateContext")!=0)
+        return identity;
+    if(!namedRef(ctx,{"<ExamParameter>k__BackingField"},identity.parameter)||
+       !namedRef(ctx,{"<CardController>k__BackingField"},identity.controller))
+        return identity;
+    identity.verified=identity.parameter&&identity.controller;
+    return identity;
+}
+std::string contextPoolsJson(Address context){
+    const ReadFailure oldFailure=firstReadFailure;
+    const ContextIdentity i=inspectContext(context);
+    if(!i.verified){
+        firstReadFailure=oldFailure;
+        return "{\"available\":false,\"reason\":\"invalid-effect-context\"}";
+    }
+    std::ostringstream s;
+    s<<"{\"available\":true,\"source\":\"ExamEffectCalculateContext\","
+     <<"\"hand\":"<<selectedPoolJson(context,"<HandList>k__BackingField")
+     <<",\"deck\":"<<selectedPoolJson(context,"<DeckList>k__BackingField")
+     <<",\"grave\":"<<selectedPoolJson(context,"<GraveList>k__BackingField")
+     <<",\"lost\":"<<selectedPoolJson(context,"<LostList>k__BackingField")
+     <<",\"hold\":"<<selectedPoolJson(context,"<HoldList>k__BackingField");
+    uint32_t rng=0;const bool available=read(i.parameter,0x77c,rng);
+    s<<",\"randomStateObserved\":"<<(available?std::to_string(rng):"null")<<"}";
+    firstReadFailure=oldFailure;return s.str();
+}
+struct MutationProbe {
+    Run* run=nullptr;
+    Address context=0, controller=0;
+    bool active=false,selectedContext=false,contextVerified=false;
+    std::string before="null";
+};
+constexpr unsigned kMutationSelectedCap=32,kMutationCandidateCap=3;
+MutationProbe beginMutation(Address controller,Address context){
+    MutationProbe p{};
+    p.run=active;p.controller=controller;p.context=context;
+    if(!p.run||!p.run->setupRecorded)return p;
+    readBudget=1024;firstReadFailure={};readStage.clear();
+    const auto identity=inspectContext(context);
+    p.contextVerified=identity.verified;
+    p.selectedContext=identity.verified&&identity.parameter==p.run->parameter&&
+                       identity.controller==controller&&
+                       controller==p.run->controller;
+    if(p.selectedContext)
+        p.active=p.run->mutationSamples<kMutationSelectedCap;
+    else
+        p.active=p.run->candidateMutationSamples<kMutationCandidateCap;
+    if(p.active)p.before=contextPoolsJson(context);
+    return p;
+}
+void finishMutation(const MutationProbe& p,const char* action,Address card=0){
+    if(!p.active||!p.run||active!=p.run)return;
+    std::lock_guard<std::mutex> guard(mutex);
+    readBudget=1024;firstReadFailure={};readStage.clear();
+    bool cardOk=true;
+    std::string cardJson=card?liveCard(card,cardOk):"null";
+    const auto after=contextPoolsJson(p.context);
+    std::ostringstream e;
+    e<<",\"capturePhase\":\"after-native-mutation-return\""
+     <<",\"nativeMethod\":\""<<action<<"\""
+     <<",\"selectedContextMatched\":"<<(p.selectedContext?"true":"false")
+     <<",\"contextClassVerified\":"<<(p.contextVerified?"true":"false")
+     <<",\"selectedRehearsalPathVerified\":false"
+     <<",\"card\":"<<cardJson
+     <<",\"cardIdentityVerified\":"<<(cardOk?"true":"false")
+     <<",\"beforePools\":"<<p.before<<",\"afterPools\":"<<after
+     <<",\"cardEffectsComplete\":false";
+    if(p.selectedContext)++p.run->mutationSamples;
+    else ++p.run->candidateMutationSamples;
+    if(!emit(*p.run,"contest-native-mutation",e.str())){
+        if(p.selectedContext)--p.run->mutationSamples;
+        else --p.run->candidateMutationSamples;
+    }
+}
+
 std::string selectedHandJson(Address sequence){
     // Prefer the exact data-store list used by native ExamSequence.
     const ReadFailure oldFailure=firstReadFailure;
