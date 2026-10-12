@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "gameVersion": "3.4.1",
+  "libil2cppBuildId": "77fda4e2a21f23954e2349b83fc113ede408f70b",
+  "metadataSha256": "4370094ac9c8949eeb8a2b57c17424fe85d0e7a29ab2de0a71510b2458740a38",
+  "evidence": "global-metadata v31 method token -> Assembly-CSharp.dll code-gen module methodPointers[token_low24 - 1] -> R_AARCH64_RELATIVE addend",
+  "methods": [
+    {
+      "type": "Campus.InGame.Exam.ExamSequence",
+      "method": "get_Parameter",
+      "args": 0,
+      "token": "0x06005080",
+      "rva": "0x80a15b4"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamSequence",
+      "method": "StartExam",
+      "args": 0,
+      "token": "0x060050a9",
+      "rva": "0x80a5354"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamSequence",
+      "method": "Dispose",
+      "args": 0,
+      "token": "0x060050d7",
+      "rva": "0x80b0dc0"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamSequence",
+      "method": "IsEndExam",
+      "args": 0,
+      "token": "0x060050ac",
+      "rva": "0x80a5698"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamParameterModel",
+      "method": "SetExamEndComplete",
+      "args": 0,
+      "token": "0x06004f6c",
+      "rva": "0x809305c"
+    },
+    {
+      "type": "Campus.InGame.ContestProgressData",
+      "method": "StartExamBattle",
+      "args": 0,
+      "token": "0x06001d09",
+      "rva": "0x6cec3cc"
+    },
+    {
+      "type": "Campus.InGame.ContestProgressData",
+      "method": "EndExamBattle",
+      "args": 2,
+      "token": "0x06001d0a",
+      "rva": "0x6cec3d8"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamData",
+      "method": "CreateTowerExamData",
+      "args": 23,
+      "token": "0x06004dd1",
+      "rva": "0x8087e50"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamData",
+      "method": "CreateContestExamData",
+      "args": 9,
+      "token": "0x06004dcd",
+      "rva": "0x80878b4"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamParameterModel",
+      "method": "GetRandomInt",
+      "args": 0,
+      "token": "0x06004f44",
+      "rva": "0x808a340"
+    },
+    {
+      "type": "Campus.InGame.Exam.ExamParameterModel",
+      "method": "GetRandomInt",
+      "args": 2,
+      "token": "0x06004f45",
+      "rva": "0x808a438"
+    },
+    {
+      "type": "Campus.InGame.Card.ExamCardMoveController",
+      "method": "DrawCard",
+      "args": 3,
+      "token": "0x06006622",
+      "rva": "0x827cff0"
+    },
+    {
+      "type": "Campus.InGame.Card.ExamCardMoveController",
+      "method": "ResetHand",
+      "args": 1,
+      "token": "0x06006625",
+      "rva": "0x827e05c"
+    },
+    {
+      "type": "Campus.InGame.Card.ExamCardMoveController",
+      "method": "ShuffleDeck",
+      "args": 1,
+      "token": "0x06006627",
+      "rva": "0x827e884"
+    },
+    {
+      "type": "Campus.InGame.Card.ExamCardMoveController",
+      "method": "SetInitialCard",
+      "args": 2,
+      "token": "0x0600662a",
+      "rva": "0x827fe2c"
+    },
+    {
+      "type": "Campus.InGame.Card.ExamCardMoveController",
+      "method": "MovePlayCard",
+      "args": 2,
+      "token": "0x0600662b",
+      "rva": "0x8280800"
+    }
+  ],
+  "caveat": "Mapped RVAs are static/ABI evidence, not a claim of verified game lifecycle sequencing. Install only under the exact library Build ID; no full status/effect parity."
+}

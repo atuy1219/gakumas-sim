@@ -15,6 +15,9 @@ on:
 
 jobs:
   build:
+    # The diagnostic branch has one dedicated APK job; avoid building the
+    # same APK again for its open PR.
+    if: github.head_ref != 'feature/native-contest-capture' && github.ref != 'refs/heads/feature/native-contest-capture'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -39,6 +42,6 @@ jobs:
         with:
           name: gakumas-progress-capture-apk
           path: |
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.12.apk
-            android/lsposed-progress-capture/out/gakumas-progress-capture-v1.0.12.apk.sha256
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v*.apk
+            android/lsposed-progress-capture/out/gakumas-progress-capture-v*.apk.sha256
           if-no-files-found: error

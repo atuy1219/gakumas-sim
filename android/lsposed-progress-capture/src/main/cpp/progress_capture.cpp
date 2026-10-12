@@ -1,4 +1,7 @@
 #include <algorithm>
+#include <android/log.h>
+#include <jni.h>
+#include <cctype>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -17,11 +20,27 @@
 #include <unistd.h>
 #include <utility>
 #include <vector>
+#include <cerrno>
+#include <fcntl.h>
+#include "native_probe.h"
+#include "scoped_lineage.h"
+#include <sys/uio.h>
+#include <sys/syscall.h>
 
 namespace {
 
 constexpr const char* kTargetPackage = "com.bandainamcoent.idolmaster_gakuen";
-constexpr const char* kExpectedBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
+// Old card RVAs must never be assigned to the v3.4.1 image.
+constexpr const char* kLegacyCardBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
+constexpr const char* kV341BuildId = "77fda4e2a21f23954e2349b83fc113ede408f70b";
+// Verified by global-metadata.dat v31 token -> Assembly-CSharp.dll
+// Il2CppCodeGenModule.methodPointers -> ELF R_AARCH64_RELATIVE.
+constexpr uintptr_t kV341ExamSequenceStart = 0x080A5354;
+constexpr uintptr_t kV341ExamSequenceGetParameter = 0x080A15B4;
+constexpr uintptr_t kV341ExamSequenceDispose = 0x080B0DC0;
+constexpr uintptr_t kV341ExamParameterEndComplete = 0x0809305C;
+constexpr uintptr_t kV341ContestStartBattle = 0x06CEC3CC;
+constexpr uintptr_t kV341ContestEndBattle = 0x06CEC3D8;
 constexpr uintptr_t kRvaCreateDeckProduceCardMasters = 0x077C7018;
 constexpr uintptr_t kRvaGetProduceCardData = 0x074DBEE0;
 constexpr uintptr_t kRvaInternalMergeFrom = 0x074DBAB0;
@@ -45,6 +64,18 @@ constexpr size_t kOffsetControllerLost = 0x28;
 constexpr size_t kOffsetControllerHold = 0x30;
 constexpr size_t kOffsetPoolCardList = 0x10;
 constexpr size_t kOffsetRandomState = 0x77C;
+
+// Dynamic IL2CPP field resolution for builds with changed memory layouts.
+// For the pinned reference ELF these remain at the ELF-verified values.
+size_t g_live_context_parameter = 0x10;
+size_t g_live_random_state = kOffsetRandomState;
+size_t g_live_controller_hand = kOffsetControllerHand;
+size_t g_live_controller_deck = kOffsetControllerDeck;
+size_t g_live_controller_grave = kOffsetControllerGrave;
+size_t g_live_controller_lost = kOffsetControllerLost;
+size_t g_live_controller_hold = kOffsetControllerHold;
+size_t g_live_pool_cards = kOffsetPoolCardList;
+
 
 constexpr size_t kOffsetNumber = 0x18;
 constexpr size_t kOffsetProduceCardId = 0x20;
@@ -113,6 +144,53 @@ RandomRangeFn g_orig_random_range = nullptr;
 std::atomic<void*> g_last_parameter_model{nullptr};
 std::atomic<uintptr_t> g_il2cpp_base{0};
 std::atomic<uint64_t> g_trace_sequence{0};
+std::atomic<bool> g_exam_recording{false};
+std::atomic<void*> g_exam_parameter{nullptr};
+std::atomic<int32_t> g_exam_type{-1};
+std::string g_exam_mode = "exam-unknown";
+std::atomic<bool> g_full_exam_hooks{false};
+std::atomic<bool> g_lifecycle_hook_attempted{false};
+// The generic StartExam hook is UNSAFE for capture: it also runs in
+// forecast/fixed-action/play-log simulators. Bit 128 enables a separate,
+// context-only SetUpExam probe whose caller RVAs were confirmed from BL
+// instructions against the matching libil2cpp.so Build ID.
+std::atomic<bool> g_entry_probe_installed{false};
+std::atomic<unsigned> g_entry_probe_events{0};
+std::atomic<unsigned> g_entry_probe_calls{0};
+std::atomic<unsigned> g_entry_probe_written{0};
+std::mutex g_entry_probe_mutex;
+// Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
+// Enable one group at a time to isolate fatal native object corruption.
+// 1 StartExam, 2 completion, 4 Dispose, 8 ContestStart, 16 ContestEnd,
+// 32 detailed card/RNG capture, 64 il2cpp_init trigger.
+// Per-game private file, not /data/local/tmp, which can be blocked by SELinux.
+std::atomic<unsigned> g_hook_mask{0};
+std::string g_mask_read_status = "not-read";
+std::atomic<bool> g_native_api_accepted{false};
+std::atomic<bool> g_jni_loaded{false};
+std::string g_native_library_path;
+unsigned load_hook_mask() {
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/native_hookmask.txt";
+    std::ifstream config(path);
+    if (!config) {
+        g_mask_read_status = ::access(path.c_str(), F_OK) == 0 ? "unreadable" : "missing-or-inaccessible";
+        return 0;
+    }
+    std::string text((std::istreambuf_iterator<char>(config)), std::istreambuf_iterator<char>());
+    unsigned mask = 0;
+    if (!native_probe::parse_mask(text, mask)) {
+        g_mask_read_status = "rejected-legacy-or-invalid-mask";
+        return 0;
+    }
+    g_mask_read_status = "read";
+    return mask;
+}
+bool hook_enabled(unsigned bit) {
+    return (g_hook_mask.load(std::memory_order_acquire) & bit) != 0;
+}
+std::atomic<int64_t> g_exam_started_ms{0};
+std::mutex g_exam_session_mutex;
 std::mutex g_trace_mutex;
 thread_local int g_trace_depth = 0;
 
@@ -314,17 +392,31 @@ void ensure_parent_dir(const std::string& file_path) {
     mkdir_if_needed(target);
 }
 
-void atomic_write(const std::string& path, const std::string& data) {
+bool atomic_write(const std::string& path, const std::string& data) {
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> guard(mutex);
     ensure_parent_dir(path);
     const std::string temp = path + ".tmp";
-    {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
-        out.write(data.data(), static_cast<std::streamsize>(data.size()));
-        out.flush();
-        if (!out) return;
+    const int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    bool ok = fd >= 0;
+    int saved_errno = errno;
+    if (ok) {
+        size_t written = 0;
+        while (written < data.size()) {
+            const ssize_t n = ::write(fd, data.data() + written, data.size() - written);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) { ok = false; saved_errno = errno; break; }
+            written += static_cast<size_t>(n);
+        }
+        if (::close(fd) != 0) { ok = false; saved_errno = errno; }
+        if (ok && ::rename(temp.c_str(), path.c_str()) != 0) { ok = false; saved_errno = errno; }
     }
-    ::rename(temp.c_str(), path.c_str());
+    if (!ok) {
+        __android_log_print(ANDROID_LOG_ERROR, "GakumasCapture",
+            "write-failed pid=%d uid=%d path=%s errno=%d (%s)",
+            getpid(), getuid(), path.c_str(), saved_errno, std::strerror(saved_errno));
+    }
+    return ok;
 }
 void write_status(const std::string& phase, const std::string& build_id = "", bool get_ok = false, bool merge_ok = false, bool deck_ok = false) {
     const int user_id = static_cast<int>(getuid() / 100000);
@@ -335,8 +427,16 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
     out << "{\n"
         << "  \"phase\": \"" << json_escape(phase) << "\",\n"
         << "  \"process\": \"" << json_escape(process_name()) << "\",\n"
+        << "  \"pid\": " << getpid() << ",\n"
+        << "  \"uid\": " << getuid() << ",\n"
+        << "  \"hookMask\": " << g_hook_mask.load() << ",\n"
+        << "  \"maskReadStatus\": \"" << json_escape(g_mask_read_status) << "\",\n"
+        << "  \"nativeApiAccepted\": " << (g_native_api_accepted.load() ? "true" : "false") << ",\n"
         << "  \"libil2cppBuildId\": \"" << json_escape(build_id) << "\",\n"
-        << "  \"expectedBuildId\": \"" << kExpectedBuildId << "\",\n"
+        << "  \"expectedBuildId\": \"" << kV341BuildId << "\",\n"
+        << "  \"buildIdCheck\": \"" << (build_id.empty() ? "pending" :
+            build_id == kV341BuildId ? "matched" : "mismatch") << "\",\n"
+        << "  \"gameCaptureVerified\": false,\n"
         << "  \"hooks\": {"
         << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
         << "\"internalMergeFrom\":" << (merge_ok ? "true" : "false") << ","
@@ -691,6 +791,7 @@ void append_trace_line(const std::string& line) {
 }
 
 void reset_trace_files() {
+    std::lock_guard<std::mutex> lock(g_trace_mutex);
     g_trace_sequence.store(0);
     for (const auto& path : trace_output_paths()) atomic_write(path, "");
 }
@@ -712,7 +813,7 @@ std::string read_string_property(void* object, const char* name) {
 
 void* parameter_from_context(void* context) {
     if (!context) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + 0x10);
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(context) + g_live_context_parameter);
 }
 
 void remember_parameter(void* parameter) {
@@ -726,7 +827,7 @@ void* controller_pool(void* controller, size_t offset) {
 
 void* pool_card_list(void* pool) {
     if (!pool) return nullptr;
-    return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + kOffsetPoolCardList);
+    return *reinterpret_cast<void**>(static_cast<uint8_t*>(pool) + g_live_pool_cards);
 }
 
 std::string live_card_json(void* card) {
@@ -779,14 +880,14 @@ void trace_snapshot(
     void* controller,
     void* parameter_override = nullptr,
     const std::string& extra_json = "") {
-    if (g_trace_depth != 0) return;
+    if (!g_exam_recording.load(std::memory_order_acquire) || g_trace_depth != 0) return;
     ++g_trace_depth;
     void* parameter = parameter_override ? parameter_override : g_last_parameter_model.load();
     remember_parameter(parameter);
 
     const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
     const uint32_t random_state = parameter
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(parameter) + g_live_random_state)
         : 0;
     const uint32_t seed = parameter
         ? static_cast<uint32_t>(read_int_property(parameter, "get_Seed", 0))
@@ -799,6 +900,7 @@ void trace_snapshot(
     out << "{"
         << "\"seq\":" << seq << ","
         << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"captureSchemaVersion\":2,"
         << "\"event\":\"" << json_escape(event ? event : "") << "\","
         << "\"seed\":" << seed << ","
         << "\"turn\":" << turn << ","
@@ -806,15 +908,15 @@ void trace_snapshot(
         << "\"randomStateHex\":\"" << hex_value(random_state) << "\","
         << "\"controller\":\"" << hex_value(reinterpret_cast<uintptr_t>(controller)) << "\","
         << "\"parameter\":\"" << hex_value(reinterpret_cast<uintptr_t>(parameter)) << "\",";
-    append_controller_pool_json(out, "hand", controller, kOffsetControllerHand);
+    append_controller_pool_json(out, "hand", controller, g_live_controller_hand);
     out << ",";
-    append_controller_pool_json(out, "deck", controller, kOffsetControllerDeck);
+    append_controller_pool_json(out, "deck", controller, g_live_controller_deck);
     out << ",";
-    append_controller_pool_json(out, "grave", controller, kOffsetControllerGrave);
+    append_controller_pool_json(out, "grave", controller, g_live_controller_grave);
     out << ",";
-    append_controller_pool_json(out, "lost", controller, kOffsetControllerLost);
+    append_controller_pool_json(out, "lost", controller, g_live_controller_lost);
     out << ",";
-    append_controller_pool_json(out, "hold", controller, kOffsetControllerHold);
+    append_controller_pool_json(out, "hold", controller, g_live_controller_hold);
     if (!extra_json.empty()) out << "," << extra_json;
     out << "}";
     append_trace_line(out.str());
@@ -831,7 +933,7 @@ void trace_random_event(
     int32_t minimum,
     int32_t maximum,
     uintptr_t caller) {
-    if (g_trace_depth != 0) return;
+    if (!g_exam_recording.load(std::memory_order_acquire) || g_trace_depth != 0) return;
     ++g_trace_depth;
     remember_parameter(parameter);
     const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
@@ -848,6 +950,7 @@ void trace_random_event(
     out << "{"
         << "\"seq\":" << seq << ","
         << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"captureSchemaVersion\":2,"
         << "\"event\":\"GetRandomInt\","
         << "\"overload\":\"" << json_escape(overload ? overload : "") << "\","
         << "\"seed\":" << seed << ","
@@ -866,31 +969,159 @@ void trace_random_event(
     --g_trace_depth;
 }
 
+
+// Session recording is activated by native card-pool events, not by an
+// always-running timer or per-frame check. The mode value is preserved as the
+// native enum number; only ExamType=5 (Tower) has been ELF-verified so far.
+int32_t native_exam_type(void* parameter) {
+    if (!parameter) return -1;
+    const RuntimeMethod getter = resolve_object_method(parameter, "get_ExamType", 0);
+    if (!getter.address) return -1;
+    return reinterpret_cast<GetterInt32Fn>(getter.address)(parameter, getter.method);
+}
+
+std::string resolve_exam_mode(void* parameter, int32_t type) {
+    (void)parameter;
+    // Verified from Campus.InGame.Exam.ExamType fields and their v31 default
+    // values (compressed signed integer representation), game build 77fda4...
+    switch (type) {
+        case 0: return "lesson";
+        case 1: return "audition";
+        case 2: return "contest";
+        case 3: return "seminar";
+        case 4: return "seminar-audition";
+        case 5: return "tower";
+        case 6: return "angya";
+        case 7: return "tour-manual";
+        case 8: return "tour-auto";
+        case 9: return "competition";
+        default: return "exam-unknown";
+    }
+}
+
+void write_session_status(const char* phase, const char* reason, void* parameter) {
+    (void)parameter;
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" + kTargetPackage +
+        "/files/gakumas-sim/exam_session_status.json";
+    const int32_t exam_type = g_exam_type.load();
+    std::ostringstream out;
+    out << "{"
+        << "\"phase\":\"" << json_escape(phase ? phase : "") << "\","
+        << "\"reason\":\"" << json_escape(reason ? reason : "") << "\","
+        << "\"examType\":" << exam_type << ","
+        << "\"mode\":\"" << json_escape(g_exam_mode) << "\","
+        << "\"sessionStartedAtUnixMs\":" << g_exam_started_ms.load() << ","
+        << "\"updatedAtUnixMs\":" << unix_time_ms() << ","
+        << "\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
+        << "}\n";
+    atomic_write(path, out.str());
+}
+
+void finish_exam_session(void* parameter, const char* reason) {
+    if (!parameter) return;
+    std::lock_guard<std::mutex> guard(g_exam_session_mutex);
+    if (!g_exam_recording.load() || g_exam_parameter.load() != parameter) return;
+    const uint64_t seq = g_trace_sequence.fetch_add(1) + 1;
+    std::ostringstream out;
+    out << "{\"seq\":" << seq
+        << ",\"capturedAtUnixMs\":" << unix_time_ms()
+        << ",\"event\":\"trace-stop\",\"reason\":\"" << json_escape(reason ? reason : "") << "\""
+        << ",\"terminalVerified\":false}";
+    append_trace_line(out.str());
+    g_exam_recording.store(false, std::memory_order_release);
+    write_session_status("stopped", reason, parameter);
+    // Keep completed sessions for regression tests. The conventional latest
+    // JSONL path remains unchanged for the on-device diagnostic activity.
+    const auto paths = trace_output_paths();
+    if (!paths.empty()) {
+        std::ifstream in(paths.front(), std::ios::binary);
+        const std::string dst = paths.front().substr(0, paths.front().find_last_of('/') + 1)
+            + "exam_session_" + std::to_string(g_exam_started_ms.load()) + ".jsonl";
+        std::ofstream archived(dst, std::ios::binary | std::ios::trunc);
+        if (in && archived) archived << in.rdbuf();
+    }
+    g_exam_parameter.store(nullptr);
+}
+
+void begin_exam_session(void* parameter, const char* trigger) {
+    if (!parameter) return;
+    // A new ExamParameterModel means a new exam; discard neither session.
+    void* previous = g_exam_parameter.load(std::memory_order_acquire);
+    if (g_exam_recording.load(std::memory_order_acquire) && previous == parameter) return;
+    if (g_exam_recording.load(std::memory_order_acquire) && previous != parameter) {
+        finish_exam_session(previous, "superseded-by-new-exam");
+    }
+    std::lock_guard<std::mutex> guard(g_exam_session_mutex);
+    if (g_exam_recording.load()) return;
+    reset_trace_files();
+    g_exam_started_ms.store(unix_time_ms());
+    g_exam_parameter.store(parameter);
+    const int32_t exam_type = native_exam_type(parameter);
+    g_exam_type.store(exam_type);
+    g_exam_mode = resolve_exam_mode(parameter, exam_type);
+    // Record all exam types, including currently unmapped contest/audition
+    // enum values. A missing getter must not silently suppress a real exam.
+    g_exam_recording.store(true, std::memory_order_release);
+    std::ostringstream out;
+    out << "{\"seq\":" << (g_trace_sequence.fetch_add(1) + 1)
+        << ",\"capturedAtUnixMs\":" << unix_time_ms()
+        << ",\"event\":\"trace-start\",\"captureSchemaVersion\":3,"
+        << "\"sessionStartedAtUnixMs\":" << g_exam_started_ms.load()
+        << ",\"examType\":" << exam_type
+        << ",\"mode\":\"" << json_escape(g_exam_mode) << "\""
+        << ",\"startTrigger\":\"" << json_escape(trigger ? trigger : "") << "\""
+        << ",\"libil2cppBuildId\":\"" << json_escape(g_runtime_build_id) << "\""
+        << ",\"hooksInstalled\":" << (g_full_exam_hooks.load() ? "true" : "false") << ","
+        << "\"capabilities\":{\"cardPools\":" << (g_full_exam_hooks.load() ? "true" : "false")
+        << ",\"randomState\":" << (g_full_exam_hooks.load() ? "true" : "false") << ","
+        << "\"cardMove\":true,\"playerChoice\":false,\"examStatus\":false,"
+        << "\"scoreEvents\":false},\"startBeforeAllRng\":false}";
+    append_trace_line(out.str());
+    write_session_status("recording", trigger, parameter);
+}
+
+// A terminal turn counter is a provisional stop condition, not proof that the
+// result UI has appeared. Early leaves/retries are handled by new-session
+// supersession and optional native Dispose hooks where available.
+void maybe_finish_last_turn(void* parameter) {
+    // v3.4.1 uses exact completion/dispose hooks: do not end on a heuristic.
+    if (g_runtime_build_id == kV341BuildId) return;
+    if (!parameter || !g_exam_recording.load()) return;
+    for (const auto* name : {"get_RemainTurn", "get_RemainingTurn"}) {
+        const RuntimeMethod remaining = resolve_object_method(parameter, name, 0);
+        if (!remaining.address) continue;
+        const int32_t turns = reinterpret_cast<GetterInt32Fn>(remaining.address)(parameter, remaining.method);
+        if (turns == 0) finish_exam_session(parameter, "remaining-turn-zero-after-reset");
+        return;
+    }
+}
+
 int32_t hooked_random_no_arg(void* self, const void* method) {
+    if (!g_exam_recording.load(std::memory_order_relaxed) || g_trace_depth != 0) return g_orig_random_no_arg(self, method);
     remember_parameter(self);
-    if (g_trace_depth != 0) return g_orig_random_no_arg(self, method);
     const uint32_t before = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_no_arg(self, method);
     const uint32_t after = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     trace_random_event("state", self, before, after, result, false, 0, 0, caller);
     return result;
 }
 
 int32_t hooked_random_range(void* self, int32_t minimum, int32_t maximum, const void* method) {
+    if (!g_exam_recording.load(std::memory_order_relaxed) || g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
     remember_parameter(self);
-    if (g_trace_depth != 0) return g_orig_random_range(self, minimum, maximum, method);
     const uint32_t before = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     const int32_t result = g_orig_random_range(self, minimum, maximum, method);
     const uint32_t after = self
-        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + kOffsetRandomState)
+        ? *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(self) + g_live_random_state)
         : 0;
     trace_random_event("range", self, before, after, result, true, minimum, maximum, caller);
     return result;
@@ -901,6 +1132,7 @@ uintptr_t hooked_draw_card(
     uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
     void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
     remember_parameter(parameter);
+    begin_exam_session(parameter, "DrawCard");
     trace_snapshot(
         "DrawCard.before",
         reinterpret_cast<void*>(a0),
@@ -925,6 +1157,7 @@ uintptr_t hooked_reset_hand(
     trace_snapshot("ResetHand.before", reinterpret_cast<void*>(a0), parameter);
     const uintptr_t result = g_orig_reset_hand(a0,a1,a2,a3,a4,a5,a6,a7);
     trace_snapshot("ResetHand.after", reinterpret_cast<void*>(a0), parameter);
+    maybe_finish_last_turn(parameter);
     return result;
 }
 
@@ -952,6 +1185,7 @@ uintptr_t hooked_shuffle_deck(
     uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
     void* parameter = parameter_from_context(reinterpret_cast<void*>(a1));
     remember_parameter(parameter);
+    begin_exam_session(parameter, "ShuffleDeck");
     trace_snapshot("ShuffleDeck.before", reinterpret_cast<void*>(a0), parameter);
     const uintptr_t result = g_orig_shuffle_deck(a0,a1,a2,a3,a4,a5,a6,a7);
     trace_snapshot("ShuffleDeck.after", reinterpret_cast<void*>(a0), parameter);
@@ -974,6 +1208,7 @@ uintptr_t hooked_set_initial_card(
     uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
     void* parameter = parameter_from_context(reinterpret_cast<void*>(a2));
     remember_parameter(parameter);
+    begin_exam_session(parameter, "SetInitialCard");
     trace_snapshot(
         "SetInitialCard.before",
         reinterpret_cast<void*>(a0),
@@ -1009,9 +1244,8 @@ uintptr_t hooked_move_play_card(
 }
 
 bool install_seed_trace_hooks(const ImageInfo& image) {
-    if (!image.base || image.build_id != kExpectedBuildId) return false;
+    if (!image.base || image.build_id != kLegacyCardBuildId) return false;
     g_il2cpp_base.store(image.base);
-    reset_trace_files();
 
     bool ok = true;
     ok &= install_hook(
@@ -1051,30 +1285,467 @@ bool install_seed_trace_hooks(const ImageInfo& image) {
         reinterpret_cast<void*>(hooked_move_play_card),
         reinterpret_cast<void**>(&g_orig_move_play_card));
 
-    std::ostringstream out;
-    out << "{"
-        << "\"seq\":" << (g_trace_sequence.fetch_add(1) + 1) << ","
-        << "\"capturedAtUnixMs\":" << unix_time_ms() << ","
-        << "\"event\":\"trace-start\","
-        << "\"targetSeed\":2696513658,"
-        << "\"libil2cppBuildId\":\"" << json_escape(image.build_id) << "\","
-        << "\"hooksInstalled\":" << (ok ? "true" : "false")
-        << "}";
-    append_trace_line(out.str());
+    g_full_exam_hooks.store(ok);
     return ok;
 }
 
 
+
+/**
+ * Resolve supported exam hook methods from IL2CPP metadata on the running
+ * client, rather than applying offsets taken from a different Build ID.
+ * The supplied 77fda4e2... ELF exposes the required IL2CPP exports, but
+ * method/class availability is confirmed only after the game loads metadata.
+ */
+void* find_runtime_class(const ImageInfo& image, const void* assembly, const char* wanted) {
+    using ImageCountFn = size_t (*)(const void*);
+    using ImageClassFn = void* (*)(const void*, size_t);
+    using ClassNameFn = const char* (*)(void*);
+    const auto image_count = reinterpret_cast<ImageCountFn>(
+        resolve_export(image, "il2cpp_image_get_class_count"));
+    const auto image_class = reinterpret_cast<ImageClassFn>(
+        resolve_export(image, "il2cpp_image_get_class"));
+    const auto class_name = reinterpret_cast<ClassNameFn>(
+        resolve_export(image, "il2cpp_class_get_name"));
+    if (!image_count || !image_class || !class_name || !assembly) return nullptr;
+    const size_t count = image_count(assembly);
+    if (count > 500000) return nullptr;
+    for (size_t index = 0; index < count; ++index) {
+        void* klass = image_class(assembly, index);
+        const char* name = klass ? class_name(klass) : nullptr;
+        if (name && std::strcmp(name, wanted) == 0) return klass;
+    }
+    return nullptr;
+}
+
+uintptr_t exam_method(void* klass, const char* method, int argument_count) {
+    if (!klass || !g_runtime_class_get_method_from_name) return 0;
+    const void* info = g_runtime_class_get_method_from_name(klass, method, argument_count);
+    return info ? reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(info)) : 0;
+}
+
+using DisposeFn = void (*)(void*, const void*);
+DisposeFn g_orig_exam_dispose = nullptr;
+
+void hooked_exam_dispose(void* parameter, const void* method) {
+    // End BEFORE native disposal invalidates the model and its getters.
+    finish_exam_session(parameter, "ExamParameterModel.Dispose");
+    g_orig_exam_dispose(parameter, method);
+}
+
+
+
+using ExamSequenceFn = void (*)(void*, const void*);
+using ContestEndFn = void (*)(void*, uintptr_t, uintptr_t, const void*);
+ExamSequenceFn g_original_sequence_start = nullptr;
+ExamSequenceFn g_original_sequence_dispose = nullptr;
+ExamSequenceFn g_original_exam_end_complete = nullptr;
+ExamSequenceFn g_original_contest_start = nullptr;
+ContestEndFn g_original_contest_end = nullptr;
+using GetSequenceParameterFn = void* (*)(void*, const void*);
+GetSequenceParameterFn g_get_sequence_parameter = nullptr;
+
+// From metadata token 0x060050A4: instance void SetUpExam(ExamData data).
+// Unlike StartExam, the CALLSITE distinguishes contest auto calculations,
+// replay log execution, interactive exam setup and internal forecast clones.
+using SetupExamFn = void (*)(void*, void*, const void*);
+SetupExamFn g_original_sequence_setup = nullptr;
+
+const char* verified_setup_origin(uintptr_t return_rva) {
+    switch (return_rva) {
+        case 0x07EFD3B4: return "contest-auto-calculation";
+        case 0x08132110: return "replay-play-log";
+        case 0x0811E834: return "internal-fixed-action-simulator";
+        case 0x0815F4D8: case 0x0815FC68: case 0x0815FD84:
+        case 0x0815FEA0: case 0x081627F4: case 0x08162A60:
+        case 0x08162C1C: case 0x08162FA0: case 0x08163064:
+        case 0x081630A8: case 0x081632A8:
+            return "interactive-exam-screen";
+        default: return nullptr;
+    }
+}
+
+#include "scoped_runtime.inc"
+#include "contest_capture.inc"
+
+void write_entry_probe_status(bool installed) {
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probe_status.json";
+    std::ostringstream result;
+    result << "{\"schemaVersion\":1,\"pid\":" << getpid()
+           << ",\"hook\":\"ExamSequence.SetUpExam\","
+           << "\"token\":\"0x060050A4\",\"rva\":\"0x080A1E90\","
+           << "\"installed\":" << (installed ? "true" : "false")
+           << ",\"callsObserved\":" << g_entry_probe_calls.load()
+           << ",\"recordedSamples\":" << g_entry_probe_written.load()
+           << ",\"scope\":\"exact-build-observation-only\","
+           << "\"modeVerification\":\"requires-live-state-confirmation\"}\n";
+    atomic_write(path, result.str());
+}
+
+__attribute__((noinline))
+void hooked_sequence_setup(void* sequence, void* data, const void* method) {
+    void* return_address = __builtin_extract_return_addr(__builtin_return_address(0));
+    const uintptr_t returned = reinterpret_cast<uintptr_t>(return_address);
+    const uintptr_t base = g_il2cpp_base.load(std::memory_order_acquire);
+    const unsigned call = g_entry_probe_calls.fetch_add(1);
+    const bool selectedContest = base && returned >= base && returned-base == 0x07EFD3B4;
+    const contest_capture::BeforeSetup beforeState = selectedContest
+        ? contest_capture::observeBeforeSetup(reinterpret_cast<uintptr_t>(sequence),
+                                             reinterpret_cast<uintptr_t>(data))
+        : contest_capture::BeforeSetup{};
+    // Always forward once. Passive binding reads only the verified reference.
+    g_original_sequence_setup(sequence, data, method);
+    if (base && returned >= base) passive::setup(reinterpret_cast<uintptr_t>(sequence), returned-base);
+    if (call < 128) write_entry_probe_status(true);
+    if (!base || returned < base) return;
+    const uintptr_t return_rva = returned - base;
+    const char* lane = verified_setup_origin(return_rva);
+    if (!lane) return; // Unknown callsites are not guessed as a real exam.
+    if (std::strcmp(lane, "internal-fixed-action-simulator") == 0) return;
+    // The selected auto-play native MoveNext already owns the session on
+    // this thread. Observe only its exact verified SetUpExam callsite.
+    if (std::strcmp(lane, "contest-auto-calculation") == 0)
+        contest_capture::recordSetup(reinterpret_cast<uintptr_t>(sequence),beforeState);
+    const unsigned sample = g_entry_probe_events.fetch_add(1);
+    if (sample >= 128) return; // Explicit cap prevents background trace storms.
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probes.jsonl";
+    std::ostringstream line;
+    line << "{\"schemaVersion\":1,\"event\":\"exam-setup-origin\","
+         << "\"pid\":" << getpid() << ",\"tid\":" << gettid()
+         << ",\"observedAtUnixMs\":" << unix_time_ms()
+         << ",\"sequence\":\"" << hex_value(reinterpret_cast<uintptr_t>(sequence)) << "\","
+         << "\"source\":\"native-code-callsite\","
+         << "\"callerReturnRva\":\"" << hex_value(return_rva) << "\","
+         << "\"lane\":\"" << lane << "\","
+         << "\"modeVerified\":false,\"managedObjectsRead\":false,"
+         << "\"libil2cppBuildId\":\"" << kV341BuildId << "\"}\n";
+    std::lock_guard<std::mutex> guard(g_entry_probe_mutex);
+    ensure_parent_dir(path);
+    std::ofstream out(path, std::ios::app | std::ios::binary);
+    if (out) {
+        out << line.str();
+        out.flush();
+    }
+    if (out) g_entry_probe_written.fetch_add(1);
+    else __android_log_print(ANDROID_LOG_ERROR, "GakumasCapture",
+        "entry-probe-write-failed pid=%d path=%s errno=%d", getpid(), path.c_str(), errno);
+    write_entry_probe_status(true);
+}
+
+void install_scoped_exam_probe(const ImageInfo& image) {
+    if (image.build_id != kV341BuildId || !hook_enabled(128)) return;
+    if (g_entry_probe_installed.exchange(true)) return;
+    // Scoped research probe, not a complete capture. Exact RVA only.
+    const bool installed = install_hook(image.base + 0x080A1E90,
+        reinterpret_cast<void*>(hooked_sequence_setup),
+        reinterpret_cast<void**>(&g_original_sequence_setup));
+    write_entry_probe_status(installed);
+    if (!installed) g_entry_probe_installed.store(false);
+}
+
+void* sequence_parameter(void* sequence) {
+    if (!sequence || !g_get_sequence_parameter) return nullptr;
+    return g_get_sequence_parameter(sequence, nullptr);
+}
+
+void hooked_sequence_start(void* sequence, const void* method) {
+    // Verified method flags indicate an instance method with 0 managed args.
+    // The getter disassembles to ldr x0,[x0,#0x10]; ret in the pinned build.
+    void* model = sequence_parameter(sequence);
+    if (model) begin_exam_session(model, "ExamSequence.StartExam");
+    g_original_sequence_start(sequence, method);
+}
+
+void hooked_sequence_dispose(void* sequence, const void* method) {
+    void* model = sequence_parameter(sequence);
+    if (model) finish_exam_session(model, "ExamSequence.Dispose");
+    g_original_sequence_dispose(sequence, method);
+}
+
+void hooked_exam_end_complete(void* model, const void* method) {
+    g_original_exam_end_complete(model, method);
+    // Exact common exam completion method, not a remaining-turn heuristic.
+    finish_exam_session(model, "ExamParameterModel.SetExamEndComplete");
+}
+
+void hooked_contest_start(void* contest, const void* method) {
+    g_original_contest_start(contest, method);
+    // A contest battle may create the ExamSequence AFTER StartExamBattle.
+    // Do not create an unbound session: wait for the verified common StartExam.
+}
+
+void hooked_contest_end(void* contest, uintptr_t a1, uintptr_t a2, const void* method) {
+    g_original_contest_end(contest, a1, a2, method);
+    void* current = g_exam_parameter.load(std::memory_order_acquire);
+    if (current) finish_exam_session(current, "ContestProgressData.EndExamBattle");
+}
+
+bool install_v341_exam_lifecycle(const ImageInfo& image) {
+    if (image.build_id != kV341BuildId || !g_hook) return false;
+    bool expected = false;
+    if (!g_lifecycle_hook_attempted.compare_exchange_strong(expected, true)) return false;
+    const auto hook = [&](uintptr_t rva, void* replacement, void** original) {
+        return install_hook(image.base + rva, replacement, original);
+    };
+    g_get_sequence_parameter = reinterpret_cast<GetSequenceParameterFn>(
+        image.base + kV341ExamSequenceGetParameter);
+    const bool start = hook_enabled(1) && hook(kV341ExamSequenceStart,
+        reinterpret_cast<void*>(hooked_sequence_start),
+        reinterpret_cast<void**>(&g_original_sequence_start));
+    const bool end = hook_enabled(2) && hook(kV341ExamParameterEndComplete,
+        reinterpret_cast<void*>(hooked_exam_end_complete),
+        reinterpret_cast<void**>(&g_original_exam_end_complete));
+    const bool dispose = hook_enabled(4) && hook(kV341ExamSequenceDispose,
+        reinterpret_cast<void*>(hooked_sequence_dispose),
+        reinterpret_cast<void**>(&g_original_sequence_dispose));
+    const bool contest_start = hook_enabled(8) && hook(kV341ContestStartBattle,
+        reinterpret_cast<void*>(hooked_contest_start),
+        reinterpret_cast<void**>(&g_original_contest_start));
+    const bool contest_end = hook_enabled(16) && hook(kV341ContestEndBattle,
+        reinterpret_cast<void*>(hooked_contest_end),
+        reinterpret_cast<void**>(&g_original_contest_end));
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string path = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_lifecycle_status.json";
+    std::ostringstream out;
+    out << "{\"buildId\":\"" << kV341BuildId
+        << "\",\"methodAddressSource\":\"metadata-v31+elf-codegen-relocations\","
+        << "\"startInstalled\":" << (start ? "true" : "false")
+        << ",\"endInstalled\":" << (end ? "true" : "false")
+        << ",\"disposeInstalled\":" << (dispose ? "true" : "false")
+        << ",\"contestStartInstalled\":" << (contest_start ? "true" : "false")
+        << ",\"contestEndInstalled\":" << (contest_end ? "true" : "false")
+        << ",\"fullEffectTrace\":false"
+        << ",\"scope\":\"exact-build-only\"}";
+    atomic_write(path, out.str());
+    return start && end;
+}
+
+// Resolve offsets by verified managed FIELD NAMES. Never use the old
+// build's raw object offsets on an unknown Build ID.
+bool resolve_exam_layout(const ImageInfo& image, const void* assembly,
+    void* model, void* controller) {
+    using SizeFn = int32_t (*)(void*);
+    using ClassFieldsFn = void* (*)(void*, void**);
+    using FieldOffsetFn = size_t (*)(void*);
+    using FieldNameFn = const char* (*)(void*);
+    const auto size_of = reinterpret_cast<SizeFn>(
+        resolve_export(image, "il2cpp_class_instance_size"));
+    const auto fields = reinterpret_cast<ClassFieldsFn>(
+        resolve_export(image, "il2cpp_class_get_fields"));
+    const auto offset = reinterpret_cast<FieldOffsetFn>(
+        resolve_export(image, "il2cpp_field_get_offset"));
+    const auto name = reinterpret_cast<FieldNameFn>(
+        resolve_export(image, "il2cpp_field_get_name"));
+    void* pool = find_runtime_class(image, assembly, "ExamCardPoolModel");
+    void* context = find_runtime_class(image, assembly, "ExamEffectCalculateContext");
+    if (!size_of || !fields || !offset || !name || !model || !controller || !pool || !context) return false;
+
+    const auto get_field = [&](void* klass, const char* keyword) -> size_t {
+        void* iter = nullptr;
+        for (size_t guard = 0; guard < 10000; ++guard) {
+            void* field = fields(klass, &iter);
+            if (!field) break;
+            const char* original = name(field);
+            if (!original) continue;
+            std::string value(original);
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (value.find(keyword) != std::string::npos) {
+                const size_t pos = offset(field);
+                if (pos > 0 && pos < static_cast<size_t>(size_of(klass))) return pos;
+            }
+        }
+        return SIZE_MAX;
+    };
+    const size_t values[] = {
+        get_field(context, "parameter"),
+        get_field(model, "randomstate"),
+        get_field(controller, "hand"), get_field(controller, "deck"),
+        get_field(controller, "grave"), get_field(controller, "lost"),
+        get_field(controller, "hold"), get_field(pool, "cardlist"),
+    };
+    for (const auto value : values) if (value == SIZE_MAX || value % 4 != 0) return false;
+    // Instance fields used as pointers must be 8-byte aligned on arm64.
+    for (size_t i : {size_t(0),size_t(2),size_t(3),size_t(4),size_t(5),size_t(6),size_t(7)})
+        if (values[i] % 8 != 0) return false;
+    if (values[1] + sizeof(uint32_t) > static_cast<size_t>(size_of(model))) return false;
+    g_live_context_parameter = values[0];
+    g_live_random_state = values[1];
+    g_live_controller_hand = values[2];
+    g_live_controller_deck = values[3];
+    g_live_controller_grave = values[4];
+    g_live_controller_lost = values[5];
+    g_live_controller_hold = values[6];
+    g_live_pool_cards = values[7];
+    return true;
+}
+
+
+// Collect a bounded class/method inventory from the *decrypted live IL2CPP
+// metadata*. The packaged global-metadata.dat of v3.4.1 lacks the stock
+// AF 1B B1 FA signature; it cannot serve as the source for offline resolution.
+// All operations occur once during module bootstrap, outside exam hot paths.
+void write_exam_runtime_inventory(const ImageInfo& image, const void* assembly) {
+    using ImageCount = size_t (*)(const void*);
+    using ImageClass = void* (*)(const void*, size_t);
+    using ClassName = const char* (*)(void*);
+    using ClassNamespace = const char* (*)(void*);
+    using ClassMethods = const void* (*)(void*, void**);
+    using MethodName = const char* (*)(const void*);
+    using MethodParams = uint32_t (*)(const void*);
+    using ClassFields = void* (*)(void*, void**);
+    using FieldName = const char* (*)(void*);
+    using FieldOffset = size_t (*)(void*);
+    const auto count_classes = reinterpret_cast<ImageCount>(
+        resolve_export(image, "il2cpp_image_get_class_count"));
+    const auto get_class = reinterpret_cast<ImageClass>(
+        resolve_export(image, "il2cpp_image_get_class"));
+    const auto get_name = reinterpret_cast<ClassName>(
+        resolve_export(image, "il2cpp_class_get_name"));
+    const auto get_namespace = reinterpret_cast<ClassNamespace>(
+        resolve_export(image, "il2cpp_class_get_namespace"));
+    const auto get_methods = reinterpret_cast<ClassMethods>(
+        resolve_export(image, "il2cpp_class_get_methods"));
+    const auto get_method_name = reinterpret_cast<MethodName>(
+        resolve_export(image, "il2cpp_method_get_name"));
+    const auto get_method_param_count = reinterpret_cast<MethodParams>(
+        resolve_export(image, "il2cpp_method_get_param_count"));
+    const auto get_fields = reinterpret_cast<ClassFields>(
+        resolve_export(image, "il2cpp_class_get_fields"));
+    const auto get_field_name = reinterpret_cast<FieldName>(
+        resolve_export(image, "il2cpp_field_get_name"));
+    const auto get_field_offset = reinterpret_cast<FieldOffset>(
+        resolve_export(image, "il2cpp_field_get_offset"));
+    if (!assembly || !count_classes || !get_class || !get_name || !get_namespace
+        || !get_methods || !get_method_name || !get_method_param_count
+        || !get_fields || !get_field_name || !get_field_offset) return;
+
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"libil2cppBuildId\":\""
+        << json_escape(image.build_id) << "\",\"classes\":[";
+    bool first_class = true;
+    size_t found = 0;
+    const size_t count = count_classes(assembly);
+    if (count > 500000) return;
+    for (size_t index = 0; index < count && found < 160; ++index) {
+        void* klass = get_class(assembly, index);
+        const char* raw_name = klass ? get_name(klass) : nullptr;
+        if (!raw_name) continue;
+        std::string name(raw_name);
+        std::string lower(name);
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // Narrow to game exam internals; don't dump user/app-account classes.
+        if (lower.find("exam") == std::string::npos
+            && lower.find("contest") == std::string::npos
+            && lower.find("audition") == std::string::npos
+            && lower.find("tower") == std::string::npos) continue;
+        if (lower.find("model") == std::string::npos
+            && lower.find("controller") == std::string::npos
+            && lower.find("manager") == std::string::npos
+            && lower.find("service") == std::string::npos
+            && lower.find("utility") == std::string::npos) continue;
+        if (!first_class) out << ",";
+        first_class = false;
+        ++found;
+        const char* ns = get_namespace(klass);
+        out << "{\"name\":\"" << json_escape(name)
+            << "\",\"namespace\":\"" << json_escape(ns ? ns : "") << "\",\"methods\":[";
+        bool first_method = true;
+        void* iterator = nullptr;
+        for (size_t i = 0; i < 128; ++i) {
+            const void* method = get_methods(klass, &iterator);
+            if (!method) break;
+            const char* mname = get_method_name(method);
+            if (!mname) continue;
+            if (!first_method) out << ",";
+            first_method = false;
+            out << "{\"name\":\"" << json_escape(mname)
+                << "\",\"parameterCount\":" << get_method_param_count(method) << "}";
+        }
+        out << "],\"fields\":[";
+        iterator = nullptr;
+        bool first_field = true;
+        for (size_t i = 0; i < 128; ++i) {
+            void* field = get_fields(klass, &iterator);
+            if (!field) break;
+            const char* fname = get_field_name(field);
+            if (!fname) continue;
+            if (!first_field) out << ",";
+            first_field = false;
+            out << "{\"name\":\"" << json_escape(fname)
+                << "\",\"offset\":" << get_field_offset(field) << "}";
+        }
+        out << "]}";
+    }
+    out << "],\"selectedClassCount\":" << found << "}\n";
+    const int uid = static_cast<int>(getuid() / 100000);
+    const std::string filepath = "/data/user/" + std::to_string(uid) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_runtime_inventory.json";
+    atomic_write(filepath, out.str());
+}
+
+bool install_runtime_trace_hooks(const ImageInfo& image, const void* assembly) {
+    g_il2cpp_base.store(image.base);
+    void* model = find_runtime_class(image, assembly, "ExamParameterModel");
+    void* controller = find_runtime_class(image, assembly, "ExamCardMoveController");
+    if (!model || !controller) {
+        write_status("native-exam-classes-unresolved", image.build_id);
+        return false;
+    }
+    if (!resolve_exam_layout(image, assembly, model, controller)) {
+        write_status("native-exam-layout-unverified", image.build_id);
+        return false;
+    }
+    const auto hook_method = [](uintptr_t address, void* replacement, void** original) -> bool {
+        return address && install_hook(address, replacement, original);
+    };
+    // GetRandomInt overloads are distinguished by managed argument count.
+    const bool random_a = hook_method(exam_method(model, "GetRandomInt", 0),
+        reinterpret_cast<void*>(hooked_random_no_arg), reinterpret_cast<void**>(&g_orig_random_no_arg));
+    const bool random_b = hook_method(exam_method(model, "GetRandomInt", 2),
+        reinterpret_cast<void*>(hooked_random_range), reinterpret_cast<void**>(&g_orig_random_range));
+    const bool shuffle = hook_method(exam_method(controller, "ShuffleDeck", 1),
+        reinterpret_cast<void*>(hooked_shuffle_deck), reinterpret_cast<void**>(&g_orig_shuffle_deck));
+    const bool initial = hook_method(exam_method(controller, "SetInitialCard", 2),
+        reinterpret_cast<void*>(hooked_set_initial_card), reinterpret_cast<void**>(&g_orig_set_initial_card));
+    const bool draw = hook_method(exam_method(controller, "DrawCard", 3),
+        reinterpret_cast<void*>(hooked_draw_card), reinterpret_cast<void**>(&g_orig_draw_card));
+    const bool reset = hook_method(exam_method(controller, "ResetHand", 1),
+        reinterpret_cast<void*>(hooked_reset_hand), reinterpret_cast<void**>(&g_orig_reset_hand));
+    const bool recycle = hook_method(exam_method(controller, "ReplaceGraveToDeck", 2),
+        reinterpret_cast<void*>(hooked_replace_grave_to_deck),
+        reinterpret_cast<void**>(&g_orig_replace_grave_to_deck));
+    const bool grave_shuffle = hook_method(exam_method(controller, "ShuffleDeckGrave", 1),
+        reinterpret_cast<void*>(hooked_shuffle_deck_grave),
+        reinterpret_cast<void**>(&g_orig_shuffle_deck_grave));
+    const bool play = hook_method(exam_method(controller, "MovePlayCard", 2),
+        reinterpret_cast<void*>(hooked_move_play_card), reinterpret_cast<void**>(&g_orig_move_play_card));
+    // Optional cleanup; not every game build has this model method.
+    hook_method(exam_method(model, "Dispose", 0), reinterpret_cast<void*>(hooked_exam_dispose),
+        reinterpret_cast<void**>(&g_orig_exam_dispose));
+    const bool complete = random_a && random_b && shuffle && initial && draw
+        && reset && recycle && grave_shuffle && play;
+    g_full_exam_hooks.store(complete);
+    write_status(complete ? "dynamic-exam-hooks-installed" : "dynamic-exam-hooks-partial", image.build_id);
+    return complete;
+}
+
 void* hooked_get_card_data(void* self, void* method) {
     const CardRecord card = read_card(self);
-    remember_card(card);
+    if (g_capture_depth > 0 || g_exam_recording.load(std::memory_order_relaxed)) remember_card(card);
     if (g_capture_depth > 0 && !card.deleted) g_capture_cards.push_back(card);
     return g_orig_get_card_data(self, method);
 }
 
 void hooked_internal_merge_from(void* self, void* parse_context, void* method) {
     g_orig_internal_merge_from(self, parse_context, method);
-    remember_card(read_card(self));
+    if (g_exam_recording.load(std::memory_order_relaxed)) remember_card(read_card(self));
 }
 
 void* hooked_create_deck(void* a0, void* a1) {
@@ -1092,6 +1763,80 @@ bool install_hook(uintptr_t address, void* replacement, void** original) {
     return g_hook(reinterpret_cast<void*>(address), replacement, original) == 0 && *original != nullptr;
 }
 
+using SelfTestFn = int (*)(int);
+SelfTestFn g_original_self_test = nullptr;
+std::atomic<unsigned> g_self_test_calls{0};
+std::string g_self_test_status = "not-requested";
+std::atomic<bool> g_self_test_attempted{false};
+// Long enough for an inline trampoline, no IL2CPP/managed memory involved.
+__attribute__((noinline)) int self_test_target(int value) {
+    volatile int result = value;
+    for (int i = 0; i < 4; ++i) result = (result ^ (17 + i)) + 3;
+    return result;
+}
+__attribute__((noinline)) int hooked_self_test(int value) {
+    g_self_test_calls.fetch_add(1);
+    return g_original_self_test(value) + 1;
+}
+
+void run_native_self_test() {
+    if (!hook_enabled(native_probe::kSelfTest) || g_self_test_attempted.exchange(true)) return;
+    SelfTestFn volatile target = self_test_target;
+    const int baseline = target(42);
+    // Record entry before installing/calling a trampoline: a framework-level
+    // crash must leave evidence that the self-test was attempted.
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/native_self_test.json";
+    atomic_write(path, "{\"schemaVersion\":1,\"pid\":" + std::to_string(getpid()) +
+        ",\"status\":\"started\",\"scope\":\"module-local-pure-function\","
+        "\"gameCaptureVerified\":false}\n");
+    const bool installed = install_hook(reinterpret_cast<uintptr_t>(self_test_target),
+        reinterpret_cast<void*>(hooked_self_test), reinterpret_cast<void**>(&g_original_self_test));
+    int original = 0, detoured = 0;
+    if (installed) {
+        original = g_original_self_test(42);
+        detoured = target(42); // Volatile indirect call: cannot be optimized away.
+    }
+    const unsigned calls = g_self_test_calls.load();
+    const bool passed = native_probe::self_test_passed(installed,
+        g_original_self_test != nullptr, calls, baseline, original, detoured);
+    g_self_test_status = passed ? "passed" : "failed";
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"pid\":" << getpid()
+        << ",\"uid\":" << getuid() << ",\"hookMask\":" << g_hook_mask.load()
+        << ",\"scope\":\"module-local-pure-function\",\"selfTestTouchesGameFunctions\":false,"
+        << "\"installed\":" << (installed ? "true" : "false")
+        << ",\"backupAvailable\":" << (g_original_self_test ? "true" : "false")
+        << ",\"replacementCalls\":" << calls << ",\"baseline\":" << baseline
+        << ",\"originalResult\":" << original << ",\"detouredResult\":" << detoured
+        << ",\"status\":\"" << g_self_test_status << "\",\"gameCaptureVerified\":false}\n";
+    atomic_write(path, out.str());
+    __android_log_print(passed ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "GakumasCapture",
+        "native-self-test %s pid=%d installed=%d backup=%d calls=%u baseline=%d original=%d detoured=%d",
+        g_self_test_status.c_str(), getpid(), installed, g_original_self_test != nullptr,
+        calls, baseline, original, detoured);
+}
+
+std::string native_bootstrap_json() {
+    std::ostringstream out;
+    out << "{\"schemaVersion\":1,\"pid\":" << getpid()
+        << ",\"uid\":" << getuid() << ",\"observedAtUnixMs\":" << unix_time_ms()
+        << ",\"process\":\"" << json_escape(process_name())
+        << "\",\"jniLoaded\":" << (g_jni_loaded.load() ? "true" : "false")
+        << ",\"nativeApiAccepted\":" << (g_native_api_accepted.load() ? "true" : "false")
+        << ",\"moduleLibraryPath\":\"" << json_escape(g_native_library_path)
+        << "\",\"effectiveHookMask\":" << g_hook_mask.load()
+        << ",\"maskReadStatus\":\"" << json_escape(g_mask_read_status)
+        << "\",\"selfTest\":\"" << g_self_test_status
+        << "\",\"gameCaptureVerified\":false}\n";
+    return out.str();
+}
+
+void write_native_bootstrap() {
+    atomic_write("/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/native_bootstrap_status.json", native_bootstrap_json());
+}
+
 void install_il2cpp_hooks() {
     if (g_hooks_installed.exchange(true)) return;
     if (!target_process()) return;
@@ -1105,122 +1850,122 @@ void install_il2cpp_hooks() {
         return;
     }
 
-    // Decode UserProduceProgressProduceCard.Customizes through the live IL2CPP
-    // object model. This is read-only and works independently of the known
-    // protobuf field offsets used for the reference build.
-    g_runtime_object_get_class = reinterpret_cast<RuntimeObjectGetClassFn>(
-        resolve_export(image, "il2cpp_object_get_class"));
-    g_runtime_class_get_method_from_name = reinterpret_cast<RuntimeClassGetMethodFromNameFn>(
-        resolve_export(image, "il2cpp_class_get_method_from_name"));
-
-    uintptr_t get_card_address = 0;
-    uintptr_t create_deck_address = 0;
-    bool merge_ok = false;
-    bool seed_trace_ok = false;
-
-    if (image.build_id == kExpectedBuildId) {
-        g_use_runtime_getters = false;
-        // Exact ELF used during the original analysis: retain the verified RVAs.
-        get_card_address = image.base + kRvaGetProduceCardData;
-        create_deck_address = image.base + kRvaCreateDeckProduceCardMasters;
-        merge_ok = install_hook(
-            image.base + kRvaInternalMergeFrom,
-            reinterpret_cast<void*>(hooked_internal_merge_from),
-            reinterpret_cast<void**>(&g_orig_internal_merge_from));
-        seed_trace_ok = install_seed_trace_hooks(image);
-    } else {
-        // App update: resolve the managed methods from IL2CPP metadata instead of
-        // guessing new RVAs from the old binary.
-        RuntimeIl2CppApi api;
-        if (!load_runtime_il2cpp_api(image, api)) {
-            write_status("il2cpp-api-unavailable", image.build_id);
-            g_hooks_installed.store(false);
-            return;
-        }
-        const void* assembly_image = find_assembly_csharp(api);
-        if (!assembly_image) {
-            write_status("waiting-for-il2cpp-domain", image.build_id);
-            g_hooks_installed.store(false);
-            return;
-        }
-        get_card_address = resolve_managed_method(
-            api,
-            assembly_image,
-            "Campus.Common.Proto.Client.Transaction",
-            "UserProduceProgressProduceCard",
-            "GetProduceCardData");
-        create_deck_address = resolve_managed_method(
-            api,
-            assembly_image,
-            "Campus.InGame",
-            "ProduceUtility",
-            "CreateDeckProduceCardMasters");
-
-        const char* card_ns = "Campus.Common.Proto.Client.Transaction";
-        const char* card_class = "UserProduceProgressProduceCard";
-        g_get_number = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Number");
-        g_get_produce_card_id = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_ProduceCardId");
-        g_get_upgrade_count = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_UpgradeCount");
-        g_get_deleted = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Deleted");
-        g_get_origin_type = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_OriginType");
-        g_get_customizing = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Customizing");
-        g_get_customizes = resolve_runtime_getter(api, assembly_image, card_ns, card_class, "get_Customizes");
-
-        if (!get_card_address || !create_deck_address ||
-            !g_get_number.address || !g_get_produce_card_id.address ||
-            !g_get_upgrade_count.address || !g_get_deleted.address || !g_get_origin_type.address) {
-            write_status("method-resolution-failed", image.build_id);
-            g_hooks_installed.store(false);
-            return;
-        }
-        g_use_runtime_getters = true;
-
-        // InternalMergeFrom is diagnostic-only and intentionally not hooked on
-        // unknown builds; deck capture only requires GetProduceCardData + CreateDeck.
-        merge_ok = false;
+    // Only install native game hooks when explicitly enabled. A tombstone
+    // during ExamSequence.StartExam requires isolating hooks individually.
+    if (!hook_enabled(128)) {
+        write_status(hook_enabled(256) ? "module-self-test-only" : "safe-mode-no-game-hooks", image.build_id);
+        return;
     }
+    if (image.build_id != kV341BuildId) {
+        write_status("entry-probe-build-mismatch", image.build_id);
+        return;
+    }
+    if (image.build_id == kV341BuildId && hook_enabled(128))
+        install_scoped_exam_probe(image);
+    passive::install(image);
+    contest_capture::install(image);
+    write_status(g_entry_probe_installed.load() ? (hook_enabled(512)
+        ? "scoped-mode-lifecycle-probe-installed" : "scoped-exam-entry-probe-installed")
+        : "scoped-exam-entry-probe-failed", image.build_id);
+}
 
-    const bool get_ok = install_hook(
-        get_card_address,
-        reinterpret_cast<void*>(hooked_get_card_data),
-        reinterpret_cast<void**>(&g_orig_get_card_data));
-    const bool deck_ok = install_hook(
-        create_deck_address,
-        reinterpret_cast<void*>(hooked_create_deck),
-        reinterpret_cast<void**>(&g_orig_create_deck));
+// A library-loaded callback may run BEFORE il2cpp_init creates the managed
+// domain. Avoid polling and retry exactly when initialization completes.
+using Il2CppInitFn = void* (*)(const char*);
+Il2CppInitFn g_original_il2cpp_init = nullptr;
+std::atomic<bool> g_init_hook_installed{false};
 
-    write_status(
-        (get_ok && deck_ok)
-            ? (seed_trace_ok ? "hooks-installed-seed-trace" :
-               (image.build_id == kExpectedBuildId ? "hooks-installed-trace-partial" : "hooks-installed"))
-            : "hook-install-failed",
-        image.build_id,
-        get_ok,
-        merge_ok,
-        deck_ok);
+void* hooked_il2cpp_init(const char* domain_name) {
+    void* domain = g_original_il2cpp_init(domain_name);
+    if (domain) install_il2cpp_hooks();
+    return domain;
+}
 
-    if (!(get_ok && deck_ok)) g_hooks_installed.store(false);
+void install_init_trigger() {
+    if (!hook_enabled(64) || g_init_hook_installed.load()) return;
+    const ImageInfo image = find_il2cpp_image();
+    if (!image.base) return;
+    const uintptr_t init = reinterpret_cast<uintptr_t>(resolve_export(image, "il2cpp_init"));
+    if (!init) return;
+    if (install_hook(init, reinterpret_cast<void*>(hooked_il2cpp_init),
+          reinterpret_cast<void**>(&g_original_il2cpp_init)))
+        g_init_hook_installed.store(true);
 }
 
 void on_library_loaded(const char* name, void*) {
     if (!name) return;
     const char* base = std::strrchr(name, '/');
     base = base ? base + 1 : name;
-    if (std::strcmp(base, "libil2cpp.so") == 0) install_il2cpp_hooks();
+    if (std::strcmp(base, "libil2cpp.so") == 0) {
+        install_init_trigger();
+        install_il2cpp_hooks();
+    }
 }
 
 }  // namespace
 
 extern "C" __attribute__((visibility("default")))
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
-    if (!entries || !entries->hookFunc || entries->version < 1) return nullptr;
-    if (!target_process()) return nullptr;
+    // Log independent of the game-private directory: filesystem ACL/SELinux
+    // failures cannot mask whether the LSPosed native entrypoint ran.
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "native_init entered pid=%d uid=%d entries=%s", getpid(), getuid(),
+        entries ? "non-null" : "null");
+    if (!entries || !entries->hookFunc || entries->version < 1) {
+        __android_log_print(ANDROID_LOG_ERROR, "GakumasCapture",
+            "native_init rejected unavailable native hook API");
+        return nullptr;
+    }
+    if (!target_process()) {
+        __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+            "native_init skipped non-game process");
+        return nullptr;
+    }
     g_hook = entries->hookFunc;
+    g_native_api_accepted.store(true);
+    const unsigned mask = load_hook_mask();
+    g_hook_mask.store(mask);
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "native_init accepted pid=%d hookMask=%u", getpid(), mask);
     write_status("native-init");
+    write_native_bootstrap();
+    run_native_self_test();
+    write_native_bootstrap();
 
-    // LSPosed may load this module after libil2cpp.so is already mapped.
-    // Install immediately when possible, and also keep the load callback for
-    // the normal early-module/late-il2cpp case.
+    // The library may already be mapped before module injection.
+    // If the domain does not exist yet, il2cpp_init will retry without polling.
+    install_init_trigger();
     install_il2cpp_hooks();
     return on_library_loaded;
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "JNI_OnLoad native shared object loaded pid=%d uid=%d",
+        getpid(), getuid());
+    if (target_process()) {
+        g_jni_loaded.store(true);
+        Dl_info info{};
+        if (::dladdr(reinterpret_cast<void*>(JNI_OnLoad), &info) && info.dli_fname)
+            g_native_library_path = info.dli_fname;
+        // This baseline MUST work even when native_init was never called.
+        // System.loadLibrary succeeding does not prove an available hook API.
+        if (!g_native_api_accepted.load()) {
+            g_hook_mask.store(load_hook_mask());
+            write_status("jni-loaded-native-api-not-observed");
+        }
+        write_native_bootstrap();
+    }
+    return JNI_VERSION_1_6;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_atuy1219_gakumas_progresscapture_ModuleEntry_nativeGetBootstrap(JNIEnv* env, jclass) {
+    return env->NewStringUTF(native_bootstrap_json().c_str());
+}
+
+extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM*, void*) {
+    __android_log_print(ANDROID_LOG_INFO, "GakumasCapture",
+        "JNI_OnUnload native shared object unloaded pid=%d uid=%d",
+        getpid(), getuid());
 }
