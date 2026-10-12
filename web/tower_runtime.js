@@ -2773,6 +2773,15 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
         state.deck.unshift(...overflow.map(({ card }) => card));
         for (const move of accepted) { move.to = "hand"; notifications.push(move); }
         for (const move of overflow) { move.to = "deck_first"; notifications.push(move); }
+      } else if (destination === "DeckFirst") {
+        // Native ExamCardMoveController.MoveCard inserts a selected batch at
+        // deck top in selection order. Repeated unshift() reversed the batch:
+        // observed in native contest sessions 1 and 3 at the first draw mismatch.
+        state.deck.unshift(...moves.map(({ card }) => card));
+        for (const move of moves) {
+          move.to = "deck_first";
+          notifications.push(move);
+        }
       } else {
         for (const move of moves) move.to = addRuntimeCardAt(state, move.card, parsed.movePositionType, event, move.from, notifications);
       }
