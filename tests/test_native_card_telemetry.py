@@ -69,7 +69,7 @@ FieldInfo fieldAggressive{"_value",0x28,0x08};
 FieldInfo fieldStance{"_stance",0x90,0x08},fieldFullPower{"_fullPowerPoint",0x94,0x08};
 FieldInfo seqParameter{"<Parameter>k__BackingField",0x10,0x12},seqController{"<CardController>k__BackingField",0x58,0x12},seqHand{"_hand",0x60,0x12},seqStore{"_dataStore",0x68,0x12},handCards{"_cards",0x10,0x12};
 FieldInfo storeHand{"<HandList>k__BackingField",0x10,0x15},storeDeck{"<DeckList>k__BackingField",0x18,0x15},storeGrave{"<GraveList>k__BackingField",0x20,0x15},storeLost{"<LostList>k__BackingField",0x28,0x15},storeHold{"<HoldList>k__BackingField",0x30,0x15};
-FieldInfo playing{"<PlayingCard>k__BackingField",0x48,0x12},ctxParameter{"<Parameter>k__BackingField",0x10,0x12};
+FieldInfo playing{"<PlayingCard>k__BackingField",0x48,0x12},ctxParameter{"<ExamParameter>k__BackingField",0x10,0x12};
 FieldInfo master{"_cardData",0x10,0x12},guid{"_guid",0x18,0x0e},baseUpgrade{"_baseUpgradeCount",0x24,0x08},tmpUpgrade{"_tmpUpgradeCount",0x28,0x08},masterId{"_id",0x18,0x0e};
 FieldInfo fieldEnthusiasm{"_enthusiasticValue",0x98,0x08};
 void* fakeGetFields(void* klass,void** iterator){
@@ -272,7 +272,7 @@ int main(){
             self.assertEqual(draw["afterPools"]["grave"]["count"],0)
             self.assertEqual(draw["afterPools"]["hold"]["count"],0)
             self.assertTrue(draw["contextParameterMatched"])
-            self.assertFalse(draw["contextSignatureVerified"])
+            self.assertTrue(draw["contextSignatureVerified"])
             self.assertEqual(effect["poolStateBeforeCommandBuild"]["hand"]["cards"][0]["id"],"p_card-01-act-1_001")
             self.assertEqual(effect["poolStateAtObservation"]["hand"]["cards"][0]["id"],"p_card-01-act-1_001")
             self.assertEqual(move['card']['id'],'p_card-01-act-1_001')
