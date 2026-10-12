@@ -39,6 +39,7 @@ ImageInfo find_il2cpp_image(){return {};}
 char reviewClass[8],aggressiveClass[8],buffClass[8],focusClass[8];
 char fullPowerClass[8],enthusiasmClass[8],upliftingClass[8],excellentClass[8],staminaDownClass[8],parameterClass[8];
 char sequenceClass[8],controllerClass[8],cardClass[8],masterClass[8],contextClass[8];
+char handClass[8],listClass[8],arrayClass[8];
 const char* nameForClass(void* k){
  if(k==reviewClass)return "ReviewStatusEffect";
  if(k==aggressiveClass)return "AggressiveStatusEffect";
@@ -55,6 +56,9 @@ const char* nameForClass(void* k){
  if(k==cardClass)return "ExamCardData";
  if(k==masterClass)return "ProduceCardData";
  if(k==contextClass)return "ExamEffectCalculateContext";
+ if(k==handClass)return "ExamHandModel";
+ if(k==listClass)return "List`1";
+ if(k==arrayClass)return "ExamCardData[]";
  return "Unknown";
 }
 struct FieldInfo {const char* name;size_t offset;int kind;};
@@ -62,7 +66,7 @@ FieldInfo fieldValue{"_value",0x14,0x08},fieldTurn{"_turn",0x18,0x08};
 FieldInfo fieldPassing{"_isPassingTurnStart",0x1c,0x02};
 FieldInfo fieldAggressive{"_value",0x28,0x08};
 FieldInfo fieldStance{"_stance",0x90,0x08},fieldFullPower{"_fullPowerPoint",0x94,0x08};
-FieldInfo seqParameter{"<Parameter>k__BackingField",0x10,0x12},seqController{"<CardController>k__BackingField",0x58,0x12};
+FieldInfo seqParameter{"<Parameter>k__BackingField",0x10,0x12},seqController{"<CardController>k__BackingField",0x58,0x12},seqHand{"_hand",0x60,0x12},handCards{"_cards",0x10,0x12};
 FieldInfo playing{"<PlayingCard>k__BackingField",0x48,0x12},ctxParameter{"<Parameter>k__BackingField",0x10,0x12};
 FieldInfo master{"_cardData",0x10,0x12},guid{"_guid",0x18,0x12},baseUpgrade{"_baseUpgradeCount",0x24,0x08},tmpUpgrade{"_tmpUpgradeCount",0x28,0x08},masterId{"_id",0x18,0x12};
 FieldInfo fieldEnthusiasm{"_enthusiasticValue",0x98,0x08};
@@ -71,7 +75,8 @@ void* fakeGetFields(void* klass,void** iterator){
  FieldInfo* selected[4]={nullptr,nullptr,nullptr,nullptr};
  size_t count=0;
  if(klass==parameterClass){selected[0]=&fieldStance;selected[1]=&fieldFullPower;selected[2]=&fieldEnthusiasm;count=3;}
- else if(klass==sequenceClass){selected[0]=&seqParameter;selected[1]=&seqController;count=2;}
+ else if(klass==sequenceClass){selected[0]=&seqParameter;selected[1]=&seqController;selected[2]=&seqHand;count=3;}
+ else if(klass==handClass){selected[0]=&handCards;count=1;}
  else if(klass==controllerClass){selected[0]=&playing;count=1;}
  else if(klass==contextClass){selected[0]=&ctxParameter;count=1;}
  else if(klass==cardClass){selected[0]=&master;selected[1]=&guid;selected[2]=&baseUpgrade;selected[3]=&tmpUpgrade;count=4;}
@@ -87,6 +92,7 @@ int fakeTypeKind(void* field){return static_cast<FieldInfo*>(field)->kind;}
 void* fakeParent(void*){return nullptr;}
 int32_t fakeInstanceSize(void*){return 4096;}
 void* fakeClassFromType(void*){return nullptr;}
+void* fakeElementClass(void*){return cardClass;}
 void* resolve_export(const ImageInfo&,const char* n){
  if(strcmp(n,"il2cpp_class_get_name")==0)return (void*)nameForClass;
  if(strcmp(n,"il2cpp_class_get_fields")==0)return (void*)fakeGetFields;
@@ -97,6 +103,7 @@ void* resolve_export(const ImageInfo&,const char* n){
  if(strcmp(n,"il2cpp_class_get_parent")==0)return (void*)fakeParent;
  if(strcmp(n,"il2cpp_class_instance_size")==0)return (void*)fakeInstanceSize;
  if(strcmp(n,"il2cpp_class_from_type")==0)return (void*)fakeClassFromType;
+ if(strcmp(n,"il2cpp_class_get_element_class")==0)return (void*)fakeElementClass;
  return nullptr;
 }
 bool install_hook(uintptr_t,void*,void**){return false;}
@@ -121,7 +128,7 @@ struct Obj {
 };
 Obj sequence, parameter, controller, effects, effectsList, effectsArray, review, aggressive;
 Obj buff, focus, fullPower, enthusiasm, uplifting, excellent, staminaDown;
-Obj card, cardData, cardId, cardGuid,context;
+Obj card, cardData, cardId, cardGuid,context,hand,handList,handArray;
 void text(Obj& obj,const std::u16string& chars){
  obj.put<int32_t>(0x10,chars.size());
  memcpy(obj.data+0x14,chars.data(),chars.size()*2);
@@ -145,19 +152,29 @@ void* gameTriggerCommand(void* self,void* commandList,uint32_t mode,const void*)
  staminaDown.put<int32_t>(0x18,4);
  return (void*)0x5678;
 }
+unsigned draws=0;
+uintptr_t gameDraw(uintptr_t self,uintptr_t count,uintptr_t contextArg,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t){
+ assert(self==controller.addr() && contextArg==context.addr() && count==1);
+ ++draws;handList.put<int32_t>(0x18,1);return 0x5A;
+}
 void gameMove(void* self,void* playing,uintptr_t,const void*){
  assert(self==controller.data && playing==card.data);
  ++moveForwarded;
 }
 int main(){
- originalTriggerCommand=gameTriggerCommand; originalCardMove=gameMove;
+ originalTriggerCommand=gameTriggerCommand; originalCardMove=gameMove; originalDraw=gameDraw;
  sequence.put(0,(uintptr_t)sequenceClass);controller.put(0,(uintptr_t)controllerClass);
  card.put(0,(uintptr_t)cardClass);cardData.put(0,(uintptr_t)masterClass);context.put(0,(uintptr_t)contextClass);
+ hand.put(0,(uintptr_t)handClass);handList.put(0,(uintptr_t)listClass);
+ handArray.put(0,(uintptr_t)arrayClass);
+ hand.put(0x10,handList.addr());handList.put(0x10,handArray.addr());
+ handList.put<int32_t>(0x18,0);handList.put<int32_t>(0x1c,0);
+ handArray.put<uint64_t>(0x18,1);handArray.put(0x20,card.addr());
  text(cardId,u"p_card-01-act-1_001"); text(cardGuid,u"guid-001");
  cardData.put(0x18,cardId.addr());
  card.put(0x10,cardData.addr());card.put(0x18,cardGuid.addr());
  card.put<int32_t>(0x24,1);card.put<int32_t>(0x28,0);
- sequence.put(0x10,parameter.addr()); sequence.put(0x58,controller.addr());context.put(0x10,parameter.addr());
+ sequence.put(0x10,parameter.addr()); sequence.put(0x58,controller.addr());sequence.put(0x60,hand.addr());context.put(0x10,parameter.addr());
  parameter.put(0,(uintptr_t)parameterClass);
  parameter.put<int32_t>(0x90,1);parameter.put<int32_t>(0x94,4);
  parameter.put<int32_t>(0x98,3);
@@ -193,9 +210,10 @@ int main(){
  assert(!before.rawNumbers && before.reviewAvailable && before.aggressiveAvailable);
  assert(before.scoreVocal==5 && before.stamina==30 && before.block==12);
  assert(before.review==2 && before.aggressive==4);
+ assert(drawCard(controller.addr(),1,context.addr(),0,0,0,0,0)==0x5A && draws==1);
  cardMove(controller.data,card.data,context.addr(),nullptr);
  assert(triggerCommand(sequence.data,(void*)0x1234,0,nullptr)==(void*)0x5678);
- assert(moveForwarded==1 && effectForwarded==1 && run.effectSamples==1);
+ assert(moveForwarded==1 && effectForwarded==1 && run.effectSamples==1 && drawSamples==1);
  assert(run.cardMoveSamples==1 && written==2);
  // A genuine MovePlayCard callback from another controller must not be
  // mistaken for the auto-play sequence; rejection counters must still flush.
@@ -220,8 +238,13 @@ int main(){
                            env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0'))
             events=[json.loads(line) for line in (root/'contest_capture.jsonl').read_text().splitlines()]
             self.assertEqual([x['event'] for x in events],
-                             ['contest-card-move','contest-card-command-snapshot'])
-            move,effect=events
+                             ['contest-draw','contest-card-move','contest-card-command-snapshot'])
+            draw,move,effect=events
+            self.assertTrue(draw["beforeHand"]["available"])
+            self.assertEqual(draw["beforeHand"]["cards"],[])
+            self.assertTrue(draw["afterHand"]["available"])
+            self.assertEqual(draw["afterHand"]["cards"][0]["id"],"p_card-01-act-1_001")
+            self.assertEqual(draw["requestedCount"],1)
             self.assertEqual(move['card']['id'],'p_card-01-act-1_001')
             self.assertEqual(effect['card']['guid'],'guid-001')
             self.assertFalse(effect['cardEffectsComplete'])
@@ -267,6 +290,9 @@ int main(){
             self.assertEqual(status['effectSamples'],1)
             self.assertEqual(status['triggerCommandCalls'],1)
             self.assertEqual(status['cardMoveCalls'],2)
+            self.assertEqual(status['drawCalls'],1)
+            self.assertEqual(status['drawSamples'],1)
+            self.assertEqual(status['drawControllerMatched'],1)
             self.assertEqual(status['cardMoveControllerReadable'],2)
             self.assertEqual(status['cardMoveControllerMatched'],2)
             self.assertEqual(status['cardMoveParameterMatched'],1)
