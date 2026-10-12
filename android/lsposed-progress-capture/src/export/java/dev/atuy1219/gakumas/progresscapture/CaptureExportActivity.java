@@ -94,6 +94,9 @@ public final class CaptureExportActivity extends Activity {
                     + "\n採用結果との照合: " + s.optLong("lineageSelectedSaves")
                     + "\n採用結果の照合失敗: " + s.optLong("lineageMissingSaves")
                     + "\n探索記録の欠落: " + s.optLong("lineageDrops")
+                    + "\nカードなし完了（保存省略）: " + s.optLong("emptyCommandCompletionsSuppressed")
+                    + "\n再入通知（除外）: " + s.optLong("reentrantCommandCompletionsIgnored")
+                    + "\n完了判定の読取失敗: " + s.optLong("commandCompletionGateUnreadable")
                     + "\nパラメータ一致: " + s.optLong("cardMoveParameterMatched")
                     + "\n記録試行: " + s.optLong("cardSnapshotAttempts")
                     + "\n記録用パラメータ一致: " + s.optLong("cardSnapshotParameterMatched")
@@ -128,7 +131,7 @@ public final class CaptureExportActivity extends Activity {
                         throw new Exception("学マスの起動が変わりました。もう一度保存してください");
                     export.put("captureStatus", captureStatus);
                 }
-                pending = export.toString(2).getBytes(StandardCharsets.UTF_8);
+                pending = export.toString().getBytes(StandardCharsets.UTF_8);
                 runOnUiThread(() -> {
                     Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                     intent.addCategory(Intent.CATEGORY_OPENABLE); intent.setType("application/json");

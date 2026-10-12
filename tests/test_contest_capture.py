@@ -98,7 +98,7 @@ int main(){
  assert(!setup_probe::keepSetupParameterField("_irrelevantObscuredValue"));
  const auto captured=setup_probe::scanCardIdentity(card.addr(),nullptr);
  assert(captured.found && captured.offset==0x98 && !captured.ambiguous);
- assert(captured.json.find("\\u0070\\u005f")!=std::string::npos);
+ assert(captured.json.find("p_")!=std::string::npos);
 
  assert(setup_probe::capture(exam.addr()).find("rawLayout")!=std::string::npos);
  assert(setup_probe::capture(exam.addr()).find("il2cpp_class_get_fields")!=std::string::npos);

@@ -33,7 +33,7 @@ class SelectedContestReconstructionTests(unittest.TestCase):
         capture = sample_capture()
         done = {"sessionId": 1, "event": "contest-card-use-complete", "step": 1,
                 "selectedLineageVerified": True, "lineageComplete": True,
-                "completionSuccessVerified": True, "cardUseCompletionVerified": True,
+                "completionSuccessVerified": True, "completionBoundaryVerified": True, "cardUseCompletionVerified": True,
                 "singleCardAction": True, "cardActionSerial": 7,
                 "card": {"id": "p_card-a", "guid": "card-guid-1"},
                 "beforeMetrics": {"available": True, "score": 12},
@@ -44,7 +44,7 @@ class SelectedContestReconstructionTests(unittest.TestCase):
         self.assertEqual(play["cardActionSerial"], 7)
         self.assertTrue(play["cardEffectsComplete"])
         for key in ("selectedLineageVerified", "lineageComplete", "singleCardAction",
-                    "completionSuccessVerified", "cardUseCompletionVerified"):
+                    "completionSuccessVerified", "completionBoundaryVerified", "cardUseCompletionVerified"):
             done[key] = False
             self.assertIsNone(reconstruct(capture)["sessions"][0]["selectedPlays"][0]["perCardScore"])
             done[key] = True

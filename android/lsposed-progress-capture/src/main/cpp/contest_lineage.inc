@@ -73,7 +73,7 @@ void traceBeginCard(Address sequence,Address card){
 // actual call on the exact builder (+8), without invoking any game method.
 struct CommandFinishFrame {
     Address builder=0;bool exception=false;CommandFinishFrame* previous=nullptr;
-    Address sequence=0,runner=0;bool recorded=false;
+    Address sequence=0,runner=0;bool recorded=false,eligible=false;
 };
 thread_local CommandFinishFrame* currentCommandFinish=nullptr;
 using BuilderExceptionFn=void(*)(uintptr_t,uintptr_t,uintptr_t);
@@ -83,16 +83,51 @@ __attribute__((noinline)) void builderException(uintptr_t builder,uintptr_t exce
         if(frame->builder==builder)frame->exception=true;
     originalBuilderException(builder,exception,method);
 }
+// The ELF's initial MoveNext returns -2 immediately when IsCommandPlaying is
+// already true (0x80e1100..0x80e119c). That is a reentrant no-op, not completion.
+// Resolve the actual AwaitableProperty<bool> backing field through metadata.
+bool commandPlaying(Address sequence,bool& playing){
+    Address property=0,klass=0;
+    if(!namedRef(sequence,{"_isCommandPlaying"},property)||!property||
+       !read(property,0,klass)||!klass)return false;
+    const auto& api=setup_probe::api();
+    if(!api.getFields||!api.fieldName||!api.fieldType||!api.typeKind||!api.fieldOffset)return false;
+    for(void* cls=reinterpret_cast<void*>(klass);cls;cls=api.classParent?api.classParent(cls):nullptr){
+        void* iterator=nullptr;
+        for(unsigned n=0;n<128;++n){
+            void* field=api.getFields(cls,&iterator);if(!field)break;
+            const char* name=api.fieldName(field);
+            if(!name||std::strcmp(name,"_value")!=0)continue;
+            const int kind=api.typeKind(api.fieldType(field));
+            // Inflated generic field metadata may retain IL2CPP_TYPE_VAR;
+            // the exact _isCommandPlaying property is AwaitableProperty<bool>.
+            if(kind!=0x02&&kind!=0x13)continue;
+            const size_t offset=api.fieldOffset(field);uint8_t value=0;
+            if(offset<0x10||offset>0x400||!read(property,offset,value)||value>1)return false;
+            playing=value!=0;return true;
+        }
+    }
+    return false;
+}
 void traceCommandCompletion(Address sequence,bool success){
     if(!active||!active->trace)return;
     auto it=active->trace->sequences.find(sequence);
     if(it==active->trace->sequences.end())return;
     std::lock_guard<std::mutex> guard(mutex);
+    auto& branch=it->second;
+    ++commandCompletions;
+    if(branch.pendingCards.empty()){
+        if(success){++emptyCommandCompletionsSuppressed;return;}
+        branch.complete=false;
+        traceAppend(sequence,"contest-command-list-failed",
+            ",\"completionSuccessVerified\":false,\"reason\":\"command-list-exception-without-card\"");
+        return;
+    }
     readBudget=4096;firstReadFailure={};readStage.clear();
     Address parameter=0;namedRef(sequence,{"<Parameter>k__BackingField"},parameter);
-    auto& branch=it->second;
     std::ostringstream s;
     s<<",\"capturePhase\":\"after-ExecuteCommandListImplAsync-success\""
+     <<",\"completionBoundaryVerified\":true"
      <<",\"commandListCompleted\":true,\"completionSuccessVerified\":"<<(success?"true":"false")
      <<",\"cardActionSerial\":"<<branch.serial
      <<",\"cardUseCompletionVerified\":"<<(success&&!branch.pendingCards.empty()?"true":"false")
@@ -104,9 +139,9 @@ void traceCommandCompletion(Address sequence,bool success){
     s<<"],\"beforeMetrics\":"<<branch.beforeCardMetrics
      <<",\"metrics\":"<<traceMetrics(sequence)
      <<",\"poolState\":"<<selectedPoolsJson(sequence,parameter);
-    traceAppend(sequence,branch.pendingCards.empty()?"contest-command-list-complete":"contest-card-use-complete",s.str());
+    traceAppend(sequence,"contest-card-use-complete",s.str());
     if(!success)branch.complete=false;
-    branch.pendingCards.clear();branch.beforeCardMetrics="null";++commandCompletions;
+    branch.pendingCards.clear();branch.beforeCardMetrics="null";
 }
 // For suspended UniTasks, SetResult resumes the awaiting parent immediately.
 // Snapshot BEFORE forwarding SetResult, otherwise selection may already have
@@ -116,7 +151,7 @@ std::map<Address,RunnerResultFn> runnerResultOriginals;
 std::map<Address,RunnerResultFn> runnerClassOriginals;
 void observeRunnerResult(uintptr_t self,uintptr_t method,RunnerResultFn original){
     for(auto* frame=currentCommandFinish;frame;frame=frame->previous){
-        if(frame->runner==self&&!frame->recorded){
+        if(frame->runner==self&&!frame->recorded&&frame->eligible){
             frame->recorded=true;
             traceCommandCompletion(frame->sequence,true);
             break;

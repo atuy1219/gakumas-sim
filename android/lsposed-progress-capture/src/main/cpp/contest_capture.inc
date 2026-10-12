@@ -29,6 +29,7 @@ thread_local Run* active=nullptr;
 bool lineageHooksInstalled=false,exceptionHookInstalled=false;
 uint64_t lineageSelectedEvents=0,lineageSelectedSaves=0,lineageMissingSaves=0,lineageDrops=0;
 uint64_t cloneCalls=0,loadCalls=0,commandCompletions=0;
+uint64_t emptyCommandCompletionsSuppressed=0,reentrantCommandCompletionsIgnored=0,commandCompletionGateUnreadable=0;
 Address sequenceForContext(Address context);
 void bindTraceSequence(Address sequence);
 std::string traceMetrics(Address sequence);
@@ -132,7 +133,12 @@ std::string string(Address a,bool& ok) {
     int32_t n=0; if(!read(a,0x10,n) || n<0 || n>256){ok=false;return "null";}
     uint16_t chars[256]={}; if(n && !bytes(a,0x14,chars,n*2)){ok=false;return "null";}
     std::ostringstream s;s<<'"';
-    for(int i=0;i<n;++i)s<<"\\u"<<std::hex<<std::setfill('0')<<std::setw(4)<<chars[i];
+    for(int i=0;i<n;++i){
+        const uint16_t ch=chars[i];
+        if(ch=='"'||ch=='\\')s<<'\\'<<static_cast<char>(ch);
+        else if(ch>=0x20&&ch<=0x7e)s<<static_cast<char>(ch);
+        else s<<"\\u"<<std::hex<<std::setfill('0')<<std::setw(4)<<ch;
+    }
     s<<'"';return s.str();
 }
 std::string stringField(Address a,size_t offset,bool& ok) {
@@ -1164,6 +1170,9 @@ void status() {
       <<",\"commandExceptionHookInstalled\":"<<(exceptionHookInstalled?"true":"false")
       <<",\"cloneCalls\":"<<cloneCalls<<",\"loadCalls\":"<<loadCalls
       <<",\"commandCompletions\":"<<commandCompletions
+      <<",\"emptyCommandCompletionsSuppressed\":"<<emptyCommandCompletionsSuppressed
+      <<",\"reentrantCommandCompletionsIgnored\":"<<reentrantCommandCompletionsIgnored
+      <<",\"commandCompletionGateUnreadable\":"<<commandCompletionGateUnreadable
       <<",\"lineageSelectedEvents\":"<<lineageSelectedEvents
       <<",\"lineageSelectedSaves\":"<<lineageSelectedSaves
       <<",\"lineageMissingSaves\":"<<lineageMissingSaves
@@ -1748,6 +1757,18 @@ __attribute__((noinline)) void commandListMoveNext(uintptr_t stateMachine,uintpt
                         read(stateMachine,0x18,sequence)&&sequence;
     CommandFinishFrame frame{stateMachine+8,false,currentCommandFinish};
     frame.sequence=sequence;
+    frame.eligible=identity&&before!=-2;
+    if(frame.eligible&&lineageHooksInstalled&&active&&active->trace){
+        bool playing=false;
+        if(before==-1){
+            const bool known=commandPlaying(sequence,playing);
+            if(!known){frame.eligible=false;++commandCompletionGateUnreadable;}
+            else if(playing){frame.eligible=false;++reentrantCommandCompletionsIgnored;}
+        }
+        if(currentCardCommand&&currentCardCommand->sequence==sequence){
+            frame.eligible=false;++reentrantCommandCompletionsIgnored;
+        }
+    }
     if(identity){read(stateMachine,8,frame.runner);installRunnerResult(frame.runner);}
     currentCommandFinish=&frame;
     originalCommandListMoveNext(stateMachine,method); // exactly once
@@ -1756,7 +1777,7 @@ __attribute__((noinline)) void commandListMoveNext(uintptr_t stateMachine,uintpt
     readBudget=64;firstReadFailure={};readStage.clear();
     if(!read(stateMachine,0,after)||before==-2||after!=-2)return;
     if(lineageHooksInstalled&&active&&active->trace){
-        if(!frame.recorded)traceCommandCompletion(sequence,exceptionHookInstalled&&!frame.exception);
+        if(frame.eligible&&!frame.recorded)traceCommandCompletion(sequence,exceptionHookInstalled&&!frame.exception);
         return;
     }
     std::lock_guard<std::mutex> guard(mutex);

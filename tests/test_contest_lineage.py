@@ -17,12 +17,19 @@ class LineageTests(unittest.TestCase):
         tree = ast.parse((ROOT / 'tests/test_native_card_telemetry.py').read_text())
         fixture = max((n.value for n in ast.walk(tree)
                        if isinstance(n, ast.Constant) and isinstance(n.value, str)), key=len)
+        fixture = fixture.replace('char handClass[8]', 'char playingPropertyClass[8];\nchar handClass[8]')
+        fixture = fixture.replace('FieldInfo fieldValue', 'FieldInfo seqPlaying{"_isCommandPlaying",0x70,0x12},playingValue{"_value",0x10,0x02};\nFieldInfo fieldValue')
+        fixture = fixture.replace('selected[3]=&seqStore;count=4;', 'selected[3]=&seqStore;selected[4]=&seqPlaying;count=5;')
+        fixture = fixture.replace('else if(klass==handClass)', 'else if(klass==playingPropertyClass){selected[0]=&playingValue;count=1;}\n else if(klass==handClass)')
         source = fixture[:fixture.index(' Run run{};')]
         source += r'''
  Run run{};run.id=1;run.sequence=sequence.addr();run.parameter=parameter.addr();
  run.controller=controller.addr();run.setupRecorded=true;active=&run;
  run.trace=std::make_shared<TraceStore>();run.trace->sequences[sequence.addr()]={};
  lineageHooksInstalled=true;exceptionHookInstalled=true;bindTraceSequence(sequence.addr());
+ Obj playingProperty;
+ playingProperty.put(0,(uintptr_t)playingPropertyClass);
+ sequence.put(0x70,playingProperty.addr());
  context.put(0x18,controller.addr());
  assert(sequenceForContext(context.addr())==sequence.addr());
  // A genuine nonzero flipper seed: raw storage is never a valid score.
@@ -44,6 +51,14 @@ class LineageTests(unittest.TestCase):
  commandExecution(executionState.addr(),0);
  Obj commandState;
  commandState.put<int32_t>(0,-1);commandState.put(0x18,sequence.addr());
+ // Nested ExecuteCommandList while the parent is playing immediately returns
+ // -2 with unchanged metrics. It MUST preserve the pending card and baseline.
+ playingProperty.put<uint8_t>(0x10,1);
+ originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){int32_t done=-2;memcpy((void*)sm,&done,4);};
+ commandListMoveNext(commandState.addr(),0);
+ assert(commandCompletions==0&&reentrantCommandCompletionsIgnored==1);
+ assert(run.trace->sequences[sequence.addr()].pendingCards.size()==1);
+ playingProperty.put<uint8_t>(0x10,0);commandState.put<int32_t>(0,-1);
  parameter.put<uint32_t>(0x570+0x18,uint32_t(0xf0d7cf60));
  originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){int32_t done=-2;memcpy((void*)sm,&done,4);};
  commandListMoveNext(commandState.addr(),0);
@@ -94,7 +109,24 @@ class LineageTests(unittest.TestCase):
      runnerResult(currentCommandFinish->runner,0);
  };
  commandListMoveNext(commandState.addr(),0);
- assert(commandCompletions==3); // exactly one for each original invocation
+ assert(commandCompletions==3);
+ // Non-card success is a counter only. No metrics/pools/trace allocation.
+ const auto allocated=run.trace->bytes;const auto writes=written;
+ for(unsigned i=0;i<100;++i){
+     commandState.put<int32_t>(0,-1);commandState.put<uintptr_t>(8,0);
+     originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){int32_t done=-2;memcpy((void*)sm,&done,4);};
+     commandListMoveNext(commandState.addr(),0);
+ }
+ assert(emptyCommandCompletionsSuppressed==100&&commandCompletions==103);
+ assert(run.trace->bytes==allocated&&written==writes);
+ // Non-card failures remain compact diagnostic events and invalidate lineage.
+ traceCommandCompletion(sequence.addr(),false);
+ run.trace->save(0xbeef,sequence.addr());++run.steps;publishSelectedTrace(run,0xbeef);
+ Obj escaped;
+ text(escaped,u"ASCII \"\\\n日本");
+ readBudget=64;bool stringOk=true;
+ const auto encoded=string(escaped.addr(),stringOk);assert(stringOk);
+ std::ofstream(path("escaped.json"))<<encoded;
  active=nullptr;
 }
 '''
@@ -109,12 +141,14 @@ class LineageTests(unittest.TestCase):
             subprocess.run([str(folder/'test')], check=True,
                            env=dict(os.environ, ASAN_OPTIONS='detect_leaks=0'))
             rows = [json.loads(line) for line in (folder/'contest_capture.jsonl').read_text().splitlines()]
-            self.assertNotIn('rejected-sibling', [r['event'] for r in rows])
+            self.assertEqual(json.loads((folder/'escaped.json').read_text()), 'ASCII "\\\n日本')
+            self.assertNotIn('rejected-sibling' , [r['event'] for r in rows])
             completions = [r for r in rows if r['event']=='contest-card-use-complete']
             self.assertEqual(len(completions), 3)
             normal, failed, suspended = completions
             self.assertTrue(normal['selectedLineageVerified'])
             self.assertTrue(normal['cardUseCompletionVerified'])
+            self.assertTrue(normal['completionBoundaryVerified'])
             self.assertEqual(normal['beforeMetrics']['score'], 1234)
             self.assertEqual(normal['metrics']['score'], 1284)
             self.assertEqual(normal['metrics']['turn'], 1)
@@ -124,6 +158,10 @@ class LineageTests(unittest.TestCase):
             self.assertFalse(failed['cardEffectsComplete'])
             self.assertFalse(failed['lineageComplete'])
             self.assertTrue(suspended['completionSuccessVerified'])
+            self.assertNotIn('contest-command-list-complete', [r['event'] for r in rows])
+            failure = next(r for r in rows if r['event']=='contest-command-list-failed')
+            self.assertNotIn('metrics', failure)
+            self.assertFalse(failure['lineageComplete'])
 
 
 if __name__ == '__main__':

@@ -1,3 +1,25 @@
+## v1.5.32: suppress empty completion payloads and reject reentrant no-ops
+
+Successful command-list callbacks without cards are now counted only: no pools,
+metrics or trace nodes are serialized. Non-card exceptions remain compact
+failure events. Turn, draw, move and creation observations remain independent.
+The exported JSON has no indentation; printable ASCII IDs are emitted without
+six-byte Unicode escapes. Both changes preserve JSON values.
+
+Capture (13) showed 123 purported card completions with identical before/after
+score, stamina and block. The old terminal-state check accepted reentrant
+`ExecuteCommandListImplAsync` calls that return immediately while another
+command list is playing. Initial calls now require the runtime
+`_isCommandPlaying._value` to be false; card-builder reentry is also rejected.
+Unreadable guards fail closed and are counted. Suspended real MoveNext calls
+retain the original continuation-aware completion hook.
+
+The comparison utility now requires `completionBoundaryVerified:true`, so
+v1.5.31's premature zero deltas are not treated as measured card effects.
+On-device completion coverage remains to be verified with the next capture.
+
+---
+
 ## v1.5.31: selected DFS lineage and completion snapshots
 
 The contest detail mode (4224) follows native DeepCopy/SyncData/LoadExam and

@@ -76,6 +76,7 @@ def reconstruct(document):
                        and row.get("selectedLineageVerified") is True
                        and row.get("lineageComplete") is True
                        and row.get("completionSuccessVerified") is True
+                       and row.get("completionBoundaryVerified") is True
                        and row.get("cardUseCompletionVerified") is True
                        and row.get("singleCardAction") is True]
         consumed_completions = set()
