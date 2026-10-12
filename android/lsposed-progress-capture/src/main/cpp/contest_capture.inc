@@ -759,8 +759,9 @@ std::string liveCard(Address card,bool& ok){
 }
 // Traverse the selected hand object's typed fields, not arbitrary pointer offsets.
 // A list is accepted only when its backing array element is ExamCardData.
-void collectHandLists(Address object,int depth,std::set<Address>& seen,std::vector<std::string>& lists){
-    if(!object||depth>3||seen.size()>48||!seen.insert(object).second)return;
+void collectHandLists(Address object,int depth,std::vector<Address>& seen,std::vector<std::string>& lists){
+    if(!object||depth>3||seen.size()>48||std::find(seen.begin(),seen.end(),object)!=seen.end())return;
+    seen.push_back(object);
     const auto& p=setup_probe::api();
     Address klass=0;if(!read(object,0,klass)||!klass||!p.className)return;
     void* cls=reinterpret_cast<void*>(klass);
@@ -805,7 +806,7 @@ std::string selectedHandJson(Address sequence){
     if(!namedRef(sequence,{"_hand"},hand)||!hand)
         value="{\"available\":false,\"reason\":\"hand-field-missing\",\"cards\":null}";
     else{
-        std::set<Address> seen;std::vector<std::string> lists;
+        std::vector<Address> seen;std::vector<std::string> lists;
         collectHandLists(hand,0,seen,lists);
         if(lists.size()==1)
             value="{\"available\":true,\"cards\":"+lists.front()+
