@@ -68,7 +68,7 @@ FieldInfo fieldAggressive{"_value",0x28,0x08};
 FieldInfo fieldStance{"_stance",0x90,0x08},fieldFullPower{"_fullPowerPoint",0x94,0x08};
 FieldInfo seqParameter{"<Parameter>k__BackingField",0x10,0x12},seqController{"<CardController>k__BackingField",0x58,0x12},seqHand{"_hand",0x60,0x12},handCards{"_cards",0x10,0x12};
 FieldInfo playing{"<PlayingCard>k__BackingField",0x48,0x12},ctxParameter{"<Parameter>k__BackingField",0x10,0x12};
-FieldInfo master{"_cardData",0x10,0x12},guid{"_guid",0x18,0x12},baseUpgrade{"_baseUpgradeCount",0x24,0x08},tmpUpgrade{"_tmpUpgradeCount",0x28,0x08},masterId{"_id",0x18,0x12};
+FieldInfo master{"_cardData",0x10,0x12},guid{"_guid",0x18,0x0e},baseUpgrade{"_baseUpgradeCount",0x24,0x08},tmpUpgrade{"_tmpUpgradeCount",0x28,0x08},masterId{"_id",0x18,0x0e};
 FieldInfo fieldEnthusiasm{"_enthusiasticValue",0x98,0x08};
 void* fakeGetFields(void* klass,void** iterator){
  const uintptr_t n=reinterpret_cast<uintptr_t>(*iterator);
