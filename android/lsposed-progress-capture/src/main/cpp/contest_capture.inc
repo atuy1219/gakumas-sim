@@ -722,7 +722,9 @@ bool namedOffset(Address object,std::initializer_list<const char*> names,bool re
             for(const char* request:names)if(std::strcmp(request,name)==0){matches=true;break;}
             if(!matches)continue;
             void* type=p.fieldType(field);const int kind=type?p.typeKind(type):-1;
-            if(reference?(kind!=0x12&&kind!=0x15&&kind!=0x1c):kind!=0x08)continue;
+            // Managed System.String (IL2CPP_TYPE_STRING = 0x0e) is a reference too.
+            // Excluding it silently rejected every ExamCardData._guid and ProduceCardData._id.
+            if(reference?(kind!=0x0e&&kind!=0x12&&kind!=0x15&&kind!=0x1c):kind!=0x08)continue;
             const size_t offset=p.fieldOffset(field);
             const int32_t length=p.instanceSize(cls);
             if(offset<0x10||length<=0||offset+(reference?8:4)>static_cast<size_t>(length))continue;
