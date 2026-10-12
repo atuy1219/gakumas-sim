@@ -159,6 +159,34 @@ jobs:
             }).slice(0,27000));
           }
           NODE
+      - name: Inspect temporary-upgrade source and active master effects
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          const c=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
+          const keys=["p_card-00-sup-3_027","p_card-03-men-0_013","p_card-03-act-3_055",
+            "p_card-03-men-3_058","p_card-00-sup-3_152","p_card-01-men-3_034"];
+          for(const id of keys){
+            const variants=(c.cardVariants??[]).filter(v=>v.id===id);
+            console.log("UPGRADE_MASTER "+id+" "+JSON.stringify(variants.map(v=>({
+              id:v.id,name:v.name,upgrade:v.upgradeCount,stamina:v.stamina,
+              playEffects:v.playEffects,statusEnchant:v.produceCardStatusEnchantId,
+              moveEffects:v.moveProduceExamEffectIds,originSupport:v.originSupportCardId,
+              movePosition:v.playMovePositionType,
+            }))).slice(0,12000));
+          }
+          const ie=new Map((c.itemEffects??[]).map(x=>[x.id,x]));
+          const en=new Map((c.examStatusEnchants??[]).map(x=>[x.id,x]));
+          const tr=new Map((c.examTriggers??[]).map(x=>[x.id,x]));
+          for(const id of ["pitem_03-0-007-0-016","pitem_03-3-134-0","pitem_00-3-010-0"]){
+            const item=(c.items??[]).find(x=>x.id===id);
+            const eff=(item?.produceItemEffectIds??[]).map(eid=>ie.get(eid)).filter(Boolean);
+            const ench=eff.map(x=>en.get(x.produceExamStatusEnchantId)).filter(Boolean);
+            console.log("ITEM_EXACT "+id+" "+JSON.stringify({
+              item,eff,ench:ench.map(e=>({...e,trigger:tr.get(e.produceExamTriggerId)}))
+            }).slice(0,16000));
+          }
+          NODE
       - name: Upload independent replay report
         if: always()
         uses: actions/upload-artifact@v4
