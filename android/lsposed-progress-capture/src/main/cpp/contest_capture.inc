@@ -14,6 +14,8 @@ uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFai
 size_t fileBytes=0;
 bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false, drawInstalled=false;
 bool selectedHooksAttempted=false;
+bool moveCardNativeInstalled=false,recycleNativeInstalled=false,shuffleNativeInstalled=false;
+bool createIdNativeInstalled=false,createSearchNativeInstalled=false,cardCommandNativeInstalled=false;
 uint64_t drawCalls=0,drawMatched=0,drawSamples=0,drawContextReadable=0,drawContextParameterMatched=0,moveContextReadable=0;
 uint64_t triggerCommandCalls=0, cardMoveCalls=0, effectSamples=0, cardMoveSamples=0, metricReadFailures=0;
 uint64_t cardMoveControllerReadable=0,cardMoveControllerMatched=0,cardMoveParameterMatched=0;
@@ -860,6 +862,7 @@ std::string selectedPoolsJson(Address sequence,Address parameter) {
     firstReadFailure=oldFailure;
     return s.str();
 }
+bool emit(const Run& run,const char* event,const std::string& content);
 // Exact v3.4.1 ROM: ExamEffectCalculateContext stores ExamParameter at
 // +0x10, CardController at +0x18, then Hand/Deck/Grave/Lost/Hold at
 // +0x20/+0x28/+0x30/+0x38/+0x40 (getter RVAs 0x802b584..0x802b614).
@@ -1001,6 +1004,12 @@ void status() {
       <<",\"cardSnapshotSequenceMatched\":"<<cardSnapshotSequenceMatched
       <<",\"cardSnapshotParameterMatched\":"<<cardSnapshotParameterMatched
       <<",\"cardMoveSamples\":"<<cardMoveSamples<<",\"effectSamples\":"<<effectSamples
+      <<",\"moveCardNativeInstalled\":"<<(moveCardNativeInstalled?"true":"false")
+      <<",\"recycleNativeInstalled\":"<<(recycleNativeInstalled?"true":"false")
+      <<",\"shuffleNativeInstalled\":"<<(shuffleNativeInstalled?"true":"false")
+      <<",\"createIdNativeInstalled\":"<<(createIdNativeInstalled?"true":"false")
+      <<",\"createSearchNativeInstalled\":"<<(createSearchNativeInstalled?"true":"false")
+      <<",\"cardCommandNativeInstalled\":"<<(cardCommandNativeInstalled?"true":"false")
       <<",\"nativeMetricReadFailures\":"<<metricReadFailures
       <<",\"limitDrops\":"<<drops<<",\"fileBytes\":"<<fileBytes<<",\"fileByteLimit\":"<<kFileLimit
       <<",\"scope\":\"selected-contest-auto-play-data\",\"gameCaptureVerified\":false,\"syntheticGameCalls\":false}";
@@ -1469,6 +1478,63 @@ __attribute__((noinline)) void* triggerCommand(void* self,void* commandList,uint
     if(triggerCommandCalls<=8 || (triggerCommandCalls&(triggerCommandCalls-1))==0)status();
     return result;
 }
+// Exact Build ID 77fda4e2...; typed void-returning methods (verified via
+// IL2CPP v31 method definitions and Assembly-CSharp codegen relocations).
+// Capture before and after each native mutation. Async effect completion is
+// NOT implied by any of these synchronous function returns.
+using MoveCardNativeFn=void(*)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+using RecycleNativeFn=void(*)(uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+using ShuffleNativeFn=void(*)(uintptr_t,uintptr_t,uintptr_t);
+using CreateNativeFn=void(*)(uintptr_t,uintptr_t,uintptr_t);
+using CardCommandNativeFn=void(*)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+MoveCardNativeFn originalMoveCardNative=nullptr;
+RecycleNativeFn originalRecycleNative=nullptr;
+ShuffleNativeFn originalShuffleNative=nullptr;
+CreateNativeFn originalCreateIdNative=nullptr,originalCreateSearchNative=nullptr;
+CardCommandNativeFn originalCardCommandNative=nullptr;
+__attribute__((noinline)) void moveCardNative(uintptr_t self,uintptr_t fromList,
+    uintptr_t target,uintptr_t effect,uintptr_t context,uintptr_t method){
+    const auto probe=beginMutation(self,context);
+    originalMoveCardNative(self,fromList,target,effect,context,method);
+    finishMutation(probe,"ExamCardMoveController.MoveCard");
+}
+__attribute__((noinline)) void recycleNative(uintptr_t self,uintptr_t context,
+    uintptr_t preDrawCount,uintptr_t method){
+    const auto probe=beginMutation(self,context);
+    originalRecycleNative(self,context,preDrawCount,method);
+    finishMutation(probe,"ExamCardMoveController.ReplaceGraveToDeck");
+}
+__attribute__((noinline)) void shuffleNative(uintptr_t self,uintptr_t context,
+    uintptr_t method){
+    const auto probe=beginMutation(self,context);
+    originalShuffleNative(self,context,method);
+    finishMutation(probe,"ExamCardMoveController.ShuffleDeck");
+}
+__attribute__((noinline)) void createIdNative(uintptr_t self,uintptr_t context,
+    uintptr_t method){
+    readBudget=48;firstReadFailure={};readStage.clear();
+    const auto identity=inspectContext(context);
+    const auto probe=beginMutation(identity.controller,context);
+    originalCreateIdNative(self,context,method);
+    finishMutation(probe,"CardCreateIdEffectExecutor.ExecuteEffect");
+}
+__attribute__((noinline)) void createSearchNative(uintptr_t self,uintptr_t context,
+    uintptr_t method){
+    readBudget=48;firstReadFailure={};readStage.clear();
+    const auto identity=inspectContext(context);
+    const auto probe=beginMutation(identity.controller,context);
+    originalCreateSearchNative(self,context,method);
+    finishMutation(probe,"CardCreateSearchEffectExecutor.ExecuteEffect");
+}
+__attribute__((noinline)) void cardCommandNative(uintptr_t self,uintptr_t position,
+    uintptr_t card,uintptr_t useCount,uintptr_t context,uintptr_t method){
+    readBudget=48;firstReadFailure={};readStage.clear();
+    const auto identity=inspectContext(context);
+    const auto probe=beginMutation(identity.controller,context);
+    originalCardCommandNative(self,position,card,useCount,context,method);
+    finishMutation(probe,"ExamSequence.ExecuteCardCommandImpl",card);
+}
+
 // Card movement is not completion of effects. Validate the context BEFORE
 // forwarding, because IL2CPP may reuse the calculation context afterwards.
 __attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t context,const void* method){
@@ -1476,7 +1542,9 @@ __attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t context,
     const bool trace=active&&active->setupRecorded&&self&&context;
     if(trace){readBudget=64;firstReadFailure={};readStage.clear();
         readable=namedRef(context,{"<ExamParameter>k__BackingField"},parameter);}
+    const auto mutation=beginMutation(reinterpret_cast<Address>(self),context);
     originalCardMove(self,card,context,method);
+    finishMutation(mutation,"ExamCardMoveController.MovePlayCard",reinterpret_cast<Address>(card));
     if(!trace)return;
     std::lock_guard<std::mutex> guard(mutex);++cardMoveCalls;
     if(active->controller)++cardMoveControllerReadable;
@@ -1656,6 +1724,13 @@ void install(const ImageInfo& image) {
     triggerCommandInstalled=install_hook(image.base+0x080A67B8,
         reinterpret_cast<void*>(triggerCommand),
         reinterpret_cast<void**>(&originalTriggerCommand));
+    // Relocation-derived native entrypoints for exact Build ID, no app calls added.
+    moveCardNativeInstalled=install_hook(image.base+0x82769B0,reinterpret_cast<void*>(moveCardNative),reinterpret_cast<void**>(&originalMoveCardNative));
+    recycleNativeInstalled=install_hook(image.base+0x827C978,reinterpret_cast<void*>(recycleNative),reinterpret_cast<void**>(&originalRecycleNative));
+    shuffleNativeInstalled=install_hook(image.base+0x827E884,reinterpret_cast<void*>(shuffleNative),reinterpret_cast<void**>(&originalShuffleNative));
+    createIdNativeInstalled=install_hook(image.base+0x804A504,reinterpret_cast<void*>(createIdNative),reinterpret_cast<void**>(&originalCreateIdNative));
+    createSearchNativeInstalled=install_hook(image.base+0x804AB14,reinterpret_cast<void*>(createSearchNative),reinterpret_cast<void**>(&originalCreateSearchNative));
+    cardCommandNativeInstalled=install_hook(image.base+0x80A5BB0,reinterpret_cast<void*>(cardCommandNative),reinterpret_cast<void**>(&originalCardCommandNative));
     // DrawCard/MovePlayCard are installed from live MethodInfo in recordSetup().
     std::lock_guard<std::mutex> guard(mutex);status();
 }
