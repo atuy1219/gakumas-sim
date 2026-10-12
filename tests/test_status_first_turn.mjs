@@ -138,8 +138,8 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
 {
   const s = setup(); drawTowerTurn(s); grant(s, 'ExamReview', 10);
   finishTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 0);
-  drawTowerTurn(s); finishTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 1);
-  drawTowerTurn(s);
+  drawTowerTurn(s); finishTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 0);
+  drawTowerTurn(s); assert.equal(s.exam.reviewConsumptionSum, 1);
   const score = {id: 'dependent-score', effectType: 'ProduceExamEffectType_ExamLessonFix', effectValue1: 7};
   s.examEffectById.set(score.id, score);
   s.examTriggerById.set('review-change', {id: 'review-change', phaseTypes: ['ProduceExamPhaseType_ExamStatusChange'],
