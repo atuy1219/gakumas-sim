@@ -219,6 +219,36 @@ std::string objectList(Address a,unsigned cap,Serializer serialize,bool& ok) {
     std::vector<Address> values;if(!list(a,cap,values)){ok=false;return "null";}
     return serializeObjects(values,serialize,ok);
 }
+// These are *selected* card plays reconstructed from native result-history
+// command log types 2 (play) and 4 (play from special position). Candidate
+// DFS contexts are never promoted to selected play events by this function.
+std::string selectedPlayedCards(Address commandLog,bool& ok){
+    std::vector<Address> logs;
+    if(!list(commandLog,128,logs)){ok=false;return "null";}
+    std::ostringstream out;
+    out<<'[';bool comma=false;
+    for(Address entry:logs){
+        if(!entry){ok=false;return "null";}
+        Address commandData=0,card=0;int32_t turn=0,phase=0,kind=0,index=0,position=0;
+        if(!read(entry,0x40,commandData)||!commandData||
+           !read(commandData,0x10,kind)) {ok=false;return "null";}
+        if(kind!=2&&kind!=4)continue;
+        if(!read(entry,0x28,card)||!card||
+           !read(entry,0x10,turn)||!read(entry,0x48,phase)||
+           !read(commandData,0x18,index)||!read(commandData,0x1c,position)) {
+            ok=false;return "null";
+        }
+        bool cardOk=true;const auto identity=liveCard(card,cardOk);
+        if(!cardOk||identity=="null"){ok=false;return "null";}
+        if(comma)out<<',';comma=true;
+        out<<"{\"turn\":"<<turn<<",\"phase\":"<<phase<<",\"commandType\":"
+           <<kind<<",\"playIndex\":"<<index<<",\"cardPosition\":"<<position
+           <<",\"card\":"<<identity
+           <<",\"source\":\"ExamSimulateResult.turns.commands\","
+           <<"\"selectedResultVerified\":true,\"cardEffectsComplete\":false}";
+    }
+    out<<']';return out.str();
+}
 std::string turn(Address a,bool& ok) {
     int32_t v[10]={},tail[3]={};Address refs[5]={},hold=0,enchant=0;
     if(!a || !bytes(a,0x10,v,sizeof(v)) || !bytes(a,0x38,refs,sizeof(refs)) || !bytes(a,0x60,tail,sizeof(tail)) ||
@@ -230,6 +260,7 @@ std::string turn(Address a,bool& ok) {
       <<",\"resultStatusEffects\":"<<objectList(refs[3],128,statusEffect,ok)
       <<",\"commands\":"<<objectList(refs[4],128,command,ok)<<",\"hold\":"<<objectList(hold,64,savedCard,ok)
       <<",\"triggeredEnchantIds\":"<<objectList(enchant,128,string,ok)
+      <<",\"selectedPlayedCards\":"<<selectedPlayedCards(refs[4],ok)
       <<",\"parameterType\":"<<tail[0]<<",\"idolStatusType\":"<<tail[1]<<",\"idolStatusStepCount\":"<<tail[2]<<'}';
     return s.str();
 }
@@ -1762,6 +1793,9 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     s<<",\"turnsEncoding\":\"delta\",\"turnStartIndex\":"<<before<<",\"turns\":";
     bool turnsArrayShaped=false;
     s<<turnHistory(local<Address>(r,40),active->turnsCaptured,ok,turnsArrayShaped,historyCount);
+    s<<",\"selectedPathEvidence\":\"native-ExamSimulateResult-turn-history\""
+     <<",\"selectedResultVerified\":"<<(ok?"true":"false")
+     <<",\"candidateDfsMutationsAreSelected\":false";
     s<<",\"turnCount\":"<<historyCount
      <<",\"turnsContainerShape\":\""<<(turnsArrayShaped?"array-shaped":"list-or-unknown")<<"\"";
     // Read the selected sequence after this natural selected-result callback.
