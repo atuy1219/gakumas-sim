@@ -14,7 +14,7 @@ uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFai
 size_t fileBytes=0;
 bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false, drawInstalled=false;
 bool selectedHooksAttempted=false;
-uint64_t drawCalls=0,drawMatched=0,drawSamples=0,moveContextReadable=0;
+uint64_t drawCalls=0,drawMatched=0,drawSamples=0,drawContextReadable=0,drawContextParameterMatched=0,moveContextReadable=0;
 uint64_t triggerCommandCalls=0, cardMoveCalls=0, effectSamples=0, cardMoveSamples=0, metricReadFailures=0;
 uint64_t cardMoveControllerReadable=0,cardMoveControllerMatched=0,cardMoveParameterMatched=0;
 uint64_t cardSnapshotAttempts=0,cardSnapshotParameterMatched=0,cardSnapshotSequenceMatched=0;
@@ -894,7 +894,9 @@ void status() {
       <<",\"cardMoveInstalled\":"<<(cardMoveInstalled?"true":"false")
        <<",\"drawInstalled\":"<<(drawInstalled?"true":"false")
        <<",\"drawCalls\":"<<drawCalls<<",\"drawControllerMatched\":"<<drawMatched
-       <<",\"drawSamples\":"<<drawSamples<<",\"cardMoveContextReadable\":"<<moveContextReadable
+       <<",\"drawSamples\":"<<drawSamples<<",\"drawContextReadable\":"<<drawContextReadable
+       <<",\"drawContextParameterMatched\":"<<drawContextParameterMatched
+       <<",\"cardMoveContextReadable\":"<<moveContextReadable
       <<",\"effectDifferenceInstalled\":false,\"effectDifferenceCalls\":0"
       <<",\"triggerCommandInstalled\":"<<(triggerCommandInstalled?"true":"false")
       <<",\"triggerCommandCalls\":"<<triggerCommandCalls<<",\"cardMoveCalls\":"<<cardMoveCalls
@@ -1386,27 +1388,47 @@ DrawFn originalDraw=nullptr;
 __attribute__((noinline)) uintptr_t drawCard(
     uintptr_t a0,uintptr_t a1,uintptr_t a2,uintptr_t a3,
     uintptr_t a4,uintptr_t a5,uintptr_t a6,uintptr_t a7){
-    const bool selected=active&&active->setupRecorded&&active->controller==a0;
-    std::string before="null";
-    if(selected){std::lock_guard<std::mutex> guard(mutex);
+    Run* selectedRun=active;
+    const bool selected=selectedRun&&selectedRun->setupRecorded&&
+                        selectedRun->controller==a0&&selectedRun->sequence;
+    std::string before="null",beforePools="null";
+    if(selected){
+        std::lock_guard<std::mutex> guard(mutex);
         readBudget=2048;firstReadFailure={};readStage.clear();
-        before=selectedHandJson(active->sequence);}
+        before=selectedHandJson(selectedRun->sequence);
+        beforePools=selectedPoolsJson(selectedRun->sequence,selectedRun->parameter);
+    }
+    // Native call exactly once: the returned value and all registers are forwarded.
     const uintptr_t result=originalDraw(a0,a1,a2,a3,a4,a5,a6,a7);
     if(!active)return result;
     std::lock_guard<std::mutex> guard(mutex);++drawCalls;
-    if(!selected){if(drawCalls<=8||(drawCalls&(drawCalls-1))==0)status();return result;}
+    if(!selected||active!=selectedRun){
+        if(drawCalls<=8||(drawCalls&(drawCalls-1))==0)status();
+        return result;
+    }
     ++drawMatched;readBudget=2048;firstReadFailure={};readStage.clear();
     Address parameter=0;
-    if(!namedRef(a2,{"<Parameter>k__BackingField","_parameter"},parameter)||
-       parameter!=active->parameter)return result;
+    // The v3.4.1 DrawCard third argument is not proven to be
+    // ExamEffectCalculateContext. Do not discard otherwise genuine calls from
+    // the exact selected controller merely because this optional lookup fails.
+    const bool contextReadable=a2&&namedRef(a2,{"<Parameter>k__BackingField","_parameter"},parameter);
+    if(contextReadable)++drawContextReadable;
+    const bool contextMatched=contextReadable&&parameter==selectedRun->parameter;
+    if(contextMatched)++drawContextParameterMatched;
     if(drawSamples>=kNativeCardSamplesPerSession){++drops;return result;}
-    const auto after=selectedHandJson(active->sequence);
+    const auto after=selectedHandJson(selectedRun->sequence);
+    const auto afterPools=selectedPoolsJson(selectedRun->sequence,selectedRun->parameter);
     std::ostringstream fields;
-    fields<<",\"capturePhase\":\"after-DrawCard\""
+    fields<<",\"capturePhase\":\"after-DrawCard-return\""
           <<",\"requestedCount\":"<<static_cast<int32_t>(a1)
           <<",\"beforeHand\":"<<before<<",\"afterHand\":"<<after
+          <<",\"beforePools\":"<<beforePools<<",\"afterPools\":"<<afterPools
+          <<",\"controllerIdentityMatched\":true"
+          <<",\"contextParameterReadable\":"<<(contextReadable?"true":"false")
+          <<",\"contextParameterMatched\":"<<(contextMatched?"true":"false")
+          <<",\"contextSignatureVerified\":false"
           <<",\"turnResultParityVerified\":false,\"cardEffectsComplete\":false";
-    if(emit(*active,"contest-draw",fields.str()))++drawSamples;
+    if(emit(*selectedRun,"contest-draw",fields.str()))++drawSamples;
     return result;
 }
 void installSelectedHooks(Address controller){
