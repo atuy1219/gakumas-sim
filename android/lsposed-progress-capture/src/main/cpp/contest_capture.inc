@@ -1473,7 +1473,9 @@ void emitCardObservation(Run& run,const char* event,Address sequence,Address exp
          <<",\"poolStateBeforeCommandBuild\":"<<beforeCommandPools
          <<",\"poolStateAtObservation\":"<<selectedPoolsJson(sequence,run.parameter)
          <<",\"cardEffectsComplete\":false"
-         <<",\"provenance\":\"native-command-builder-boundary-not-card-completion\""
+         <<",\"provenance\":\""<<(std::strcmp(event,"contest-card-command-return")==0
+                    ?"after-synchronous-card-command-return-not-async-effects"
+                    :"native-command-builder-boundary-not-card-completion")<<"\""
          <<",\"dataComplete\":"<<((sample.rawNumbers&&cardOk)?"true":"false");
     if(!sample.rawNumbers)++metricReadFailures;
     // emit() also persists the counters; update them before emitting so
@@ -1593,6 +1595,12 @@ __attribute__((noinline)) void cardCommandNative(uintptr_t self,uintptr_t positi
         originalCardCommandNative(self,position,card,useCount,context,method);
     }
     finishMutation(probe,"ExamSequence.ExecuteCardCommandImpl",card);
+    // Observe the same card after this synchronous native call. The method
+    // can schedule deferred effects, so this is NOT a completion marker.
+    if(active&&active->setupRecorded&&active->sequence==self&&card){
+        std::lock_guard<std::mutex> guard(mutex);
+        emitCardObservation(*active,"contest-card-command-return",self,card);
+    }
 }
 
 // Exact v3.4.1: <ExecuteCommandListImplAsync>d__110.MoveNext is at
