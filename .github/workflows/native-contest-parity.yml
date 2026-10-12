@@ -148,6 +148,10 @@ jobs:
              orderEqual:JSON.stringify(n.deck)===JSON.stringify(b.shuffled.map(c=>c.id)),
              randomEqual:n.afterRandomState===b.randomState,
             });
+            console.log("RNG_TRACE_SESSION "+sid+" "+JSON.stringify({
+              observations:s.simulation?.rngTrace??[],
+              firstNativeRandomState:refs[0]?.beforeRandomState,
+            }));
             console.log("RECYCLE_DIFF_SESSION "+sid+" "+JSON.stringify({
               native:refs.map(x=>({step:x.step,startRng:x.beforeRandomState,endRng:x.afterRandomState,grave:x.grave,deck:x.deck})),
               simulated:sims.map(x=>({turn:x.turn,phase:x.phase,randomState:x.randomState,source:x.source.map(c=>c.id),shuffled:x.shuffled.map(c=>c.id)})),
