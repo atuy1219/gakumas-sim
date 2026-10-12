@@ -70,18 +70,19 @@ FieldInfo fieldStance{"_stance",0x90,0x08},fieldFullPower{"_fullPowerPoint",0x94
 FieldInfo seqParameter{"<Parameter>k__BackingField",0x10,0x12},seqController{"<CardController>k__BackingField",0x58,0x12},seqHand{"_hand",0x60,0x12},seqStore{"_dataStore",0x68,0x12},handCards{"_cards",0x10,0x12};
 FieldInfo storeHand{"<HandList>k__BackingField",0x10,0x15},storeDeck{"<DeckList>k__BackingField",0x18,0x15},storeGrave{"<GraveList>k__BackingField",0x20,0x15},storeLost{"<LostList>k__BackingField",0x28,0x15},storeHold{"<HoldList>k__BackingField",0x30,0x15};
 FieldInfo playing{"<PlayingCard>k__BackingField",0x48,0x12},ctxParameter{"<ExamParameter>k__BackingField",0x10,0x12};
+FieldInfo ctxController{"<CardController>k__BackingField",0x18,0x12},ctxHand{"<HandList>k__BackingField",0x20,0x15},ctxDeck{"<DeckList>k__BackingField",0x28,0x15},ctxGrave{"<GraveList>k__BackingField",0x30,0x15},ctxLost{"<LostList>k__BackingField",0x38,0x15},ctxHold{"<HoldList>k__BackingField",0x40,0x15};
 FieldInfo master{"_cardData",0x10,0x12},guid{"_guid",0x18,0x0e},baseUpgrade{"_baseUpgradeCount",0x24,0x08},tmpUpgrade{"_tmpUpgradeCount",0x28,0x08},masterId{"_id",0x18,0x0e};
 FieldInfo fieldEnthusiasm{"_enthusiasticValue",0x98,0x08};
 void* fakeGetFields(void* klass,void** iterator){
  const uintptr_t n=reinterpret_cast<uintptr_t>(*iterator);
- FieldInfo* selected[6]={nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
+ FieldInfo* selected[8]={nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
  size_t count=0;
  if(klass==parameterClass){selected[0]=&fieldStance;selected[1]=&fieldFullPower;selected[2]=&fieldEnthusiasm;count=3;}
  else if(klass==sequenceClass){selected[0]=&seqParameter;selected[1]=&seqController;selected[2]=&seqHand;selected[3]=&seqStore;count=4;}
   else if(klass==storeClass){selected[0]=&storeHand;selected[1]=&storeDeck;selected[2]=&storeGrave;selected[3]=&storeLost;selected[4]=&storeHold;count=5;}
  else if(klass==handClass){selected[0]=&handCards;count=1;}
  else if(klass==controllerClass){selected[0]=&playing;count=1;}
- else if(klass==contextClass){selected[0]=&ctxParameter;count=1;}
+ else if(klass==contextClass){selected[0]=&ctxParameter;selected[1]=&ctxController;selected[2]=&ctxHand;selected[3]=&ctxDeck;selected[4]=&ctxGrave;selected[5]=&ctxLost;selected[6]=&ctxHold;count=7;}
  else if(klass==cardClass){selected[0]=&master;selected[1]=&guid;selected[2]=&baseUpgrade;selected[3]=&tmpUpgrade;count=4;}
  else if(klass==masterClass){selected[0]=&masterId;count=1;}
  else {selected[0]=klass==aggressiveClass?&fieldAggressive:&fieldValue;selected[1]=&fieldTurn;selected[2]=&fieldPassing;count=3;}
@@ -237,6 +238,26 @@ int main(){
  // Outside the exact session, forward once but never write evidence.
  assert(triggerCommand(sequence.data,(void*)0x1234,0,nullptr)==(void*)0x5678);
  assert(effectForwarded==2 && written==4);
+ // Verify the actual ROM-shaped effect context and bounded mutation snapshot.
+ // The fixture writes no game memory through the injected capture logic.
+ context.put<uintptr_t>(0x10,parameter.addr());
+ context.put<uintptr_t>(0x18,controller.addr());
+ context.put<uintptr_t>(0x20,handList.addr());
+ context.put<uintptr_t>(0x28,deckList.addr());
+ context.put<uintptr_t>(0x30,graveList.addr());
+ context.put<uintptr_t>(0x38,lostList.addr());
+ context.put<uintptr_t>(0x40,holdList.addr());
+ deckList.put<int32_t>(0x18,1);
+ Run evidence{};evidence.id=2;evidence.setupRecorded=true;
+ evidence.parameter=parameter.addr();evidence.controller=controller.addr();
+ active=&evidence;
+ const auto probe=beginMutation(controller.addr(),context.addr());
+ assert(probe.active && probe.selectedContext && probe.contextVerified);
+ deckList.put<int32_t>(0x18,0);
+ finishMutation(probe,"ExamCardMoveController.MoveCard");
+ assert(evidence.mutationSamples==1 && evidence.candidateMutationSamples==0);
+ assert(written==5);
+ active=nullptr;
 }
 '''
         with tempfile.TemporaryDirectory() as d:
@@ -251,8 +272,13 @@ int main(){
                            env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0'))
             events=[json.loads(line) for line in (root/'contest_capture.jsonl').read_text().splitlines()]
             self.assertEqual([x['event'] for x in events],
-                             ['contest-draw','contest-card-move','contest-card-command-snapshot','contest-draw'])
-            draw,move,effect,unverified_draw=events
+                             ['contest-draw','contest-card-move','contest-card-command-snapshot','contest-draw','contest-native-mutation'])
+            draw,move,effect,unverified_draw,mutation=events
+            self.assertTrue(mutation["selectedContextMatched"])
+            self.assertTrue(mutation["contextClassVerified"])
+            self.assertEqual(mutation["beforePools"]["deck"]["count"],1)
+            self.assertEqual(mutation["afterPools"]["deck"]["count"],0)
+            self.assertFalse(mutation["selectedRehearsalPathVerified"])
             self.assertTrue(unverified_draw["controllerIdentityMatched"])
             self.assertTrue(unverified_draw["contextParameterReadable"])
             self.assertFalse(unverified_draw["contextParameterMatched"])
