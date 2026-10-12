@@ -1519,8 +1519,16 @@ __attribute__((noinline)) void* triggerCommand(void* self,void* commandList,uint
         // The card command's actual x2 argument is more authoritative than
         // CardController.PlayingCard, which can be null during command construction.
         const Address sequence=reinterpret_cast<Address>(self);
-        const Address explicitCard=(currentCardCommand &&
-            currentCardCommand->sequence==sequence)?currentCardCommand->card:0;
+        Address explicitCard=0;
+        if(currentCardCommand && currentCardCommand->sequence==sequence) {
+            explicitCard=currentCardCommand->card;
+            // ELF ExamEffectCalculateContext.get_PlayingCard loads +0x78.
+            // Resolve the typed field through live IL2CPP metadata instead of
+            // trusting a hard-coded offset or an unrelated controller instance.
+            if(!explicitCard && currentCardCommand->context)
+                namedRef(currentCardCommand->context,
+                         {"<PlayingCard>k__BackingField"},explicitCard);
+        }
         emitCardObservation(*selectedRun,"contest-card-command-snapshot",
                             sequence,explicitCard,beforeCommandPools);
     }
