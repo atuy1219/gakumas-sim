@@ -1482,6 +1482,8 @@ function registerResolvedPItems(state) {
           specs.push({
             id: String(effect.id ?? enchant.id ?? pItemId),
             phase,
+            // Native ExamStartTurn precedes ExamTurnInterval within START_OF_TURN.
+            priority: phaseType === "ProduceExamPhaseType_ExamStartTurn" ? -1 : 0,
             turn,
             condition: {
               kind: "masterExamTrigger",
@@ -2631,7 +2633,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "ExamBlockFix": status("block", v1, "元気"); return;
     case "ExamBlockAddMultipleAggressive": {
-      const added = calculateNativeBlockAdd(exam, v1, v2 / 1000);
+      // Native ExamBlockAddMultipleAggressive: Value2 adds to 100%.
+      const added = calculateNativeBlockAdd(exam, v1, 1 + v2 / 1000);
       exam.block += added; event.effects.push(`元気 +${added}`); return;
     }
     case "ExamBlockPerUseCardCount": status("block", v1 * Math.min(Number(exam.cardPlayCount ?? 0), v2 || Infinity), "元気"); return;
@@ -2656,7 +2659,11 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       const amount = type === "ExamStaminaReduce" && v1 < 0
         ? Math.ceil(Number(exam.maxStamina ?? 0) * Math.abs(v1) / 1000)
         : Math.abs(v1);
-      const resolved = calculateNativeStaminaDamage(exam, amount, { penetrate: type !== "ExamStaminaDamage" });
+      const resolved = calculateNativeStaminaDamage(exam, amount, {
+        penetrate: type !== "ExamStaminaDamage",
+        // Fixed direct reduction bypasses ordinary card cost fixed discounts.
+        applyFixed: type !== "ExamStaminaReduceFix",
+      });
       exam.block = Math.max(0, exam.block - resolved.blockDamage);
       exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
       exam.blockConsumptionSum += resolved.blockDamage;
