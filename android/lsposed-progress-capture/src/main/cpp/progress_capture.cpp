@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <link.h>
 #include <map>
+#include <memory>
 #include <set>
 #include <initializer_list>
 #include <mutex>

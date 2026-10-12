@@ -2,13 +2,14 @@
 #include <cmath>
 #include <cctype>
 #include <dlfcn.h>
+#include "contest_lineage.h"
 // Selected auto-play results only. No polling, synthetic getters or DFS leaf logs.
 namespace contest_capture {
 using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
-constexpr size_t kFileLimit = 8 * 1024 * 1024;
+constexpr size_t kFileLimit = 32 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0, commandListSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; int32_t latestStamina=0,latestBlock=0,latestTurn=0; uint64_t staminaGetterCalls=0,blockGetterCalls=0,turnGetterCalls=0; };
+struct Run { std::shared_ptr<TraceStore> trace; uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0, commandListSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; int32_t latestStamina=0,latestBlock=0,latestTurn=0; uint64_t staminaGetterCalls=0,blockGetterCalls=0,turnGetterCalls=0; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
@@ -25,6 +26,15 @@ uint64_t cardSnapshotAttempts=0,cardSnapshotParameterMatched=0,cardSnapshotSeque
 constexpr unsigned kNativeCardSamplesPerSession=512;
 std::atomic<bool> attempted{false};
 thread_local Run* active=nullptr;
+bool lineageHooksInstalled=false,exceptionHookInstalled=false;
+uint64_t lineageSelectedEvents=0,lineageSelectedSaves=0,lineageMissingSaves=0,lineageDrops=0;
+uint64_t cloneCalls=0,loadCalls=0,commandCompletions=0;
+Address sequenceForContext(Address context);
+void bindTraceSequence(Address sequence);
+std::string traceMetrics(Address sequence);
+void traceAppend(Address sequence,const char* event,const std::string& fields);
+void traceBeginCard(Address sequence,Address card);
+void publishSelectedTrace(Run& run,Address save);
 // The exact ELF's ExamSequence.ExecuteCardCommandImpl (0x080A5BB0) receives
 // the concrete ExamCardData in x2. GetTriggerEffectListCommand runs inside it,
 // before CardController.PlayingCard has necessarily been populated.
@@ -963,7 +973,7 @@ std::string contextPoolsJson(Address context){
 }
 struct MutationProbe {
     Run* run=nullptr;
-    Address context=0, controller=0;
+    Address context=0, controller=0, sequence=0;
     bool active=false,selectedContext=false,contextVerified=false;
     std::string before="null";
 };
@@ -978,18 +988,17 @@ MutationProbe beginMutation(Address controller,Address context){
     p.selectedContext=identity.verified&&identity.parameter==p.run->parameter&&
                        identity.controller==controller&&
                        controller==p.run->controller;
-    if(p.selectedContext)
+    p.sequence=sequenceForContext(context);
+    if(p.run->trace && lineageHooksInstalled)
+        p.active=p.contextVerified&&p.sequence;
+    else if(p.selectedContext)
         p.active=p.run->mutationSamples<kMutationSelectedCap;
     else{
-        // Sample a small number of cloned search candidates per selected
-        // progress step, not just at the start of rehearsal. These candidates
-        // must never be reported as confirmed real-game action sequences.
         if(p.run->candidateMutationStep!=p.run->steps){
             p.run->candidateMutationStep=p.run->steps;
             p.run->candidateSamplesThisStep=0;
         }
-        p.active=p.contextVerified&&
-                 p.run->candidateMutationSamples<kMutationCandidateCap&&
+        p.active=p.contextVerified&&p.run->candidateMutationSamples<kMutationCandidateCap&&
                  p.run->candidateSamplesThisStep<kMutationCandidatePerStepCap;
     }
     if(p.active)p.before=contextPoolsJson(context);
@@ -1012,6 +1021,9 @@ void finishMutation(const MutationProbe& p,const char* action,Address card=0){
      <<",\"cardIdentityVerified\":"<<(cardOk?"true":"false")
      <<",\"beforePools\":"<<p.before<<",\"afterPools\":"<<after
      <<",\"cardEffectsComplete\":false";
+    if(p.run->trace && lineageHooksInstalled){
+        traceAppend(p.sequence,"contest-native-mutation",e.str());return;
+    }
     if(p.selectedContext)++p.run->mutationSamples;
     else ++p.run->candidateMutationSamples,++p.run->candidateSamplesThisStep;
     if(!emit(*p.run,"contest-native-mutation",e.str())){
@@ -1148,6 +1160,14 @@ void status() {
       <<",\"blockGetterInstalled\":"<<(blockGetterInstalled?"true":"false")
       <<",\"turnGetterInstalled\":"<<(turnGetterInstalled?"true":"false")
       <<",\"nativeMetricReadFailures\":"<<metricReadFailures
+      <<",\"lineageHooksInstalled\":"<<(lineageHooksInstalled?"true":"false")
+      <<",\"commandExceptionHookInstalled\":"<<(exceptionHookInstalled?"true":"false")
+      <<",\"cloneCalls\":"<<cloneCalls<<",\"loadCalls\":"<<loadCalls
+      <<",\"commandCompletions\":"<<commandCompletions
+      <<",\"lineageSelectedEvents\":"<<lineageSelectedEvents
+      <<",\"lineageSelectedSaves\":"<<lineageSelectedSaves
+      <<",\"lineageMissingSaves\":"<<lineageMissingSaves
+      <<",\"lineageDrops\":"<<lineageDrops
       <<",\"limitDrops\":"<<drops<<",\"fileBytes\":"<<fileBytes<<",\"fileByteLimit\":"<<kFileLimit
       <<",\"scope\":\"selected-contest-auto-play-data\",\"gameCaptureVerified\":false,\"syntheticGameCalls\":false}";
     atomic_write(path("contest_capture_status.json"),s.str());
@@ -1212,6 +1232,8 @@ void recordSetup(Address sequence,BeforeSetup before) {
     uint32_t randomState=0;
     const bool randomRead=hasParameter && read(parameter,0x77c,randomState);
     active->parameter=hasParameter?parameter:0;
+    if(lineageHooksInstalled){active->trace=std::make_shared<TraceStore>();active->trace->sequences[sequence]=TraceBranch{};bindTraceSequence(sequence);}
+    readBudget=8192;
     if(hasController)installSelectedHooks(controller);
     if(hasParameter)installNumericGetterHooks(parameter);
     std::ostringstream content;
@@ -1526,6 +1548,8 @@ std::string sampleJson(const NativeStatusSample& s) {
        <<",\"parameterStatusFields\":"<<parameterFieldsJson(s.parameterFields)<<"}";
     return out.str();
 }
+#include "contest_lineage.inc"
+
 void emitCardObservation(Run& run,const char* event,Address sequence,Address explicitCard,
                          const std::string& beforeCommandPools="null") {
     // Owner identity is validated at setup; do not mix forecast/clone
@@ -1624,7 +1648,7 @@ __attribute__((noinline)) void* triggerCommand(void* self,void* commandList,uint
     void* result=originalTriggerCommand(self,commandList,mode,method);
     if(!active||!self)return result;
     std::lock_guard<std::mutex> guard(mutex);++triggerCommandCalls;
-    if(selected&&active==selectedRun) {
+    if(!lineageHooksInstalled&&selected&&active==selectedRun) {
         // The card command's actual x2 argument is more authoritative than
         // CardController.PlayingCard, which can be null during command construction.
         const Address sequence=reinterpret_cast<Address>(self);
@@ -1696,6 +1720,7 @@ __attribute__((noinline)) void cardCommandNative(uintptr_t self,uintptr_t positi
     uintptr_t card,uintptr_t useCount,uintptr_t context,uintptr_t method){
     readBudget=48;firstReadFailure={};readStage.clear();
     const auto identity=inspectContext(context);
+    traceBeginCard(self,card);
     const auto probe=beginMutation(identity.controller,context);
     {
         ScopedCardCommand commandScope(self,context,card);
@@ -1704,7 +1729,7 @@ __attribute__((noinline)) void cardCommandNative(uintptr_t self,uintptr_t positi
     finishMutation(probe,"ExamSequence.ExecuteCardCommandImpl",card);
     // Observe the same card after this synchronous native call. The method
     // can schedule deferred effects, so this is NOT a completion marker.
-    if(active&&active->setupRecorded&&active->sequence==self&&card){
+    if(!lineageHooksInstalled&&active&&active->setupRecorded&&active->sequence==self&&card){
         std::lock_guard<std::mutex> guard(mutex);
         emitCardObservation(*active,"contest-card-command-return",self,card);
     }
@@ -1721,10 +1746,19 @@ __attribute__((noinline)) void commandListMoveNext(uintptr_t stateMachine,uintpt
     readBudget=64;firstReadFailure={};readStage.clear();
     const bool identity=stateMachine&&read(stateMachine,0,before)&&
                         read(stateMachine,0x18,sequence)&&sequence;
+    CommandFinishFrame frame{stateMachine+8,false,currentCommandFinish};
+    frame.sequence=sequence;
+    if(identity){read(stateMachine,8,frame.runner);installRunnerResult(frame.runner);}
+    currentCommandFinish=&frame;
     originalCommandListMoveNext(stateMachine,method); // exactly once
+    currentCommandFinish=frame.previous;
     if(!identity)return;
     readBudget=64;firstReadFailure={};readStage.clear();
     if(!read(stateMachine,0,after)||before==-2||after!=-2)return;
+    if(lineageHooksInstalled&&active&&active->trace){
+        if(!frame.recorded)traceCommandCompletion(sequence,exceptionHookInstalled&&!frame.exception);
+        return;
+    }
     std::lock_guard<std::mutex> guard(mutex);
     Run* selected=nullptr;
     if(active&&active->setupRecorded&&active->sequence==sequence)
@@ -1767,7 +1801,7 @@ __attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t context,
     if(readable)++moveContextReadable;
     const bool parameterMatched=readable&&parameter==active->parameter;
     if(parameterMatched)++cardMoveParameterMatched;
-    if(controllerMatched&&parameterMatched)
+    if(!lineageHooksInstalled&&controllerMatched&&parameterMatched)
         emitCardObservation(*active,"contest-card-move",active->sequence,
                             reinterpret_cast<Address>(card));
     if(cardMoveCalls<=8 || (cardMoveCalls&(cardMoveCalls-1))==0)status();
@@ -1782,7 +1816,7 @@ __attribute__((noinline)) uintptr_t drawCard(
     Run* selectedRun=active;
     const bool selected=selectedRun&&selectedRun->setupRecorded&&
                         selectedRun->controller==a0&&selectedRun->sequence;
-    const auto candidateProbe=selected?MutationProbe{}:beginMutation(a0,a2);
+    const auto candidateProbe=(selected&&!lineageHooksInstalled)?MutationProbe{}:beginMutation(a0,a2);
     std::string before="null",beforePools="null";
     if(selected){
         std::lock_guard<std::mutex> guard(mutex);
@@ -1858,7 +1892,7 @@ __attribute__((noinline)) SearchResult result(void* self,const void* method) {
     std::lock_guard<std::mutex> guard(mutex);++selectedCalls;
     active->terminal=local<uint8_t>(r,64)!=0;
     if(active->steps>=kStepLimit){++drops;status();return r;}
-    ++active->steps;readBudget=8192;firstReadFailure={};readStage.clear();bool ok=true;
+    ++active->steps;publishSelectedTrace(*active,local<Address>(r,24));readBudget=8192;firstReadFailure={};readStage.clear();bool ok=true;
     const bool terminal=local<uint8_t>(r,64)!=0;active->terminal=terminal;
     std::ostringstream s;s<<",\"score\":"<<local<int32_t>(r,48)<<",\"vocal\":"<<local<int32_t>(r,52)
       <<",\"dance\":"<<local<int32_t>(r,56)<<",\"visual\":"<<local<int32_t>(r,60)
@@ -1951,6 +1985,7 @@ void install(const ImageInfo& image) {
     createIdNativeInstalled=install_hook(image.base+0x804A504,reinterpret_cast<void*>(createIdNative),reinterpret_cast<void**>(&originalCreateIdNative));
     createSearchNativeInstalled=install_hook(image.base+0x804AB14,reinterpret_cast<void*>(createSearchNative),reinterpret_cast<void**>(&originalCreateSearchNative));
     cardCommandNativeInstalled=install_hook(image.base+0x80A5BB0,reinterpret_cast<void*>(cardCommandNative),reinterpret_cast<void**>(&originalCardCommandNative));
+    installLineageHooks(image);
     commandListFinishInstalled=install_hook(image.base+0x80E0F40,reinterpret_cast<void*>(commandListMoveNext),reinterpret_cast<void**>(&originalCommandListMoveNext));
     // DrawCard/MovePlayCard are installed from live MethodInfo in recordSetup().
     std::lock_guard<std::mutex> guard(mutex);status();

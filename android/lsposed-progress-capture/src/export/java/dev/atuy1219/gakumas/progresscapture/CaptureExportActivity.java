@@ -89,11 +89,16 @@ public final class CaptureExportActivity extends Activity {
                     + "\nカード指令呼出: " + s.optLong("triggerCommandCalls")
                     + "\nコントローラー読取: " + s.optLong("cardMoveControllerReadable")
                     + "\nコントローラー一致: " + s.optLong("cardMoveControllerMatched")
+                    + "\n探索コピー追跡: " + s.optBoolean("lineageHooksInstalled")
+                    + "\n採用経路の記録: " + s.optLong("lineageSelectedEvents")
+                    + "\n採用結果との照合: " + s.optLong("lineageSelectedSaves")
+                    + "\n採用結果の照合失敗: " + s.optLong("lineageMissingSaves")
+                    + "\n探索記録の欠落: " + s.optLong("lineageDrops")
                     + "\nパラメータ一致: " + s.optLong("cardMoveParameterMatched")
                     + "\n記録試行: " + s.optLong("cardSnapshotAttempts")
                     + "\n記録用パラメータ一致: " + s.optLong("cardSnapshotParameterMatched")
                     + "\nステータス取得失敗: " + s.optLong("nativeMetricReadFailures")
-                    + "\n注意: 指令生成時の状態であり、全効果完了を保証しません";
+                    + (s.optBoolean("lineageHooksInstalled") ? "\n採用経路の完了状態を記録します" : "\n探索コピーの追跡が未成立です");
                 runOnUiThread(() -> statusView.setText(text));
             } catch (Exception e) { showError(e); }
             finally { runOnUiThread(() -> busy = false); }
@@ -105,7 +110,7 @@ public final class CaptureExportActivity extends Activity {
         new Thread(() -> {
             try {
                 String name = previous ? "contest_capture.previous.jsonl" : "contest_capture.jsonl";
-                String raw = new String(readRoot(name, 8 * 1024 * 1024), StandardCharsets.UTF_8);
+                String raw = new String(readRoot(name, 32 * 1024 * 1024), StandardCharsets.UTF_8);
                 JSONArray events = new JSONArray();
                 boolean incompleteTail = !raw.endsWith("\n");
                 String[] lines = raw.split("\n", -1);

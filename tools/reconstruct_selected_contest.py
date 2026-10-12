@@ -72,6 +72,13 @@ def reconstruct(document):
             key = identity(probe.get("card"))
             if key:
                 by_guid[key].append(probe)
+        completions = [row for row in rows if row.get("event") == "contest-card-use-complete"
+                       and row.get("selectedLineageVerified") is True
+                       and row.get("lineageComplete") is True
+                       and row.get("completionSuccessVerified") is True
+                       and row.get("cardUseCompletionVerified") is True
+                       and row.get("singleCardAction") is True]
+        consumed_completions = set()
         turns = []
         selected_plays = []
         errors = []
@@ -131,6 +138,34 @@ def reconstruct(document):
                         "perCardScoreAvailable": False,
                         "cardEffectsComplete": False,
                     }
+                    # The event is already selected through native clone/save
+                    # identity. GUID is used only to assign that verified event
+                    # to its command, preserving repeated uses in turn order.
+                    for ci, done in enumerate(completions):
+                        before_metrics = done.get("beforeMetrics") or {}
+                        after_metrics = done.get("metrics") or {}
+                        if (ci in consumed_completions
+                                or done.get("step") != step.get("step")
+                                or after_metrics.get("turn") != number
+                                or identity(done.get("card")) != ident):
+                            continue
+                        consumed_completions.add(ci)
+                        measured = (before_metrics.get("available") is True
+                                    and after_metrics.get("available") is True
+                                    and isinstance(before_metrics.get("score"), int)
+                                    and isinstance(after_metrics.get("score"), int))
+                        record.update({
+                            "candidateLineageVerified": True,
+                            "cardActionSerial": done.get("cardActionSerial"),
+                            "perCardScore": after_metrics["score"] - before_metrics["score"] if measured else None,
+                            "perCardScoreAvailable": measured,
+                            "cardEffectsComplete": True,
+                            "beforeMetrics": before_metrics,
+                            "afterMetrics": after_metrics,
+                            "poolStateAfterCard": done.get("poolState"),
+                            "measurementSource": "native-selected-clone-command-list-completion",
+                        })
+                        break
                     stage["playedCards"].append(record)
                     selected_plays.append(record)
                 turns.append(stage)
@@ -173,7 +208,7 @@ def reconstruct(document):
         "reconstructionNotes": [
             "Selected turns and played cards are sourced from game-owned result logs.",
             "Turn score snapshots are not per-card scores.",
-            "DFS candidate GUID matches are correlations, not verified clone ancestry.",
+            "Unselected DFS candidate GUID matches remain correlations; only native selected-save lineage verifies ancestry.",
             "Obscured<T> backing integers must not be treated as decrypted metrics.",
         ],
         "sessions": sessions,

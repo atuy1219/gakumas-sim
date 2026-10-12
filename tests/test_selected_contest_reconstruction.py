@@ -29,6 +29,26 @@ def sample_capture():
 
 
 class SelectedContestReconstructionTests(unittest.TestCase):
+    def test_only_complete_selected_single_card_boundary_supplies_score(self):
+        capture = sample_capture()
+        done = {"sessionId": 1, "event": "contest-card-use-complete", "step": 1,
+                "selectedLineageVerified": True, "lineageComplete": True,
+                "completionSuccessVerified": True, "cardUseCompletionVerified": True,
+                "singleCardAction": True, "cardActionSerial": 7,
+                "card": {"id": "p_card-a", "guid": "card-guid-1"},
+                "beforeMetrics": {"available": True, "score": 12},
+                "metrics": {"available": True, "score": 100, "turn": 1}}
+        capture["events"].insert(2, done)
+        play = reconstruct(capture)["sessions"][0]["selectedPlays"][0]
+        self.assertEqual(play["perCardScore"], 88)
+        self.assertEqual(play["cardActionSerial"], 7)
+        self.assertTrue(play["cardEffectsComplete"])
+        for key in ("selectedLineageVerified", "lineageComplete", "singleCardAction",
+                    "completionSuccessVerified", "cardUseCompletionVerified"):
+            done[key] = False
+            self.assertIsNone(reconstruct(capture)["sessions"][0]["selectedPlays"][0]["perCardScore"])
+            done[key] = True
+
     def test_native_result_is_authoritative_and_guid_is_only_a_clue(self):
         result = reconstruct(sample_capture())
         self.assertEqual(result["sessionCount"], 1)

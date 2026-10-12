@@ -1,0 +1,130 @@
+"""Exercise sibling DFS branches, saved-state identity and async continuation order."""
+import ast
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+CPP = ROOT / 'android/lsposed-progress-capture/src/main/cpp'
+
+
+class LineageTests(unittest.TestCase):
+    def test_branch_selection_and_actual_completion(self):
+        # Reuse the metadata/memory fixture, with an independent native scenario.
+        tree = ast.parse((ROOT / 'tests/test_native_card_telemetry.py').read_text())
+        fixture = max((n.value for n in ast.walk(tree)
+                       if isinstance(n, ast.Constant) and isinstance(n.value, str)), key=len)
+        source = fixture[:fixture.index(' Run run{};')]
+        source += r'''
+ Run run{};run.id=1;run.sequence=sequence.addr();run.parameter=parameter.addr();
+ run.controller=controller.addr();run.setupRecorded=true;active=&run;
+ run.trace=std::make_shared<TraceStore>();run.trace->sequences[sequence.addr()]={};
+ lineageHooksInstalled=true;exceptionHookInstalled=true;bindTraceSequence(sequence.addr());
+ context.put(0x18,controller.addr());
+ assert(sequenceForContext(context.addr())==sequence.addr());
+ // A genuine nonzero flipper seed: raw storage is never a valid score.
+ const uint32_t seed=0xf137be92;
+ parameter.put<uint32_t>(0x570+4,seed);
+ parameter.put<uint32_t>(0x570+0x18,uint32_t(0xf0d7ceb6));
+ readBudget=64;int32_t decoded=0;
+ assert(obscuredInt(parameter.addr(),0x570,decoded)&&decoded==1234);
+ parameter.put<uint8_t>(0x58c,0);
+ parameter.put<uint8_t>(0x5a8,0);
+ Obj executionState,executionCommand;
+ executionState.put<int32_t>(0,-1);executionState.put(0x18,executionCommand.addr());
+ executionState.put(0x20,sequence.addr());executionCommand.put<int32_t>(0x10,2);
+ originalCommandExecution=[](uintptr_t sm,uintptr_t){
+     parameter.put<int32_t>(0x1cc+0x18,25); // game's cost, before card builder
+     traceBeginCard(sequence.addr(),card.addr());
+     int32_t done=-2;memcpy((void*)sm,&done,4);
+ };
+ commandExecution(executionState.addr(),0);
+ Obj commandState;
+ commandState.put<int32_t>(0,-1);commandState.put(0x18,sequence.addr());
+ parameter.put<uint32_t>(0x570+0x18,uint32_t(0xf0d7cf60));
+ originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){int32_t done=-2;memcpy((void*)sm,&done,4);};
+ commandListMoveNext(commandState.addr(),0);
+ assert(commandCompletions==1);
+ Obj sibling, selectedSave, rejectedSave;
+ // Identical GUIDs on siblings must not cause candidate mixing.
+ run.trace->copy(sibling.addr(),sequence.addr());
+ run.trace->append(sibling.addr(),"rejected-sibling",",\"card\":{\"guid\":\"guid-001\"}");
+ run.trace->save(rejectedSave.addr(),sibling.addr());
+ run.trace->append(sequence.addr(),"selected-move",",\"marker\":1");
+ run.trace->save(selectedSave.addr(),sequence.addr());
+ run.steps=1;publishSelectedTrace(run,selectedSave.addr());
+ assert(lineageSelectedEvents==3&&lineageSelectedSaves==1);
+ assert(run.trace->bytes==0&&run.trace->sequences.size()==1);
+ // Exact saved checkpoint loaded for a subsequent search. Unknown/reused
+ // save addresses must erase old ancestry rather than silently inheriting it.
+ assert(run.trace->load(sequence.addr(),selectedSave.addr()));
+ assert(!run.trace->load(sibling.addr(),rejectedSave.addr()));
+ run.trace->save(selectedSave.addr(),sibling.addr());
+ assert(!run.trace->saves.count(selectedSave.addr()));
+ // Unregistered classes sharing a generic runner entry still forward once.
+ runnerSlotOriginals[0]=[](uintptr_t self,uintptr_t){assert(self==sequence.addr());++effectForwarded;};
+ runnerResultSlot<0>(sequence.addr(),0);assert(effectForwarded==1);
+ // A thrown/cancelled command list sets -2 too; it is not successful.
+ traceBeginCard(sequence.addr(),card.addr());
+ commandState.put<int32_t>(0,-1);
+ originalBuilderException=[](uintptr_t,uintptr_t,uintptr_t){};
+ originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){
+     builderException(sm+8,0x1234,0);
+     int32_t done=-2;memcpy((void*)sm,&done,4);
+ };
+ commandListMoveNext(commandState.addr(),0);
+ run.trace->save(selectedSave.addr(),sequence.addr());
+ run.steps=2;publishSelectedTrace(run,selectedSave.addr());
+ // Suspended SetResult resumes its parent inline. The snapshot must already
+ // exist when that continuation creates/selects/disposes the native save.
+ run.trace->sequences[sequence.addr()].complete=true;
+ traceBeginCard(sequence.addr(),card.addr());
+ Obj runner;runner.put(0,(uintptr_t)controllerClass);
+ commandState.put<int32_t>(0,0);commandState.put(8,runner.addr());
+ runnerClassOriginals[(uintptr_t)controllerClass]=[](uintptr_t,uintptr_t){
+     assert(active->trace->sequences[sequence.addr()].pendingCards.empty());
+     active->trace->save(0xfeed,sequence.addr());
+     ++active->steps;publishSelectedTrace(*active,0xfeed);
+ };
+ originalCommandListMoveNext=[](uintptr_t sm,uintptr_t){
+     int32_t done=-2;memcpy((void*)sm,&done,4);
+     runnerResult(currentCommandFinish->runner,0);
+ };
+ commandListMoveNext(commandState.addr(),0);
+ assert(commandCompletions==3); // exactly one for each original invocation
+ active=nullptr;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / 'test.cpp').write_text(source)
+            subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                            '-Wno-misleading-indentation', '-fsanitize=address,undefined',
+                            '-fno-pie', '-no-pie',
+                            '-DGAKUMAS_CONTEST_CAPTURE_DIR="'+directory+'/"',
+                            '-I', str(CPP), str(folder/'test.cpp'), '-o', str(folder/'test')], check=True)
+            subprocess.run([str(folder/'test')], check=True,
+                           env=dict(os.environ, ASAN_OPTIONS='detect_leaks=0'))
+            rows = [json.loads(line) for line in (folder/'contest_capture.jsonl').read_text().splitlines()]
+            self.assertNotIn('rejected-sibling', [r['event'] for r in rows])
+            completions = [r for r in rows if r['event']=='contest-card-use-complete']
+            self.assertEqual(len(completions), 3)
+            normal, failed, suspended = completions
+            self.assertTrue(normal['selectedLineageVerified'])
+            self.assertTrue(normal['cardUseCompletionVerified'])
+            self.assertEqual(normal['beforeMetrics']['score'], 1234)
+            self.assertEqual(normal['metrics']['score'], 1284)
+            self.assertEqual(normal['metrics']['turn'], 1)
+            self.assertEqual(normal['beforeMetrics']['stamina'], 30)
+            self.assertEqual(normal['metrics']['stamina'], 25)
+            self.assertFalse(failed['completionSuccessVerified'])
+            self.assertFalse(failed['cardEffectsComplete'])
+            self.assertFalse(failed['lineageComplete'])
+            self.assertTrue(suspended['completionSuccessVerified'])
+
+
+if __name__ == '__main__':
+    unittest.main()

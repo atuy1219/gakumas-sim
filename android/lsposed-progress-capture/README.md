@@ -1,3 +1,20 @@
+## v1.5.31: selected DFS lineage and completion snapshots
+
+The contest detail mode (4224) follows native DeepCopy/SyncData/LoadExam and
+anchors observations to the exact ExamSaveData returned by GetSearchResult.
+Unselected sibling candidates are buffered, then discarded at each checkpoint.
+The new `contest-card-use-complete` records include executed cards, serials,
+ordered pools and ELF-decoded score/stamina/block/turn. Exception completion is
+rejected; suspended SetResult callbacks are sampled before they resume parents.
+The exporter displays selected-lineage matches and missing/overflow counts.
+
+Use `tools/reconstruct_selected_contest.py` for measured single-card deltas.
+Multi-card lists remain grouped. Host tests and APK validation do not establish
+on-device coverage; the next rehearsal capture is the verification source.
+See [ELF findings](../../docs/contest-capture-v1.5.31-elf-findings.md).
+
+---
+
 ## v1.5.28: ROM-verified controller offset and instrumented command boundary
 
 For the **コンテスト詳細取得（4224）** opt-in mode, v1.5.27 native
