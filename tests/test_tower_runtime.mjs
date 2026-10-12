@@ -1744,3 +1744,62 @@ assert.equal(run(0), 0, "zero matches skip chained effects");
 assert.equal(run(2), 4, "two matches run the chained effect twice");
 console.log("native effect per search count tests: ok");
 }
+
+
+// Native EffectTimerEffectExecutor delay regression (ELF RVA 0x0804D768).
+// The native constructor reads get_EffectValue1 rather than get_EffectTurn;
+// an effect with effectValue1=2 and effectTurn=0 must fire on the second
+// FOLLOWING turn, not together with a 1-turn timer.
+{
+  const timerCard = {
+    id: "timer-card",
+    upgradeCount: 0,
+    playEffects: [
+      { produceExamEffectId: "timer-after-1" },
+      { produceExamEffectId: "timer-after-2" },
+    ],
+  };
+  const timerDeck = [
+    timerCard,
+    { id: "timer-filler-a", upgradeCount: 0 },
+    { id: "timer-filler-b", upgradeCount: 0 },
+  ];
+  const timerMasters = new Map([
+    ["timer-after-1", {
+      id: "timer-after-1",
+      effectType: "ProduceExamEffectType_ExamEffectTimer",
+      effectValue1: 1, effectTurn: 0, effectCount: 1,
+      chainProduceExamEffectId: "timer-block-7",
+    }],
+    ["timer-after-2", {
+      id: "timer-after-2",
+      effectType: "ProduceExamEffectType_ExamEffectTimer",
+      effectValue1: 2, effectTurn: 0, effectCount: 1,
+      chainProduceExamEffectId: "timer-block-11",
+    }],
+    ["timer-block-7", {
+      id: "timer-block-7", effectType: "ProduceExamEffectType_ExamBlock", effectValue1: 7,
+    }],
+    ["timer-block-11", {
+      id: "timer-block-11", effectType: "ProduceExamEffectType_ExamBlock", effectValue1: 11,
+    }],
+  ]);
+  const timerState = createTowerTurnState(timerDeck, 199, new Map(timerDeck.map(card => [card.id, card])), {
+    stamina: 40, turnLimit: 3, drawPerTurn: 3, initialRandomState: 199,
+    examRuntimeSettings: {}, examScoreSettings: {}, examEffectById: timerMasters,
+  });
+  drawTowerTurn(timerState, 3);
+  playTowerCard(timerState, timerState.hand.findIndex(card => card.id === timerCard.id));
+  assert.deepEqual(timerState.timers.map(timer => timer.turn), [1, 2],
+    "native get_EffectValue1 supplies each timer's independent delay");
+  assert.equal(timerState.exam.block, 0, "timed effects must not resolve on registration");
+  finishTowerTurn(timerState);
+  drawTowerTurn(timerState, 3);
+  assert.equal(timerState.exam.block, 7, "Turn 2 must fire only the 1-turn timer");
+  assert.deepEqual(timerState.timers.map(timer => timer.turn), [1],
+    "2-turn timer must remain pending until Turn 3");
+  finishTowerTurn(timerState);
+  drawTowerTurn(timerState, 3);
+  assert.equal(timerState.exam.block, 18, "Turn 3 must fire the 2-turn timer once");
+  assert.equal(timerState.timers.length, 0, "completed reservations must be consumed");
+}
