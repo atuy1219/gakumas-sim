@@ -2153,6 +2153,10 @@ function checkRuntimeCardTrigger(state, triggerId, card = null, event = null) {
 }
 
 function masterPickCount(state, parsed, available) {
+  // Native does not request a random pick count for an empty candidate pool.
+  // The empty-眠気 search of p_card-00-sup-3_152 on native contest #6
+  // leaves the RNG unchanged; the old 0..1 call advanced it by one.
+  if (!(Number(available) > 0)) return 0;
   let min = Math.max(0, Math.trunc(Number(parsed.pickCountMin ?? 0)));
   let max = Math.max(min, Math.trunc(Number(parsed.pickCountMax ?? min)));
   const range = String(parsed.pickRangeType ?? "");
