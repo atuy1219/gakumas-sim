@@ -8,7 +8,7 @@ using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
+struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
@@ -912,7 +912,7 @@ struct MutationProbe {
     bool active=false,selectedContext=false,contextVerified=false;
     std::string before="null";
 };
-constexpr unsigned kMutationSelectedCap=32,kMutationCandidateCap=3;
+constexpr unsigned kMutationSelectedCap=32,kMutationCandidateCap=32,kMutationCandidatePerStepCap=2;
 MutationProbe beginMutation(Address controller,Address context){
     MutationProbe p{};
     p.run=active;p.controller=controller;p.context=context;
@@ -925,8 +925,18 @@ MutationProbe beginMutation(Address controller,Address context){
                        controller==p.run->controller;
     if(p.selectedContext)
         p.active=p.run->mutationSamples<kMutationSelectedCap;
-    else
-        p.active=p.contextVerified&&p.run->candidateMutationSamples<kMutationCandidateCap;
+    else{
+        // Sample a small number of cloned search candidates per selected
+        // progress step, not just at the start of rehearsal. These candidates
+        // must never be reported as confirmed real-game action sequences.
+        if(p.run->candidateMutationStep!=p.run->steps){
+            p.run->candidateMutationStep=p.run->steps;
+            p.run->candidateSamplesThisStep=0;
+        }
+        p.active=p.contextVerified&&
+                 p.run->candidateMutationSamples<kMutationCandidateCap&&
+                 p.run->candidateSamplesThisStep<kMutationCandidatePerStepCap;
+    }
     if(p.active)p.before=contextPoolsJson(context);
     return p;
 }
@@ -948,10 +958,10 @@ void finishMutation(const MutationProbe& p,const char* action,Address card=0){
      <<",\"beforePools\":"<<p.before<<",\"afterPools\":"<<after
      <<",\"cardEffectsComplete\":false";
     if(p.selectedContext)++p.run->mutationSamples;
-    else ++p.run->candidateMutationSamples;
+    else ++p.run->candidateMutationSamples,++p.run->candidateSamplesThisStep;
     if(!emit(*p.run,"contest-native-mutation",e.str())){
         if(p.selectedContext)--p.run->mutationSamples;
-        else --p.run->candidateMutationSamples;
+        else --p.run->candidateMutationSamples,--p.run->candidateSamplesThisStep;
     }
 }
 
@@ -1568,6 +1578,7 @@ __attribute__((noinline)) uintptr_t drawCard(
     Run* selectedRun=active;
     const bool selected=selectedRun&&selectedRun->setupRecorded&&
                         selectedRun->controller==a0&&selectedRun->sequence;
+    const auto candidateProbe=selected?MutationProbe{}:beginMutation(a0,a2);
     std::string before="null",beforePools="null";
     if(selected){
         std::lock_guard<std::mutex> guard(mutex);
@@ -1577,6 +1588,7 @@ __attribute__((noinline)) uintptr_t drawCard(
     }
     // Native call exactly once: the returned value and all registers are forwarded.
     const uintptr_t result=originalDraw(a0,a1,a2,a3,a4,a5,a6,a7);
+    finishMutation(candidateProbe,"ExamCardMoveController.DrawCard");
     if(!active)return result;
     std::lock_guard<std::mutex> guard(mutex);++drawCalls;
     if(!selected||active!=selectedRun){
