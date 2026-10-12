@@ -1,3 +1,33 @@
+## v1.5.34: saved detail-log readback (experimental)
+
+Choose **保存済み詳細ログ取得**, restart the game, then open
+**詳細 → 詳細ログ** for the desired own/rival character and match.
+Return to this module and press **保存済み詳細ログを保存**.
+Existing logs may be usable without replaying a rehearsal; this is not yet
+verified on-device. Open each desired log so its model reaches a readback hook.
+
+This independent mode uses three hooks: static ExamSavePlayLogData.LoadAll,
+CompetitionExamPlayLogListModel construction, and ExamPlayLogListOverlayModel
+construction. It captures the game-owned log list after the original returns.
+No contest execution, DFS ancestry, card mutation, polling or replay hooks are
+enabled by this mode. It never invokes extra game methods.
+
+The export preserves ordered items, turn/section markers, trigger identity,
+played/drawn card lists and upgrades/customizes, nested triggered details,
+each effect line's before/after pairs, target IDs, move positions, messages,
+and before/after card-ID lists. ELF-derived enum definitions are included.
+Sources distinguish saved LoadAll data from display models, which may already
+have been reconstructed by the game. This is not a claim that every result
+screen uses local persistent storage or that all hidden pools/RNG are present.
+Full hand reconstruction and numeric line semantics need device validation.
+
+The current and previous process files remain separate from real-time captures.
+Typed passive reads, collection limits, record/file limits, consecutive duplicate
+suppression and failure counters prevent unbounded or silently incomplete exports.
+See [ELF findings](../../docs/saved-detail-log-elf-findings.md).
+
+---
+
 ## v1.5.33: card-end snapshots before DFS save callbacks
 
 Capture (14), v1.5.32, contains 187 selected card uses but only 95 list-level

@@ -1370,6 +1370,7 @@ const char* verified_setup_origin(uintptr_t return_rva) {
 
 #include "scoped_runtime.inc"
 #include "contest_capture.inc"
+#include "detail_log_capture.inc"
 
 void write_entry_probe_status(bool installed) {
     const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
@@ -1855,7 +1856,7 @@ void install_il2cpp_hooks() {
 
     // Only install native game hooks when explicitly enabled. A tombstone
     // during ExamSequence.StartExam requires isolating hooks individually.
-    if (!hook_enabled(128)) {
+    if (!hook_enabled(128) && !hook_enabled(8192)) {
         write_status(hook_enabled(256) ? "module-self-test-only" : "safe-mode-no-game-hooks", image.build_id);
         return;
     }
@@ -1867,6 +1868,11 @@ void install_il2cpp_hooks() {
         install_scoped_exam_probe(image);
     passive::install(image);
     contest_capture::install(image);
+    detail_log_capture::install(image);
+    if (hook_enabled(8192) && !hook_enabled(128)) {
+        write_status("saved-detail-log-readback-installed", image.build_id);
+        return;
+    }
     write_status(g_entry_probe_installed.load() ? (hook_enabled(512)
         ? "scoped-mode-lifecycle-probe-installed" : "scoped-exam-entry-probe-installed")
         : "scoped-exam-entry-probe-failed", image.build_id);

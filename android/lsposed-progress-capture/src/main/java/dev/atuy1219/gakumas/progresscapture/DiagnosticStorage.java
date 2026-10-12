@@ -3,7 +3,7 @@ package dev.atuy1219.gakumas.progresscapture;
 /** Fixed game-private paths only. Kept independent of Android for host tests. */
 final class DiagnosticStorage {
     static String configure(String parent, int mask, String[] files) {
-        if (mask != 0 && mask != 128 && mask != 256 && mask != 384 && mask != 4224)
+        if (mask != 0 && mask != 128 && mask != 256 && mask != 384 && mask != 4224 && mask != 8192)
             throw new IllegalArgumentException("Unsupported native hook mask");
         if (!parent.matches("/data/user/[0-9]+/com\\.bandainamcoent\\.idolmaster_gakuen/files"))
             throw new IllegalArgumentException("Unexpected game files directory");

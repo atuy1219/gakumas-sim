@@ -57,6 +57,7 @@ public final class DiagnosticActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 1202;
     private static final String NOTIFICATION_CHANNEL = "gakumas-capture-files";
     private static final String[] SOURCE_FILES = {
+        "detail_log_capture.jsonl", "detail_log_capture_status.json",
         "bootstrap_status.json",
         "capture_status.json",
         "native_bootstrap_status.json",
@@ -210,16 +211,17 @@ public final class DiagnosticActivity extends Activity {
             "安全モード（0）：ゲーム関数をフックしない",
             "Native自己テスト（256）：モジュール内関数だけを検証",
             "実験プローブ（128）：SetUpExam呼出元を観測",
-            "コンテスト詳細取得（4224）：カード移動・効果中の状態を測定"
+            "コンテスト詳細取得（4224）：カード移動・効果中の状態を測定",
+            "保存済み詳細ログ取得：詳細ログを開くと記録"
         };
-        final int[] flags = {0, 256, 128, 4224};
+        final int[] flags = {0, 256, 128, 4224, 8192};
         // Android AlertDialog may suppress setItems when setMessage is also
         // present. The selection dialog must use a list without a message.
         new AlertDialog.Builder(this)
             .setTitle("Nativeフック設定（学マス再起動で反映）")
             .setItems(options, (dialog, choice) -> {
                 final int mask = flags[choice];
-                if (mask == 0) {
+                if (mask == 0 || mask == 8192) {
                     saveHookMode(mask);
                     return;
                 }

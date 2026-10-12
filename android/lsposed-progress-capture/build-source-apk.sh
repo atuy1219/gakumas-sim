@@ -87,7 +87,7 @@ VERSION_NAME="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$ROOT/Andro
 [[ -n "$VERSION_NAME" ]] || { echo "Missing manifest versionName" >&2; exit 1; }
 FINAL="$OUT/gakumas-progress-capture-v${VERSION_NAME}.apk"
 
-"$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
+"$AAPT2" link   -I "$ANDROID_JAR"   --manifest "$ROOT/AndroidManifest.xml"   -A "$ROOT/src/main/assets"   --min-sdk-version "$MIN_API"   --target-sdk-version "$TARGET_API"   -o "$BASE_APK"
 
 cp "$BASE_APK" "$UNALIGNED"
 (
