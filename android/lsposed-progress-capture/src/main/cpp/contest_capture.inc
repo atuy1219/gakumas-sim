@@ -8,14 +8,14 @@ using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
 constexpr size_t kFileLimit = 8 * 1024 * 1024;
 std::mutex mutex;
-struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
+struct Run { uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0, commandListSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
 size_t fileBytes=0;
 bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false, drawInstalled=false;
 bool selectedHooksAttempted=false;
 bool moveCardNativeInstalled=false,recycleNativeInstalled=false,shuffleNativeInstalled=false;
-bool createIdNativeInstalled=false,createSearchNativeInstalled=false,cardCommandNativeInstalled=false;
+bool createIdNativeInstalled=false,createSearchNativeInstalled=false,cardCommandNativeInstalled=false,commandListFinishInstalled=false;
 uint64_t drawCalls=0,drawMatched=0,drawSamples=0,drawContextReadable=0,drawContextParameterMatched=0,moveContextReadable=0;
 uint64_t triggerCommandCalls=0, cardMoveCalls=0, effectSamples=0, cardMoveSamples=0, metricReadFailures=0;
 uint64_t cardMoveControllerReadable=0,cardMoveControllerMatched=0,cardMoveParameterMatched=0;
@@ -1020,6 +1020,7 @@ void status() {
       <<",\"createIdNativeInstalled\":"<<(createIdNativeInstalled?"true":"false")
       <<",\"createSearchNativeInstalled\":"<<(createSearchNativeInstalled?"true":"false")
       <<",\"cardCommandNativeInstalled\":"<<(cardCommandNativeInstalled?"true":"false")
+      <<",\"commandListFinishInstalled\":"<<(commandListFinishInstalled?"true":"false")
       <<",\"nativeMetricReadFailures\":"<<metricReadFailures
       <<",\"limitDrops\":"<<drops<<",\"fileBytes\":"<<fileBytes<<",\"fileByteLimit\":"<<kFileLimit
       <<",\"scope\":\"selected-contest-auto-play-data\",\"gameCaptureVerified\":false,\"syntheticGameCalls\":false}";
@@ -1545,6 +1546,44 @@ __attribute__((noinline)) void cardCommandNative(uintptr_t self,uintptr_t positi
     finishMutation(probe,"ExamSequence.ExecuteCardCommandImpl",card);
 }
 
+// Exact v3.4.1: <ExecuteCommandListImplAsync>d__110.MoveNext is at
+// 0x80E0F40. Prologue loads state from [x0] and owner sequence from [x0+0x18]
+// (0x80E0FB8 / 0x80E0FBC). State transition to -2 denotes completion of
+// this UniTask command-list runner, not necessarily of *all* deferred effects.
+using CommandListMoveNextFn=void(*)(uintptr_t,uintptr_t);
+CommandListMoveNextFn originalCommandListMoveNext=nullptr;
+__attribute__((noinline)) void commandListMoveNext(uintptr_t stateMachine,uintptr_t method){
+    int32_t before=0,after=0;Address sequence=0;
+    readBudget=64;firstReadFailure={};readStage.clear();
+    const bool identity=stateMachine&&read(stateMachine,0,before)&&
+                        read(stateMachine,0x18,sequence)&&sequence;
+    originalCommandListMoveNext(stateMachine,method); // exactly once
+    if(!identity)return;
+    readBudget=64;firstReadFailure={};readStage.clear();
+    if(!read(stateMachine,0,after)||before==-2||after!=-2)return;
+    std::lock_guard<std::mutex> guard(mutex);
+    Run* selected=nullptr;
+    if(active&&active->setupRecorded&&active->sequence==sequence)
+        selected=active;
+    if(!selected)for(auto& entry:runs)
+        if(entry.second.setupRecorded&&entry.second.sequence==sequence){
+            selected=&entry.second;break;
+        }
+    if(!selected||selected->commandListSamples>=64)return;
+    readBudget=2048;firstReadFailure={};readStage.clear();
+    std::ostringstream fields;
+    fields<<",\"capturePhase\":\"after-ExecuteCommandListImplAsync-completion\""
+          <<",\"commandListCompleted\":true,\"completionState\":-2"
+          <<",\"completionSuccessVerified\":false"
+          <<",\"cardUseCompletionVerified\":false"
+          <<",\"poolState\":"<<selectedPoolsJson(sequence,selected->parameter)
+          <<",\"metrics\":"<<sampleJson(sampleStatus(sequence))
+          <<",\"cardEffectsComplete\":false";
+    ++selected->commandListSamples;
+    if(!emit(*selected,"contest-command-list-complete",fields.str()))
+        --selected->commandListSamples;
+}
+
 // Card movement is not completion of effects. Validate the context BEFORE
 // forwarding, because IL2CPP may reuse the calculation context afterwards.
 __attribute__((noinline)) void cardMove(void* self,void* card,uintptr_t context,const void* method){
@@ -1743,6 +1782,7 @@ void install(const ImageInfo& image) {
     createIdNativeInstalled=install_hook(image.base+0x804A504,reinterpret_cast<void*>(createIdNative),reinterpret_cast<void**>(&originalCreateIdNative));
     createSearchNativeInstalled=install_hook(image.base+0x804AB14,reinterpret_cast<void*>(createSearchNative),reinterpret_cast<void**>(&originalCreateSearchNative));
     cardCommandNativeInstalled=install_hook(image.base+0x80A5BB0,reinterpret_cast<void*>(cardCommandNative),reinterpret_cast<void**>(&originalCardCommandNative));
+    commandListFinishInstalled=install_hook(image.base+0x80E0F40,reinterpret_cast<void*>(commandListMoveNext),reinterpret_cast<void**>(&originalCommandListMoveNext));
     // DrawCard/MovePlayCard are installed from live MethodInfo in recordSetup().
     std::lock_guard<std::mutex> guard(mutex);status();
 }
