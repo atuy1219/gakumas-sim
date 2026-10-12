@@ -103,6 +103,32 @@ jobs:
             console.log("DETAILED_SESSION "+sessionId+" "+JSON.stringify(result).slice(0,26000));
           }
           NODE
+      - name: Expand P-item enchant master chains for observed differences
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          const cat=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
+          const sources=Object.fromEntries(["items","itemEffects","examStatusEnchants",
+           "examTriggers","examEffects","cardSearches","growEffects"].map(k=>[k,
+            new Map((cat[k]??[]).map(v=>[v.id,v]))]));
+          const list=[
+            "pitem_03-0-007-0-016","pitem_03-3-077-0","pitem_03-3-065-0",
+            "pitem_00-3-011-0","pitem_03-3-072-0","pitem_03-3-298-0",
+            "pitem_02-3-075-0","pitem_02-3-262-0","pitem_02-3-309-0",
+            "pitem_01-3-079-0","pitem_01-3-313-0","pitem_02-3-293-0"
+          ];
+          function normalize(v){return JSON.stringify(v??null).slice(0,6500)}
+          for(const id of list){
+            const item=sources.items.get(id);
+            const itemEffects=(item?.produceItemEffectIds??[]).map(eid=>sources.itemEffects.get(eid)).filter(Boolean);
+            const enchants=(cat.examStatusEnchants??[]).filter(e=>e.id?.includes(id));
+            const triggers=enchants.flatMap(e=>(e.triggerIds??[e.produceExamTriggerId]).map(eid=>sources.examTriggers.get(eid))).filter(Boolean);
+            const effectIds=new Set();
+            for(const e of enchants)for(const v of (e.effects??[]))effectIds.add(v.produceExamEffectId);
+            const effects=[...effectIds].map(eid=>sources.examEffects.get(eid)).filter(Boolean);
+            console.log("ITEM_CHAIN "+id+" "+normalize({item,itemEffects,enchants,triggers,effects}));
+          }
+          NODE
       - name: Upload independent replay report
         if: always()
         uses: actions/upload-artifact@v4
