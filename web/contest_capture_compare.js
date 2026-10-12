@@ -156,7 +156,9 @@ export function extractNativeCardActions(session){
 
 function compareNativeCardActions(session,pred){
  const native=extractNativeCardActions(session);
- const observedManual=native.filter(a=>a.verified&&a.commandType===2);
+ // Keep unverified slots in the sequence: dropping them would shift the
+ // following native/simulator card pairs and fabricate downstream mismatches.
+ const observedManual=native.filter(a=>a.commandType===2);
  const simulated=Array.isArray(pred?.cardActionTrace)?pred.cardActionTrace:[];
  const diagnostics=[],differences=[];
  const perTurnIndex=new Map();
@@ -164,6 +166,12 @@ function compareNativeCardActions(session,pred){
   const a=observedManual[i],b=simulated[i];
   const cardIndex=perTurnIndex.get(a.turn)??0;
   perTurnIndex.set(a.turn,cardIndex+1);
+  if(!a.verified){
+   diagnostics.push({turn:a.turn,cardIndex,cardId:a.cardId,
+    verifiedNative:false,comparedFields:[],mismatchedFields:[],
+    skipReason:"native-measurement-or-selected-action-not-verified"});
+   continue;
+  }
   const base="turns["+(a.turn-1)+"].cards["+cardIndex+"]";
   const measured={
    cardId:a.cardId,turn:a.turn,
@@ -193,7 +201,8 @@ function compareNativeCardActions(session,pred){
  const scheduled=native.filter(a=>a.verified&&a.commandType!==2);
  return {native,diagnostics,differences,
   nativeVerified:native.filter(a=>a.verified).length,
-  nativeTotal:native.length,compared:diagnostics.length,
+  nativeTotal:native.length,compared:diagnostics.filter(d=>d.verifiedNative&&
+   d.comparedFields.includes("scoreGained")).length,
   scheduledActions:scheduled.map(a=>({turn:a.turn,cardId:a.cardId,
    commandType:a.commandType,scoreGained:a.delta.score})),
   comparisonLimited:simulated.length<observedManual.length};
