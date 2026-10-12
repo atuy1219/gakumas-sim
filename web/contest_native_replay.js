@@ -95,7 +95,14 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  for(const attr of ["parameter","review","block","parameterBuff","concentration","fullPower","motivation"]){
   if(own(p,attr))state.exam[attr]=requireNumber(p[attr],"initialParameters."+attr);
  }
- const turns=[],warnings=[],cardActionTrace=[],turnPhaseTrace=[],scoreByType={vocal:0,dance:0,visual:0};
+ const turns=[],warnings=[],cardActionTrace=[],turnPhaseTrace=[],recycleEvents=[],scoreByType={vocal:0,dance:0,visual:0};
+ const recordRecycles=(observations,turn,phase)=>{
+  for(const event of observations??[])recycleEvents.push({
+   turn,phase,recycleCount:event.recycleCount??null,randomState:event.randomState??null,
+   source:(event.source??[]).map(c=>({id:c.id,upgradeCount:c.upgradeCount})),
+   shuffled:(event.shuffled??[]).map(c=>({id:c.id,upgradeCount:c.upgradeCount})),
+  });
+ };
  const snapshot = () => ({score:Number(state.exam.parameter??0),
   stamina:Number(state.exam.stamina??0),block:Number(state.exam.block??0),
   review:Number(state.exam.review??0),aggressive:Number(state.exam.aggressive??0)});
@@ -105,6 +112,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   const actual=session.turns[i];
   if(Number(actual.turn)!==i+1)throw new ContestReplayUnsupported("nonconsecutive-turn:"+actual.turn);
   const draw=drawTowerTurn(state,options.drawPerTurn);
+  recordRecycles(draw.recycleEvents,i+1,"draw");
   if(draw.ended || state.ended){
    warnings.push({turn:i+1,phase:"extra-turn-not-generated",
     nativeTurns:session.turns.length,simulatorTurnLimit:state.turnLimit});
@@ -130,6 +138,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    if(pos<0){warnings.push({turn:i+1,phase:"card-selection",cardId,available:state.hand.map(x=>x.id)});break;}
    try {
     const event=playTowerCard(state,pos);
+    recordRecycles(event.recycleEvents,i+1,"card:"+cardId);
     const steps=event.actionTelemetry??[];
     const beginning=steps[0]??null;
     const completed=steps.find(step=>
@@ -201,7 +210,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
  const prediction={
   provenance:"independent-simulator",
   replayMode:"observed-actions",decisionSearchVerified:false,
-  turns, warnings, cardActionTrace, turnPhaseTrace,
+  turns, warnings, cardActionTrace, turnPhaseTrace,recycleEvents,
   nativePerCardMetricsAvailable:false,
   extraTurnsObserved:nativeExtraTurns,
   extraTurnsSimulated:Math.max(0,Number(state.turnLimit)-initialLimit),
