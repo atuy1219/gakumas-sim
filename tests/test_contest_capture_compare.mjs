@@ -499,4 +499,56 @@ const emptyRecovered=normalizeNativeContestSetup(emptyObservations,{
  examItemCatalogs:extraCatalog,allowObservedCustomizations:true});
 assert.deepEqual(emptyRecovered.input.initialDeck[1].customizes,[]);
 assert.equal(emptyRecovered.candidates.observedCustomizationRecovery.unmapped,0);
+
+/* Capture 1.5.34 provides ELF-decoded native per-card metrics. A scheduled
+ * commandType=4 card must not shift comparisons of manually played cards. */
+const nativeCardFixture={schemaVersion:2,scope:"contest-gameplay-capture",
+ moduleVersion:"1.5.34",simulatorInputs:{"94:1":setup},events:[
+ {pid:94,sessionId:1,event:"contest-start",seed:12,dataComplete:true},
+ {pid:94,sessionId:1,event:"contest-card-use-complete",step:1,
+  cardActionSerial:1,card:{id:"scheduled"},
+  selectedLineageVerified:true,completionBoundaryVerified:true,
+  cardUseCompletionVerified:true,cardEffectsComplete:true,
+  beforeMetrics:{available:true,turn:1,score:0,stamina:42,block:0},
+  metrics:{available:true,turn:1,score:4,stamina:42,block:0}},
+ {pid:94,sessionId:1,event:"contest-card-use-complete",step:1,
+  cardActionSerial:2,card:{id:"played"},
+  selectedLineageVerified:true,completionBoundaryVerified:true,
+  cardUseCompletionVerified:true,cardEffectsComplete:true,
+  beforeMetrics:{available:true,turn:1,score:4,stamina:42,block:0},
+  metrics:{available:true,turn:1,score:30,stamina:39,block:2}},
+ {pid:94,sessionId:1,event:"contest-progress",step:1,
+  turnsEncoding:"delta",turnStartIndex:0,turnCount:1,score:30,
+  vocal:30,dance:0,visual:0,dataComplete:true,turns:[{turn:1,score:30,
+   selectedPlayedCards:[{turn:1,commandType:4,card:{id:"scheduled"}},
+     {turn:1,commandType:2,card:{id:"played"}}]}]},
+ {pid:94,sessionId:1,event:"contest-result",step:1,
+  score:30,vocal:30,dance:0,visual:0,dataComplete:true,recordingComplete:true},
+ ]};
+const predictedCardAction={turn:1,cardId:"played",simulated:{
+ before:{score:4,stamina:42,block:0},after:{score:30,stamina:39,block:2},
+ scoreGained:26,staminaDelta:-3,blockDelta:2}};
+const matchingNativeCardReport=compareContestCapture(nativeCardFixture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[{turn:1,score:30}],
+ cardActionTrace:[predictedCardAction]})});
+assert.equal(matchingNativeCardReport.summary.nativeCardMetricsVerified,2);
+assert.equal(matchingNativeCardReport.summary.nativeCardMetricsTotal,2);
+assert.equal(matchingNativeCardReport.sessions[0].comparison.nativePerCardMetricsAvailable,true);
+assert.equal(matchingNativeCardReport.sessions[0].comparison.nativeCardMetricsCompared,1);
+assert.equal(matchingNativeCardReport.sessions[0].comparison.scheduledNativeCardActions.length,1);
+assert.equal(matchingNativeCardReport.sessions[0].comparison.scheduledNativeCardActions[0].scoreGained,4);
+assert.deepEqual(matchingNativeCardReport.sessions[0].comparison.cardDiagnostics[0].mismatchedFields,[]);
+const badNativeCardReport=compareContestCapture(nativeCardFixture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[{turn:1,score:30}],
+ cardActionTrace:[{...predictedCardAction,simulated:{
+  ...predictedCardAction.simulated,scoreGained:25}}]})});
+assert.equal(badNativeCardReport.sessions[0].comparison.cardDiagnostics[0].realDevice.scoreGained,26);
+assert.equal(badNativeCardReport.firstDivergence.path,"turns[0].cards[0].scoreGained");
+const missingTelemetryCapture={...nativeCardFixture,events:nativeCardFixture.events.map(event=>
+ event.event==="contest-card-use-complete"&&event.card.id==="played"
+  ?{...event,metrics:{...event.metrics,available:false}}:event)};
+assert.equal(compareContestCapture(missingTelemetryCapture,{simulator:()=>({
+ provenance:"independent-simulator",turns:[{turn:1,score:30}],
+ cardActionTrace:[predictedCardAction]})}).sessions[0].comparison.nativeCardMetricsVerified,1);
+
 console.log("contest capture comparison, setup normalization and independent action replay: OK");
