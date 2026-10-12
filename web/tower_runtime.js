@@ -1987,9 +1987,25 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   }
 
   beginSimulationTurn(state, state.turn + 1, currentTowerScoreContext({ ...state, turn: state.turn + 1 }));
+  const phaseEvent = nativeRuntimeEvent();
+  // Native v3.4.1 ReviewStatusEffect.SpendTurn (0x08082A18) spends a
+  // previously-marked review at the NEXT turn boundary, before its actions.
+  // StartPlay P-item review is marked during its granting turn; a card grant
+  // stays unmarked until the next turn's StartPlay phase.
+  if (Number(state.turn ?? 0) > 0) {
+    const beforeReviewSpend = captureNativeStatusSnapshot(state.exam);
+    const exam = state.exam;
+    if (Number(exam.reviewTurnEndReduceLock ?? 0) === 0
+        && exam.passingTurnStartFields?.review !== false
+        && Number(exam.review ?? 0) > 0) {
+      exam.review -= 1;
+      exam.reviewConsumptionSum = Number(exam.reviewConsumptionSum ?? 0) + 1;
+    }
+    emitNativeStatusDiff(state, beforeReviewSpend, phaseEvent,
+      { cause: "turnStartReviewSpend" });
+  }
   state.ended = false;
   state.turnStartParameter = Number(state.exam.parameter ?? 0);
-  const phaseEvent = nativeRuntimeEvent();
   runNativeEffectPhase(
     state,
     NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
@@ -2045,11 +2061,13 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   }
   // ExamLoopTaskAsync 0x8070394 marks statuses after draw/StartOfTurn
   // and before StartPlay. Additions during card play have not passed it.
+  // Statuses gained by StartPlay P-items have passed this turn's start;
+  // statuses gained later by played cards have not.
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
   markNativeStatusTurnStart(state.exam);
   for (const registration of state.effectScheduler.registrations) registration.metadata.isPassingTurnStart = true;
   if (state.cardEffectPlayCountBuff) state.cardEffectPlayCountBuff.isPassingTurnStart = true;
   if (state.playableAddStatus) state.playableAddStatus.isPassingTurnStart = true;
-  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
   state.turnStartEffects = [...phaseEvent.effects];
   return {
     turn: state.turn,
@@ -3326,17 +3344,11 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
 }
 
 function tickTurnDurations(exam) {
-  // Review's automatic score is resolved before status spending. Native lock
-  // statuses are checked before their own duration is spent.
-  const reviewLocked = Number(exam.reviewTurnEndReduceLock ?? 0) !== 0;
+  // Review spending occurs at the next turn start, after its previous
+  // StartPlay flag is set. Only the other timed statuses spend here.
   const parameterBuffLocked = Number(exam.parameterBuffTurnEndReduceLock ?? 0) !== 0;
 
   const passed = field => exam.passingTurnStartFields?.[field] !== false;
-  if (!reviewLocked && passed("review") && Number(exam.review ?? 0) > 0) {
-    exam.review -= 1;
-    // ReviewStatusEffect.SpendTurn (0x803C158) counts natural reduction too.
-    exam.reviewConsumptionSum = Number(exam.reviewConsumptionSum ?? 0) + 1;
-  }
   if (!parameterBuffLocked && passed("parameterBuff") && Number(exam.parameterBuff ?? 0) > 0) exam.parameterBuff -= 1;
 
   for (const field of ["parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {
