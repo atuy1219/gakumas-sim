@@ -12,6 +12,8 @@
 #include <iomanip>
 #include <link.h>
 #include <map>
+#include <set>
+#include <initializer_list>
 #include <mutex>
 #include <sstream>
 #include <string>
