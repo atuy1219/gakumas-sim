@@ -55,3 +55,16 @@ jobs:
           node tests/test_card_play_aggressive_boundary.mjs
           node tests/test_contest_capture_compare.mjs
           node tests/test_contest_catalog_provider.mjs
+
+      - name: Package simulator source for local parity test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr93-local-source-20261013
+          path: |
+            web/
+            tools/
+            tests/
+            package.json
+          if-no-files-found: error
+          retention-days: 1
