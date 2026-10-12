@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      - name: Verify native 22 grave-recycle observations against simulator shuffle
+        run: node tests/test_native_grave_recycles.mjs
       - name: Replay nine anonymized native sessions against independent simulator
         run: |
           node tools/compare_contest_capture.mjs \
@@ -127,6 +129,30 @@ jobs:
             for(const e of enchants)for(const v of (e.effects??[]))effectIds.add(v.produceExamEffectId);
             const effects=[...effectIds].map(eid=>sources.examEffects.get(eid)).filter(Boolean);
             console.log("ITEM_CHAIN "+id+" "+normalize({item,itemEffects,enchants,triggers,effects}));
+          }
+          NODE
+      - name: Compare actual native and simulated recycle pools
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,existsSync} from "node:fs";
+          if(!existsSync("/tmp/contest-native-parity.json"))process.exit(0);
+          const report=JSON.parse(readFileSync("/tmp/contest-native-parity.json","utf8"));
+          const native=JSON.parse(readFileSync("tests/fixtures/native-grave-recycles-v1534.json","utf8"));
+          for(const s of report.sessions){
+            const sid=s.sessionId;
+            const refs=native.observations.filter(x=>x.sessionId===sid);
+            const sims=s.simulation?.recycleEvents??[];
+            const compare=(n,b)=>({
+             sourceEqual:JSON.stringify(n.grave)===JSON.stringify(b.source.map(c=>c.id)),
+             orderEqual:JSON.stringify(n.deck)===JSON.stringify(b.shuffled.map(c=>c.id)),
+             randomEqual:n.afterRandomState===b.randomState,
+            });
+            console.log("RECYCLE_DIFF_SESSION "+sid+" "+JSON.stringify({
+              native:refs.map(x=>({step:x.step,startRng:x.beforeRandomState,endRng:x.afterRandomState,grave:x.grave,deck:x.deck})),
+              simulated:sims.map(x=>({turn:x.turn,phase:x.phase,randomState:x.randomState,source:x.source.map(c=>c.id),shuffled:x.shuffled.map(c=>c.id)})),
+              comparisons:refs.slice(0,sims.length).map((x,i)=>compare(x,sims[i]))
+            }).slice(0,27000));
           }
           NODE
       - name: Upload independent replay report
