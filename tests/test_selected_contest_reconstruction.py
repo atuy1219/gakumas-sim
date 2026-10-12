@@ -35,6 +35,7 @@ class SelectedContestReconstructionTests(unittest.TestCase):
                 "selectedLineageVerified": True, "lineageComplete": True,
                 "completionSuccessVerified": True, "completionBoundaryVerified": True, "cardUseCompletionVerified": True,
                 "singleCardAction": True, "cardActionSerial": 7,
+                "capturePhase": "before-card-SeparateActivity-handler",
                 "card": {"id": "p_card-a", "guid": "card-guid-1"},
                 "beforeMetrics": {"available": True, "score": 12},
                 "metrics": {"available": True, "score": 100, "turn": 1}}
@@ -48,6 +49,13 @@ class SelectedContestReconstructionTests(unittest.TestCase):
             done[key] = False
             self.assertIsNone(reconstruct(capture)["sessions"][0]["selectedPlays"][0]["perCardScore"])
             done[key] = True
+
+        # v1.5.32's single-card list could include turn effects: reject even
+        # when its older flags asserted a verified boundary.
+        done['capturePhase'] = 'after-ExecuteCommandListImplAsync-success'
+        self.assertIsNone(reconstruct(capture)['sessions'][0]['selectedPlays'][0]['perCardScore'])
+        del done['capturePhase']
+        self.assertIsNone(reconstruct(capture)['sessions'][0]['selectedPlays'][0]['perCardScore'])
 
     def test_native_result_is_authoritative_and_guid_is_only_a_clue(self):
         result = reconstruct(sample_capture())

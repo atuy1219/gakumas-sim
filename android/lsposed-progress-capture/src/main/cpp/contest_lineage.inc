@@ -52,6 +52,7 @@ void traceAppend(Address sequence,const char* event,const std::string& fields){
     if(!active||!active->trace||!sequence)return;
     if(!active->trace->append(sequence,event,fields))++lineageDrops;
 }
+std::string traceCardGuid(Address card,bool& ok);
 void traceBeginCard(Address sequence,Address card){
     if(!active||!active->trace||!card)return;
     auto it=active->trace->sequences.find(sequence);
@@ -63,6 +64,9 @@ void traceBeginCard(Address sequence,Address card){
     if(it->second.pendingCards.empty())it->second.beforeCardMetrics=
         it->second.nextCardBefore!="null"?it->second.nextCardBefore:traceMetrics(sequence);
     it->second.nextCardBefore="null";it->second.nextCardCommand=0;
+    if(!it->second.pendingCards.empty())it->second.complete=false;
+    bool guidOk=true;it->second.pendingCardGuid=traceCardGuid(card,guidOk);
+    if(!guidOk)it->second.complete=false;
     ++it->second.serial;
     it->second.pendingCards.push_back(info);
     traceAppend(sequence,"contest-card-use-start",",\"cardActionSerial\":"+
@@ -109,13 +113,13 @@ bool commandPlaying(Address sequence,bool& playing){
     }
     return false;
 }
-void traceCommandCompletion(Address sequence,bool success){
+void traceFinishCards(Address sequence,bool success,bool cardBoundary){
     if(!active||!active->trace)return;
     auto it=active->trace->sequences.find(sequence);
     if(it==active->trace->sequences.end())return;
     std::lock_guard<std::mutex> guard(mutex);
     auto& branch=it->second;
-    ++commandCompletions;
+    if(!cardBoundary)++commandCompletions;
     if(branch.pendingCards.empty()){
         if(success){++emptyCommandCompletionsSuppressed;return;}
         branch.complete=false;
@@ -126,12 +130,12 @@ void traceCommandCompletion(Address sequence,bool success){
     readBudget=4096;firstReadFailure={};readStage.clear();
     Address parameter=0;namedRef(sequence,{"<Parameter>k__BackingField"},parameter);
     std::ostringstream s;
-    s<<",\"capturePhase\":\"after-ExecuteCommandListImplAsync-success\""
-     <<",\"completionBoundaryVerified\":true"
-     <<",\"commandListCompleted\":true,\"completionSuccessVerified\":"<<(success?"true":"false")
+    s<<",\"capturePhase\":\""<<(cardBoundary?"before-card-SeparateActivity-handler":"command-list-fallback")<<"\""
+     <<",\"completionBoundaryVerified\":"<<(cardBoundary?"true":"false")
+     <<",\"commandListCompleted\":"<<(cardBoundary?"false":"true")<<",\"completionSuccessVerified\":"<<(success?"true":"false")
      <<",\"cardActionSerial\":"<<branch.serial
-     <<",\"cardUseCompletionVerified\":"<<(success&&!branch.pendingCards.empty()?"true":"false")
-     <<",\"cardEffectsComplete\":"<<(success&&!branch.pendingCards.empty()?"true":"false")
+     <<",\"cardUseCompletionVerified\":"<<(success&&cardBoundary&&branch.pendingCards.size()==1?"true":"false")
+     <<",\"cardEffectsComplete\":"<<(success&&cardBoundary&&branch.pendingCards.size()==1?"true":"false")
      <<",\"singleCardAction\":"<<(branch.pendingCards.size()==1?"true":"false")
      <<",\"card\":"<<(branch.pendingCards.size()==1?branch.pendingCards.front():"null")
      <<",\"cardsExecuted\":[";
@@ -139,9 +143,53 @@ void traceCommandCompletion(Address sequence,bool success){
     s<<"],\"beforeMetrics\":"<<branch.beforeCardMetrics
      <<",\"metrics\":"<<traceMetrics(sequence)
      <<",\"poolState\":"<<selectedPoolsJson(sequence,parameter);
-    traceAppend(sequence,"contest-card-use-complete",s.str());
-    if(!success)branch.complete=false;
+    traceAppend(sequence,cardBoundary?"contest-card-use-complete":"contest-card-use-incomplete",s.str());
+    if(!success||!cardBoundary)branch.complete=false;
     branch.pendingCards.clear();branch.beforeCardMetrics="null";
+}
+void traceCommandCompletion(Address sequence,bool success){
+    traceFinishCards(sequence,success,false);
+}
+std::string traceCardGuid(Address card,bool& ok){
+    Address guid=0;
+    if(!card||!validCard(card)||!namedRef(card,{"_guid"},guid)||!guid){ok=false;return "null";}
+    return string(guid,ok);
+}
+bool traceCardBoundary(Address sequence,Address card){
+    if(!active||!active->trace)return false;
+    auto it=active->trace->sequences.find(sequence);
+    if(it==active->trace->sequences.end()||it->second.pendingCards.size()!=1)return false;
+    readBudget=64;bool ok=true;const auto guid=traceCardGuid(card,ok);
+    if(!ok||guid=="null"||guid!=it->second.pendingCardGuid)return false;
+    traceFinishCards(sequence,true,true);
+    it->second.pendingCardGuid="null";
+    ++cardActivityVerifiedCompletions;return true;
+}
+// Exact ELF: ExecuteCommandImplAsync's SeparateActivity case performs cleanup
+// at 0x80dd6cc..0x80dd880, then dispatches OnSeparateActivity at 0x80dd8c4.
+// Snapshot BEFORE the handler: DFS AddSequenceScore can save/load the sequence
+// inline in that handler, before either MoveNext or the outer list returns.
+struct CardBoundaryFrame {
+    Address sequence=0,command=0;int32_t type=0;
+    CardBoundaryFrame* previous=nullptr;
+};
+thread_local CardBoundaryFrame* currentCardBoundary=nullptr;
+struct ActivityTask { uintptr_t source=0,token=0; };
+using SeparateActivityFn=ActivityTask(*)(uint32_t,uintptr_t,uintptr_t,uint32_t,uintptr_t,uintptr_t);
+SeparateActivityFn originalSeparateActivity=nullptr;
+__attribute__((noinline)) ActivityTask separateActivity(uint32_t slot,uintptr_t interfaceType,
+        uintptr_t handler,uint32_t start,uintptr_t card,uintptr_t cancellation){
+    const Address caller=GAKUMAS_PASSIVE_CALLER_RVA();
+    auto* frame=currentCardBoundary;
+    readBudget=64;Address expectedHandler=0,expectedCard=0;uint8_t expectedStart=1;
+    if(caller==0x80dd8c8&&slot==15&&start==0&&card&&frame&&frame->type==9&&
+       read(frame->sequence,0x78,expectedHandler)&&expectedHandler&&expectedHandler==handler&&
+       read(frame->command,0x58,expectedCard)&&expectedCard==card&&
+       read(frame->command,0xd0,expectedStart)&&expectedStart==0){
+        ++cardActivityEndCalls;
+        if(!traceCardBoundary(frame->sequence,card))++cardActivityUnmatched;
+    }
+    return originalSeparateActivity(slot,interfaceType,handler,start,card,cancellation);
 }
 // For suspended UniTasks, SetResult resumes the awaiting parent immediately.
 // Snapshot BEFORE forwarding SetResult, otherwise selection may already have
@@ -215,7 +263,16 @@ __attribute__((noinline)) void commandExecution(uintptr_t stateMachine,uintptr_t
             it->second.nextCardCommand=command;
         }
     }
+    // The frame also exists on suspended resumptions. Only the exact dispatch
+    // caller/slot/owner/card/end flag can produce a verified card completion.
+    readBudget=64;
+    CardBoundaryFrame frame{};frame.previous=currentCardBoundary;
+    if(active&&active->trace&&read(stateMachine,0x18,frame.command)&&
+       read(stateMachine,0x20,frame.sequence)&&frame.command)
+        read(frame.command,0x10,frame.type);
+    currentCardBoundary=&frame;
     originalCommandExecution(stateMachine,method);
+    currentCardBoundary=frame.previous;
     if(active&&active->trace&&sequence){
         auto it=active->trace->sequences.find(sequence);
         readBudget=16;
@@ -308,5 +365,6 @@ void installLineageHooks(const ImageInfo& image){
     const bool dispose=install(0x80b0dc0,reinterpret_cast<void*>(disposeSequence),reinterpret_cast<void**>(&originalDisposeSequence));
     exceptionHookInstalled=install(0x646a038,reinterpret_cast<void*>(builderException),reinterpret_cast<void**>(&originalBuilderException));
     const bool command=install(0x80d91d8,reinterpret_cast<void*>(commandExecution),reinterpret_cast<void**>(&originalCommandExecution));
-    lineageHooksInstalled=copy&&sync&&load&&save&&ctor&&empty&&dispose&&command;
+    cardActivityHookInstalled=install(0x5d5df10,reinterpret_cast<void*>(separateActivity),reinterpret_cast<void**>(&originalSeparateActivity));
+    lineageHooksInstalled=copy&&sync&&load&&save&&ctor&&empty&&dispose&&command&&cardActivityHookInstalled;
 }

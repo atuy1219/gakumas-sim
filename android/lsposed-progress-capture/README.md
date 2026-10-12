@@ -1,3 +1,35 @@
+## v1.5.33: card-end snapshots before DFS save callbacks
+
+Capture (14), v1.5.32, contains 187 selected card uses but only 95 list-level
+completion records. Those records mention 172 cards: 15 uses in six turns lack
+a completion. The cost baseline was readable; the completion boundary was too
+coarse and too late for intermediate native DFS saves.
+
+The pinned ELF puts a `SeparateActivity(false, card)` command after
+`UserCardAfterCheck` and `MovePlayCard`. Its executor performs cleanup, then
+calls the activity handler through RVA `0x05D5DF10` from `0x080DD8C4`.
+We snapshot immediately before forwarding that handler, so an inline
+`AddSequenceScore` / `ExamSaveData` save includes the completed action.
+The guard requires the exact return RVA, interface slot 15, command type 9,
+end flag, handler owner, command card pointer and the pending card's copied GUID.
+Suspended executor resumptions use the same guard. Original arguments and
+UniTask return registers are preserved; originals run once. No getters, effects
+or RNG methods are called by the probe.
+
+Each verified completion now contains exactly one card and its pre-cost / end
+metrics. Reconstruction now requires this precise capture phase and rejects
+v1.5.32 list-level records even when they contain a single card. A list ending with a pending card produces
+`contest-card-use-incomplete`, never a verified per-card delta. Checkpoints
+preserve pending copied baselines. Empty successful list completions stay
+counter-only, and compact JSON output remains enabled.
+
+Host tests cover repeated GUIDs, inline saves, pending checkpoints, suspended
+resumption, rejected boundaries, forwarding, and incomplete fallbacks.
+On-device 187/187 coverage is not established by host tests or the old capture.
+See [ELF findings](../../docs/contest-capture-v1.5.33-elf-findings.md).
+
+---
+
 ## v1.5.32: suppress empty completion payloads and reject reentrant no-ops
 
 Successful command-list callbacks without cards are now counted only: no pools,

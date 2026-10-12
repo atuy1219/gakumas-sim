@@ -26,7 +26,8 @@ uint64_t cardSnapshotAttempts=0,cardSnapshotParameterMatched=0,cardSnapshotSeque
 constexpr unsigned kNativeCardSamplesPerSession=512;
 std::atomic<bool> attempted{false};
 thread_local Run* active=nullptr;
-bool lineageHooksInstalled=false,exceptionHookInstalled=false;
+bool lineageHooksInstalled=false,exceptionHookInstalled=false,cardActivityHookInstalled=false;
+uint64_t cardActivityEndCalls=0,cardActivityVerifiedCompletions=0,cardActivityUnmatched=0;
 uint64_t lineageSelectedEvents=0,lineageSelectedSaves=0,lineageMissingSaves=0,lineageDrops=0;
 uint64_t cloneCalls=0,loadCalls=0,commandCompletions=0;
 uint64_t emptyCommandCompletionsSuppressed=0,reentrantCommandCompletionsIgnored=0,commandCompletionGateUnreadable=0;
@@ -1169,6 +1170,10 @@ void status() {
       <<",\"lineageHooksInstalled\":"<<(lineageHooksInstalled?"true":"false")
       <<",\"commandExceptionHookInstalled\":"<<(exceptionHookInstalled?"true":"false")
       <<",\"cloneCalls\":"<<cloneCalls<<",\"loadCalls\":"<<loadCalls
+      <<",\"cardActivityHookInstalled\":"<<(cardActivityHookInstalled?"true":"false")
+      <<",\"cardActivityEndCalls\":"<<cardActivityEndCalls
+      <<",\"cardActivityVerifiedCompletions\":"<<cardActivityVerifiedCompletions
+      <<",\"cardActivityUnmatched\":"<<cardActivityUnmatched
       <<",\"commandCompletions\":"<<commandCompletions
       <<",\"emptyCommandCompletionsSuppressed\":"<<emptyCommandCompletionsSuppressed
       <<",\"reentrantCommandCompletionsIgnored\":"<<reentrantCommandCompletionsIgnored

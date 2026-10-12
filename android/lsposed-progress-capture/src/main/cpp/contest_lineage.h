@@ -18,7 +18,7 @@ struct TraceNode {
 struct TraceBranch {
     std::shared_ptr<const TraceNode> head;
     std::vector<std::string> pendingCards;
-    std::string beforeCardMetrics="null",nextCardBefore="null";
+    std::string beforeCardMetrics="null",nextCardBefore="null",pendingCardGuid="null";
     uintptr_t nextCardCommand=0;
     uintptr_t parameter=0,controller=0;
     unsigned serial=0;
@@ -71,8 +71,10 @@ struct TraceStore {
     }
     void checkpoint(uintptr_t saved,uintptr_t sequence) {
         auto it=saves.find(saved);if(it==saves.end())return;
-        auto branch=it->second;branch.head.reset();branch.pendingCards.clear();
-        branch.beforeCardMetrics="null";branch.nextCardBefore="null";branch.nextCardCommand=0;
+        // Selected saves can precede the outer list completion. Preserve copied
+        // pending action/baseline across a checkpoint and subsequent LoadExam.
+        auto branch=it->second;branch.head.reset();
+        branch.nextCardBefore="null";branch.nextCardCommand=0;
         sequences.clear();saves.clear();published.clear();bytes=0;
         sequences[sequence]=branch;saves[saved]=branch;
     }
