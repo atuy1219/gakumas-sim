@@ -3345,6 +3345,10 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
         recordCardPhase("card-effect-"+n+"-"+String(entry.produceExamEffectId ?? entry.id ?? "unknown"));
       }
     }
+    // Passive native card-use completion is observed before the deferred
+    // after-card phase commands run. Preserve this boundary separately;
+    // those commands still run normally and affect subsequent native actions.
+    recordCardPhase("after-main-card-effects-before-after-card-play-triggers");
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
     recordCardPhase("after-card-play-triggers");
     resolveFullPowerAfterCard(state, event);
