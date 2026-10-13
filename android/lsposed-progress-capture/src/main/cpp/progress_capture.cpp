@@ -1370,6 +1370,7 @@ const char* verified_setup_origin(uintptr_t return_rva) {
 
 #include "scoped_runtime.inc"
 #include "contest_capture.inc"
+#include "contest_rng_origin.inc"
 #include "detail_log_capture.inc"
 
 void write_entry_probe_status(bool installed) {
@@ -1868,6 +1869,7 @@ void install_il2cpp_hooks() {
         install_scoped_exam_probe(image);
     passive::install(image);
     contest_capture::install(image);
+    contest_rng_origin::install(image);
     detail_log_capture::install(image);
     if (hook_enabled(8192) && !hook_enabled(128)) {
         write_status("saved-detail-log-readback-installed", image.build_id);
