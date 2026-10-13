@@ -2837,8 +2837,14 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "StanceLock": exam.stanceLock = turn || 1; event.effects.push(`指針固定 ${exam.stanceLock}ターン`); return;
     case "ExamCardMove": {
       const cards = pickedMasterCards(state, parsed);
-      const moves = cards.map((card) => ({ card, from: removeRuntimeCard(state, card) || "playing" }));
       const destination = String(parsed.movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "");
+      // A move to a full Hand is blocked. Do not remove the card from its
+      // source pool or silently redirect it to DeckFirst.
+      const openHandSlots = Math.max(0, normalizeHandLimit(state.handLimit) - state.hand.length);
+      const eligibleCards = destination === "Hand"
+        ? cards.filter((card) => !state.hand.includes(card)).slice(0, openHandSlots)
+        : cards;
+      const moves = eligibleCards.map((card) => ({ card, from: removeRuntimeCard(state, card) || "playing" }));
       const notifications = [];
       if (destination === "Hold") {
         // MoveCard @ 0x8231510: evict the oldest existing held cards first.
@@ -2858,12 +2864,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
           notifications.push(move);
         }
       } else if (destination === "Hand") {
-        const capacity = Math.max(0, normalizeHandLimit(state.handLimit) - state.hand.length);
-        const accepted = moves.slice(0, capacity), overflow = moves.slice(capacity);
-        state.hand.push(...accepted.map(({ card }) => card));
-        state.deck.unshift(...overflow.map(({ card }) => card));
-        for (const move of accepted) { move.to = "hand"; notifications.push(move); }
-        for (const move of overflow) { move.to = "deck_first"; notifications.push(move); }
+        state.hand.push(...moves.map(({ card }) => card));
+        for (const move of moves) { move.to = "hand"; notifications.push(move); }
       } else if (destination === "DeckFirst") {
         // Native ExamCardMoveController.MoveCard inserts a selected batch at
         // deck top in selection order. Repeated unshift() reversed the batch:
