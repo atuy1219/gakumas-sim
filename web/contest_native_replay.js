@@ -124,12 +124,19 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   }
   if(state.unsupported?.length)throw new ContestReplayUnsupported("unimplemented-turn-start-effect:"+state.unsupported.join("|"));
   const observedHand=(actual.hand??[]).map(x=>x.id);
-  const simulatedHand=(draw.hand??[]).map(x=>x.id);
+  // Keep effective upgrade counts and names from the actual simulated hand.
+  // Previously the replay output reduced every card to {id}, which made the
+  // comparison HTML always display an unupgraded card even when + was active.
+  const simulatedHandCards=(draw.hand??[]).map(x=>({
+    id:String(x.id),upgradeCount:Number(x.upgradeCount??0),
+    name:String(x.name??x.id),
+  }));
+  const simulatedHand=simulatedHandCards.map(x=>x.id);
   if(observedHand.length!==simulatedHand.length||observedHand.some((id,j)=>id!==simulatedHand[j])){
    warnings.push({turn:i+1,phase:"draw",native:observedHand,simulator:simulatedHand});
    // Preserve the *simulated* opening hand to make this the first structured
    // mismatch instead of marking the entire session incomparable.
-   turns.push({turn:i+1,hand:simulatedHand.map(id=>({id}))});
+   turns.push({turn:i+1,hand:simulatedHandCards});
    // Refuse to force a native hand into the simulated state. This is the
    // earliest independent RNG/deck divergence.
    break;
@@ -212,7 +219,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    vocal:scoreByType.vocal,dance:scoreByType.dance,visual:scoreByType.visual,
    stamina:Number(state.exam.stamina??0),
    block:Number(state.exam.block??0),
-   hand:simulatedHand.map(id=>({id})),
+   hand:simulatedHandCards,
   });
  }
  const prediction={
