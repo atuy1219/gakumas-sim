@@ -45,8 +45,8 @@ playTowerCard(state,state.hand.findIndex(c=>c.id===soul));
 playTowerCard(state,state.hand.findIndex(c=>c.id===party));
 assert.equal(state.hand.find(c=>c.id===base).upgradeCount,1);
 finishTowerTurn(state,{type:'end'});
-assert.equal(state.discard.find(c=>c.id===base).upgradeCount,0,
-  'the immediate skill upgrade must also be temporary');
+assert.equal(state.discard.find(c=>c.id===base).upgradeCount,1,
+  'ExamCardUpgrade must persist after the turn ends');
 drawTowerTurn(state,3);
 const santaCard=state.hand.find(c=>c.id===santa);
 assert.equal(santaCard.upgradeCount,1);
@@ -60,6 +60,13 @@ const before=state.exam.stamina;
 playTowerCard(state,state.hand.indexOf(santaCard));
 assert.equal(before-state.exam.stamina,3);
 finishTowerTurn(state,{type:'end'});
-assert.equal(state.discard.find(c=>c.id===santa).upgradeCount,0);
-assert.equal(state.discard.find(c=>c.id===santa).stamina,6);
+assert.equal(state.discard.find(c=>c.id===santa).upgradeCount,1,
+  'the delayed skill upgrade must persist in the discard pile');
+assert.equal(state.discard.find(c=>c.id===santa).stamina,3);
+// The same card instance remains upgraded on a later draw, with no native
+// score, cost, or card-state injection.
+state.deck.length=0;
+const recycled = drawTowerTurn(state,6);
+assert.equal(recycled.drawn.find(c=>c.id===santa)?.upgradeCount,1);
+assert.equal(recycled.drawn.find(c=>c.id===santa)?.stamina,3);
 console.log('Delayed Hand search and temporary card master variant: ok');
