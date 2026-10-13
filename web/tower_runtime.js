@@ -221,6 +221,7 @@ export function restoreTowerTurnState(input, shared = {}) {
   }
   state.exam.turnLifetimeEnabled = true;
   state.exam.passingTurnStartFields ??= {};
+  state.exam.scalarTimedStatuses ??= [];
   const turnCardUses = (state.simulationLog?.events ?? []).filter(event => event.turn === state.turn && event.kind === "cardUse");
   state.normalPlayUsed ??= turnCardUses.length
     ? turnCardUses.some(event => !event.forced)
@@ -2708,6 +2709,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamParameterBuffAdditive": timedAdd("parameterBuffAdditivePermil", v1, "好調効果増加"); return;
     case "ExamEnthusiasticAdditive": timedAdd("enthusiasticAdditivePermil", v1, "熱意効果増加"); return;
     case "ExamEnthusiasticMultiple": timedAdd("enthusiasticMultiple", v1, "熱意倍率変更", "multiple"); return;
+    case "ExamEnthusiasticTurnAdditive": timedAdd("enthusiasticTurnAdditive", v1, "熱意持続ターン増加"); return;
     case "ExamFullPowerPointAdditive": timedAdd("fullPowerPointAdditivePermil", v1, "全力値効果増加"); return;
     case "ExamConcentrationLessonMultipleAdditive": timedAdd("concentrationLessonMultipleAdditive", v1, "強気時スコア倍率増加", "multiple"); return;
     case "ExamFullPowerLessonMultipleAdditive": timedAdd("fullPowerLessonMultipleAdditive", v1, "全力時スコア倍率増加", "multiple"); return;
