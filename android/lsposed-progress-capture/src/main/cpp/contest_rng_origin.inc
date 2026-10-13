@@ -28,7 +28,8 @@ struct Call {
 };
 struct Window {
     contest_capture::Run* run = nullptr;
-    uintptr_t context = 0;
+    uintptr_t context = 0, parameter = 0;
+    bool selectedParameter = false;
     uint32_t before = 0, after = 0;
     bool beforeReadable = false, afterReadable = false;
     size_t kept = 0, total = 0;
@@ -48,6 +49,17 @@ bool readState(void* parameter, uint32_t& state) {
     const auto n = syscall(SYS_process_vm_readv, getpid(), &dst, 1, &src, 1, 0);
     errno = saved;
     return n == static_cast<ssize_t>(sizeof(state));
+}
+// The effect calculation context owns the RNG model being mutated. During
+// automatic contest DFS this can be a clone, not Run::parameter.
+bool contextParameter(uintptr_t context, uintptr_t& parameter) {
+    if (!context || context > UINTPTR_MAX - 0x10u) return false;
+    iovec dst{&parameter, sizeof(parameter)};
+    iovec src{reinterpret_cast<void*>(context + 0x10u), sizeof(parameter)};
+    const int saved = errno;
+    const auto n = syscall(SYS_process_vm_readv, getpid(), &dst, 1, &src, 1, 0);
+    errno = saved;
+    return n == static_cast<ssize_t>(sizeof(parameter)) && parameter != 0;
 }
 uintptr_t callerRva(void* caller) {
     const uintptr_t address = reinterpret_cast<uintptr_t>(caller);
@@ -75,8 +87,8 @@ void collect(Window* w, void* parameter, bool ranged, int32_t minimum,
              int32_t maximum, int32_t result, uintptr_t caller,
              uint32_t before, bool beforeReadable,
              uint32_t after, bool afterReadable) {
-    if (!w || !w->run || reinterpret_cast<uintptr_t>(parameter) != w->run->parameter)
-        return; // do not attribute other forecast/sequence RNG to this contest
+    if (!w || !w->run || reinterpret_cast<uintptr_t>(parameter) != w->parameter)
+        return; // exact calculation-context model, including DFS clones
     ++w->total;
     if (w->kept >= kCallLimit) return;
     Call& call = w->calls[w->kept++];
@@ -85,7 +97,7 @@ void collect(Window* w, void* parameter, bool ranged, int32_t minimum,
 }
 __attribute__((noinline)) int32_t randomNoArg(void* self, const void* method) {
     Window* w = current;
-    if (!w || !w->run || reinterpret_cast<uintptr_t>(self) != w->run->parameter)
+    if (!w || !w->run || reinterpret_cast<uintptr_t>(self) != w->parameter)
         return originalNoArg(self, method);
     uint32_t before = 0, after = 0;
     const bool beforeOK = readState(self, before);
@@ -98,7 +110,7 @@ __attribute__((noinline)) int32_t randomNoArg(void* self, const void* method) {
 __attribute__((noinline)) int32_t randomRange(void* self, int32_t min, int32_t max,
                                                const void* method) {
     Window* w = current;
-    if (!w || !w->run || reinterpret_cast<uintptr_t>(self) != w->run->parameter)
+    if (!w || !w->run || reinterpret_cast<uintptr_t>(self) != w->parameter)
         return originalRange(self, min, max, method);
     uint32_t before = 0, after = 0;
     const bool beforeOK = readState(self, before);
@@ -117,15 +129,24 @@ __attribute__((noinline)) void cardMoveEffect(uintptr_t executor, uintptr_t cont
         originalEffect(executor, context, method);
         return;
     }
+    // Reading Run::parameter filtered out the exact Tenpu+ card-move cases:
+    // their effect executes in a separate native DFS ExamParameterModel clone.
+    uintptr_t parameter = 0;
+    if (!contextParameter(context, parameter)) {
+        originalEffect(executor, context, method);
+        return;
+    }
     Window window;
     window.run = run;
     window.context = context;
-    window.beforeReadable = readState(reinterpret_cast<void*>(run->parameter), window.before);
+    window.parameter = parameter;
+    window.selectedParameter = parameter == run->parameter;
+    window.beforeReadable = readState(reinterpret_cast<void*>(parameter), window.before);
     Window* previous = current;
     current = &window;
     originalEffect(executor, context, method); // exactly once, no lock held
     current = previous;
-    window.afterReadable = readState(reinterpret_cast<void*>(run->parameter), window.after);
+    window.afterReadable = readState(reinterpret_cast<void*>(parameter), window.after);
 
     // This might not be a Random-search effect; retain only windows with RNG
     // or an unexplained state transition. Never report calls as exhaustive if
@@ -144,7 +165,10 @@ __attribute__((noinline)) void cardMoveEffect(uintptr_t executor, uintptr_t cont
     out << ",\"capturePhase\":\"after-CardMoveEffectExecutor.ExecuteEffect\""
         << ",\"probe\":\"tenpu-rng-origin-v1\""
         << ",\"effectExecutor\":\"" << hexRva(kCardMoveEffectRva) << "\""
-        << ",\"contextParameterMatched\":true"
+        << ",\"contextParameterReadable\":true"
+        << ",\"contextParameterMatched\":" << (window.selectedParameter ? "true" : "false")
+        << ",\"contextParameterIsClone\":" << (!window.selectedParameter ? "true" : "false")
+        << ",\"selectedLineageVerified\":false"
         << ",\"randomBefore\":" << (window.beforeReadable ? std::to_string(window.before) : "null")
         << ",\"randomAfter\":" << (window.afterReadable ? std::to_string(window.after) : "null")
         << ",\"observedXorShiftSteps\":"
