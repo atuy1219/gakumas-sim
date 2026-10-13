@@ -58,7 +58,15 @@ struct alignas(8) FakeParameter {
     uint8_t padding[0x77c]{};
     uint32_t state = 0x12345678;
 };
-FakeParameter model;
+FakeParameter model, cloneModel;
+struct FakeContext {
+    uint8_t padding[0x10]{};
+    FakeParameter* parameter = nullptr;
+};
+static_assert(offsetof(FakeContext, parameter) == 0x10);
+FakeContext context;
+FakeParameter* currentModel = &model;
+unsigned rollCount = 2;
 unsigned origCalls = 0, effectCalls = 0;
 int32_t actualRandom(void* obj, const void*) {
     ++origCalls;
@@ -68,23 +76,25 @@ int32_t actualRandom(void* obj, const void*) {
     return static_cast<int32_t>(old);
 }
 void actualEffect(uintptr_t x, uintptr_t y, uintptr_t z) {
-    assert(x == 11 && y == 22 && z == 33);
+    assert(x == 11 && y == reinterpret_cast<uintptr_t>(&context) && z == 33);
     ++effectCalls;
-    assert(randomNoArg(&model, nullptr) == static_cast<int32_t>(0x12345678));
-    (void)randomNoArg(&model, nullptr);
+    assert(randomNoArg(currentModel, nullptr) == static_cast<int32_t>(0x12345678));
+    for (unsigned i = 1; i < rollCount; ++i) (void)randomNoArg(currentModel, nullptr);
 }
 int main() {
     contest_capture::Run run;
     run.parameter = reinterpret_cast<uintptr_t>(&model);
     originalNoArg = actualRandom;
     originalEffect = actualEffect;
+    context.parameter = &model;
+    const uintptr_t contextPtr = reinterpret_cast<uintptr_t>(&context);
     // Outside scoped selected auto-play: original called, no capture.
-    cardMoveEffect(11, 22, 33);
+    cardMoveEffect(11, contextPtr, 33);
     assert(effectCalls == 1 && origCalls == 2 && contest_capture::emits == 0);
     model.state = 0x12345678;
     origCalls = 0;
     contest_capture::active = &run;
-    cardMoveEffect(11, 22, 33);
+    cardMoveEffect(11, contextPtr, 33);
     contest_capture::active = nullptr;
     assert(effectCalls == 2 && origCalls == 2 && contest_capture::emits == 1);
     const auto& report = contest_capture::last;
@@ -93,7 +103,22 @@ int main() {
     assert(report.find("\"gameCallsInjected\":false") != std::string::npos);
     assert(report.find("\"index\":1") != std::string::npos);
     assert(report.find("\"index\":2") != std::string::npos);
-    std::cout << "selected RNG origin probe: 2 original calls, 2 records\n";
+    // DFS clone has a DIFFERENT parameter model from the selected Run,
+    // exactly the case missed by v1.5.37.
+    context.parameter = &cloneModel;
+    currentModel = &cloneModel;
+    rollCount = 4;
+    origCalls = 0;
+    contest_capture::active = &run;
+    cardMoveEffect(11, contextPtr, 33);
+    contest_capture::active = nullptr;
+    assert(effectCalls == 3 && origCalls == 4 && contest_capture::emits == 2);
+    assert(contest_capture::last.find("\"observedXorShiftSteps\":4") != std::string::npos);
+    assert(contest_capture::last.find("\"capturedRandomCallCount\":4") != std::string::npos);
+    assert(contest_capture::last.find("\"contextParameterMatched\":false") != std::string::npos);
+    assert(contest_capture::last.find("\"contextParameterIsClone\":true") != std::string::npos);
+    assert(model.state == nextXorShift(nextXorShift(0x12345678)));
+    std::cout << "selected + DFS clone RNG origin probe: preserved original calls\n";
 }
 '''
 
