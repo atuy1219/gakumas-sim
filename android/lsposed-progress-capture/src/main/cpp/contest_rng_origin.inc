@@ -1,11 +1,6 @@
 // v3.4.1 selected-contest, read-only RNG origin trace for CardMove effects.
 // Opt-in mask: 128 (scoped setup) | 4096 (selected contest) | 16384 = 20608.
 // No managed getters, extra RNG calls, synthetic play, or argument mutation.
-#include <array>
-#include <cerrno>
-#include <sys/uio.h>
-#include <sys/syscall.h>
-
 namespace contest_rng_origin {
 constexpr uintptr_t kCardMoveEffectRva = 0x0804BCA8;
 constexpr uintptr_t kRandomNoArgRva = 0x0808A340;
