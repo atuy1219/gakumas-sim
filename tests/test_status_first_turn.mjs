@@ -16,10 +16,10 @@ for (const [type, field] of [['ExamReview', 'review'], ['ExamParameterBuff', 'pa
   for (const s of [original, resume(original)]) {
     finishTowerTurn(s); assert.equal(s.exam[field], 6, field);
     drawTowerTurn(s); grant(s, type, 2); finishTowerTurn(s);
-    assert.equal(s.exam[field], field === 'review' ? 8 : field === 'parameterBuffMultiplePerTurn' ? 5 : 7,
-      `${field}: regrant must not reset the flag`);
+    assert.equal(s.exam[field], field === 'review' ? 8 : field === 'parameterBuffMultiplePerTurn' ? 7 : 7,
+      `${field}: native regrant respects lifetime extension`);
     drawTowerTurn(s); finishTowerTurn(s);
-    assert.equal(s.exam[field], field === 'review' ? 7 : field === 'parameterBuffMultiplePerTurn' ? 4 : 6);
+    assert.equal(s.exam[field], field === 'review' ? 7 : field === 'parameterBuffMultiplePerTurn' ? 6 : 6);
   }
 }
 // Additive rows with equal remaining duration are the same native status.
