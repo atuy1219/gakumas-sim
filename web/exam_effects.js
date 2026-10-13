@@ -1500,7 +1500,10 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
     value = runtimeF32(value * runtimeFromPermil(1000 + setting));
   }
 
-  let damage = Math.ceil(value);
+  // Native card costs are non-negative, including when the total reduction
+  // is greater than the original cost. Clamp *before* splitting between
+  // Genki and stamina, not only when reporting the result.
+  let damage = Math.max(0, Math.ceil(value));
   if (applyFixed) {
     damage += Math.max(0, Math.trunc(Number(exam?.staminaConsumptionAddFix) || 0));
     const downFix = Math.max(0, Math.trunc(Number(exam?.staminaConsumptionDownFix) || 0));
@@ -1512,10 +1515,11 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
     }
   }
 
-  const staminaDamage = Math.max(0, damage - block);
-  const blockDamage = damage - staminaDamage;
+  damage = Math.max(0, Math.trunc(damage));
+  const blockDamage = penetrate ? 0 : Math.min(block, damage);
+  const staminaDamage = damage - blockDamage;
   return {
-    damage: Math.max(0, Math.trunc(damage)),
+    damage,
     staminaDamage: Math.max(0, Math.trunc(staminaDamage)),
     blockDamage: Math.max(0, Math.trunc(blockDamage)),
   };
