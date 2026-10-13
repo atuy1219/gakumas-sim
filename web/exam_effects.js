@@ -1542,8 +1542,10 @@ export function payCardCost(exam, card) {
   const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
   const field = statusCosts[card.costType];
   if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");
-  const direct = Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
-  const normalBase = Math.max(0, Math.trunc(Number(card.temporaryStaminaConsumptionFix ?? card.stamina ?? 0) || 0));
+  // ConsumeCardCost @ 0x80a7a44 branches on CostType. Buff costs never
+  // enter the ordinary stamina-growth/search-waiver path.
+  const direct = field ? 0 : Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
+  const normalBase = field ? 0 : Math.max(0, Math.trunc(Number(card.temporaryStaminaConsumptionFix ?? card.stamina ?? 0) || 0));
 
   if (normalBase > 0) {
     const resolved = calculateNativeStaminaDamage(exam, normalBase, {
@@ -1651,14 +1653,16 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       return lessonResult(Number(parsed.value), Math.max(1, Number(parsed.count) || 1));
 
     case "lesson_multiple_lesson_buff": {
-      const result = applyNativeModifiedLessonRepeat(
-        exam,
-        Number(parsed.value),
-        Number(parsed.permil),
-        Math.max(1, Number(parsed.count) || 1),
-        NATIVE_LESSON_MODIFIER_KIND.LessonBuff,
-        scoreContext,
-      );
+      // MultipleLessonBuffLessonEffectExecutor @ 0x805cf84 adds a separately
+      // rounded concentration contribution to Value1. CalculateAddingParameter
+      // then adds the usual concentration contribution with its own ceil.
+      const contribution = Math.ceil(Math.fround(
+        Math.fround(Math.fround(Number(exam.lessonBuffMultiple ?? 1))
+          * Math.fround(Number(parsed.permil) * Number(exam.lessonBuff ?? 0)))
+        / Math.fround(1000),
+      ));
+      const result = applyNativeLessonHits(exam, Number(parsed.value) + contribution,
+        Math.max(1, Number(parsed.count) || 1), scoreContext);
       return {
         applied: true,
         label: `集中効果×${1 + Number(parsed.permil) / 1000}でパラメータ +${result.added}`,

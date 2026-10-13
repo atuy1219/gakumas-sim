@@ -128,7 +128,7 @@ for (const handLimit of [4, 5]) {
   const held = s.hand.map((c) => c.token); move(s, "Hand", "Hold");
   finishTowerTurn(s); drawTowerTurn(s, 3);
   assert.deepEqual(s.hold.map((c) => c.token), held, "ordinary turn leaves Hold intact");
-  finishTowerTurn(s); s.exam.idolStatusType = 3; s.exam.idolStatusStep = 1;
+  finishTowerTurn(s); s.exam.fullPowerPoint = 10;
   drawTowerTurn(s, 3);
   assert.deepEqual(s.hand.slice(3).map((c) => c.token), held.slice(0, handLimit - 3));
   assert.deepEqual(s.hold.map((c) => c.token), held.slice(handLimit - 3));
@@ -154,7 +154,9 @@ for (const handLimit of [4, 5]) {
   drawTowerTurn(s, 1); apply(s, effect("ExamConcentration", 1));
   assert.equal(s.exam.parameter, 0);
   apply(s, effect("ExamFullPower", 1)); assert.equal(s.exam.parameter, 7);
-  playTowerCard(s, 0); assert.equal(s.exam.parameter, 18);
+  playTowerCard(s, 0); assert.equal(s.exam.parameter, 7, "FullPower survives card completion");
+  finishTowerTurn(s); drawTowerTurn(s, 1);
+  assert.equal(s.exam.parameter, 18, "FullPower is unset at the next turn boundary");
   assert.deepEqual(s.unsupported, []);
 }
 // A single card with separate reductions triggers 初声 twice. Nested chain

@@ -1530,11 +1530,16 @@ let anomalyState = createTowerTurnState(
 );
 drawTowerTurn(anomalyState, 3);
 playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "GAIN-POINT"));
-assert.equal(anomalyState.exam.fullPowerPoint, 0, "10 points are consumed by automatic Full Power");
+assert.equal(anomalyState.exam.fullPowerPoint, 10, "points wait for the next turn boundary");
+assert.equal(anomalyState.exam.idolStatusType, 0);
+assert.equal(anomalyState.playsRemaining, 0);
+finishTowerTurn(anomalyState);
+drawTowerTurn(anomalyState, 3);
+assert.equal(anomalyState.exam.fullPowerPoint, 0, "turn-start FullPower consumes ten points");
 assert.equal(anomalyState.exam.idolStatusType, 3);
-assert.equal(anomalyState.playsRemaining, 1, "automatic Full Power adds one card play");
+assert.equal(anomalyState.playsRemaining, 2, "turn-start FullPower adds one card play");
 playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "NEXT"));
-assert.equal(anomalyState.exam.idolStatusType, 0, "Full Power ends after one card");
+assert.equal(anomalyState.exam.idolStatusType, 3, "FullPower lasts across cards in this turn");
 
 anomalyState = createTowerTurnState(
   anomalyCards.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
@@ -1707,7 +1712,7 @@ assert.equal(runEffect({
   id: "PLAY-COUNT-LESSON", effectType: "ProduceExamEffectType_ExamLessonDependPlayCardCountSum",
   effectValue1: 2, effectValue2: 3, effectCount: 1,
 }, (state) => { state.exam.cardPlayCount = 3; state.exam.playCardCountSum = 99; }),
-14, "native reads the current card-play counter including the played card");
+11, "native reads completed card uses before the current card's after-check");
 assert.equal(runEffect({
   id: "FULL-POWER-SUM-LESSON", effectType: "ProduceExamEffectType_ExamLessonFullPowerPoint",
   effectValue1: 2, effectValue2: 1200, effectCount: 2,

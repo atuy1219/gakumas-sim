@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "source": "User-confirmed customs for contest captures (16)-(19), 2026-10-14; routes and counts cross-checked against recorded copies.",
+  "captureSha256": [
+    "17bd86286a1fdc9197fbf95078f9feb14855b39c1dde53fee4afbbe08ab21878",
+    "ca2c2c6fcbc0cb6c9aaae4e3fb54774babce0eef3f941a24f5e0cd4711bf225d",
+    "c781a0b9a7f9cf2ca77999c8301202797dbef8099d33d22ea473b266fdc76564",
+    "3968b71a557566db769766538b2e5a0827b389565a0685927e3fa42944989e91"
+  ],
+  "sessions": [
+    {
+      "sessionId": 3,
+      "cards": [
+        {
+          "id": "p_card-01-act-3_185",
+          "customizes": [
+            {
+              "id": "p_card_custom-wrapper-p_card-01-act-3_185-b-01",
+              "customizeCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": 6,
+      "cards": [
+        {
+          "id": "p_card-02-act-3_050",
+          "customizes": [
+            {
+              "id": "p_card_custom-100-g_effect-p_card-02-act-3_050-enc_1",
+              "customizeCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": 7,
+      "cards": [
+        {
+          "id": "p_card-03-men-3_058",
+          "customizes": [
+            {
+              "id": "p_card_custom-070-g_effect-block_add-9",
+              "customizeCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": 8,
+      "cards": [
+        {
+          "id": "p_card-03-men-2_080",
+          "customizes": [
+            {
+              "id": "p_card_custom-070-g_effect-effect_add-e_effect-exam_effect_timer-0001-01-e_effect-exam_preservation-0001",
+              "customizeCount": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

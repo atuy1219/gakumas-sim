@@ -27,6 +27,8 @@ jobs:
         run: node tests/test_native_grave_recycles.mjs
       - name: Verify Encore, reserved draw boundaries and eight native move RNG observations
         run: node tests/test_encore_draw_boundary.mjs
+      - name: Verify native score, cost, condition and FullPower boundaries
+        run: node tests/test_native_contest_remaining_effects.mjs
       - name: Replay nine anonymized native sessions against independent simulator
         run: |
           node tools/compare_contest_capture.mjs \

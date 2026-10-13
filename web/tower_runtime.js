@@ -1706,7 +1706,9 @@ function registerParsedStatusEnchant(state, parsed) {
     return null;
   }
 
-  const installedCardPlayCount = Number(state.exam.cardPlayCount ?? 0);
+  // Activation starts after the installing card's after-check. During main
+  // effects the completed-use counter does not yet contain that card.
+  const installedCardPlayCount = Number(state.exam.cardPlayCount ?? 0) + (state.playingCard ? 1 : 0);
   const conditions = [];
 
   if (trigger.field && trigger.min !== undefined && trigger.min !== null) {
@@ -2116,6 +2118,10 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   state.exam.turnCardPlayCount = 0;
   state.currentTurnDrinks = [];
   state.turnUseSupportCardIds = new Set();
+
+  // ExamLoopTaskAsync @ 0x80b8260 clears the prior turn, then unsets
+  // FullPower and consumes ten points before the next turn's card phases.
+  resolveFullPowerAtTurnStart(state, phaseEvent);
 
   // Expire the timers now, but execute their commands after ordinary draw.
   // Phase-4 replay/timer commands can then add cards beyond the normal draw.
@@ -2628,10 +2634,10 @@ function applyStanceRuntimeRewards(state, stance, event) {
   event.effects.push(`全カード ${matched}枚のパラメータ上昇量 +${lessonAdd}`);
 }
 
-function resolveFullPowerAfterCard(state, event) {
+function resolveFullPowerAtTurnStart(state, event) {
   const exam = state.exam;
-  // Native ExamLoopTaskAsync first removes the one-card Full Power stance,
-  // then converts each complete 10-point gauge into the next Full Power.
+  // ExamLoopTaskAsync @ 0x80b82b4 removes the prior turn's FullPower,
+  // then @ 0x80b8310 consumes ten points for the upcoming turn.
   if (Number(exam.idolStatusType ?? 0) === EXAM_IDOL_STATUS_TYPE.FullPower) {
     const beforeUnset = captureNativeStatusSnapshot(exam);
     exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Unknown;
@@ -2711,7 +2717,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamLessonDependBlockConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.blockConsumptionSum, parsed), event, "元気消費量参照"); return;
     case "ExamLessonDependStaminaConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.staminaConsumptionSum, parsed), event, "体力消費量参照"); return;
     case "ExamLessonDependPlayCardCountSum":
-      // Native executor @ 0x80133E0: value1 + value2 * ExamCardPlayCount.
+      // LessonDependPlayCardCountSumEffectExecutor @ 0x8059ca0 reads the
+      // completed-card count, before this card's UseCardAfterCheck increment.
       applyMasterLesson(state, parsed, v1 + v2 * Number(exam.cardPlayCount ?? 0), event, "カード使用数参照");
       return;
     case "ExamLessonFullPowerPoint": {
@@ -3215,8 +3222,8 @@ function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = 
   );
 }
 
-function applyCardEffectEntry(state, entry, event, card = null) {
-  const trigger = checkRuntimeCardTrigger(state, entry?.produceExamTriggerId, card, event);
+function applyCardEffectEntry(state, entry, event, card = null, preparedTrigger = null) {
+  const trigger = preparedTrigger ?? checkRuntimeCardTrigger(state, entry?.produceExamTriggerId, card, event);
   if (!trigger.supported) {
     rememberUnsupported(state, `trigger:${trigger.triggerId}`);
     event.effects.push(`未対応条件: ${trigger.triggerId}`);
@@ -3428,6 +3435,19 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       staminaConsumptionDown: Number(exam.staminaConsumptionDown ?? 0),
       staminaConsumptionDownFix: Number(exam.staminaConsumptionDownFix ?? 0),
       playable: Number(state.playsRemaining ?? 0),
+      lessonBuff: Number(exam.lessonBuff ?? 0),
+      parameterBuff: Number(exam.parameterBuff ?? 0),
+      parameterBuffMultiplePerTurn: Number(exam.parameterBuffMultiplePerTurn ?? 0),
+      fullPowerPoint: Number(exam.fullPowerPoint ?? 0),
+      enthusiastic: Number(exam.enthusiastic ?? 0),
+      antiDebuffCount: Number(exam.antiDebuffCount ?? 0),
+      reviewAdditivePermil: Number(exam.reviewAdditivePermil ?? 0),
+      aggressiveAdditivePermil: Number(exam.aggressiveAdditivePermil ?? 0),
+      lessonBuffAdditiveFix: Number(exam.lessonBuffAdditiveFix ?? 0),
+      aggressiveAdditiveFix: Number(exam.aggressiveAdditiveFix ?? 0),
+      lessonBuffMultiplePermil: Math.round((Number(exam.lessonBuffMultiple ?? 1) - 1) * 1000),
+      reviewMultiplePermil: Math.round((Number(exam.reviewMultiple ?? 1) - 1) * 1000),
+      searchCostCount: (state.searchCardCostChanges ?? []).reduce((sum, row) => sum + Math.max(0, Number(row.count ?? 0)), 0),
     };
     const changes = priorStep ? Object.fromEntries(
       Object.keys(current).map(key => [key, current[key] - priorStep[key]]),
@@ -3441,6 +3461,12 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     priorEffectCount = (event.effects ?? []).length;
   };
   recordCardPhase("before-card");
+  // ExecuteCardCommandImpl @ 0x80a6520 prepares all effect conditions before
+  // it executes any cost, play-trigger or main-effect commands.
+  const plannedEffects = (card.playEffects ?? []).map((entry) => ({
+    entry,
+    trigger: checkRuntimeCardTrigger(state, entry.produceExamTriggerId, card, event),
+  }));
   const cardTriggerAggressiveAtPlayStart = Number(state.exam.aggressive ?? 0);
   const cardTrigger = checkRuntimeCardTrigger(state, card.playProduceExamTriggerId, card, event);
   if (!cardTrigger.supported) {
@@ -3459,7 +3485,9 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     stamina: Number(state.exam.stamina ?? 0),
     review: Number(state.exam.review ?? 0),
   };
-  const costChange = state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)));
+  const costChange = (!card.costType || card.costType === "ExamCostType_Unknown")
+    ? state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)))
+    : null;
   if (!ignoreCost) event.cost.push(...payCardCost(state.exam, costChange ? { ...card, temporaryStaminaConsumptionFix: costChange.value } : card));
   if (!ignoreCost && costChange) costChange.count -= 1;
   recordCardPhase("after-cost");
@@ -3495,11 +3523,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       }
       state.normalPlayUsed = true;
     }
-    state.exam.cardPlayCount += 1;
-    state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
-    state.exam.playCardCountSum += 1;
-    state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
-    const cardPlayCount = state.exam.cardPlayCount;
+    const cardPlayCount = Number(state.exam.cardPlayCount ?? 0) + 1;
     const previouslyPlayed = Number(card.playCount ?? 0) > 0;
     card.playCount = Number(card.playCount ?? 0) + 1;
     if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
@@ -3526,11 +3550,11 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
     }
     for (let n = 0; canExecuteCardEffects && n <= repeat; n += 1) {
-      for (const entry of card.playEffects ?? []) {
+      for (const { entry, trigger } of plannedEffects) {
         // ExecuteCardCommandImpl tests the card's prior play count for the
         // first execution; repeat-buff executions keep native effect behavior.
         if (n === 0 && previouslyPlayed && entry.isOncePlayEffect) continue;
-        applyCardEffectEntry(state, entry, event, card);
+        applyCardEffectEntry(state, entry, event, card, trigger);
         recordCardPhase("card-effect-"+n+"-"+String(entry.produceExamEffectId ?? entry.id ?? "unknown"));
       }
     }
@@ -3538,6 +3562,12 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     // after-card phase commands run. Preserve this boundary separately;
     // those commands still run normally and affect subsequent native actions.
     recordCardPhase("after-main-card-effects-before-after-card-play-triggers");
+    // PlayCardCountIncrement @ 0x8092358 runs from UseCardAfterCheck
+    // (@ 0x80dcb20), after the main effects, including forced uses.
+    state.exam.cardPlayCount += 1;
+    state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
+    state.exam.playCardCountSum += 1;
+    state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
     // Native ExamBuffConsume recovery is an after-completion consequence of
     // spending a buff for card cost. It does not affect the card's own score
     // or the passive card-use-complete snapshot.
@@ -3555,8 +3585,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     }
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
     recordCardPhase("after-card-play-triggers");
-    resolveFullPowerAfterCard(state, event);
-    recordCardPhase("after-full-power-resolution");
+    recordCardPhase("after-card-resolution");
 
     // Flush only this playing card's deferred growth. A nested/forced play
     // may have its own in-flight card, so never consume that card's queue.

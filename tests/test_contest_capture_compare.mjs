@@ -116,7 +116,7 @@ const phaseTrace=refused.cardActionTrace[0].simulated.phases;
 assert.ok(phaseTrace.length>=4);
 assert.equal(phaseTrace[0].phase,"before-card");
 assert.ok(phaseTrace.some(p=>p.phase==="before-main-card-effects-after-card-play-triggers"));
-assert.equal(phaseTrace.at(-1).phase,"after-full-power-resolution");
+assert.equal(phaseTrace.at(-1).phase,"after-card-resolution");
 assert.ok(phaseTrace.every(p=>typeof p.score==="number"&&typeof p.block==="number"&&typeof p.stamina==="number"));
 assert.equal(refused.cardActionTrace[0].simulated.scoreGained,0);
 assert.equal(refused.warnings[0].turn,1);
