@@ -154,6 +154,13 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
       stamina:nativeReplayRuntimeCard?.stamina,
       temporaryStaminaConsumptionFix:nativeReplayRuntimeCard?.temporaryStaminaConsumptionFix,
       costType:nativeReplayRuntimeCard?.costType,costValue:nativeReplayRuntimeCard?.costValue,
+      growEffects:nativeReplayRuntimeCard?.runtimeGrowEffects,
+      customizeList:nativeReplayRuntimeCard?.customizes,
+      upgradeCount:nativeReplayRuntimeCard?.upgradeCount,
+      originMasterStamina:state.cardVariantByKey?.get?.(`${cardId}@@${Number(nativeReplayRuntimeCard?.upgradeCount??0)}`)?.stamina,
+      initialDeckCard:state.initialDeck?.filter?.(x=>x.id===cardId).map(x=>({
+        stamina:x.stamina,customizes:x.customizes,grows:x.runtimeGrowEffects
+      })),
       costChanges:(state.searchCardCostChanges??[]).map(x=>({
         searchId:x.searchId,value:x.value,count:x.count,turn:x.turn,
       })),
