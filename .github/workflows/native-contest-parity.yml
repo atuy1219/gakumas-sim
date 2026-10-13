@@ -184,7 +184,8 @@ jobs:
           const ie=new Map((c.itemEffects??[]).map(x=>[x.id,x]));
           const en=new Map((c.examStatusEnchants??[]).map(x=>[x.id,x]));
           const tr=new Map((c.examTriggers??[]).map(x=>[x.id,x]));
-          for(const id of ["pitem_03-0-007-0-016","pitem_03-3-134-0","pitem_00-3-010-0"]){
+          for(const id of ["pitem_03-0-007-0-016","pitem_03-3-077-0","pitem_03-3-065-0","pitem_00-3-011-0",
+            "pitem_03-3-072-0","pitem_03-3-134-0","pitem_00-3-010-0"]){
             const item=(c.items??[]).find(x=>x.id===id);
             const eff=(item?.produceItemEffectIds??[]).map(eid=>ie.get(eid)).filter(Boolean);
             const ench=eff.map(x=>en.get(x.produceExamStatusEnchantId)).filter(Boolean);
