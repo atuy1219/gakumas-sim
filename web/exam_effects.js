@@ -46,6 +46,8 @@ export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
   examStaminaReduceChange: 1,
   examConcentrationStaminaMultiplePermil1: 2000,
   examConcentrationStaminaMultiplePermil2: 2000,
+  examConcentrationStaminaPenetrateReduce1: 0,
+  examConcentrationStaminaPenetrateReduce2: 1,
   examPreservationStaminaMultiplePermil1: 500,
   examPreservationStaminaMultiplePermil2: 250,
   examOverPreservationStaminaMultiplePermil: 0,
@@ -1549,6 +1551,24 @@ export function payCardCost(exam, card) {
       `体力消費 ${resolved.damage}`
       + (resolved.blockDamage ? `（元気で${resolved.blockDamage}軽減）` : ""),
     );
+  }
+
+  // Native ExamSetting.ExamConcentrationStaminaPenetrateReduce{1,2}
+  // (ELF getters at 0x7C23F38 / 0x7C23F48) is an additional
+  // stamina-only card-use cost. It cannot be absorbed by Block (元気),
+  // and is independent of the ordinary cost resolved above.
+  // Stage 1 is 0 and stage 2 is 1 in p_exam_setting-1.
+  if (Number(exam?.idolStatusType ?? 0) === EXAM_IDOL_STATUS_TYPE.Concentration) {
+    const stage = Math.max(1, Math.trunc(Number(exam?.idolStatusStep ?? 1)));
+    const key = stage >= 2
+      ? "examConcentrationStaminaPenetrateReduce2"
+      : "examConcentrationStaminaPenetrateReduce1";
+    const penetratingCost = Math.max(0, Math.trunc(getExamRuntimeSetting(exam, key)));
+    if (penetratingCost > 0) {
+      const before = Math.max(0, Number(exam.stamina ?? 0));
+      exam.stamina = Math.max(0, before - penetratingCost);
+      events.push(`強気${stage}段階・元気貫通体力消費 ${penetratingCost}`);
+    }
   }
 
   // forceStamina bypasses Genki, but not stamina-consumption modifiers.
