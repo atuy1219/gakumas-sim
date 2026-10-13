@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <android/log.h>
 #include <jni.h>
 #include <cctype>
