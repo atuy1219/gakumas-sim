@@ -1124,7 +1124,10 @@ function cardsForMasterSearch(state, search, context = {}) {
     ...(state.hold ?? []),
   ];
 
-  if (position === "ProduceCardPositionType_DeckAll") return [...all, ...(state.playingCard && !all.includes(state.playingCard) ? [state.playingCard] : [])];
+  // DeckAll enumerates card-pool slots; a currently playing card has already
+  // left Hand and is not in the Deck/Grave/Hold/Lost pools. In particular,
+  // this prevents DeckAll grow effects from upgrading their own in-flight card.
+  if (position === "ProduceCardPositionType_DeckAll") return all;
   if (position === "ProduceCardPositionType_NotLost") return all.filter((card) => !state.lost.includes(card));
   if (position === "ProduceCardPositionType_Target") return context.card ? [context.card] : [];
   if (!position || position.endsWith("_Unknown")) {
@@ -1323,6 +1326,17 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   if (condition.phaseType === "ProduceExamPhaseType_ExamTurnSkip" && String(context.action ?? "") !== "skip") return false;
 
   const statusField = context.statusChange?.field;
+  // ExamBuffConsume is a consumption trigger, not a general STATUS_DECREASED.
+  // In particular Block (元気) being spent to pay card cost must not fire it.
+  // Only the recognized consumable buff-status fields qualify. This is a
+  // conservative filter pending additional native status-class coverage.
+  if (condition.phaseType === "ProduceExamPhaseType_ExamBuffConsume") {
+    const consumableBuffs = new Set([
+      "review", "aggressive", "parameterBuff", "lessonBuff",
+      "staminaConsumptionDown", "parameterBuffMultiplePerTurn",
+    ]);
+    if (!consumableBuffs.has(statusField) || !(Number(context.statusChange?.delta) < 0)) return false;
+  }
   const requiredField = {
     ProduceExamPhaseType_ExamStanceChangeConcentration: "concentrationChangeCount",
     ProduceExamPhaseType_ExamStanceChangePreservation: "preservationChangeCount",
@@ -2046,7 +2060,11 @@ function drawTowerTurnImpl(state, drawCount = 3) {
 
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
-  const requested = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
+  // Start-of-turn scheduled/forced card plays can create cards in Hand before
+  // the ordinary draw. Draw up to the requested hand size rather than drawing
+  // that many additional cards (capture #16, contest #3, turn 4).
+  const targetHandSize = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
+  const requested = Math.max(0, targetHandSize - state.hand.length);
   const result = isOpeningTurn
     ? setNativeInitialCard(state, requested, phaseEvent)
     : drawCardsIntoHand(state, requested, phaseEvent);
