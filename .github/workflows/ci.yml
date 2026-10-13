@@ -68,7 +68,7 @@ jobs:
         if: always()
         run: |
           test "$(git rev-parse HEAD)" = "d552cfa20fa62e6c80bd2b72c6919178a320c779"
-          tar -czf exact-d552-replay-source.tar.gz web tools tests README.md .github
+          tar --exclude='./.git' -czf exact-d552-replay-source.tar.gz .
           sha256sum exact-d552-replay-source.tar.gz > exact-d552-replay-source.sha256
           git rev-parse HEAD > exact-d552-commit.txt
       - uses: actions/upload-artifact@v4
