@@ -212,9 +212,10 @@ public final class DiagnosticActivity extends Activity {
             "Native自己テスト（256）：モジュール内関数だけを検証",
             "実験プローブ（128）：SetUpExam呼出元を観測",
             "コンテスト詳細取得（4224）：カード移動・効果中の状態を測定",
+            "天賦の才+乱数診断（20608）：カード移動効果中のRNG呼出元を記録",
             "保存済み詳細ログ取得：詳細ログを開くと記録"
         };
-        final int[] flags = {0, 256, 128, 4224, 8192};
+        final int[] flags = {0, 256, 128, 4224, 20608, 8192};
         // Android AlertDialog may suppress setItems when setMessage is also
         // present. The selection dialog must use a list without a message.
         new AlertDialog.Builder(this)
@@ -226,7 +227,7 @@ public final class DiagnosticActivity extends Activity {
                     return;
                 }
                 // Show the safety warning AFTER selection, not in the list
-                // dialog itself, so all seven modes remain visible.
+                // dialog itself, so all modes remain visible.
                 new AlertDialog.Builder(this)
                     .setTitle("実験フックを有効化しますか？")
                     .setMessage("v1.4.0では試験中にSIGSEGVが発生しています。"
@@ -235,6 +236,7 @@ public final class DiagnosticActivity extends Activity {
                         + "予測処理や未確認の呼出元は除外します。"
                         + "256はモジュール自身の関数だけを検証します。"
                         + "4224はコンテスト本体とカード実行の追加フックを有効化します。"
+                        + "20608は4224に加え、カード移動効果中の乱数関数呼出元を記録します。"
                         + "この計測は実機未検証で、ゲームのクラッシュ・アカウント制限のリスクがあります。"
                         + "設定変更後は学マスを完全に終了して再起動してください。")
                     .setPositiveButton("有効化する", (confirm, which) -> saveHookMode(mask))
