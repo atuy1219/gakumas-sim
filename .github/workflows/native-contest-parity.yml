@@ -170,7 +170,8 @@ jobs:
           import {readFileSync} from "node:fs";
           const c=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
           const keys=["p_card-00-sup-3_027","p_card-03-men-0_013","p_card-03-act-3_055",
-            "p_card-03-men-3_058","p_card-00-sup-3_152","p_card-01-men-3_034"];
+            "p_card-03-men-3_058","p_card-03-men-1_050","p_card-03-men-2_066",
+            "p_card-00-sup-3_152","p_card-01-men-3_034"];
           for(const id of keys){
             const variants=(c.cardVariants??[]).filter(v=>v.id===id);
             console.log("UPGRADE_MASTER "+id+" "+JSON.stringify(variants.map(v=>({
