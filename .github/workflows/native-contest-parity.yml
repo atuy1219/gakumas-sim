@@ -41,7 +41,7 @@ jobs:
             if(!q)continue;
             const actions=(q.simulation?.cardActionTrace??[]).filter(c=>
               sid===7 ? (c.turn===2 && c.cardId==='p_card-03-men-3_058') :
-              sid===8 ? (c.turn===7 && c.cardId==='p_card-03-men-1_050') :
+              sid===8 ? (c.cardId==='p_card-03-men-1_050' || c.turn===6) :
               sid===3 ? c.turn===3 || c.turn===4 :
               sid===5 ? c.turn===5 || c.turn===7 :
               c.turn===5);
