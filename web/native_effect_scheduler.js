@@ -8,6 +8,7 @@
 export const NATIVE_EFFECT_PHASE = Object.freeze({
   BEFORE_START_OF_TURN: "beforeStartOfTurn",
   START_OF_TURN: "startOfTurn",
+  TURN_START_AFTER_DRAW: "turnStartAfterDraw",
   AFTER_START_OF_TURN: "afterStartOfTurn",
   CARD_PLAY: "cardPlay",
   AFTER_CARD_PLAY: "afterCardPlay",

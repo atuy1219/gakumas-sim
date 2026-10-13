@@ -235,6 +235,17 @@ export function restoreTowerTurnState(input, shared = {}) {
   state.statusEnchantSerial ??= 0;
   state.exam.turnCardPlayCount ??= state.currentTurnPlays?.length ?? 0;
   state.turnOpen ??= Number(state.turn) > 0 && !state.ended && Number(state.history?.at(-1)?.turn ?? 0) < Number(state.turn);
+  // Older checkpoints lack installedTurn. Initial-only Encore belongs to
+  // the owner's first normal use, which is recoverable from recorded plays.
+  const pastTurns = [...(state.history ?? []), ...(state.turnOpen ? [{ turn: state.turn, plays: state.currentTurnPlays ?? [] }] : [])];
+  for (const registration of state.effectScheduler?.registrations ?? []) {
+    if (registration.installedTurn != null || !registration.metadata?.originCardToken) continue;
+    const parsed = schedulerParsedEffect(state.examEffectById.get(registration.id) ?? registration.id);
+    if (parsed.masterEffectType !== "ProduceExamEffectType_ExamStatusEnchantEncore") continue;
+    const first = pastTurns.find(turn => (turn.plays ?? []).some(play =>
+      !play.forced && play.card?.token === registration.metadata.originCardToken));
+    if (first) registration.installedTurn = Number(first.turn);
+  }
   // Older checkpoints did not store per-card play counts. Recover them from
   // recorded plays so resuming an Encore cannot reinstall its initial effect.
   const playedCounts = new Map();
@@ -998,8 +1009,8 @@ const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
   ProduceExamPhaseType_ExamCardPlayAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamEndTurn: NATIVE_EFFECT_PHASE.END_TURN,
   ProduceExamPhaseType_ExamTurnCheck: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
-  ProduceExamPhaseType_ExamTurnTimer: NATIVE_EFFECT_PHASE.START_OF_TURN,
-  ProduceExamPhaseType_ExamTurnInterval: NATIVE_EFFECT_PHASE.START_OF_TURN,
+  ProduceExamPhaseType_ExamTurnTimer: NATIVE_EFFECT_PHASE.TURN_START_AFTER_DRAW,
+  ProduceExamPhaseType_ExamTurnInterval: NATIVE_EFFECT_PHASE.TURN_START_AFTER_DRAW,
   ProduceExamPhaseType_ExamPlayCountInterval: NATIVE_EFFECT_PHASE.CARD_PLAY,
   ProduceExamPhaseType_ExamPlayCountIntervalAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamTurnSkip: NATIVE_EFFECT_PHASE.END_TURN,
@@ -1254,6 +1265,18 @@ function masterPhaseValue(state, phaseType, context) {
       return Number(state.turn ?? 0) === 0 ? 1 : 0;
     case "ProduceExamPhaseType_ExamTurnCheck":
       return Number(context.nextTurn ?? state.turn ?? 0) + (context.nextTurn === undefined ? 1 : 0);
+    case "ProduceExamPhaseType_ExamTurnInterval":
+    case "ProduceExamPhaseType_ExamEndTurnInterval":
+    case "ProduceExamPhaseType_ExamTurnTimer":
+      // Card-installed TriggerEffectStatusEffect.TurnCount (+0x88):
+      // GetTurnIntervalEffectList.b__0 @0x807ff14 -> IsTurnIntervalTrigger
+      // @0x803fc34. Keep the existing setup P-item clock; it is independently
+      // verified by all four contest #4 recordings. Card installs carry
+      // their own origin, which must also survive checkpoint restoration.
+      return context.registration?.installedTurn == null
+        ? Number(state.turn ?? 0)
+        : Math.max(0, Number(state.turn ?? 0)
+          - Math.max(1, Number(context.registration.installedTurn)));
     case "ProduceExamPhaseType_ExamPlayCountInterval":
     case "ProduceExamPhaseType_ExamPlayCountIntervalAfter":
     case "ProduceExamPhaseType_ExamPlayTurnCountInterval":
@@ -1402,7 +1425,8 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   if (phaseValues.length) {
     const value = masterPhaseValue(state, condition.phaseType, context);
     const interval = /Interval(?:After)?$/.test(condition.phaseType);
-    if (!(interval ? phaseValues.some((n) => n > 0 && value > 0 && value % n === 0) : phaseValues.includes(value))) return false;
+    const zeroInterval = condition.phaseType === "ProduceExamPhaseType_ExamEndTurnInterval";
+    if (!(interval ? phaseValues.some((n) => n > 0 && (value > 0 || zeroInterval && value === 0) && value % n === 0) : phaseValues.includes(value))) return false;
   }
   if (!triggerFieldStatusesMatch(state, trigger, context)) return false;
   if (!lessonTypeMatches(trigger.lessonType, context.lessonType)) return false;
@@ -1464,7 +1488,7 @@ function registerRuntimeCardEnchants(state) {
       if (issue) { rememberUnsupported(state, "card-enchant-trigger:" + trigger.id + ":" + issue); continue; }
       const mapped = MASTER_EXAM_PHASE_TO_NATIVE[phaseType];
       for (const phase of mapped === "statusChange" ? [NATIVE_EFFECT_PHASE.STATUS_INCREASED, NATIVE_EFFECT_PHASE.STATUS_DECREASED] : [mapped]) {
-        specs.push({ id, phase,
+        specs.push({ id, phase, installedTurn: state.turn,
           condition: { kind: "masterExamTrigger", phaseType, trigger, ownerToken: card.token, enchantId: id, activationKey: key },
           effects: [{ kind: "cardEnchantGrow", token: card.token, growEffectIds: enchant.produceCardGrowEffectIds ?? [] }],
           metadata: { activationKey: key, cardEnchantKey: key } });
@@ -2093,17 +2117,15 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   state.currentTurnDrinks = [];
   state.turnUseSupportCardIds = new Set();
 
-  // EffectTimer counts completed turn boundaries and fires when the delayed
-  // turn actually starts. A 1-turn timer created on Turn 1 therefore resolves
-  // here on Turn 2, before that turn's ordinary StartOfTurn effects and draw.
-  tickTimers(state, phaseEvent);
+  // Expire the timers now, but execute their commands after ordinary draw.
+  // Phase-4 replay/timer commands can then add cards beyond the normal draw.
+  const expiredTimers = takeExpiredTimers(state);
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.START_OF_TURN, phaseEvent);
 
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
-  // Start-of-turn scheduled/forced card plays can create cards in Hand before
-  // the ordinary draw. Draw up to the requested hand size rather than drawing
-  // that many additional cards (capture #16, contest #3, turn 4).
+  // Before-draw setup/gimmicks can populate Hand. Interval replays and timer
+  // effects run below, so their additional cards do not consume this quota.
   const targetHandSize = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
   const requested = Math.max(0, targetHandSize - state.hand.length);
   const result = isOpeningTurn
@@ -2120,6 +2142,14 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   // In the verified H.I.F opening (Vi turn), two Vi supports therefore produce
   // 4 rolls across the three opening cards: 531,20(success),826,786.
   applyExamSupportCardUpgrades(state, result.drawn, phaseEvent);
+  // Native phase 4 runs timer commands after ordinary draw. Resolve each
+  // reserved draw immediately; pendingDraw would postpone it another turn.
+  for (const timer of expiredTimers) {
+    for (let index = 0; index < Math.max(1, Math.trunc(Number(timer.count ?? 1) || 1)); index += 1) {
+      executeParsedTowerEffect(state, timer.child, phaseEvent);
+    }
+  }
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.TURN_START_AFTER_DRAW, phaseEvent);
   state.turnStartSupportCardRolls = (phaseEvent.supportCardRolls ?? []).map((roll) => ({ ...roll }));
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
@@ -2324,6 +2354,13 @@ function selectedMasterCandidates(state, parsed, candidates) {
   return selected;
 }
 
+function masterSearchCandidates(state, search, context) {
+  let candidates = cardsForMasterSearch(state, search, context).filter((card) => cardMatchesMasterSearch(card, search));
+  if (search?.isSelf) candidates = candidates.filter((card) => card.token === context.card?.token);
+  if (search?.orderType === "ProduceCardOrderType_Random") candidates = candidates.map((card, order) => ({ card, order, key: consumeNativeRandomSortKey(state) })).sort((a,b) => a.key - b.key || a.order - b.order).map((row) => row.card);
+  return Number(search?.limitCount) > 0 ? candidates.slice(0, Number(search.limitCount)) : candidates;
+}
+
 function pickedMasterCards(state, parsed, context = {}) {
   context = { card: state.effectOwnerCard ?? state.playingCard, ...context };
   const search = resolvedMasterSearch(state, parsed.searchId);
@@ -2334,10 +2371,7 @@ function pickedMasterCards(state, parsed, context = {}) {
       return row ? generatedRuntimeCard(state, row.produceCardId, row.upgradeCount) : null;
     }).filter(Boolean);
   }
-  let candidates = cardsForMasterSearch(state, search, context).filter((card) => cardMatchesMasterSearch(card, search));
-  if (search?.isSelf) candidates = candidates.filter((card) => card.token === context.card?.token);
-  if (search?.orderType === "ProduceCardOrderType_Random") candidates = candidates.map((card, order) => ({ card, order, key: consumeNativeRandomSortKey(state) })).sort((a,b) => a.key - b.key || a.order - b.order).map((row) => row.card);
-  if (Number(search?.limitCount) > 0) candidates = candidates.slice(0, Number(search.limitCount));
+  const candidates = masterSearchCandidates(state, search, context);
   const selected = selectedMasterCandidates(state, parsed, candidates);
   if (selected) return selected;
   const count = masterPickCount(state, parsed, candidates.length);
@@ -2480,6 +2514,7 @@ function registerMasterStatusEnchant(state, parsed) {
       specs.push({
         id: parsed.id,
         phase,
+        installedTurn: state.turn,
         turn: Number(parsed.turn) > 0 ? Number(parsed.turn) : null,
         condition: {
           kind: "masterExamTrigger",
@@ -2746,10 +2781,16 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
             Math.fround(Math.fround(v1 / 1000) + Math.fround(0.0001))
             * Math.fround(Number(exam.maxStamina ?? 0)))))
         : Math.abs(v1);
+      // StaminaReduceFixEffectExecutor -> ReduceStaminaFix @0x80355fc:
+      // direct subtraction @0x8035698 bypasses all card-cost multipliers.
+      if (type === "ExamStaminaReduceFix") {
+        exam.stamina = Math.max(0, exam.stamina - amount);
+        event.effects.push(`体力減少 ${amount}`);
+        return;
+      }
       const resolved = calculateNativeStaminaDamage(exam, amount, {
         penetrate: type !== "ExamStaminaDamage",
-        // Fixed direct reduction bypasses ordinary card cost fixed discounts.
-        applyFixed: type !== "ExamStaminaReduceFix",
+        applyFixed: true,
       });
       exam.block = Math.max(0, exam.block - resolved.blockDamage);
       exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
@@ -2833,8 +2874,21 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "StanceLock": exam.stanceLock = turn || 1; event.effects.push(`指針固定 ${exam.stanceLock}ターン`); return;
     case "ExamCardMove": {
-      const cards = pickedMasterCards(state, parsed);
       const destination = String(parsed.movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "");
+      // GetEffectWarning @ 0x803166c..0x803173c returns warning 9 for
+      // Hand moves when current Hand count equals HandLimit. The command's
+      // IsUsableWarningType gate rejects it before calling MoveCard.
+      if (destination === "Hand" && state.hand.length === normalizeHandLimit(state.handLimit)) return;
+      const selectedCards = pickedMasterCards(state, parsed);
+      // MoveCard groups positions before moving them. Stable groups preserve
+      // their first appearance; Playing is processed before other sources.
+      const groups = new Map();
+      for (const card of selectedCards) {
+        const source = state.deck.includes(card) ? "deck" : state.discard.includes(card) ? "grave" : state.hand.includes(card) ? "hand" : state.lost.includes(card) ? "lost" : state.hold.includes(card) ? "hold" : "playing";
+        if (!groups.has(source)) groups.set(source, []);
+        groups.get(source).push(card);
+      }
+      const cards = [...(groups.get("playing") ?? []), ...[...groups].filter(([source]) => source !== "playing").flatMap(([, cards]) => cards)];
       // ELF MoveCard RVA 0x8277C3C..0x8277CB4: excess Hand moves
       // are redirected to DeckFirst (move position 2), not left in the source.
       const moves = cards.map((card) => ({ card, from: removeRuntimeCard(state, card) || "playing" }));
@@ -3043,7 +3097,22 @@ function withNativeEffectFrame(state, execute) {
 
 function executeParsedTowerEffect(state, parsed, event, options = {}) {
   return traceSimulation(state, currentSimulationSource(state),
-    () => withNativeEffectFrame(state, (frame) => executeParsedTowerEffectImpl(state, parsed, event, options, frame)),
+    () => withNativeEffectFrame(state, (frame) => {
+      // ExecuteCommandImplAsync @0x80dbc18 prepares the card-move search
+      // before CardMoveEffectExecutor @0x804bce4 searches again. Random
+      // order generates one key per source candidate in each pass; this
+      // preparation must not select cards or consume a ranged pick roll.
+      if (parsed.masterEffectType === "ProduceExamEffectType_ExamCardMove") {
+        const search = resolvedMasterSearch(state, parsed.searchId);
+        const fullHand = String(parsed.movePositionType).endsWith("_Hand")
+          && state.hand.length === normalizeHandLimit(state.handLimit);
+        if (!fullHand && search?.orderType === "ProduceCardOrderType_Random"
+          && !search.produceCardPoolId && !search.produceCardRandomPoolId) {
+          masterSearchCandidates(state, search, { card: state.effectOwnerCard ?? state.playingCard });
+        }
+      }
+      return executeParsedTowerEffectImpl(state, parsed, event, options, frame);
+    }),
     { effectId: parsed.id, recordIfUnchanged: true });
 }
 
@@ -3548,19 +3617,14 @@ function tickCardEffectPlayCountBuff(state) {
   if (buff.turn <= 0) state.cardEffectPlayCountBuff = null;
 }
 
-function tickTimers(state, event) {
+function takeExpiredTimers(state) {
   const expired = [];
   for (const timer of state.timers) {
     timer.turn -= 1;
     if (timer.turn <= 0) expired.push(timer);
   }
   state.timers = state.timers.filter((timer) => !expired.includes(timer));
-  for (const timer of expired) {
-    const count = Math.max(1, Math.trunc(Number(timer.count ?? 1) || 1));
-    for (let index = 0; index < count; index += 1) {
-      executeParsedTowerEffect(state, timer.child, event, { timed: true });
-    }
-  }
+  return expired;
 }
 
 export function finishTowerTurn(state, action = { type: "skip" }) {
@@ -3575,7 +3639,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   else if (type !== "skip" && type !== "end") throw new Error(`未知のターン操作です: ${type}`);
 
   if (!state.turnOpen && !state.hand.length && !state.currentTurnPlays.length) throw new Error("終了するターンがありません。");
-  const recoverStaminaAtTurnEnd = Number(state.playsRemaining ?? 0) > 0;
+  const recoverStaminaAtTurnEnd = type === "skip" && Number(state.playsRemaining ?? 0) > 0;
   const remainingHand = state.hand.map((card) => ({ ...card }));
   // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
   // IsEndTurnLost cards are batched to Lost; all other remaining cards are

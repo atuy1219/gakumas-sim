@@ -215,7 +215,14 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
   if(warnings.length)break;
   const afterCards=snapshot();
   rng(i+1,"before-turn-finish");
-  const result=finishTowerTurn(state,{type:state.playsRemaining>0?"skip":"end"});
+  // Replay the recorded decision to skip; remaining simulator plays can
+  // differ while debugging effects and must not manufacture a skip/heal.
+  // Older captures without a terminal command retain the legacy fallback.
+  const terminalCommands=(actual.commands??[]).filter(c=>[7,12].includes(Number(c.commandType)));
+  const skip=terminalCommands.length
+    ?terminalCommands.some(c=>Number(c.commandType)===12)
+    :state.playsRemaining>0;
+  const result=finishTowerTurn(state,{type:skip?"skip":"end"});
   rng(i+1,"after-turn-finish");
   const afterTurn=snapshot();
   turnPhaseTrace.push({

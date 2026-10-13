@@ -25,6 +25,8 @@ jobs:
         run: node tests/test_excellent_condition_duration_elf.mjs
       - name: Verify native 22 grave-recycle observations against simulator shuffle
         run: node tests/test_native_grave_recycles.mjs
+      - name: Verify Encore, reserved draw boundaries and eight native move RNG observations
+        run: node tests/test_encore_draw_boundary.mjs
       - name: Replay nine anonymized native sessions against independent simulator
         run: |
           node tools/compare_contest_capture.mjs \

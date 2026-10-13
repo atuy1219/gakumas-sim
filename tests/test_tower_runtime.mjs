@@ -1909,9 +1909,9 @@ console.log("native effect per search count tests: ok");
   const full = setUp(true);
   playTowerCard(full, 0); // 5 -> play -> 4 -> draw -> 5 before move
   assert.equal(full.hand.length, 5);
-  assert.equal(full.discard.some((card) => card.id.startsWith("CAP-TARGET")), false);
-  assert.deepEqual(full.deck.map((card) => card.id), ["CAP-TARGET1", "CAP-TARGET2"],
-    "Full-hand move overflow must be redirected to DeckFirst");
+  assert.equal(full.discard.filter((card) => card.id.startsWith("CAP-TARGET")).length, 2);
+  assert.deepEqual(full.deck, [],
+    "GetEffectWarning rejects a Hand move when already full, before MoveCard");
 
   const oneSlot = setUp(false);
   playTowerCard(oneSlot, 0); // four cards remain before attempting to move two

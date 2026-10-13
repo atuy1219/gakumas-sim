@@ -77,6 +77,21 @@ assert.equal(predicted.decisionSearchVerified,false);
 assert.equal(predicted.turns.length,1);
 assert.equal(predicted.warnings.length,0);
 assert.equal(typeof predicted.result.score,"number");
+// A recorded EndTurn is not a Skip merely because an additional-play effect
+// leaves a simulator play unused. Only the captured Skip choice heals HP.
+{
+ const extraMasters=new Map(neutralDeck.map(card=>[card.id,{...card,stamina:1,
+  playEffects:[{produceExamEffectId:"e_effect-exam_playable_value_add-01"}]}]));
+ const input={...nativeInput,examSettings:{examTurnEndRecoveryStamina:2},
+  initialParameters:{...nativeInput.initialParameters,stamina:90}};
+ const use={commandType:2,card:{id:expectedHand[0].id,baseUpgradeCount:0}};
+ for(const [terminal,stamina] of [[7,89],[12,91]]){
+  const result=replayObservedContest({...neutralSession,turns:[{
+   ...neutralSession.turns[0],commands:[use,{commandType:terminal},{commandType:7}],
+  }]},input,{cardById:extraMasters});
+  assert.equal(result.turns[0].stamina,stamina,"native terminal decision controls recovery");
+ }
+}
 assert.throws(()=>replayObservedContest(neutralSession,{
  ...nativeInput,randomStateAtStart:null,
 },{cardById:neutralMasters}),ContestReplayUnsupported);

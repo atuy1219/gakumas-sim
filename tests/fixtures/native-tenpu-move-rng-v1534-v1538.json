@@ -1,0 +1,140 @@
+[
+  {
+    "capture": 16,
+    "session": 1,
+    "before": 1353596057,
+    "after": 2497881484,
+    "deck": [
+      "p_card-01-act-3_010"
+    ],
+    "grave": [
+      "p_card-01-ido-3_200"
+    ],
+    "moved": [
+      "p_card-01-ido-3_200",
+      "p_card-01-act-3_010"
+    ]
+  },
+  {
+    "capture": 16,
+    "session": 3,
+    "before": 3713592479,
+    "after": 2192653849,
+    "deck": [
+      "p_card-01-men-3_035"
+    ],
+    "grave": [
+      "p_card-01-ido-3_215"
+    ],
+    "moved": [
+      "p_card-01-ido-3_215",
+      "p_card-01-men-3_035"
+    ]
+  },
+  {
+    "capture": 17,
+    "session": 1,
+    "before": 1642336176,
+    "after": 3841628162,
+    "deck": [
+      "p_card-01-men-3_035"
+    ],
+    "grave": [
+      "p_card-01-ido-3_213",
+      "p_card-01-act-3_010"
+    ],
+    "moved": [
+      "p_card-01-act-3_010",
+      "p_card-01-ido-3_213",
+      "p_card-01-men-3_035"
+    ]
+  },
+  {
+    "capture": 17,
+    "session": 3,
+    "before": 3905300227,
+    "after": 1490458250,
+    "deck": [
+      "p_card-01-men-3_035",
+      "p_card-00-men-3_005"
+    ],
+    "grave": [
+      "p_card-01-ido-3_215"
+    ],
+    "moved": [
+      "p_card-01-ido-3_215",
+      "p_card-00-men-3_005",
+      "p_card-01-men-3_035"
+    ]
+  },
+  {
+    "capture": 18,
+    "session": 1,
+    "before": 1411154740,
+    "after": 2440355015,
+    "deck": [
+      "p_card-01-ido-3_200"
+    ],
+    "grave": [
+      "p_card-01-act-3_010"
+    ],
+    "moved": [
+      "p_card-01-ido-3_200",
+      "p_card-01-act-3_010"
+    ]
+  },
+  {
+    "capture": 18,
+    "session": 3,
+    "before": 1039413452,
+    "after": 305366274,
+    "deck": [
+      "p_card-01-act-3_185"
+    ],
+    "grave": [
+      "p_card-01-ido-3_215"
+    ],
+    "moved": [
+      "p_card-01-act-3_185",
+      "p_card-01-ido-3_215"
+    ]
+  },
+  {
+    "capture": 19,
+    "session": 1,
+    "before": 588838672,
+    "after": 2188073066,
+    "deck": [
+      "p_card-00-sup-3_152",
+      "p_card-01-act-3_010",
+      "p_card-01-men-3_035",
+      "p_card-01-ido-3_200",
+      "p_card-01-ido-3_213"
+    ],
+    "grave": [],
+    "moved": [
+      "p_card-01-act-3_010",
+      "p_card-01-men-3_035",
+      "p_card-00-sup-3_152"
+    ]
+  },
+  {
+    "capture": 19,
+    "session": 3,
+    "before": 3272973131,
+    "after": 2632923689,
+    "deck": [
+      "p_card-01-act-3_185",
+      "p_card-01-men-3_035",
+      "p_card-00-men-3_005"
+    ],
+    "grave": [
+      "p_card-01-ido-3_215"
+    ],
+    "moved": [
+      "p_card-01-men-3_035",
+      "p_card-01-act-3_185",
+      "p_card-00-men-3_005"
+    ]
+  }
+]
