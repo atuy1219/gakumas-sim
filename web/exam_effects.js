@@ -1068,6 +1068,10 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
     step: oldStep,
     playableValueAdd: 0,
     growLessonAdd: 0,
+    // ELF TryInternalSetStance releases Preservation before installing the
+    // destination stance. Expose these distinct rewards in action telemetry.
+    releasedBlockAdd: 0,
+    releasedEnthusiasticAdd: 0,
     releasedPreservation: false,
   };
 
@@ -1128,7 +1132,10 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
     const blockBase = getExamRuntimeSetting(exam, blockKey);
     // The release path calls AddBlockFix, which writes the raw positive delta
     // and therefore bypasses ordinary block multipliers/restrictions.
-    if (blockBase > 0) exam.block += blockBase;
+    if (blockBase > 0) {
+      exam.block += blockBase;
+      result.releasedBlockAdd = blockBase;
+    }
     const enthusiasticBase = getExamRuntimeSetting(exam, enthusiasticKey);
     if (enthusiasticBase > 0) {
       const additive = Number(exam.enthusiasticAdditivePermil ?? 0);
@@ -1137,8 +1144,10 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
       // ExamStatusEffectCollection.TryAddEnthusiasticStatus constructs a
       // limited status with Turn=1 (native capture 16). A second grant
       // increases the existing value without restarting its expiry clock.
-      addNativeScalarTimedStatus(exam, "enthusiastic", gained,
-        Math.max(1, 1 + Number(exam.enthusiasticTurnAdditive ?? 0)));
+      if (addNativeScalarTimedStatus(exam, "enthusiastic", gained,
+        Math.max(1, 1 + Number(exam.enthusiasticTurnAdditive ?? 0)))) {
+        result.releasedEnthusiasticAdd = gained;
+      }
     }
     if (over && type === EXAM_IDOL_STATUS_TYPE.FullPower) {
       result.growLessonAdd = getExamRuntimeSetting(
