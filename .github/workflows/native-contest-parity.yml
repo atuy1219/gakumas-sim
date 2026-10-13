@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/contest-native-comparison
+  pull_request:
+    branches:
+      - feature/simulator-native-parity
   workflow_dispatch:
 
 permissions:
@@ -18,6 +21,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      - name: Verify ELF excellent-condition duration extension
+        run: node tests/test_excellent_condition_duration_elf.mjs
       - name: Verify native 22 grave-recycle observations against simulator shuffle
         run: node tests/test_native_grave_recycles.mjs
       - name: Replay nine anonymized native sessions against independent simulator
