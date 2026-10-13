@@ -108,10 +108,10 @@ export function calculateNativeAddingParameter(exam, valueInput, options = {}) {
 
   const lessonBuff = positiveInt(exam?.lessonBuff);
   const lessonDebuff = positiveInt(exam?.lessonDebuff);
+  // GetEnthusiasticBuff returns the already-multiplied stored status value.
+  // ExamEnthusiasticMultiple is applied when that status is granted; applying
+  // it here a second time overstates every lesson on the receiving turn.
   let enthusiastic = positiveInt(exam?.enthusiastic);
-  enthusiastic = clampInt32NonNegative(
-    ceilF32(f32(f32(enthusiastic) * ratioOr(exam?.enthusiasticMultiple, 1))),
-  );
   if (modifier && Number.isFinite(Number(modifier.enthusiasticMultiple))) {
     enthusiastic = clampInt32NonNegative(
       ceilF32(f32(f32(modifier.enthusiasticMultiple) * f32(enthusiastic))),
