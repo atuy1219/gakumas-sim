@@ -807,10 +807,24 @@ function nativeSchedulerHooks(state, runtimeEvent) {
           if (!card) return;
           const grows = effect.growEffectIds.map((id) => state.growEffectById.get(id)).filter(Boolean);
           for (const id of effect.growEffectIds) if (!state.growEffectById.has(id)) rememberUnsupported(state, "grow-effect:" + id);
-          applyPersistentRuntimeCardGrowEffects(card, grows);
+          // A self-enchant triggered by a direct stance-change effect grows
+          // the card for its *next* use.  In native contest #9 turn 7 the
+          // +2 lesson / +1 Block grow must not modify the same play's later
+          // lesson and Block effects (score +152, Block +1 otherwise).
+          // Another card affected by the same trigger can grow immediately.
+          if (card === state.playingCard) {
+            state._deferredPlayingCardGrows ??= [];
+            state._deferredPlayingCardGrows.push({
+              card,
+              grows: grows.map(grow => ({ ...grow })),
+            });
+          } else {
+            applyPersistentRuntimeCardGrowEffects(card, grows);
+          }
           runtimeEvent.grown ??= [];
-          runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1 });
-          runtimeEvent.effects.push((card.name ?? card.id) + "を成長");
+          runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1,
+            deferredUntilAfterPlay: card === state.playingCard });
+          runtimeEvent.effects.push((card.name ?? card.id) + (card === state.playingCard ? "を次回使用に向けて成長" : "を成長"));
           return;
         }
         if (effect?.kind === "nativeGimmickRow") {
