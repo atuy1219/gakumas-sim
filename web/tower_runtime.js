@@ -226,6 +226,7 @@ export function restoreTowerTurnState(input, shared = {}) {
     ? turnCardUses.some(event => !event.forced)
     : (state.currentTurnPlays ?? []).some(play => !play.forced);
   for (const card of [...(state.initialDeck ?? []), ...(state.shuffledInitialDeck ?? [])]) restoreLegacySpecificCostGrow(card);
+  state.pendingTimedCardUpgradeEffects ??= [];
   state.searchPlayCardLimits ??= [];
   state.searchCardCostChanges ??= [];
   state.cardEnchantRegistrations ??= new Map();
@@ -672,6 +673,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     timers: [],
     pendingDraw: 0,
     pendingHandUpgradeAll: 0,
+    pendingTimedCardUpgradeEffects: [],
     cardEffectPlayCountBuff: null,
     cardById: cardById ?? new Map(),
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
@@ -1808,31 +1810,28 @@ function applySupportCardUpgradeInPlace(state, card) {
   return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
 }
 
-function applyPermanentCardUpgradeInPlace(state, card) {
-  const supportCount = Math.max(0, Math.trunc(Number(card?._supportUpgradeCount ?? 0)));
-  // UpgradeEffectExecutor @ 0x80202FC checks IsUpgradableRaw @ 0x822A738:
-  // original + skill-effect upgrade must be zero, and the + master must exist.
-  // Support upgrades are separate and may still produce ++ in ordinary exams.
-  const baseCard = card?._supportBaseSnapshot ?? card;
-  if (Number(baseCard?.upgradeCount ?? 0) !== 0
-    || !state.cardVariantByKey?.has(`${card.id}@@1`)) return Number(card.upgradeCount ?? 0);
-  if (!card?._supportBaseSnapshot || supportCount <= 0) {
-    return applyRuntimeUpgradeVariant(state, card, Number(card?.upgradeCount ?? 0) + 1);
+// ExamCardUpgrade writes ExamCardData._tmpUpgradeCount, not the initial
+// _baseUpgradeCount. The effective card master must change for this turn, and
+// must be restored when the card leaves the turn. Keep support-card upgrades
+// separate: those may advance a card from + to ++, whereas IsUpgradableRaw
+// restricts skill-effect upgrades to the first available base stage.
+function applyTemporarySkillUpgradeInPlace(state, card) {
+  const base = card?._supportBaseSnapshot ?? card;
+  if (Number(base?.upgradeCount ?? 0) !== 0
+    || Number(card?._skillUpgradeCount ?? 0) > 0
+    || !state.cardVariantByKey?.has(`${card.id}@@1`)) return Number(card?.upgradeCount ?? 0);
+  if (!card._supportBaseSnapshot) {
+    card._supportBaseSnapshot = cloneRuntimeCardSnapshot(card);
+    card._supportUpgradeCount = 0;
   }
-
-  const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
-  const nextBaseCount = Math.max(0, Number(base.upgradeCount ?? 0)) + 1;
-  const nextBase = cloneRuntimeCardSnapshot(base);
-  applyRuntimeUpgradeVariant(state, nextBase, nextBaseCount);
-  card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
-
-  Object.assign(card, cloneRuntimeCardSnapshot(nextBase));
-  card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
-  card._supportUpgradeCount = supportCount;
-  return applyRuntimeUpgradeVariant(state, card, nextBaseCount + supportCount);
+  card._skillUpgradeCount = 1;
+  // A support upgrade may already have raised the effective stage. Load the
+  // matching ++/+++ master rather than only changing the visible counter.
+  return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
 }
 
-function clearSupportCardUpgrades(state) {
+
+function clearTemporaryCardUpgrades(state) {
   const seen = new Set();
   for (const pool of [state.hand, state.deck, state.discard, state.lost, state.hold]) {
     for (const card of pool ?? []) {
@@ -2060,6 +2059,10 @@ function drawTowerTurnImpl(state, drawCount = 3) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
   }
+  // Deferred master effects retain their actual card-search predicates.
+  // Resolve against the newly populated Hand, before the first card is used.
+  const timedUpgrades = state.pendingTimedCardUpgradeEffects.splice(0);
+  for (const effect of timedUpgrades) executeMasterEffect(state, effect, phaseEvent);
   if (Number(state.exam.idolStatusType) === EXAM_IDOL_STATUS_TYPE.FullPower) {
     const returned = state.hold.splice(0, Math.max(0, Math.min(2, normalizeHandLimit(state.handLimit) - state.hand.length)));
     state.hand.push(...returned);
@@ -2088,7 +2091,7 @@ function drawTowerTurnImpl(state, drawCount = 3) {
 }
 
 function upgradeHandCards(state) {
-  for (const card of state.hand) applyPermanentCardUpgradeInPlace(state, card);
+  for (const card of state.hand) applyTemporarySkillUpgradeInPlace(state, card);
 }
 
 export function currentTowerScoreContext(state) {
@@ -2794,8 +2797,16 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       event.effects.push("対象カードを移動"); return;
     }
     case "ExamCardUpgrade": {
-      for (const card of pickedMasterCards(state, parsed)) {
-        applyPermanentCardUpgradeInPlace(state, card);
+      // A timer with a Hand search is resolved at the next turn's draw
+      // boundary. Searching here would see an empty hand, silently losing
+      // アイドル魂+'s delayed upgrade (native contest #8 turn 2).
+      const search = resolvedMasterSearch(state, parsed.searchId);
+      if (timed && String(search?.cardPositionType ?? "").includes("Hand")) {
+        state.pendingTimedCardUpgradeEffects.push(parsed);
+      } else {
+        for (const card of pickedMasterCards(state, parsed)) {
+          applyTemporarySkillUpgradeInPlace(state, card);
+        }
       }
       event.effects.push("対象カードを強化"); return;
     }
@@ -3549,10 +3560,10 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   state.playsRemaining = 0;
   state.turnOpen = false;
 
-  // Support-card upgrades are temporary for the current turn. Revert every
-  // affected runtime instance after all turn-end effects have resolved so a
-  // recycled card starts the next turn at its permanent upgrade level.
-  clearSupportCardUpgrades(state);
+  // Support-card and skill-effect temporary upgrades use the same per-card
+  // snapshot. Restore the original variant at turn end after all effects so a
+  // recycled card starts at its base upgrade level.
+  clearTemporaryCardUpgrades(state);
   for (const card of [...state.deck, ...state.hand, ...state.discard, ...state.lost, ...state.hold]) delete card.temporaryStaminaConsumptionFix;
   return entry;
 }
