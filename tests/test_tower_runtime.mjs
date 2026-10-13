@@ -1870,8 +1870,8 @@ console.log("native effect per search count tests: ok");
 }
 
 
-// A full five-card hand blocks movements from Grave/Deck; overflow must
-// remain in the originating pool rather than being redirected to DeckFirst.
+// Native MoveCard (ELF 0x8277C3C..0x8277CB4) redirects overflow from
+// a five-card hand to DeckFirst, removing it from the source pool.
 {
   const ids = ["CAP-TRIGGER", "CAP-F1", "CAP-F2", "CAP-F3", "CAP-F4", "CAP-DRAW", "CAP-TARGET1", "CAP-TARGET2"];
   const masters = ids.map((id) => ({
@@ -1909,14 +1909,15 @@ console.log("native effect per search count tests: ok");
   const full = setUp(true);
   playTowerCard(full, 0); // 5 -> play -> 4 -> draw -> 5 before move
   assert.equal(full.hand.length, 5);
-  assert.deepEqual(full.discard.slice(0, 2).map((card) => card.id), ["CAP-TARGET1", "CAP-TARGET2"]);
-  assert.equal(full.deck.length, 0, "Blocked moves must not be redirected to DeckFirst");
+  assert.equal(full.discard.some((card) => card.id.startsWith("CAP-TARGET")), false);
+  assert.deepEqual(full.deck.map((card) => card.id), ["CAP-TARGET1", "CAP-TARGET2"],
+    "Full-hand move overflow must be redirected to DeckFirst");
 
   const oneSlot = setUp(false);
   playTowerCard(oneSlot, 0); // four cards remain before attempting to move two
   assert.equal(oneSlot.hand.length, 5);
   assert.ok(oneSlot.hand.some((card) => card.id === "CAP-TARGET1"));
-  assert.ok(oneSlot.discard.some((card) => card.id === "CAP-TARGET2"));
-  assert.ok(!oneSlot.deck.some((card) => card.id === "CAP-TARGET2"));
-  console.log("full-hand card move retention: ok");
+  assert.ok(!oneSlot.discard.some((card) => card.id === "CAP-TARGET2"));
+  assert.equal(oneSlot.deck[0]?.id, "CAP-TARGET2");
+  console.log("ELF-confirmed hand overflow to DeckFirst: ok");
 }
