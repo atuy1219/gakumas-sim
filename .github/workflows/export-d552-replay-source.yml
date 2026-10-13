@@ -1,0 +1,32 @@
+name: Export immutable d552cfa replay source
+on:
+  push:
+    branches:
+      - analysis/d552cfa-replay-source-export-20261014
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d552cfa20fa62e6c80bd2b72c6919178a320c779
+          persist-credentials: false
+      - name: Verify pinned SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "d552cfa20fa62e6c80bd2b72c6919178a320c779"
+          git status --porcelain
+      - name: Package exact repository snapshot
+        run: |
+          tar -czf exact-d552-source.tar.gz web tools tests README.md .github
+          sha256sum exact-d552-source.tar.gz > exact-d552-source.sha256
+          git rev-parse HEAD > exact-git-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exact-d552-source
+          path: |
+            exact-d552-source.tar.gz
+            exact-d552-source.sha256
+            exact-git-commit.txt
+          retention-days: 3
