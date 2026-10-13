@@ -1,3 +1,22 @@
+## v1.5.38: capture DFS-cloned card-move RNG states
+
+The earlier v1.5.37 `contest-rng-origin` probe compared RNG calls
+against the **selected Run's** ExamParameterModel only. Real Tenpu+
+uses a different ExamEffectCalculateContext during DFS; capture (18)
+contains two Tenpu+ plays with four XorShift steps each but no
+`contest-rng-origin` event for either. In v1.5.38, the probe reads the
+**current effect context's** ExamParameterModel at +0x10, rather than
+assuming the Run's model. `contextParameterMatched`,
+`contextParameterIsClone` and `selectedLineageVerified:false` distinguish
+candidate-copy data from the selected root model.
+
+The same opt-in mask **20608** applies. Game originals and arguments
+remain unchanged. The revised scope has host coverage for a cloned
+model consuming four XorShift words. It has **not yet been tested on-device**
+and a missing event after upgrade should not be treated as proof of zero RNG.
+
+---
+
 ## v1.5.36 (experimental): selected contest CardMove RNG caller origins
 
 Use **安全モード／フック設定 → 天賦の才+乱数診断（20608）**,
