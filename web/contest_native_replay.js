@@ -149,6 +149,15 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
    if(pos<0){warnings.push({turn:i+1,phase:"card-selection",cardId,available:state.hand.map(x=>x.id)});break;}
    try {
     rng(i+1,"before-card:"+cardId);
+    const nativeReplayRuntimeCard=state.hand[pos];
+    const beforeCostDebug={
+      stamina:nativeReplayRuntimeCard?.stamina,
+      temporaryStaminaConsumptionFix:nativeReplayRuntimeCard?.temporaryStaminaConsumptionFix,
+      costType:nativeReplayRuntimeCard?.costType,costValue:nativeReplayRuntimeCard?.costValue,
+      costChanges:(state.searchCardCostChanges??[]).map(x=>({
+        searchId:x.searchId,value:x.value,count:x.count,turn:x.turn,
+      })),
+    };
     const event=playTowerCard(state,pos);
     rng(i+1,"after-card:"+cardId);
     recordRecycles(event.recycleEvents,i+1,"card:"+cardId);
@@ -169,6 +178,7 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
       nativeMetricsUnavailableReason:"only-turn-result-is-recorded-by-passive-native-hook",
       simulated:{
         cardCostEvents:[...(event.cost??[])],
+        beforeCostDebug,
         before:beginning ? {score:beginning.score,stamina:beginning.stamina,block:beginning.block,review:beginning.review,aggressive:beginning.aggressive,staminaConsumptionDown:beginning.staminaConsumptionDown}:null,
         // Native completion is before deferred AFTER_CARD_PLAY triggers.
         // Reporting the final post-trigger state here fabricates differences
