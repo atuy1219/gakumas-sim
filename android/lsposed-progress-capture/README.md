@@ -1,3 +1,40 @@
+## v1.5.36 (experimental): selected contest CardMove RNG caller origins
+
+Use **安全モード／フック設定 → 天賦の才+乱数診断（20608）**,
+confirm, then fully stop and restart the game before running a rehearsal.
+This mode extends the selected-contest 4224 capture and is **opt-in**.
+Existing safe/4224/8192 modes do not install the new RNG hooks.
+
+For the **exact v3.4.1 Build ID** `77fda4e2a21f23954e2349b83fc113ede408f70b`
+the extra native hooks bracket the real
+`CardMoveEffectExecutor.ExecuteEffect` (RVA `0x804BCA8`) and intercept
+`ExamParameterModel.GetRandomInt()` (`0x808A340`) and the ranged
+`GetRandomInt(min,max)` (`0x808A438`). They forward the game originals
+exactly once and observe the RNG state at `ExamParameterModel+0x77c`
+via read-only `process_vm_readv`. No synthetic card play, extra RNG
+draws, setter calls or random-state mutation are performed.
+
+The existing **コンテスト記録を保存** export includes
+`contest-rng-origin` events from `contest_capture.jsonl`. Each event
+includes the caller RVA and before/after RNG states for every intercepted
+call, plus `observedXorShiftSteps`, the number of actual intercepted
+calls, and a truncation marker. To determine which method consumed all
+four observed words, use `randomCalls[].callerRva` alongside the
+disassembled ELF. The event is scoped to selected auto-play and a single
+CardMove effect, **not** every call between a card command and the next
+move. A mismatch between `observedXorShiftSteps` and
+`capturedRandomCallCount` signals missing instrumentation/indirect
+updates; it is not proof of a second sort.
+
+Check `contest_rng_origin_status.json` for all three
+`*Installed` flags. Output is capped (48 calls per effect, 96 windows per
+session, 512 windows per process, and the existing global 32 MiB limit).
+A build mismatch installs nothing. **Not yet verified on a live device.**
+Native hooking can crash the game or trigger account restrictions even
+with passive reads.
+
+---
+
 ## v1.5.35: accessible readback controls and current-mode diagnostics
 
 The exporter now scrolls in small/floating windows. Detail-mode activation and
