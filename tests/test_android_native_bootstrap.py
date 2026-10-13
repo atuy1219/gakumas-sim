@@ -114,7 +114,7 @@ public final class StorageHarness {
         return subprocess.check_output(self.runner + [
             "/data/user/0/com.bandainamcoent.idolmaster_gakuen/files", str(mask)], text=True)
 
-    def run_repair(self, preparation):
+    def run_repair(self, preparation, mask=0):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             parent = root / "files"
@@ -134,17 +134,17 @@ public final class StorageHarness {
             (commands / "restorecon").write_text("#!/bin/sh\nprintf 'context %s\\n' \"$1\" >> \"$REPAIR_LOG\"\n")
             for path in commands.iterdir():
                 path.chmod(0o755)
-            script = self.command().replace(
+            script = self.command(mask).replace(
                 "/data/user/0/com.bandainamcoent.idolmaster_gakuen/files", str(parent))
             env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
                        CAPTURE=str(capture), REPAIR_LOG=str(root / "operations"))
             result = subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True)
             self.assertEqual(outside.read_text(), "untouched")
             if result.returncode == 0:
-                self.assertEqual((capture / "native_hookmask.txt").read_text(), "0\n")
+                self.assertEqual((capture / "native_hookmask.txt").read_text(), f"{mask}\n")
                 self.assertEqual(capture.stat().st_mode & 0o777, 0o700)
                 operations = (root / "operations").read_text()
-                self.assertIn(str(capture) + "=0\n", operations)
+                self.assertIn(str(capture) + f"={mask}\n", operations)
                 self.assertNotIn(str(outside), operations)
                 for path in capture.iterdir():
                     self.assertEqual(path.stat().st_mode & 0o777, 0o600)
@@ -173,6 +173,12 @@ public final class StorageHarness {
         self.assertIn("4224", command)
         self.assertIn("native_hookmask.txt", command)
         self.assertNotIn("setenforce", command)
+
+    def test_20608_saves_rather_than_retaining_4224(self):
+        self.assertIn("20608", self.command(20608))
+        def prepare(capture, _):
+            (capture / "native_hookmask.txt").write_text("4224\n")
+        self.assertEqual(self.run_repair(prepare, mask=20608), 0)
 
     def test_legacy_masks_and_non_game_paths_rejected(self):
         for parent, mask in [("/data/user/0/com.bandainamcoent.idolmaster_gakuen/files", "127"),
