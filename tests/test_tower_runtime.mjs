@@ -1868,3 +1868,55 @@ console.log("native effect per search count tests: ok");
  assert.equal(st.randomState>>>0,before,
   "empty native card search must not consume RNG");
 }
+
+
+// A full five-card hand blocks movements from Grave/Deck; overflow must
+// remain in the originating pool rather than being redirected to DeckFirst.
+{
+  const ids = ["CAP-TRIGGER", "CAP-F1", "CAP-F2", "CAP-F3", "CAP-F4", "CAP-DRAW", "CAP-TARGET1", "CAP-TARGET2"];
+  const masters = ids.map((id) => ({
+    id,
+    rarity: id.startsWith("CAP-TARGET") ? "ProduceCardRarity_Ssr" : "ProduceCardRarity_N",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: id === "CAP-TRIGGER"
+      ? [{ produceExamTriggerId: "", produceExamEffectId: "CAP-MOVE" }]
+      : [],
+  }));
+  const effectById = new Map([
+    ["CAP-DRAW", { id: "CAP-DRAW", effectType: "ProduceExamEffectType_ExamCardDraw", effectValue1: 1 }],
+    ["CAP-MOVE", { id: "CAP-MOVE", effectType: "ProduceExamEffectType_ExamCardMove",
+      produceCardSearchId: "CAP-SEARCH", movePositionType: "ProduceCardMovePositionType_Hand",
+      pickRangeType: "ProducePickRangeType_All" }],
+  ]);
+  const searchById = new Map([["CAP-SEARCH", {
+    id: "CAP-SEARCH", cardRarities: ["ProduceCardRarity_Ssr"],
+    cardPositionType: "ProduceCardPositionType_Grave",
+  }]]);
+  function setUp(drawBeforeMove) {
+    const state = createTowerTurnState(
+      ids.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+      1, new Map(masters.map((card) => [card.id, card])),
+      { examEffectById: effectById, cardSearchById: searchById },
+    );
+    drawTowerTurn(state, 5);
+    const cards = new Map([...state.hand, ...state.deck].map((card) => [card.id, card]));
+    state.hand = ["CAP-TRIGGER", "CAP-F1", "CAP-F2", "CAP-F3", "CAP-F4"].map((id) => cards.get(id));
+    state.deck = [cards.get("CAP-DRAW")];
+    state.discard = [cards.get("CAP-TARGET1"), cards.get("CAP-TARGET2")];
+    if (drawBeforeMove) state.hand[0].playEffects.unshift({ produceExamTriggerId: "", produceExamEffectId: "CAP-DRAW" });
+    return state;
+  }
+  const full = setUp(true);
+  playTowerCard(full, 0); // 5 -> play -> 4 -> draw -> 5 before move
+  assert.equal(full.hand.length, 5);
+  assert.deepEqual(full.discard.slice(0, 2).map((card) => card.id), ["CAP-TARGET1", "CAP-TARGET2"]);
+  assert.equal(full.deck.length, 0, "Blocked moves must not be redirected to DeckFirst");
+
+  const oneSlot = setUp(false);
+  playTowerCard(oneSlot, 0); // four cards remain before attempting to move two
+  assert.equal(oneSlot.hand.length, 5);
+  assert.ok(oneSlot.hand.some((card) => card.id === "CAP-TARGET1"));
+  assert.ok(oneSlot.discard.some((card) => card.id === "CAP-TARGET2"));
+  assert.ok(!oneSlot.deck.some((card) => card.id === "CAP-TARGET2"));
+  console.log("full-hand card move retention: ok");
+}
