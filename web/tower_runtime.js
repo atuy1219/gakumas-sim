@@ -929,6 +929,23 @@ function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
     }
   }
   if (!nativeResultTriggersAllowed(state)) return [];
+  // Card-cost consumption is observed by the native card-use completion hook
+  // before the P-item recovery is applied. Capture the consumption now, but
+  // resolve ExamBuffConsume after the card's main effects (same card action).
+  if (extra.cause === "cardCost") {
+    const afterCost = captureNativeStatusSnapshot(state.exam);
+    const consumptionFields = ["review", "aggressive", "parameterBuff", "lessonBuff", "parameterBuffMultiplePerTurn"];
+    for (const field of consumptionFields) {
+      const beforeValue = Number(before[field] ?? 0);
+      const afterValue = Number(afterCost[field] ?? 0);
+      if (afterValue < beforeValue) {
+        runtimeEvent.__deferredBuffConsumes ??= [];
+        runtimeEvent.__deferredBuffConsumes.push({
+          field, before: beforeValue, after: afterValue, delta: afterValue - beforeValue,
+        });
+      }
+    }
+  }
   registerRuntimeCardEnchants(state);
   return withNativeTransition(runtimeEvent, () => dispatchNativeStatusDiff(
     state.effectScheduler,
@@ -1326,11 +1343,19 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   if (condition.phaseType === "ProduceExamPhaseType_ExamTurnSkip" && String(context.action ?? "") !== "skip") return false;
 
   const statusField = context.statusChange?.field;
+  // A delayed consumption event must not retrigger unrelated status-decrease
+  // enchantments that already saw the immediate card-cost transition.
+  if (context.deferredBuffConsume && condition.phaseType !== "ProduceExamPhaseType_ExamBuffConsume") return false;
   // ExamBuffConsume is a consumption trigger, not a general STATUS_DECREASED.
   // In particular Block (元気) being spent to pay card cost must not fire it.
   // Only the recognized consumable buff-status fields qualify. This is a
   // conservative filter pending additional native status-class coverage.
   if (condition.phaseType === "ProduceExamPhaseType_ExamBuffConsume") {
+    // SpendTurn reduces finite-turn buff counters but is not a buff *cost*.
+    // The native ExamBuffConsume phase fires when paying a buff cost (or an
+    // explicit consume effect), not when a status duration naturally ticks.
+    if (context.cause !== "cardCostDeferred"
+      && !(context.cause === "effect" && /Consume|Reduce/.test(String(context.effectType ?? "")))) return false;
     const consumableBuffs = new Set([
       "review", "aggressive", "parameterBuff", "lessonBuff",
       "staminaConsumptionDown", "parameterBuffMultiplePerTurn",
@@ -3418,6 +3443,21 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     // after-card phase commands run. Preserve this boundary separately;
     // those commands still run normally and affect subsequent native actions.
     recordCardPhase("after-main-card-effects-before-after-card-play-triggers");
+    // Native ExamBuffConsume recovery is an after-completion consequence of
+    // spending a buff for card cost. It does not affect the card's own score
+    // or the passive card-use-complete snapshot.
+    const deferredBuffConsumes = event.__deferredBuffConsumes ?? [];
+    delete event.__deferredBuffConsumes;
+    for (const statusChange of deferredBuffConsumes) {
+      withNativeTransition(event, () => dispatchNativeEffectPhase(
+        state.effectScheduler,
+        NATIVE_EFFECT_PHASE.STATUS_DECREASED,
+        { state, exam: state.exam, event, card,
+          lessonType: currentNativeLessonType(state),
+          statusChange, cause: "cardCostDeferred", deferredBuffConsume: true },
+        nativeSchedulerHooks(state, event),
+      ));
+    }
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
     recordCardPhase("after-card-play-triggers");
     resolveFullPowerAfterCard(state, event);
