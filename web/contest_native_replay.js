@@ -155,6 +155,8 @@ export function replayObservedContest(session,input,{cardById=new Map(),cardVari
       temporaryStaminaConsumptionFix:nativeReplayRuntimeCard?.temporaryStaminaConsumptionFix,
       costType:nativeReplayRuntimeCard?.costType,costValue:nativeReplayRuntimeCard?.costValue,
       growEffects:nativeReplayRuntimeCard?.runtimeGrowEffects,
+      runtimeGrowStaminaBase:nativeReplayRuntimeCard?._runtimeGrowStaminaBase,
+      customGrowEffects:nativeReplayRuntimeCard?.customGrowEffects?.map?.(e=>({id:e.id,type:e.effectType,value:e.value})),
       customizeList:nativeReplayRuntimeCard?.customizes,
       upgradeCount:nativeReplayRuntimeCard?.upgradeCount,
       originMasterStamina:state.cardVariantByKey?.get?.(`${cardId}@@${Number(nativeReplayRuntimeCard?.upgradeCount??0)}`)?.stamina,
