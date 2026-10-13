@@ -12,8 +12,11 @@ HOST = r'''
 #include <array>
 #include <atomic>
 #include <cassert>
+#include <cerrno>
 #include <cstdint>
 #include <mutex>
+#include <sys/syscall.h>
+#include <sys/uio.h>
 #include <map>
 #include <sstream>
 #include <string>
