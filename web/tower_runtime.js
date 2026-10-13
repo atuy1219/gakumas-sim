@@ -2542,6 +2542,15 @@ function addPlayableStatus(state, value) {
 }
 
 function applyStanceRuntimeRewards(state, stance, event) {
+  // Native TryInternalSetStance runs AddBlockFix and TryAddEnthusiasticStatus
+  // when leaving Preservation/OverPreservation; they are separate from any
+  // block/effect on the destination Concentration card or P-item.
+  if (Number(stance?.releasedBlockAdd ?? 0) > 0) {
+    event.effects.push(`温存解除・固定元気 +${stance.releasedBlockAdd}`);
+  }
+  if (Number(stance?.releasedEnthusiasticAdd ?? 0) > 0) {
+    event.effects.push(`温存解除・熱意 +${stance.releasedEnthusiasticAdd}`);
+  }
   const playable = Math.max(0, Math.trunc(Number(stance?.playableValueAdd) || 0));
   if (playable > 0) {
     addPlayableStatus(state, playable);
