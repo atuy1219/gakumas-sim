@@ -46,7 +46,7 @@ jobs:
               sid===5 ? c.turn===5 || c.turn===7 :
               c.turn===5);
             console.log('DEEP_CARD '+sid+' '+JSON.stringify(actions.map(c=>({
-              turn:c.turn,card:c.cardId,cost:c.simulated?.cardCostEvents,
+              turn:c.turn,card:c.cardId,cost:c.simulated?.cardCostEvents,costDebug:c.simulated?.beforeCostDebug,
               phases:c.simulated?.phases?.map(p=>({
                 phase:p.phase,score:p.score,stamina:p.stamina,block:p.block,
                 lessonBuff:p.lessonBuff,parameterBuff:p.parameterBuff,
