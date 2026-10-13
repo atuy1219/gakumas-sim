@@ -13,6 +13,7 @@ HOST = r'''
 #include <atomic>
 #include <cassert>
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <sys/syscall.h>
