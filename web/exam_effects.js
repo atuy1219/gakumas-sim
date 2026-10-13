@@ -974,6 +974,10 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     parameterBuffMultiplePerTurn: 0,
     parameterDebuff: 0,
     enthusiastic: 0,
+    // Native ExamStatusEffectBase: value, finite turn count and passage flag
+    // are separate. EnthusiasticStatusEffect is usually 1 turn, not permanent.
+    scalarTimedStatuses: [],
+    enthusiasticTurnAdditive: 0,
     enthusiasticAdditivePermil: 0,
     enthusiasticMultiple: 1,
     lessonParameterMultiple: 1,
@@ -1127,7 +1131,12 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
     if (enthusiasticBase > 0) {
       const additive = Number(exam.enthusiasticAdditivePermil ?? 0);
       const multiple = Number(exam.enthusiasticMultiple ?? 1);
-      exam.enthusiastic += Math.max(0, Math.ceil((enthusiasticBase + additive) * multiple));
+      const gained = Math.max(0, Math.ceil((enthusiasticBase + additive) * multiple));
+      // ExamStatusEffectCollection.TryAddEnthusiasticStatus constructs a
+      // limited status with Turn=1 (native capture 16). A second grant
+      // increases the existing value without restarting its expiry clock.
+      addNativeScalarTimedStatus(exam, "enthusiastic", gained,
+        Math.max(1, 1 + Number(exam.enthusiasticTurnAdditive ?? 0)));
     }
     if (over && type === EXAM_IDOL_STATUS_TYPE.FullPower) {
       result.growLessonAdd = getExamRuntimeSetting(
@@ -1174,6 +1183,54 @@ export function nextNativeStatusUid(exam) {
   return exam.statusUidSerial;
 }
 
+/**
+ * ExamStatusEffectBase.SpendTurn (ELF 0x80680DC) decrements _turn for
+ * _isTurnLimited=1; expiry removes the row when Turn reaches zero.
+ * The caller's turn-boundary marking controls eligible statuses. Unlimited
+ * (_isTurnLimited=0 / negative Turn) does not spend.
+ * Keep individual rows instead of forcing every scalar to a one-turn flag.
+ */
+export function spendNativeTimedRows(rows) {
+  return (rows ?? []).map(status => {
+    const oldTurn = Number(status.turn);
+    const limited = status.isTurnLimited ?? oldTurn >= 0;
+    return {...status, turn: !limited || oldTurn < 0 || status.isPassingTurnStart === false
+      ? oldTurn : oldTurn - 1};
+  }).filter(status => !(status.isTurnLimited ?? Number(status.turn) >= 0)
+    || Number(status.turn) !== 0);
+}
+
+export function addNativeScalarTimedStatus(exam, fieldInput, valueInput, turnInput = 1) {
+  const field = String(fieldInput ?? "");
+  const value = Number(valueInput ?? 0);
+  const turn = Math.trunc(Number(turnInput));
+  if (field !== "enthusiastic" || !Number.isFinite(value) || value <= 0 || !Number.isFinite(turn) || turn === 0) return false;
+  exam.scalarTimedStatuses ??= [];
+  const prior = exam.scalarTimedStatuses.find(row => row.field === field);
+  if (prior) {
+    // TryAddEnthusiasticStatus updates _value on an existing effect;
+    // native ELF 0x806B5A8 does not reset the status' _turn.
+    prior.value += value;
+  } else {
+    exam.scalarTimedStatuses.push({field, value, turn,
+      // EnthusiasticStatusEffect..ctor @ ELF 0x8067D68 sets this bit
+      // immediately, even when granted by a card in the current turn.
+      isTurnLimited: turn >= 0, isPassingTurnStart: true,
+      uid: nextNativeStatusUid(exam)});
+  }
+  syncNativeScalarTimedStatuses(exam);
+  return true;
+}
+
+export function syncNativeScalarTimedStatuses(exam) {
+  // Scalar timed effects are modeled by independent rows so expiry removes
+  // their contribution without changing unrelated accumulating statuses.
+  exam.enthusiastic = (exam.scalarTimedStatuses ?? [])
+    .filter(row => row.field === "enthusiastic")
+    .reduce((sum, row) => sum + Number(row.value ?? 0), 0);
+  return exam;
+}
+
 export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnInput, mode = "add") {
   const field = String(fieldInput ?? "");
   const turn = Math.trunc(Number(turnInput));
@@ -1214,7 +1271,7 @@ export function syncNativeGenericTimedStatuses(exam) {
   const additiveFields = [
     "reviewAdditivePermil", "aggressiveAdditivePermil", "aggressiveAdditiveFix",
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
-    "enthusiasticAdditivePermil", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
+    "enthusiasticAdditivePermil", "enthusiasticTurnAdditive", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
     "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
@@ -1325,21 +1382,15 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
 
 export function tickNativeScoreTimedStatuses(exam) {
   const hasScoreStatuses = Boolean(exam.scoreTimedStatuses?.length);
-  exam.scoreTimedStatuses = (exam.scoreTimedStatuses ?? [])
-    .map((status) => ({
-      ...status,
-      turn: Number(status.turn) < 0 ? -1 : status.isPassingTurnStart === false ? Number(status.turn) : Number(status.turn) - 1,
-    }))
-    .filter((status) => Number(status.turn) !== 0);
+  exam.scoreTimedStatuses = spendNativeTimedRows(exam.scoreTimedStatuses);
   if (hasScoreStatuses) syncNativeScoreTimedStatuses(exam);
   if (exam.genericTimedStatuses?.length) {
-    exam.genericTimedStatuses = exam.genericTimedStatuses
-      .map((status) => ({
-        ...status,
-        turn: Number(status.turn) < 0 ? -1 : status.isPassingTurnStart === false ? Number(status.turn) : Number(status.turn) - 1,
-      }))
-      .filter((status) => Number(status.turn) !== 0);
+    exam.genericTimedStatuses = spendNativeTimedRows(exam.genericTimedStatuses);
     syncNativeGenericTimedStatuses(exam);
+  }
+  if (exam.scalarTimedStatuses?.length) {
+    exam.scalarTimedStatuses = spendNativeTimedRows(exam.scalarTimedStatuses);
+    syncNativeScalarTimedStatuses(exam);
   }
   return exam;
 }
@@ -1352,7 +1403,7 @@ export const NATIVE_SCALAR_TURN_STATUSES = Object.freeze([
 export function markNativeStatusTurnStart(exam) {
   exam.turnLifetimeEnabled = true;
   exam.passingTurnStartFields = Object.fromEntries(NATIVE_SCALAR_TURN_STATUSES.map(field => [field, Number(exam[field] ?? 0) > 0]));
-  for (const status of [...(exam.scoreTimedStatuses ?? []), ...(exam.genericTimedStatuses ?? [])]) status.isPassingTurnStart = true;
+  for (const status of [...(exam.scoreTimedStatuses ?? []), ...(exam.genericTimedStatuses ?? []), ...(exam.scalarTimedStatuses ?? [])]) status.isPassingTurnStart = true;
 }
 
 function consumeStatus(exam, field, value, label) {
