@@ -514,14 +514,12 @@ function moveSearchedCards(state, parsed, event) {
     }
   }
 
-  // Native path:
-  // ExamEffectUtility.PickCardPositionListImpl @ 0x7FE99E8
-  //   1) GetPickCountMinMax
-  //   2) GetRandomInt(min, max + 1) @ 0x7FEA0C8 -- ALWAYS consumes one
-  //      XorShift word, even for a fixed 1_1 count.
-  //   3) ProducePickRangeType_Random orders every candidate by a random Int32.
-  //      <PickCardPositionListImpl>b__3 @ 0x7FFE17C calls
-  //      ExamEffectCalculateContext.GetRandomInt() once PER candidate.
+  // ELF (build 77fda4e2): ExamEffectUtility.PickCardPositionListImpl
+  // at RVA 0x80302A8; the older 0x7FE99E8 was a branch-table address.
+  // In its Random branch (RVA 0x8030954), GetPickCountMinMax is followed
+  // by GetRandomInt(min, max + 1) at RVA 0x8030988. Even a fixed count
+  // consumes one XorShift word. The All branch returns the complete list
+  // without this count roll. Candidate-order RNG is a separate concern.
   //
   // The old replay consumed only one RNG word for selecting an index. For
   // 夏夜に咲く思い出 with exactly one 眠気, native consumes two words:
@@ -2238,10 +2236,9 @@ function masterPickCount(state, parsed, available) {
   min = Math.min(min, max);
   if (range.endsWith("_Select")) return max;
 
-  // Native ExamEffectUtility.PickCardPositionListImpl calls
-  // GetRandomInt(min, max + 1) before the range-specific selection. This call
-  // is present even for a fixed 1_1 Random pick, so width==1 must still advance
-  // the shared Exam XorShift state.
+  // ELF PickCardPositionListImpl (RVA 0x80302A8) performs a count
+  // GetRandomInt only for the Random branch. Its All branch returns without
+  // that roll; a fixed 1_1 Random count still advances XorShift once.
   if (range.endsWith("_Random")) {
     return consumeNativeRandomInt(state, min, max + 1);
   }
