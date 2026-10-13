@@ -1810,28 +1810,25 @@ function applySupportCardUpgradeInPlace(state, card) {
   return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
 }
 
-// ExamCardUpgrade writes ExamCardData._tmpUpgradeCount, not the initial
-// _baseUpgradeCount. The effective card master must change for this turn, and
-// must be restored when the card leaves the turn. Keep support-card upgrades
-// separate: those may advance a card from + to ++, whereas IsUpgradableRaw
-// restricts skill-effect upgrades to the first available base stage.
+// ExamCardUpgrade writes ExamCardData._tmpUpgradeCount, separately from the
+// initial _baseUpgradeCount. Native pool captures preserve this count across
+// turn boundaries and card moves: the upgrade lasts for the exam, not just the
+// current turn. Support-card-triggered upgrades have their own rollback scope.
+// IsUpgradableRaw restricts the skill effect to a base-unupgraded card.
 function applyTemporarySkillUpgradeInPlace(state, card) {
   const base = card?._supportBaseSnapshot ?? card;
   if (Number(base?.upgradeCount ?? 0) !== 0
     || Number(card?._skillUpgradeCount ?? 0) > 0
     || !state.cardVariantByKey?.has(`${card.id}@@1`)) return Number(card?.upgradeCount ?? 0);
-  if (!card._supportBaseSnapshot) {
-    card._supportBaseSnapshot = cloneRuntimeCardSnapshot(card);
-    card._supportUpgradeCount = 0;
-  }
   card._skillUpgradeCount = 1;
   // A support upgrade may already have raised the effective stage. Load the
   // matching ++/+++ master rather than only changing the visible counter.
+  // Do not save this as a turn-limited support snapshot.
   return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
 }
 
 
-function clearTemporaryCardUpgrades(state) {
+function clearSupportCardUpgrades(state) {
   const seen = new Set();
   for (const pool of [state.hand, state.deck, state.discard, state.lost, state.hold]) {
     for (const card of pool ?? []) {
@@ -1839,8 +1836,17 @@ function clearTemporaryCardUpgrades(state) {
       seen.add(card);
       if (!card._supportBaseSnapshot) continue;
       const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
+      // If ExamCardUpgrade was applied after a support upgrade, the support
+      // snapshot predates it. Carry that skill upgrade forward at turn end.
+      const skillAddedAfterSnapshot = Math.max(0,
+        Number(card._skillUpgradeCount ?? 0) - Number(base._skillUpgradeCount ?? 0));
       for (const key of Object.keys(card)) delete card[key];
       Object.assign(card, base);
+      if (skillAddedAfterSnapshot) {
+        card._skillUpgradeCount = Number(base._skillUpgradeCount ?? 0) + skillAddedAfterSnapshot;
+        applyRuntimeUpgradeVariant(state, card,
+          Number(card.upgradeCount ?? 0) + skillAddedAfterSnapshot);
+      }
     }
   }
 }
@@ -3560,10 +3566,9 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   state.playsRemaining = 0;
   state.turnOpen = false;
 
-  // Support-card and skill-effect temporary upgrades use the same per-card
-  // snapshot. Restore the original variant at turn end after all effects so a
-  // recycled card starts at its base upgrade level.
-  clearTemporaryCardUpgrades(state);
+  // Only turn-scoped support bonuses are reverted here. ExamCardUpgrade
+  // persists in ExamCardData._tmpUpgradeCount through the current exam.
+  clearSupportCardUpgrades(state);
   for (const card of [...state.deck, ...state.hand, ...state.discard, ...state.lost, ...state.hold]) delete card.temporaryStaminaConsumptionFix;
   return entry;
 }
