@@ -2688,8 +2688,14 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamStaminaDamage":
     case "ExamStaminaReduceFix":
     case "ExamStaminaReduce": {
-      const amount = type === "ExamStaminaReduce" && v1 < 0
-        ? Math.ceil(Number(exam.maxStamina ?? 0) * Math.abs(v1) / 1000)
+      // StaminaReduceEffectExecutor.ExecuteEffect (IL2CPP RVA 0x80643D4):
+      // a positive effectValue is a permille ratio of max stamina, not a
+      // fixed amount. Keep StaminaReduceFix as a distinct absolute reduction.
+      // The native path converts to float32, adds 0.0001f, then truncates.
+      const amount = type === "ExamStaminaReduce"
+        ? (v1 <= 0 ? 0 : Math.trunc(Math.fround(
+            Math.fround(Math.fround(v1 / 1000) + Math.fround(0.0001))
+            * Math.fround(Number(exam.maxStamina ?? 0)))))
         : Math.abs(v1);
       const resolved = calculateNativeStaminaDamage(exam, amount, {
         penetrate: type !== "ExamStaminaDamage",
@@ -3148,10 +3154,23 @@ function addGrowEffectsToDeckAll(state, parsed, event) {
   if (grows.length) {
     const candidates = parsed.pickRangeType ? pickedMasterCards(state, parsed) : [...state.deck, ...state.hand, ...state.discard, ...state.hold].filter((card) => cardMatchesSearchId(card, parsed.searchId));
     for (const card of candidates) applyPersistentRuntimeCardGrowEffects(card, grows);
+    // DeckAll growth targets the card currently being used as well, but
+    // native AddGrowEffect takes effect only after this play's lesson result.
+    // Store it on the original card object, for its next play. Do not mutate
+    // the in-flight score or replay an observed score from the capture.
+    const search = resolvedMasterSearch(state, parsed.searchId);
+    const playingCard = state.playingCard;
+    const targetsPlayingCard = playingCard && search?.cardPositionType === "ProduceCardPositionType_DeckAll"
+      && cardMatchesMasterSearch(playingCard, search);
+    if (targetsPlayingCard) {
+      state._deferredPlayingCardGrows ??= [];
+      state._deferredPlayingCardGrows.push({ card: playingCard, grows: grows.map(grow => ({ ...grow })) });
+    }
     event.grown ??= [];
-    event.grown.push({ searchId: parsed.searchId, growEffectIds: [...parsed.growEffectIds], matched: candidates.length });
+    const matched = candidates.length + Number(Boolean(targetsPlayingCard));
+    event.grown.push({ searchId: parsed.searchId, growEffectIds: [...parsed.growEffectIds], matched });
     event.effects.push("対象カードを成長");
-    return candidates.length;
+    return matched;
   }
   const pools = [state.deck, state.hand, state.discard, state.hold];
   const seen = new Set();
@@ -3404,6 +3423,14 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     resolveFullPowerAfterCard(state, event);
     recordCardPhase("after-full-power-resolution");
 
+    // Flush only this playing card's deferred growth. A nested/forced play
+    // may have its own in-flight card, so never consume that card's queue.
+    const deferred = state._deferredPlayingCardGrows ?? [];
+    state._deferredPlayingCardGrows = deferred.filter(entry => entry.card !== card);
+    for (const entry of deferred) {
+      if (entry.card === card) applyPersistentRuntimeCardGrowEffects(entry.card, entry.grows);
+    }
+
     if (![state.hand, state.deck, state.discard, state.lost, state.hold].some((pool) => pool.includes(card))) {
       addRuntimeCardAt(state, card, card.onceOnly ? "Lost" : "Grave", event, "playing");
     }
@@ -3411,6 +3438,10 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     state.lastPlayedCard = { id: card.id, token: card.token, category: card.category };
     return event;
   } finally {
+    // A failed card action must not leak deferred effects into a later play.
+    if (state._deferredPlayingCardGrows?.length) {
+      state._deferredPlayingCardGrows = state._deferredPlayingCardGrows.filter(entry => entry.card !== card);
+    }
     state.playingCard = previousPlayingCard;
     state.cardTriggerAggressiveAtPlayStart = previousCardTriggerAggressiveAtPlayStart;
     state.effectOwnerCard = previousEffectOwnerCard;
