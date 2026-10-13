@@ -1869,7 +1869,13 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
     case "hand_grave_count_card_draw": return { applied: true, command: "hand_swap", label: "手札をすべて入れ替え" };
     case "card_upgrade_hand_all": return { applied: true, command: "upgrade_hand", label: "手札をすべて強化" };
     case "parameter_buff_multiple_per_turn":
-      exam.parameterBuffMultiplePerTurn = Math.max(Number(exam.parameterBuffMultiplePerTurn ?? 0), Number(parsed.turn ?? 0));
+      // Native TryAddParameterBuffMultiplePerTurnStatus (0x8069AA8):
+      // active finite duration is extended, rather than using max(current, grant).
+      // Preserve -1 for an unlimited existing status.
+      const previousTurn = Number(exam.parameterBuffMultiplePerTurn ?? 0);
+      const grantedTurn = Number(parsed.turn ?? 0);
+      exam.parameterBuffMultiplePerTurn = previousTurn < 0 || grantedTurn < 0
+        ? -1 : Math.max(0, previousTurn) + Math.max(0, grantedTurn);
       return { applied: true, label: `絶好調 ${parsed.turn}ターン` };
     case "status_enchant": return { applied: true, command: "status_enchant", enchant: parsed, label: `継続効果を追加: ${parsed.enchantId}` };
     case "master_effect": return {
