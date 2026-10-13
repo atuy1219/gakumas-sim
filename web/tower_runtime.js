@@ -1849,6 +1849,10 @@ function applyRuntimeUpgradeVariant(state, card, targetUpgradeCount) {
   }, state.customizeById, state.growEffectById);
   const grows = [...(card.runtimeGrowEffects ?? [])];
   rebuilt.runtimeGrowEffects = [];
+  // Each upgrade variant has its own master/customization cost baseline.
+  // Recompute all in-exam cost growth on that baseline, never the preceding
+  // upgrade's already-modified stamina.
+  delete rebuilt._runtimeGrowStaminaBase;
   applyRuntimeCardGrowEffects(rebuilt, grows);
   Object.assign(card, rebuilt);
   card.onceOnly = isOnceOnlyMove(card.playMovePositionType);
