@@ -2070,7 +2070,12 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   const context = getExamEffectCalculateContext(state);
   const count = Number(drawCount);
   if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
-  if (context.HandList.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
+  if (context.HandList.length && !state.nativeHandHoldPreserved) {
+    throw new Error("現在の手札を処理してから次ターンへ進んでください。");
+  }
+  // A previous ResetHand may have returned early under HandHold. Keep those
+  // existing Hand cards while drawing up to the native hand limit.
+  state.nativeHandHoldPreserved = false;
   if (state.turnOpen) throw new Error("現在のターンを終了してから次ターンへ進んでください。");
 
   const hasTurnLimit = state.turnLimit !== null
@@ -5249,6 +5254,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   // ELF ResetHand: IsHandHold(1) prevents the entire hand reset,
   // preserving the cards in Hand rather than transferring to the Hold zone.
   const resetCards = state.exam.handHold ? [] : context.HandList.splice(0);
+  state.nativeHandHoldPreserved = Boolean(state.exam.handHold);
   const resetEvent = nativeRuntimeEvent();
   for (const card of resetCards) {
     if (card.isEndTurnLost) context.LostList.push(card);
