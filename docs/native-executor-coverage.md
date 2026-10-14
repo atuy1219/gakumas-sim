@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **107** |
+| Master Effectからクラス単位に移した分岐数 | **111** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **140** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **21** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **144** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **17** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装21クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装17クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -83,6 +83,12 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 
 `GetCardUpgradeEffectExecutor @0x805320C` は `TryAddGetCardUpgradeStatus(Value1)` を呼び出す。実機の `ExamCardMoveController.AddCard @0x8276818 / @0x827A084` は `IsGetCardUpgrade(1)` を検査し、適用時に取得カードを強化する。JSでは生成後初回 `addRuntimeCardAt` でのみ既存 `applyTemporarySkillUpgradeInPlace` を適用し、既存カードの移動は強化しない。テスト：`tests/test_elf_get_card_upgrade.mjs`。
 
+### 取り消し可能な減少4種類（ELF照合中）
+
+`TryReduceAggressive` / `TryReduceLessonBuff` / `TryReduceParameterBuff` / `TryReduceReview` は `IsBlockAddStatus` で状態変更を拒否しうる。JS側では既存 `antiDebuffCount` を先に消費し、許可された場合のみ減算する経路を実装。
+
+未キャプチャ効果の全条件（対象Status UIDと解除可否）は依然検証課題。単体テストは `tests/test_all_native_executors.mjs`。
+
 ## 全クラス一覧
 
 | 実機クラス名 | Master Effect側 | Parsed Effect側 |
@@ -93,7 +99,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `AggressiveDependReviewEffectExecutor` | `ExamAggressiveDependReview` | 未実装 |
 | `AggressiveEffectExecutor` | 未実装 | `aggressive` |
 | `AggressivePerSearchCountEffectExecutor` | `ExamAggressivePerSearchCount` | 未実装 |
-| `AggressiveReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `AggressiveReduceCancellableEffectExecutor` | `ExamAggressiveReduceCancellable` | 未実装 |
 | `AggressiveReduceEffectExecutor` | `ExamAggressiveReduce` | 未実装 |
 | `AggressiveValueMultipleEffectExecutor` | `ExamAggressiveValueMultiple` | 未実装 |
 | `AntiDebuffEffectExecutor` | `ExamAntiDebuff` | 未実装 |
@@ -166,7 +172,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `LessonBuffEffectExecutor` | 未実装 | `lesson_buff` |
 | `LessonBuffMultipleEffectExecutor` | 未実装 | `lesson_buff_multiple` |
 | `LessonBuffPerSearchCountEffectExecutor` | `ExamLessonBuffPerSearchCount` | 未実装 |
-| `LessonBuffReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `LessonBuffReduceCancellableEffectExecutor` | `ExamLessonBuffReduceCancellable` | 未実装 |
 | `LessonBuffReduceEffectExecutor` | `ExamLessonBuffReduce` | 未実装 |
 | `LessonChangeSpecifyLessThanEffectExecutor` | 未実装 | 未実装 |
 | `LessonChangeSpecifyMoreThanEffectExecutor` | 未実装 | 未実装 |
@@ -202,7 +208,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `ParameterBuffMultiplePerTurnEffectExecutor` | 未実装 | `parameter_buff_multiple_per_turn` |
 | `ParameterBuffMultiplePerTurnReduceEffectExecutor` | `ExamParameterBuffMultiplePerTurnReduce` | 未実装 |
 | `ParameterBuffPerSearchCountEffectExecutor` | `ExamParameterBuffPerSearchCount` | 未実装 |
-| `ParameterBuffReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `ParameterBuffReduceCancellableEffectExecutor` | `ExamParameterBuffReduceCancellable` | 未実装 |
 | `ParameterBuffReduceEffectExecutor` | 未実装 | `parameter_buff_reduce` |
 | `ParameterBuffTurnEndReduceLockEffectExecutor` | 未実装 | `parameter_buff_turn_end_reduce_lock` |
 | `PlayableValueAddEffectExecutor` | 未実装 | `playable_add` |
@@ -216,7 +222,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `ReviewEffectExecutor` | 未実装 | `review` |
 | `ReviewMultipleEffectExecutor` | 未実装 | `review_multiple` |
 | `ReviewPerSearchCountEffectExecutor` | `ExamReviewPerSearchCount` | 未実装 |
-| `ReviewReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `ReviewReduceCancellableEffectExecutor` | `ExamReviewReduceCancellable` | 未実装 |
 | `ReviewReduceEffectExecutor` | `ExamReviewReduce` | 未実装 |
 | `ReviewTurnEndReduceLockEffectExecutor` | 未実装 | `review_turn_end_reduce_lock` |
 | `ReviewValueMultipleEffectExecutor` | `ExamReviewValueMultiple` | 未実装 |
