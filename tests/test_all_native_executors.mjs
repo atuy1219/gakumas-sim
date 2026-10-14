@@ -16,17 +16,19 @@ for (const name of allNames) {
 }
 
 assert.equal(NATIVE_MASTER_EXECUTOR_COVERAGE.registered, 161);
-assert.equal(Object.keys(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES).length, 80);
+assert.equal(Object.keys(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES).length, 82);
 assert.equal(Object.keys(PARSED_EXAM_EFFECT_EXECUTOR_CLASSES).length, 41);
 const supported = new Set([
   ...Object.values(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES).map(ctor => ctor.name),
   ...Object.values(PARSED_EXAM_EFFECT_EXECUTOR_CLASSES).map(ctor => ctor.name),
 ]);
 const nativeSupported = [...supported].filter(name => allNames.includes(name));
-assert.equal(nativeSupported.length, 113, "explicit master + parsed native implementations");
-assert.equal(allNames.filter(name => !supported.has(name)).length, 48);
+assert.equal(nativeSupported.length, 115, "explicit master + parsed native implementations");
+assert.equal(allNames.filter(name => !supported.has(name)).length, 46);
 assert.equal(PARSED_EXAM_EFFECT_EXECUTOR_CLASSES.lesson.name, "LessonEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamStaminaReduce.name, "StaminaReduceEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamStaminaDamage.name, "StaminaDamageEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamStatusEnchantEncore.name, "StatusEnchantEncoreEffectExecutor");
-console.log("161 native executor classes; 80 master paths; 41 parsed paths; 113 native names implemented: OK");
+assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamMultipleConcentrationLesson.name, "LessonMultipleConcentrationEffectExecutor");
+assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamMultipleFullPowerLesson.name, "LessonMultipleFullPowerEffectExecutor");
+console.log("161 native executor classes; 82 master paths; 41 parsed paths; 115 native names implemented: OK");
