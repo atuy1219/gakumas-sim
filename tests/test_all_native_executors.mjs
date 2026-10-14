@@ -16,22 +16,24 @@ for (const name of allNames) {
 }
 
 assert.equal(NATIVE_MASTER_EXECUTOR_COVERAGE.registered, 161);
-assert.equal(Object.keys(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES).length, 115);
+assert.equal(Object.keys(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES).length, 122);
 assert.equal(Object.keys(PARSED_EXAM_EFFECT_EXECUTOR_CLASSES).length, 41);
 const supported = new Set([
   ...Object.values(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES).map(ctor => ctor.name),
   ...Object.values(PARSED_EXAM_EFFECT_EXECUTOR_CLASSES).map(ctor => ctor.name),
 ]);
 const nativeSupported = [...supported].filter(name => allNames.includes(name));
-assert.equal(nativeSupported.length, 148, "explicit master + parsed native implementations");
-assert.equal(allNames.filter(name => !supported.has(name)).length, 13);
+assert.equal(nativeSupported.length, 155, "explicit master + parsed native implementations");
+assert.equal(allNames.filter(name => !supported.has(name)).length, 6);
+assert.deepEqual([...NATIVE_MASTER_EXECUTOR_COVERAGE.unsupportedClassNames].sort(),
+  allNames.filter(name => !supported.has(name)).sort(), "coverage must not count parsed implementations as unsupported");
 assert.equal(PARSED_EXAM_EFFECT_EXECUTOR_CLASSES.lesson.name, "LessonEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamStaminaReduce.name, "StaminaReduceEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamStaminaDamage.name, "StaminaDamageEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamStatusEnchantEncore.name, "StatusEnchantEncoreEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamMultipleConcentrationLesson.name, "LessonMultipleConcentrationEffectExecutor");
 assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamMultipleFullPowerLesson.name, "LessonMultipleFullPowerEffectExecutor");
-console.log("161 native executor classes; 115 master paths; 41 parsed paths; 148 native names implemented: OK");
+console.log("161 native executor classes; 122 master paths; 41 parsed paths; 155 native names implemented: OK");
 
 // ELF TryReduce* checks IsBlockAddStatus(effectType) before consuming the
 // corresponding status: anti-debuff protection is spent before reduction.

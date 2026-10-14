@@ -197,6 +197,17 @@ export function calculateNativeAddingParameter(exam, valueInput, options = {}) {
     adjusted = Math.trunc(Number(exam.lessonChangeSpecifyLessThan));
   }
 
+  // ELF predicates are inclusive. MoreThan chooses the smallest
+  // replacement (OrderBy); LessThan chooses the largest (OrderByDescending).
+  // LessThan is tested against the result of MoreThan, in that order.
+  for (const [field, less] of [["lessonChangeSpecifyMoreThan", false], ["lessonChangeSpecifyLessThan", true]]) {
+    const matching = (exam?.genericTimedStatuses ?? []).filter(row => row.field === field
+      && row.mode === "lessonOverride" && (less ? adjusted <= row.threshold : adjusted >= row.threshold));
+    if (matching.length) adjusted = less
+      ? Math.max(...matching.map(row => row.value))
+      : Math.min(...matching.map(row => row.value));
+  }
+
   // This inner ceil has no epsilon in native code.
   const multipliedLessonBuff = ceilF32(f32(lessonBuffMultiple * f32(lessonBuff)));
   const base = Math.max(

@@ -8,16 +8,15 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **115** |
+| Master Effectからクラス単位に移した分岐数 | **122** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **148** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **13** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **155** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **6** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
-今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
-`ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
+既存switchからの移行に加え、未対応ExecutorをELFの委譲先・状態寿命・乱数消費に基づいて追加しています。実装登録と全ケースの実機一致は区別します。
 
-JSの未実装13クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装6クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -25,7 +24,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `web/tower_runtime.js` : 161個の独立クラス、Master型→Executor対応表。公開 `NATIVE_EFFECT_EXECUTOR_CLASSES`。
 - `web/exam_effects.js` : Parsed Effect側の独立 `ExecuteEffect` と `PARSED_EXAM_EFFECT_EXECUTOR_CLASSES`。
 - `web/native_effect_executor_registry.js` : IL2CPPから抽出した161クラス名とマスターIDの名称対応。
-- `tests/test_all_native_executors.mjs` : 161クラスの一意性、80+41分岐、113対応名を検証。
+- `tests/test_all_native_executors.mjs` : 161クラスの一意性、122+41分岐、155対応名を検証。
 - `tests/test_contest_dfs.mjs` : JSへ移したコンテストDFS方針の回帰検証。
 
 ## ELFによる追加実装（2026-10-14）
@@ -125,19 +124,19 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `CardCreateSearchEffectExecutor` | `ExamCardCreateSearch` | 未実装 |
 | `CardDuplicateEffectExecutor` | `ExamCardDuplicate` | 未実装 |
 | `CardMoveEffectExecutor` | `ExamCardMove` | `card_move_search` |
-| `CardShuffleDeckGraveEffectExecutor` | 未実装 | 未実装 |
-| `CardShuffleDeckLostEffectExecutor` | 未実装 | 未実装 |
+| `CardShuffleDeckGraveEffectExecutor` | `ExamCardShuffleDeckGrave` | 未実装 |
+| `CardShuffleDeckLostEffectExecutor` | `ExamCardShuffleDeckLost` | 未実装 |
 | `ChainEffectExecutor` | 未実装 | 未実装 |
 | `ChainEffectPerPassedTurnEffectExecutor` | 未実装 | 未実装 |
 | `ChainEffectPerRemainTurnEffectExecutor` | 未実装 | 未実装 |
-| `ClearDebuffEffectExecutor` | 未実装 | 未実装 |
+| `ClearDebuffEffectExecutor` | `ExamClearDebuff` | 未実装 |
 | `ConcentrationEffectExecutor` | 未実装 | `concentration` |
 | `ConcentrationLessonMultipleAdditiveEffectExecutor` | `ExamConcentrationLessonMultipleAdditive` | 未実装 |
 | `DebuffRecoverEffectExecutor` | `ExamDebuffRecover` | 未実装 |
 | `DrawEffectExecutor` | 未実装 | `card_draw` |
 | `EffectPerSearchCountEffectExecutor` | `ExamEffectPerSearchCount` | 未実装 |
 | `EffectTimerEffectExecutor` | `ExamEffectTimer` | `effect_timer` |
-| `EffectTimerEndTurnEffectExecutor` | 未実装 | 未実装 |
+| `EffectTimerEndTurnEffectExecutor` | `ExamEffectTimerEndTurn` | 未実装 |
 | `EnthusiasticAdditiveEffectExecutor` | `ExamEnthusiasticAdditive` | 未実装 |
 | `EnthusiasticMultipleEffectExecutor` | `ExamEnthusiasticMultiple` | 未実装 |
 | `EnthusiasticTurnAdditiveEffectExecutor` | `ExamEnthusiasticTurnAdditive` | 未実装 |
@@ -178,8 +177,8 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `LessonBuffPerSearchCountEffectExecutor` | `ExamLessonBuffPerSearchCount` | 未実装 |
 | `LessonBuffReduceCancellableEffectExecutor` | `ExamLessonBuffReduceCancellable` | 未実装 |
 | `LessonBuffReduceEffectExecutor` | `ExamLessonBuffReduce` | 未実装 |
-| `LessonChangeSpecifyLessThanEffectExecutor` | 未実装 | 未実装 |
-| `LessonChangeSpecifyMoreThanEffectExecutor` | 未実装 | 未実装 |
+| `LessonChangeSpecifyLessThanEffectExecutor` | `ExamLessonChangeSpecifyLessThan` | 未実装 |
+| `LessonChangeSpecifyMoreThanEffectExecutor` | `ExamLessonChangeSpecifyMoreThan` | 未実装 |
 | `LessonDependAggressiveAndSearchCountEffectExecutor` | `ExamLessonDependAggressiveAndSearchCount` | 未実装 |
 | `LessonDependBlockAndSearchCountEffectExecutor` | `ExamLessonDependBlockAndSearchCount` | 未実装 |
 | `LessonDependBlockConsumptionSumEffectExecutor` | `ExamLessonDependBlockConsumptionSum` | 未実装 |
@@ -267,3 +266,7 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 - 保存JSONと従来のUIのフィールド契約
 
 実機との差分を利用した処理順序の再実装は、名称移行フェーズが完了した後の独立PRで行います。
+
+### 残り処理の追加と成長倍率の修正（2026-10-14）
+
+シャッフル2種類、全低下状態解除、ターン終了タイマー、条件付きパラメータ変更2種類を追加。成長倍率も成長取得時の値へ接続。詳細な委譲先・数値ベクトル・未検証範囲は `docs/remaining-runtime-elf-validation.md`。専用テスト `tests/test_elf_remaining_runtime.mjs` を含むCIテスト46本がローカルで成功。
