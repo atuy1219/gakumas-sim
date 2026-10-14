@@ -1275,7 +1275,7 @@ class ExamCardMoveController:
         # ResetHand starts by checking IsHandHold and processes each
         # card's reset destination.  We require that destination to be
         # supplied explicitly.
-        if context.parameter.status_effects.has(StatusKind.HAND_HOLD):
+        if context.ExamParameter.StatusEffectCollection.has(StatusKind.HAND_HOLD):
             return
         while self.hand.cards:
             card = self.hand.cards.pop(0)
@@ -1374,7 +1374,7 @@ class ExamEffectUtility:
     def calculate_adding_parameter(value: int, context: ExamEffectCalculateContext,
                                    modifier: ParameterCalculationModifier | None = None) -> int:
         # isBuffActive=true.
-        p=context.parameter; s=p.status_effects; st=p.setting
+        p=context.ExamParameter; s=p.status_effects; st=p.setting
         if s.has(StatusKind.SLUMP):
             return 0
 
@@ -1455,7 +1455,7 @@ class ExamEffectUtility:
 
     @staticmethod
     def add_parameter(value: int, context: ExamEffectCalculateContext) -> None:
-        if context.parameter.status_effects.has(StatusKind.SLUMP): value=0
+        if context.ExamParameter.StatusEffectCollection.has(StatusKind.SLUMP): value=0
         ExamEffectUtility.add_parameter_fix(value,context)
 
     @staticmethod
@@ -1499,29 +1499,29 @@ class ExamEffectUtility:
             context,
             modifier,
         )
-        before = context.parameter.judge_parameter
+        before = context.ExamParameter.JudgeParameter
         for _ in range(max(0, int(count))):
             ExamEffectUtility.add_parameter(calculated, context)
-        return calculated, context.parameter.judge_parameter - before
+        return calculated, context.ExamParameter.JudgeParameter - before
 
     @staticmethod
     def apply_review_turn_end(context: ExamEffectCalculateContext) -> int:
         """Port the automatic Review score emitted during TURN_END."""
-        s = context.parameter.status_effects
+        s = context.ExamParameter.StatusEffectCollection
         review = s.turn(StatusKind.REVIEW)
         if review < 1:
             return 0
         base = _ceil_f32(_f32(s.ratio_multiple(StatusKind.REVIEW_MULTIPLE) * _f32(float(review))))
         count = max(0, s.total_value(StatusKind.REVIEW_COUNT_ADD)) + 1
-        before = context.parameter.judge_parameter
+        before = context.ExamParameter.JudgeParameter
         for _ in range(count):
             calculated = ExamEffectUtility.calculate_adding_parameter(base, context)
             ExamEffectUtility.add_parameter(calculated, context)
-        return context.parameter.judge_parameter - before
+        return context.ExamParameter.JudgeParameter - before
 
     @staticmethod
     def add_parameter_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter
+        p=context.ExamParameter
         added=int(value)
         parameter_type: int | None = None
         if p.is_battle:
@@ -1548,7 +1548,7 @@ class ExamEffectUtility:
     def calculate_add_block(value: int, context: ExamEffectCalculateContext, aggressive_multiple: float=1.0) -> int:
         # wrapper uses aggressive_multiple=1.0.
         if value < 1: return 0
-        p=context.parameter; s=p.status_effects
+        p=context.ExamParameter; s=p.status_effects
         if s.has(StatusKind.BLOCK_RESTRICTION): return 0
         value=int(value)+_ceil_f32(_f32(_f32(float(s.total_value(StatusKind.AGGRESSIVE)))*_f32(aggressive_multiple)))
         if value < 1: return max(0,value)
@@ -1562,18 +1562,18 @@ class ExamEffectUtility:
 
     @staticmethod
     def add_block_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter; before=p.block; delta=max(-before,int(value)); p.block=before+delta
+        p=context.ExamParameter; before=p.block; delta=max(-before,int(value)); p.block=before+delta
         context.log_diff('Block',before,p.block)
 
     @staticmethod
     def add_stamina_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter; before=p.stamina; p.stamina=max(0,min(p.max_stamina,before+int(value)))
+        p=context.ExamParameter; before=p.stamina; p.stamina=max(0,min(p.max_stamina,before+int(value)))
         context.log_diff('Stamina',before,p.stamina)
 
     @staticmethod
     def calculate_damage(value: int, penetrate: bool, apply_fixed: bool, context: ExamEffectCalculateContext) -> tuple[int,int]:
         # Return order is (staminaDamage, blockDamage).
-        p=context.parameter; s=p.status_effects; st=p.setting
+        p=context.ExamParameter; s=p.status_effects; st=p.setting
         block=0 if penetrate else p.block
         f=_f32(float(int(value)))
         t=s.idol_status_type; step=s.idol_status_step
@@ -1602,7 +1602,7 @@ class ExamEffectUtility:
     def damage_stamina(value: int, penetrate: bool, context: ExamEffectCalculateContext) -> None:
         # 0x7feefcc: CalculateDamage(..., applyFixed=true), SetBlock/SetStamina,
         # increment CurrentTurnConsumeStamina, then consume one Uplifting if stamina was hit.
-        p=context.parameter; before_s=p.stamina; before_b=p.block
+        p=context.ExamParameter; before_s=p.stamina; before_b=p.block
         sd,bd=ExamEffectUtility.calculate_damage(value,penetrate,True,context)
         if bd>=1: p.block=max(0,p.block-bd)
         if sd>=1:
@@ -1616,14 +1616,14 @@ class ExamEffectUtility:
 
     @staticmethod
     def calculate_buff_cost(value: int, context: ExamEffectCalculateContext) -> int:
-        p=context.parameter; s=p.status_effects; f=_f32(float(int(value)))
+        p=context.ExamParameter; s=p.status_effects; f=_f32(float(int(value)))
         if s.has(StatusKind.BUFF_CONSUMPTION_DOWN): f=_f32(f*_from_permil(1000-p.setting.get(2)))
         if s.has(StatusKind.BUFF_CONSUMPTION_ADD): f=_f32(f*_from_permil(1000+p.setting.get(3)))
         return _ceil_f32(f)
 
     @staticmethod
     def get_cost_buff_value(cost_type: int, context: ExamEffectCalculateContext) -> int:
-        s=context.parameter.status_effects
+        s=context.ExamParameter.StatusEffectCollection
         return {1:s.total_value(StatusKind.LESSON_BUFF),2:s.total_value(StatusKind.REVIEW),
                 3:s.total_value(StatusKind.AGGRESSIVE),4:s.turn(StatusKind.PARAMETER_BUFF),
                 5:s.total_value(StatusKind.FULL_POWER_POINT),
@@ -1631,7 +1631,7 @@ class ExamEffectUtility:
 
     @staticmethod
     def consume_buff_cost(cost_type: int, value: int, context: ExamEffectCalculateContext) -> None:
-        cost=ExamEffectUtility.calculate_buff_cost(value,context); s=context.parameter.status_effects
+        cost=ExamEffectUtility.calculate_buff_cost(value,context); s=context.ExamParameter.StatusEffectCollection
         ct=int(cost_type); before=ExamEffectUtility.get_cost_buff_value(ct,context)
         if ct==1: s.reduce_value(StatusKind.LESSON_BUFF,cost)
         elif ct==2: s.reduce_value(StatusKind.REVIEW,cost)
@@ -1648,35 +1648,76 @@ class ExamEffectUtility:
         ExamEffectUtility.damage_stamina(value,penetrate,context)
 
 
-class ExamEffectResolver:
-    """Executor dispatcher following the game's effect->executor architecture."""
+# IL2CPP public member names. Dataclass constructor arguments and stored
+# snake_case attributes are retained for existing callers and pickled fixtures.
+# Every alias is a live property, never a snapshot or an independent counter.
+def _il2cpp_field(field_name: str) -> property:
+    def read(instance):
+        return getattr(instance, field_name)
+
+    def write(instance, value):
+        setattr(instance, field_name, value)
+
+    return property(read, write)
+
+
+_EXAM_PARAMETER_NATIVE_FIELDS = {
+    "Seed": "seed",
+    "CurrentTurn": "current_turn",
+    "RemainTurn": "remain_turn",
+    "Stamina": "stamina",
+    "MaxStamina": "max_stamina",
+    "JudgeParameter": "judge_parameter",
+    "Block": "block",
+    "MainEffectType": "main_effect_type",
+    "ExtraTurn": "extra_turn",
+    "StatusEffectCollection": "status_effects",
+    "TurnCardPlayCount": "turn_card_play_count",
+    "IsTurnCardGrave": "is_turn_card_grave",
+    "IsTurnCardLost": "is_turn_card_lost",
+    "IsTurnCardPlayEnd": "is_turn_card_play_end",
+    "CurrentTurnTotalConsumeStamina": "current_turn_consume_stamina",
+    "ReviewConsumptionSumCount": "review_consumption_sum_count",
+    "JudgeParameterVocal": "judge_parameter_vocal",
+    "JudgeParameterDance": "judge_parameter_dance",
+    "JudgeParameterVisual": "judge_parameter_visual",
+    "VocalBonusPermil": "vocal_bonus_permil",
+    "DanceBonusPermil": "dance_bonus_permil",
+    "VisualBonusPermil": "visual_bonus_permil",
+    "ConfigParameterTypeOrderedList": "config_parameter_type_ordered_list",
+}
+_EXAM_CONTEXT_NATIVE_FIELDS = {
+    "ExamParameter": "parameter",
+    "CardController": "card_controller",
+    "HandList": "hand",
+    "DeckList": "deck",
+    "GraveList": "grave",
+    "LostList": "lost",
+    "HoldList": "hold",
+    "PlayingEffect": "playing_effect",
+    "PlayingEnchantIsTriggerActive": "is_enchant_trigger_active",
+}
+for _native_name, _py_name in _EXAM_PARAMETER_NATIVE_FIELDS.items():
+    setattr(ExamParameterModel, _native_name, _il2cpp_field(_py_name))
+for _native_name, _py_name in _EXAM_CONTEXT_NATIVE_FIELDS.items():
+    setattr(ExamEffectCalculateContext, _native_name, _il2cpp_field(_py_name))
+del _native_name, _py_name
+
+
+class IExamEffectExecutor:
+    """Python port of the native IExamEffectExecutor.ExecuteEffect contract."""
 
     def __init__(self, context: ExamEffectCalculateContext):
         self.context = context
 
-    def execute(self, effect: ExamEffect) -> None:
-        self.context.playing_effect = effect
-        try:
-            fn = {
-                EffectKind.LESSON.value: self._lesson,
-                EffectKind.LESSON_FIX.value: self._lesson_fix,
-                EffectKind.BLOCK.value: self._block,
-                EffectKind.DRAW.value: self._draw,
-                EffectKind.EXTRA_TURN.value: self._extra_turn,
-                EffectKind.PARAMETER_BUFF.value: self._parameter_buff,
-                EffectKind.REVIEW.value: self._review,
-                EffectKind.LESSON_BUFF.value: self._lesson_buff,
-            }.get(effect.kind)
-            if fn is None:
-                raise UnsupportedPath(
-                    "ExamEffectUtility.CreateExecutor/AffectEffect",
-                    f"effect executor is unsupported: {effect.kind}",
-                )
-            fn(effect)
-        finally:
-            self.context.playing_effect = None
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise NotImplementedError
 
-    def _lesson(self, effect: ExamEffect) -> None:
+
+class LessonEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.LessonEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # LessonEffectExecutor.ExecuteEffect loops count times.
         if effect.count < 1:
             return
@@ -1684,7 +1725,11 @@ class ExamEffectResolver:
             v = ExamEffectUtility.calculate_adding_parameter(effect.value, self.context)
             ExamEffectUtility.add_parameter(v, self.context)
 
-    def _lesson_fix(self, effect: ExamEffect) -> None:
+
+class LessonFixEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.LessonFixEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # LessonFixEffectExecutor follows AddParameterFix and performs a fixed addition.
         if effect.count not in (0, 1):
             raise UnsupportedPath(
@@ -1692,18 +1737,30 @@ class ExamEffectResolver:
             )
         ExamEffectUtility.add_parameter_fix(effect.value, self.context)
 
-    def _block(self, effect: ExamEffect) -> None:
+
+class BlockEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.BlockEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # BlockEffectExecutor.
         v = ExamEffectUtility.calculate_add_block(effect.value, self.context)
         ExamEffectUtility.add_block_fix(v, self.context)
 
-    def _draw(self, effect: ExamEffect) -> None:
+
+class DrawEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.DrawEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # DrawEffectExecutor delegates to CardController.DrawCard(value,...).
         if effect.count not in (0, 1):
             raise UnsupportedPath("DrawEffectExecutor.ExecuteEffect", "counted draw")
-        self.context.card_controller.draw_card(effect.value, self.context, True)
+        self.context.CardController.draw_card(effect.value, self.context, True)
 
-    def _extra_turn(self, effect: ExamEffect) -> None:
+
+class ExtraTurnEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.ExtraTurnEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # ExtraTurnEffectExecutor increments both RemainTurn and
         # ExtraTurn by 1.  It has no data fields.
         if effect.value not in (0, 1) or effect.count not in (0, 1):
@@ -1711,25 +1768,68 @@ class ExamEffectResolver:
                 "ExtraTurnEffectExecutor.ExecuteEffect",
                 "ExtraTurn executor has no value/count field in type",
             )
-        p = self.context.parameter
+        p = self.context.ExamParameter
         before = (p.remain_turn, p.extra_turn)
         p.remain_turn += 1
         p.extra_turn += 1
         self.context.log_diff("ExtraTurn", before, (p.remain_turn, p.extra_turn))
 
-    def _parameter_buff(self, effect: ExamEffect) -> None:
+
+class ParameterBuffEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.ParameterBuffEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # ParameterBuffEffectExecutor snapshots turn, calls
         # TryAddParameterBuffStatus(_turn), then snapshots again.
         turn = effect.turn if effect.turn else effect.value
-        self.context.parameter.status_effects.add_parameter_buff(turn, self.context)
+        self.context.ExamParameter.status_effects.add_parameter_buff(turn, self.context)
 
-    def _review(self, effect: ExamEffect) -> None:
+
+class ReviewEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.ReviewEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # ReviewEffectExecutor -> TryAddReviewStatus(_value).
-        self.context.parameter.status_effects.add_review(effect.value, self.context)
+        self.context.ExamParameter.status_effects.add_review(effect.value, self.context)
 
-    def _lesson_buff(self, effect: ExamEffect) -> None:
+
+class LessonBuffEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.LessonBuffEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # LessonBuffEffectExecutor -> TryAddLessonBuffStatus(_value).
-        self.context.parameter.status_effects.add_lesson_buff(effect.value, self.context)
+        self.context.ExamParameter.status_effects.add_lesson_buff(effect.value, self.context)
+
+
+class ExamEffectResolver:
+    """Dispatch to the ELF-named concrete Executor, without changing ordering."""
+
+    EXECUTOR_TYPES = {
+        EffectKind.LESSON.value: LessonEffectExecutor,
+        EffectKind.LESSON_FIX.value: LessonFixEffectExecutor,
+        EffectKind.BLOCK.value: BlockEffectExecutor,
+        EffectKind.DRAW.value: DrawEffectExecutor,
+        EffectKind.EXTRA_TURN.value: ExtraTurnEffectExecutor,
+        EffectKind.PARAMETER_BUFF.value: ParameterBuffEffectExecutor,
+        EffectKind.REVIEW.value: ReviewEffectExecutor,
+        EffectKind.LESSON_BUFF.value: LessonBuffEffectExecutor,
+    }
+
+    def __init__(self, context: ExamEffectCalculateContext):
+        self.context = context
+
+    def execute(self, effect: ExamEffect) -> None:
+        self.context.PlayingEffect = effect
+        try:
+            executor_class = self.EXECUTOR_TYPES.get(effect.kind)
+            if executor_class is None:
+                raise UnsupportedPath(
+                    "ExamEffectUtility.CreateExecutor/AffectEffect",
+                    f"effect executor is unsupported: {effect.kind}",
+                )
+            executor_class(self.context).ExecuteEffect(effect)
+        finally:
+            self.context.PlayingEffect = None
 
 
 @dataclass
