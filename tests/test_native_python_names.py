@@ -82,10 +82,11 @@ class NativeNameTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 first = sequence()
                 second = first.deep_copy()
-                effect = ExamEffect(kind, value=2, count=1, turn=2)
+                effect = ExamEffect(kind, value=1 if kind == 'ExtraTurn' else 2, count=1, turn=2)
                 executor_type(ExamEffectCalculateContext.Create(first)).ExecuteEffect(effect)
                 ExamEffectResolver(ExamEffectCalculateContext.Create(second)).execute(effect)
-                self.assertEqual(first.identity(), second.identity())
+                self.assertEqual(first.parameter.identity(), second.parameter.identity())
+                self.assertEqual(first.card_controller.identity(), second.card_controller.identity())
 
 
 def ExamEffectUtilityBridge(ctx):
