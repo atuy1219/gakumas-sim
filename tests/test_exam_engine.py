@@ -37,6 +37,18 @@ def make_sequence(*, seed=0x12345678, statuses=None, hand=None, deck=None):
 
 
 class RandomTests(unittest.TestCase):
+    def test_native_zero_width_range_advances_rng(self):
+        rng = XorShift32(0x12345678)
+        self.assertEqual(rng.next_int(7, 7), 7)
+        self.assertEqual(rng.state, 0x87985AA5)
+        with self.assertRaises(ValueError):
+            rng.next_int(8, 7)
+
+    def test_native_get_random_int_returns_old_signed_key(self):
+        rng = XorShift32(0x12345678)
+        self.assertEqual(rng.get_random_int(), -1842063752)
+        self.assertEqual(rng.state, 0x87985AA5)
+
     def test_xorshift_vector(self):
         rng = XorShift32(0x12345678)
         self.assertEqual(rng.next_u32(), 0x87985AA5)

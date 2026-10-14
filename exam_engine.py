@@ -215,11 +215,22 @@ class XorShift32:
         self.state = x & UINT32_MASK
         return self.state
 
+    def get_random_int(self) -> int:
+        """Native ExamParameterModel.GetRandomInt() @ 0x808A340.
+
+        Return the pre-advance state with the sign bit flipped (signed Int32),
+        then advance XorShift32, as confirmed from this ELF.
+        """
+        word = (self.state ^ 0x80000000) & UINT32_MASK
+        result = word - 0x100000000 if word >= 0x80000000 else word
+        self.next_u32()
+        return result
+
     def next_int(self, minimum: int, maximum: int) -> int:
-        if maximum <= minimum:
-            raise ValueError("maximum must be greater than minimum")
+        if maximum < minimum:
+            raise ValueError("maximum must be greater than or equal to minimum")
         width = (maximum - minimum) & UINT32_MASK
-        # GetRandomInt maps the current state first, then advances it.
+        # Native GetRandomInt(min,max) @ 0x808A438 advances even when width=0.
         result = minimum + (((self.state & UINT32_MASK) * width) >> 32)
         self.next_u32()
         return int(result)

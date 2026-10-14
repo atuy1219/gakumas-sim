@@ -330,23 +330,20 @@ function consumeNativeRandomInt(state, minimum, maximum) {
     throw new Error("乱数範囲が不正です。");
   }
   const rng = new XorShift32(Number(state.randomState) >>> 0);
-  let value = min;
-  if (max > min) value = rng.nextInt(min, max);
-  else rng.nextU32(); // Native GetRandomInt still advances XorShift when width == 0.
+  const value = rng.nextInt(min, max);
   state.randomState = rng.state >>> 0;
   return value;
 }
 
 function consumeNativeRandomSortKey(state) {
-  // ExamParameterModel.GetRandomInt() @ 0x8043A80 returns the current
-  // XorShift word with the sign bit flipped, then advances the state.
-  // When that Int32 is sorted ascending, its order is exactly the unsigned
-  // order of the pre-advance XorShift word.
-  const key = Number(state.randomState) >>> 0;
-  const rng = new XorShift32(key);
-  rng.nextU32();
+  // ExamParameterModel.GetRandomInt() @ 0x808A340 returns the current
+  // state XOR 0x80000000 as signed Int32, *then* advances XorShift32.
+  // Sorting these signed keys is equivalent to sorting the unsigned
+  // pre-advance words, so preserve the existing stable comparator.
+  const rng = new XorShift32(Number(state.randomState) >>> 0);
+  const signedKey = rng.getRandomInt();
   state.randomState = rng.state >>> 0;
-  return key;
+  return (signedKey ^ 0x80000000) >>> 0;
 }
 
 function generatedRuntimeCard(state, cardIdInput, upgradeCountInput = 0) {
