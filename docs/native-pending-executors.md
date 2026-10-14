@@ -1,10 +1,10 @@
-# 未実装Executor 35種類のELF解析・実装トラッカー
+# 未実装Executor 31種類のELF解析・実装トラッカー
 
 対象：`gakumas_analysis(1).elf` Build ID `77fda4e2a21f23954e2349b83fc113ede408f70b`。
 
 ## 方針
 
-- 登録済み **161クラス** のうち計算・コマンド動作が接続されたものは **126種類**、未実装は **35種類**。
+- 登録済み **161クラス** のうち計算・コマンド動作が接続されたものは **130種類**、未実装は **31種類**。
 - ここでのRVAは**シンボル特定済み**の意味であり、挙動を復元できたという意味ではない。
 - 各クラスでELFのパラメータ順・呼出し先・戻り値・状態差分・発動予約・乱数消費を解読してから、既存JSの状態APIに実装する。
 - テストは独立のELF定数ベクトル・効果ごとの境界ケース・該当する実機キャプチャとの差分で行う。既存36試合に登場しない効果の一致を主張しない。
@@ -16,7 +16,6 @@
 | --- | --- | --- |
 | `AggressiveReduceCancellableEffectExecutor` | `0x8047228` | ステータス・寿命 |
 | `BlockAddDownRestrictionEffectExecutor` | `0x8047E84` | ステータス・寿命 |
-| `BuffConsumptionDownEffectExecutor` | `0x804A050` | ステータス・寿命 |
 | `CardShuffleDeckGraveEffectExecutor` | `0x804BD24` | カード移動／山札 |
 | `CardShuffleDeckLostEffectExecutor` | `0x804BD4C` | カード移動／山札 |
 | `ChainEffectExecutor` | `0x804BE8C` | 予約コマンド／継続効果 |
@@ -28,7 +27,6 @@
 | `FullPowerPointAdditiveFixEffectExecutor` | `0x8051DF0` | ステータス・寿命 |
 | `FullPowerPointReduceCancellableEffectExecutor` | `0x8052B00` | ステータス・寿命 |
 | `GetCardUpgradeEffectExecutor` | `0x805320C` | ステータス・寿命 |
-| `GimmickEnthusiasticEffectExecutor` | `0x80534C8` | ステータス・寿命 |
 | `GrowEffectLessonAddAdditiveEffectExecutor` | `0x8054660` | ステータス・寿命 |
 | `HandHoldEffectExecutor` | `0x8054E9C` | ステータス・寿命 |
 | `LessonBuffReduceCancellableEffectExecutor` | `0x80572D8` | ステータス・寿命 |
@@ -42,8 +40,6 @@
 | `ReviewAdditiveFixEffectExecutor` | `0x805F874` | ステータス・寿命 |
 | `ReviewReduceCancellableEffectExecutor` | `0x806162C` | ステータス・寿命 |
 | `SearchPlayCardBuffConsumptionChangeEffectExecutor` | `0x80624B4` | 検索／対象枚数 |
-| `StaminaConsumptionAddDownEffectExecutor` | `0x80629D4` | ステータス・寿命 |
-| `StaminaConsumptionDownAddEffectExecutor` | `0x8063188` | ステータス・寿命 |
 | `StaminaRecoverAddEffectExecutor` | `0x8063A08` | ステータス・寿命 |
 | `StaminaReduceChangeEffectExecutor` | `0x8064178` | ステータス・寿命 |
 | `StatusEnchantCountAddEffectExecutor` | `0x806559C` | 予約コマンド／継続効果 |
