@@ -998,6 +998,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     idolStatusStep: 0,
     concentrationLessonMultipleAdditive: 1,
     fullPowerLessonMultipleAdditive: 1,
+    growEffectLessonAddAdditiveMultiple: 1,
     fullPowerPoint: 0,
     fullPowerPointAdditivePermil: 0,
     fullPowerPointAdditiveFix: 0,
@@ -1311,7 +1312,7 @@ export function syncNativeGenericTimedStatuses(exam) {
   for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd", "blockAddDownRestriction", "handHold", "getCardUpgrade"]) {
     exam[field] = flags.has(field);
   }
-  for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive"]) exam[field] = multiples.get(field) ?? 1;
+  for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive", "growEffectLessonAddAdditiveMultiple"]) exam[field] = multiples.get(field) ?? 1;
   return exam;
 }
 
