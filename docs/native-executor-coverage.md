@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **106** |
+| Master Effectからクラス単位に移した分岐数 | **107** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **139** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **22** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **140** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **21** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装22クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装21クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -78,6 +78,10 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 ### 手札保持（ELF確認追加）
 
 `HandHoldEffectExecutor @0x8054E9C` は `TryAddHandHoldStatus(1)` を実行する。`ExamCardMoveController.ResetHand @0x827E4DC` は `IsHandHold(1)` がtrueなら即returnし、Hand→Grave/Lostへの移動を行わない。JSの `finishTowerTurn` に同じ分岐を設け、保持カードはHoldではなくHandへ残す。状態の期限は1ターン。テスト：`tests/test_elf_hand_hold.mjs`。
+
+### 新規カード取得時の強化（ELF確認追加）
+
+`GetCardUpgradeEffectExecutor @0x805320C` は `TryAddGetCardUpgradeStatus(Value1)` を呼び出す。実機の `ExamCardMoveController.AddCard @0x8276818 / @0x827A084` は `IsGetCardUpgrade(1)` を検査し、適用時に取得カードを強化する。JSでは生成後初回 `addRuntimeCardAt` でのみ既存 `applyTemporarySkillUpgradeInPlace` を適用し、既存カードの移動は強化しない。テスト：`tests/test_elf_get_card_upgrade.mjs`。
 
 ## 全クラス一覧
 
@@ -142,7 +146,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `FullPowerPointPerSearchCountEffectExecutor` | `ExamFullPowerPointPerSearchCount` | 未実装 |
 | `FullPowerPointReduceCancellableEffectExecutor` | 未実装 | 未実装 |
 | `FullPowerPointReduceEffectExecutor` | `ExamFullPowerPointReduce` | 未実装 |
-| `GetCardUpgradeEffectExecutor` | 未実装 | 未実装 |
+| `GetCardUpgradeEffectExecutor` | `ExamGetCardUpgrade` | 未実装 |
 | `GimmickEnthusiasticEffectExecutor` | `ExamGimmickEnthusiastic` | 未実装 |
 | `GimmickLessonDebuffEffectExecutor` | `ExamGimmickLessonDebuff` | 未実装 |
 | `GimmickParameterDebuffEffectExecutor` | `ExamGimmickParameterDebuff` | 未実装 |
