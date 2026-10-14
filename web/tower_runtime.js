@@ -4121,6 +4121,10 @@ class StaminaDamageEffectExecutor {
           // StaminaReduceFixEffectExecutor -> ReduceStaminaFix @0x80355fc:
           // direct subtraction @0x8035698 bypasses all card-cost multipliers.
           if (type === "ExamStaminaReduceFix") {
+            if(amount > 0 && consumeNativeUplifting(exam)) {
+              event.effects.push("高揚を消費して体力減少を無効化");
+              return;
+            }
             exam.stamina = Math.max(0, exam.stamina - amount);
             event.effects.push(`体力減少 ${amount}`);
             return;
@@ -4129,6 +4133,10 @@ class StaminaDamageEffectExecutor {
             penetrate: type !== "ExamStaminaDamage",
             applyFixed: true,
           });
+          if(resolved.damage>0 && consumeNativeUplifting(exam)) {
+            event.effects.push("高揚を消費して体力減少を無効化");
+            return;
+          }
           exam.block = Math.max(0, exam.block - resolved.blockDamage);
           exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
           exam.blockConsumptionSum += resolved.blockDamage;
@@ -4200,6 +4208,10 @@ class StaminaReduceEffectExecutor {
           // StaminaReduceFixEffectExecutor -> ReduceStaminaFix @0x80355fc:
           // direct subtraction @0x8035698 bypasses all card-cost multipliers.
           if (type === "ExamStaminaReduceFix") {
+            if(amount > 0 && consumeNativeUplifting(exam)) {
+              event.effects.push("高揚を消費して体力減少を無効化");
+              return;
+            }
             exam.stamina = Math.max(0, exam.stamina - amount);
             event.effects.push(`体力減少 ${amount}`);
             return;
@@ -4208,6 +4220,10 @@ class StaminaReduceEffectExecutor {
             penetrate: type !== "ExamStaminaDamage",
             applyFixed: true,
           });
+          if(resolved.damage>0 && consumeNativeUplifting(exam)) {
+            event.effects.push("高揚を消費して体力減少を無効化");
+            return;
+          }
           exam.block = Math.max(0, exam.block - resolved.blockDamage);
           exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
           exam.blockConsumptionSum += resolved.blockDamage;
@@ -4233,6 +4249,10 @@ class StaminaReduceFixEffectExecutor {
           // StaminaReduceFixEffectExecutor -> ReduceStaminaFix @0x80355fc:
           // direct subtraction @0x8035698 bypasses all card-cost multipliers.
           if (type === "ExamStaminaReduceFix") {
+            if(amount > 0 && consumeNativeUplifting(exam)) {
+              event.effects.push("高揚を消費して体力減少を無効化");
+              return;
+            }
             exam.stamina = Math.max(0, exam.stamina - amount);
             event.effects.push(`体力減少 ${amount}`);
             return;
@@ -4241,6 +4261,10 @@ class StaminaReduceFixEffectExecutor {
             penetrate: type !== "ExamStaminaDamage",
             applyFixed: true,
           });
+          if(resolved.damage>0 && consumeNativeUplifting(exam)) {
+            event.effects.push("高揚を消費して体力減少を無効化");
+            return;
+          }
           exam.block = Math.max(0, exam.block - resolved.blockDamage);
           exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
           exam.blockConsumptionSum += resolved.blockDamage;
