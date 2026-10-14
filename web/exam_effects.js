@@ -978,6 +978,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     parameterBuffMultiplePerTurn: 0,
     parameterDebuff: 0,
     enthusiastic: 0,
+    enthusiasticGetSumCount: 0,
     // Native ExamStatusEffectBase: value, finite turn count and passage flag
     // are separate. EnthusiasticStatusEffect is usually 1 turn, not permanent.
     scalarTimedStatuses: [],
@@ -1232,6 +1233,7 @@ export function addNativeScalarTimedStatus(exam, fieldInput, valueInput, turnInp
       isTurnLimited: turn >= 0, isPassingTurnStart: true,
       uid: nextNativeStatusUid(exam)});
   }
+  exam.enthusiasticGetSumCount = Math.trunc(Number(exam.enthusiasticGetSumCount ?? 0)) + Math.trunc(value);
   syncNativeScalarTimedStatuses(exam);
   return true;
 }
