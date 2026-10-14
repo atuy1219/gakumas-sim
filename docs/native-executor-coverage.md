@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **105** |
+| Master Effectからクラス単位に移した分岐数 | **106** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **138** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **23** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **139** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **22** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装23クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装22クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -74,6 +74,10 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 - `StaminaRecoverAddEffectExecutor @ 0x8063a08` は `TryAddStaminaRecoverAddStatus(Value1,-1)` を実行する。無期限加算状態として保持し、固定回復・最大体力割合回復・スキップ回復で適用する。
 - 専用回帰テスト：`tests/test_elf_native_status_protections.mjs`。
 - これらの効果を使う独立実機トレースの一致は未検証。残りの未対応23種類は推測実装しない。
+
+### 手札保持（ELF確認追加）
+
+`HandHoldEffectExecutor @0x8054E9C` は `TryAddHandHoldStatus(1)` を実行する。`ExamCardMoveController.ResetHand @0x827E4DC` は `IsHandHold(1)` がtrueなら即returnし、Hand→Grave/Lostへの移動を行わない。JSの `finishTowerTurn` に同じ分岐を設け、保持カードはHoldではなくHandへ残す。状態の期限は1ターン。テスト：`tests/test_elf_hand_hold.mjs`。
 
 ## 全クラス一覧
 
@@ -148,7 +152,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `GimmickStartTurnCardDrawDownEffectExecutor` | `ExamGimmickStartTurnCardDrawDown` | 未実装 |
 | `GrowEffectLessonAddAdditiveEffectExecutor` | 未実装 | 未実装 |
 | `HandGraveCountCardDrawEffectExecutor` | 未実装 | `hand_grave_count_card_draw` |
-| `HandHoldEffectExecutor` | 未実装 | 未実装 |
+| `HandHoldEffectExecutor` | `ExamHandHold` | 未実装 |
 | `ItemFireLimitAddEffectExecutor` | `ExamItemFireLimitAdd` | 未実装 |
 | `LessonAddBlockEffectExecutor` | `ExamLessonAddBlock` | 未実装 |
 | `LessonAddMultipleParameterBuffEffectExecutor` | 未実装 | `lesson_add_multiple_parameter_buff` |
