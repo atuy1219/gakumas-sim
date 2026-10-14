@@ -2742,11 +2742,31 @@ class AggressivePerSearchCountEffectExecutor {
   }
 }
 
+// Native TryReduce* first queries IsBlockAddStatus(EffectType, context).
+// AntiDebuff is spent before attempting reduction: unlike unconditional
+// ReduceEffectExecutor, a blocked cancellable reduction changes no value.
+// (Aggressive @0x806E9D8, LessonBuff @0x806AFCC,
+//  ParameterBuff @0x80699F8, Review @0x806FF68).
+function reduceNativeCancellable(exam, field, value, event, label, extra = null) {
+  const amount = Math.max(0, Math.trunc(Number(value) || 0));
+  if (Number(exam.antiDebuffCount ?? 0) > 0) {
+    exam.antiDebuffCount = Math.max(0, exam.antiDebuffCount - 1);
+    event.effects.push(`${label}減少を無効化`);
+    return 0;
+  }
+  const before = Math.max(0, Math.trunc(Number(exam[field]) || 0));
+  const reduced = Math.min(before, amount);
+  exam[field] = before - reduced;
+  if (extra === "reviewConsumptionSum") {
+    exam.reviewConsumptionSum = Number(exam.reviewConsumptionSum ?? 0) + reduced;
+  }
+  event.effects.push(`${label} -${reduced}`);
+  return reduced;
+}
+
 class AggressiveReduceCancellableEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ exam, v1, event }) {
+    reduceNativeCancellable(exam, "aggressive", v1, event, "やる気", null);
   }
 }
 
@@ -3540,10 +3560,8 @@ class LessonBuffPerSearchCountEffectExecutor {
 }
 
 class LessonBuffReduceCancellableEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ exam, v1, event }) {
+    reduceNativeCancellable(exam, "lessonBuff", v1, event, "集中", null);
   }
 }
 
@@ -3871,10 +3889,8 @@ class ParameterBuffPerSearchCountEffectExecutor {
 }
 
 class ParameterBuffReduceCancellableEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ exam, v1, event }) {
+    reduceNativeCancellable(exam, "parameterBuff", v1, event, "好調", null);
   }
 }
 
@@ -3979,10 +3995,8 @@ class ReviewPerSearchCountEffectExecutor {
 }
 
 class ReviewReduceCancellableEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ exam, v1, event }) {
+    reduceNativeCancellable(exam, "review", v1, event, "好印象", "reviewConsumptionSum");
   }
 }
 
@@ -4627,12 +4641,16 @@ export const NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES = Object.freeze({
   "ExamStaminaRecoverAdd": StaminaRecoverAddEffectExecutor,
   "ExamHandHold": HandHoldEffectExecutor,
   "ExamGetCardUpgrade": GetCardUpgradeEffectExecutor,
+  "ExamAggressiveReduceCancellable": AggressiveReduceCancellableEffectExecutor,
+  "ExamLessonBuffReduceCancellable": LessonBuffReduceCancellableEffectExecutor,
+  "ExamParameterBuffReduceCancellable": ParameterBuffReduceCancellableEffectExecutor,
+  "ExamReviewReduceCancellable": ReviewReduceCancellableEffectExecutor,
 });
 
 export const NATIVE_MASTER_EXECUTOR_COVERAGE = Object.freeze({
   registered: 161,
-  implementedMasterTypes: Object.freeze(["ExamGetCardUpgrade","ExamHandHold","ExamBlockAddDownRestriction","ExamStaminaRecoverAdd","ExamStaminaReduceChange","ExamLessonDependEnthusiasticGetSum","ExamParameterBuffPerSearchCount","ExamFullPowerPointAdditiveFix","ExamParameterBuffAdditiveFix","ExamReviewAdditiveFix","ExamGimmickEnthusiastic","ExamStaminaConsumptionDownAdd","ExamStaminaConsumptionAddDown","ExamBuffConsumptionDown","ExamStanceLockPreservation","ExamStanceLockFullPower","ExamStanceLockConcentration","ExamAggressiveDependReview","ExamAggressivePerSearchCount","ExamBlockPerSearchCount","ExamFullPowerPointDependFullPowerPointGetSum","ExamFullPowerPointPerSearchCount","ExamLessonDependAggressiveAndSearchCount","ExamLessonDependReviewAndSearchCount","ExamLessonAddBlock","ExamStatusEnchant","ExamStatusEnchantEncore","ExamEffectTimer","ExamLessonFix","ExamLessonValueMultipleDown","ExamLessonDependBlock","ExamLessonDependParameterBuff","ExamLessonDependStamina","ExamLessonDependBlockConsumptionSum","ExamLessonDependStaminaConsumptionSum","ExamLessonDependPlayCardCountSum","ExamLessonFullPowerPoint","ExamLessonPerSearchCount","ExamLessonDependBlockAndSearchCount","ExamLessonAddMultipleLessonBuff","ExamMultipleEnthusiasticLesson","ExamMultipleFullPowerLesson","ExamMultipleConcentrationLesson","ExamBlockFix","ExamBlockAddMultipleAggressive","ExamBlockPerUseCardCount","ExamBlockDependExamReview","ExamBlockDependBlockConsumptionSum","ExamReviewDependExamBlock","ExamReviewDependExamCardPlayAggressive","ExamReviewDependReviewConsumptionSum","ExamReviewPerSearchCount","ExamLessonBuffDependParameterBuff","ExamLessonBuffPerSearchCount","ExamParameterBuffDependLessonBuff","ExamStaminaRecoverMultiple","ExamStaminaDamage","ExamStaminaReduceFix","ExamStaminaReduce","ExamAggressiveReduce","ExamReviewReduce","ExamLessonBuffReduce","ExamFullPowerPointReduce","ExamParameterBuffMultiplePerTurnReduce","ExamBlockDown","ExamAggressiveValueMultiple","ExamReviewValueMultiple","ExamBlockValueMultiple","ExamAggressiveAdditive","ExamAggressiveAdditiveFix","ExamReviewAdditive","ExamLessonBuffAdditive","ExamLessonBuffAdditiveFix","ExamParameterBuffAdditive","ExamEnthusiasticAdditive","ExamEnthusiasticMultiple","ExamEnthusiasticTurnAdditive","ExamFullPowerPointAdditive","ExamConcentrationLessonMultipleAdditive","ExamFullPowerLessonMultipleAdditive","ExamBlockRestriction","ExamBlockAddDown","ExamStaminaRecoverRestriction","ExamPanic","ExamAntiDebuff","ExamDebuffRecover","ExamGimmickLessonDebuff","ExamGimmickParameterDebuff","ExamGimmickSlump","ExamGimmickSleepy","ExamGimmickPlayCardLimit","ExamGimmickStartTurnCardDrawDown","ExamBuffConsumptionAdd","ExamItemFireLimitAdd","ExamFullPowerPoint","ExamFullPower","ExamOverPreservation","ExamStanceReset","StanceLock","ExamCardMove","ExamCardUpgrade","ExamCardDuplicate","ExamCardCreateSearch","ExamSearchPlayCardStaminaConsumptionChange","ExamForcePlayCardSearch","ExamForcePlayCardSearchWithCost","ExamEffectPerSearchCount"]),
-  unsupportedClassNames: Object.freeze(["AddGrowEffectExecutor","AggressiveEffectExecutor","AggressiveReduceCancellableEffectExecutor","BlockEffectExecutor","CardCreateIdEffectExecutor","CardShuffleDeckGraveEffectExecutor","CardShuffleDeckLostEffectExecutor","ChainEffectExecutor","ChainEffectPerPassedTurnEffectExecutor","ChainEffectPerRemainTurnEffectExecutor","ClearDebuffEffectExecutor","ConcentrationEffectExecutor","DrawEffectExecutor","EffectTimerEndTurnEffectExecutor","ExamPlayCardLimitPlayableValueAddEffectExecutor","ExtraTurnEffectExecutor","FullPowerPointReduceCancellableEffectExecutor","GrowEffectLessonAddAdditiveEffectExecutor","HandGraveCountCardDrawEffectExecutor","LessonAddMultipleParameterBuffEffectExecutor","LessonBuffEffectExecutor","LessonBuffMultipleEffectExecutor","LessonBuffReduceCancellableEffectExecutor","LessonChangeSpecifyLessThanEffectExecutor","LessonChangeSpecifyMoreThanEffectExecutor","LessonDependExamAggressiveEffectExecutor","LessonDependExamReviewEffectExecutor","LessonDependReviewOrAggressiveEffectExecutor","LessonEffectExecutor","LessonValueMultipleEffectExecutor","MoveGrowEffectEffectExecutor","MultipleLessonBuffLessonEffectExecutor","ParameterBuffEffectExecutor","ParameterBuffMultiplePerTurnEffectExecutor","ParameterBuffReduceCancellableEffectExecutor","ParameterBuffReduceEffectExecutor","ParameterBuffTurnEndReduceLockEffectExecutor","PlayableValueAddEffectExecutor","PreservationEffectExecutor","ReviewCountAddEffectExecutor","ReviewEffectExecutor","ReviewMultipleEffectExecutor","ReviewReduceCancellableEffectExecutor","ReviewTurnEndReduceLockEffectExecutor","SearchEffectPlayCountBuffEffectExecutor","SearchPlayCardBuffConsumptionChangeEffectExecutor","StaminaConsumptionAddEffectExecutor","StaminaConsumptionAddFixEffectExecutor","StaminaConsumptionDownEffectExecutor","StaminaConsumptionDownFixEffectExecutor","StaminaRecoverFixEffectExecutor","StatusEnchantCountAddEffectExecutor","StatusEnchantTurnAddEffectExecutor","UpliftingEffectExecutor"]),
+  implementedMasterTypes: Object.freeze(["ExamReviewReduceCancellable","ExamParameterBuffReduceCancellable","ExamLessonBuffReduceCancellable","ExamAggressiveReduceCancellable","ExamGetCardUpgrade","ExamHandHold","ExamBlockAddDownRestriction","ExamStaminaRecoverAdd","ExamStaminaReduceChange","ExamLessonDependEnthusiasticGetSum","ExamParameterBuffPerSearchCount","ExamFullPowerPointAdditiveFix","ExamParameterBuffAdditiveFix","ExamReviewAdditiveFix","ExamGimmickEnthusiastic","ExamStaminaConsumptionDownAdd","ExamStaminaConsumptionAddDown","ExamBuffConsumptionDown","ExamStanceLockPreservation","ExamStanceLockFullPower","ExamStanceLockConcentration","ExamAggressiveDependReview","ExamAggressivePerSearchCount","ExamBlockPerSearchCount","ExamFullPowerPointDependFullPowerPointGetSum","ExamFullPowerPointPerSearchCount","ExamLessonDependAggressiveAndSearchCount","ExamLessonDependReviewAndSearchCount","ExamLessonAddBlock","ExamStatusEnchant","ExamStatusEnchantEncore","ExamEffectTimer","ExamLessonFix","ExamLessonValueMultipleDown","ExamLessonDependBlock","ExamLessonDependParameterBuff","ExamLessonDependStamina","ExamLessonDependBlockConsumptionSum","ExamLessonDependStaminaConsumptionSum","ExamLessonDependPlayCardCountSum","ExamLessonFullPowerPoint","ExamLessonPerSearchCount","ExamLessonDependBlockAndSearchCount","ExamLessonAddMultipleLessonBuff","ExamMultipleEnthusiasticLesson","ExamMultipleFullPowerLesson","ExamMultipleConcentrationLesson","ExamBlockFix","ExamBlockAddMultipleAggressive","ExamBlockPerUseCardCount","ExamBlockDependExamReview","ExamBlockDependBlockConsumptionSum","ExamReviewDependExamBlock","ExamReviewDependExamCardPlayAggressive","ExamReviewDependReviewConsumptionSum","ExamReviewPerSearchCount","ExamLessonBuffDependParameterBuff","ExamLessonBuffPerSearchCount","ExamParameterBuffDependLessonBuff","ExamStaminaRecoverMultiple","ExamStaminaDamage","ExamStaminaReduceFix","ExamStaminaReduce","ExamAggressiveReduce","ExamReviewReduce","ExamLessonBuffReduce","ExamFullPowerPointReduce","ExamParameterBuffMultiplePerTurnReduce","ExamBlockDown","ExamAggressiveValueMultiple","ExamReviewValueMultiple","ExamBlockValueMultiple","ExamAggressiveAdditive","ExamAggressiveAdditiveFix","ExamReviewAdditive","ExamLessonBuffAdditive","ExamLessonBuffAdditiveFix","ExamParameterBuffAdditive","ExamEnthusiasticAdditive","ExamEnthusiasticMultiple","ExamEnthusiasticTurnAdditive","ExamFullPowerPointAdditive","ExamConcentrationLessonMultipleAdditive","ExamFullPowerLessonMultipleAdditive","ExamBlockRestriction","ExamBlockAddDown","ExamStaminaRecoverRestriction","ExamPanic","ExamAntiDebuff","ExamDebuffRecover","ExamGimmickLessonDebuff","ExamGimmickParameterDebuff","ExamGimmickSlump","ExamGimmickSleepy","ExamGimmickPlayCardLimit","ExamGimmickStartTurnCardDrawDown","ExamBuffConsumptionAdd","ExamItemFireLimitAdd","ExamFullPowerPoint","ExamFullPower","ExamOverPreservation","ExamStanceReset","StanceLock","ExamCardMove","ExamCardUpgrade","ExamCardDuplicate","ExamCardCreateSearch","ExamSearchPlayCardStaminaConsumptionChange","ExamForcePlayCardSearch","ExamForcePlayCardSearchWithCost","ExamEffectPerSearchCount"]),
+  unsupportedClassNames: Object.freeze(["AddGrowEffectExecutor","AggressiveEffectExecutor","BlockEffectExecutor","CardCreateIdEffectExecutor","CardShuffleDeckGraveEffectExecutor","CardShuffleDeckLostEffectExecutor","ChainEffectExecutor","ChainEffectPerPassedTurnEffectExecutor","ChainEffectPerRemainTurnEffectExecutor","ClearDebuffEffectExecutor","ConcentrationEffectExecutor","DrawEffectExecutor","EffectTimerEndTurnEffectExecutor","ExamPlayCardLimitPlayableValueAddEffectExecutor","ExtraTurnEffectExecutor","FullPowerPointReduceCancellableEffectExecutor","GrowEffectLessonAddAdditiveEffectExecutor","HandGraveCountCardDrawEffectExecutor","LessonAddMultipleParameterBuffEffectExecutor","LessonBuffEffectExecutor","LessonBuffMultipleEffectExecutor","LessonChangeSpecifyLessThanEffectExecutor","LessonChangeSpecifyMoreThanEffectExecutor","LessonDependExamAggressiveEffectExecutor","LessonDependExamReviewEffectExecutor","LessonDependReviewOrAggressiveEffectExecutor","LessonEffectExecutor","LessonValueMultipleEffectExecutor","MoveGrowEffectEffectExecutor","MultipleLessonBuffLessonEffectExecutor","ParameterBuffEffectExecutor","ParameterBuffMultiplePerTurnEffectExecutor","ParameterBuffReduceEffectExecutor","ParameterBuffTurnEndReduceLockEffectExecutor","PlayableValueAddEffectExecutor","PreservationEffectExecutor","ReviewCountAddEffectExecutor","ReviewEffectExecutor","ReviewMultipleEffectExecutor","ReviewTurnEndReduceLockEffectExecutor","SearchEffectPlayCountBuffEffectExecutor","SearchPlayCardBuffConsumptionChangeEffectExecutor","StaminaConsumptionAddEffectExecutor","StaminaConsumptionAddFixEffectExecutor","StaminaConsumptionDownEffectExecutor","StaminaConsumptionDownFixEffectExecutor","StaminaRecoverFixEffectExecutor","StatusEnchantCountAddEffectExecutor","StatusEnchantTurnAddEffectExecutor","UpliftingEffectExecutor"]),
 });
 
 function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
