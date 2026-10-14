@@ -2017,7 +2017,7 @@ function drawCardsIntoHand(state, count, runtimeEvent = nativeRuntimeEvent(), no
   const context = getExamEffectCalculateContext(state);
   const recycleEvents = [];
   const drawn = [];
-  const capacity = normalizeHandLimit(context.HandListLimit);
+  const capacity = normalizeHandLimit(state.handLimit);
   for (let i = 0; i < count; i += 1) {
     if (context.HandList.length >= capacity) break;
     if (!context.DeckList.length) {
@@ -3506,8 +3506,8 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   state.effectOwnerCard = null;
   state.playingCard = card;
   try {
-    examParameter.BlockConsumptionSum += Math.max(0, beforeCost.block - Number(examParameter.Block ?? 0));
-    examParameter.StaminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(examParameter.Stamina ?? 0));
+    state.exam.blockConsumptionSum += Math.max(0, beforeCost.block - Number(examParameter.Block ?? 0));
+    state.exam.staminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(examParameter.Stamina ?? 0));
     state.exam.reviewConsumptionSum += Math.max(0, beforeCost.review - Number(state.exam.review ?? 0));
     emitNativeStatusDiff(
       state,
