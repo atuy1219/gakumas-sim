@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **100** |
+| Master Effectからクラス単位に移した分岐数 | **101** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **133** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **28** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **134** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **27** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装28クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装27クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -58,6 +58,9 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ### 固定加算ステータスの追加（2026-10-14）
 ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x805d7b8 / FullPowerPointAdditiveFix @ 0x8051df0）は、各 `TryAdd*Status(Value1,Value2)` 呼出しを確認。従来未接続だった固定値を状態の期限付きリストと加算計算に接続。テスト：`tests/test_elf_fixed_additive_executors.mjs`。今回の未収録効果について実機完全一致は未検証。
+
+### 検索枚数依存好調（ELF確認追加）
+`ParameterBuffPerSearchCountEffectExecutor @ 0x805e688` は、Value2のpermil変換後に検索候補数を掛けて上方丸めし、Value1を加え、`TryAddParameterBuffStatus` に渡す。ゼロ枚の場合もValue1を保持する。テスト：`tests/test_elf_parameter_buff_per_search.mjs`。
 
 ## 全クラス一覧
 
@@ -177,7 +180,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `ParameterBuffEffectExecutor` | 未実装 | `parameter_buff` |
 | `ParameterBuffMultiplePerTurnEffectExecutor` | 未実装 | `parameter_buff_multiple_per_turn` |
 | `ParameterBuffMultiplePerTurnReduceEffectExecutor` | `ExamParameterBuffMultiplePerTurnReduce` | 未実装 |
-| `ParameterBuffPerSearchCountEffectExecutor` | 未実装 | 未実装 |
+| `ParameterBuffPerSearchCountEffectExecutor` | `ExamParameterBuffPerSearchCount` | 未実装 |
 | `ParameterBuffReduceCancellableEffectExecutor` | 未実装 | 未実装 |
 | `ParameterBuffReduceEffectExecutor` | 未実装 | `parameter_buff_reduce` |
 | `ParameterBuffTurnEndReduceLockEffectExecutor` | 未実装 | `parameter_buff_turn_end_reduce_lock` |
