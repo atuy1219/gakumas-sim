@@ -1280,6 +1280,17 @@ export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnIn
   return true;
 }
 
+// ELF DamageStamina and StaminaReduceFix consume one Uplifting stack
+// before applying damage, if a stack is available.
+export function consumeNativeUplifting(exam) {
+  const row=(exam?.genericTimedStatuses??[]).find(x => x.field==="uplifting" && x.mode==="add" && x.value>0);
+  if (!row) return false;
+  row.value=Math.max(0,Number(row.value)-1);
+  if (row.value===0) exam.genericTimedStatuses=exam.genericTimedStatuses.filter(x=>x!==row);
+  syncNativeGenericTimedStatuses(exam);
+  return true;
+}
+
 export function syncNativeGenericTimedStatuses(exam) {
   const additive = new Map();
   const flags = new Set();
