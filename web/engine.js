@@ -317,10 +317,20 @@ export class XorShift32 {
     return this.state;
   }
 
+  // ExamParameterModel.GetRandomInt() @ 0x808A340 returns the *current*
+  // state XOR 0x80000000 as signed Int32, then advances XorShift32.
+  getRandomInt() {
+    const result = ((this.state >>> 0) ^ 0x80000000) | 0;
+    this.nextU32();
+    return result;
+  }
+
   nextInt(minimum, maximum) {
     minimum = Number(minimum);
     maximum = Number(maximum);
-    if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || maximum <= minimum) {
+    // ExamParameterModel.GetRandomInt(min,max) @ 0x808A438 always advances
+    // XorShift, even if minimum === maximum (native zero-width range).
+    if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || maximum < minimum) {
       throw new Error("乱数範囲が不正です。");
     }
     const width = maximum - minimum;
