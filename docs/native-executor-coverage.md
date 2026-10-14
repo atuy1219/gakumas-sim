@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **82** |
+| Master Effectからクラス単位に移した分岐数 | **97** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **115** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **46** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **130** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **31** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装46クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装31クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -36,6 +36,26 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - テスト：`tests/test_elf_lesson_multiplier_executors.mjs`、`tests/test_all_native_executors.mjs`。
 - 注意：この2効果を含む新しい実機キャプチャの比較は未実施。分岐表への追加とELFの機械語呼出し順の整合を確認した段階。
 
+## ELFによる計算系の追加実装（2026-10-14）
+
+- ELF Build ID `77fda4e2a21f23954e2349b83fc113ede408f70b`。
+- `AggressiveDependReview`, `AggressivePerSearchCount`, `BlockPerSearchCount`: 状態参照、検索枚数、`FloatFromPermil`、float32の切り上げ順を追跡。
+- `FullPowerPointDependFullPowerPointGetSum`, `FullPowerPointPerSearchCount`: 全力値増加と累積カウンタ更新の順序を追跡。
+- `LessonDependAggressiveAndSearchCount`, `LessonDependReviewAndSearchCount`: 先にfloat32で1ヒットの基礎値を計算し、`Count` 回 `CalculateAddingParameter → AddParameter`。
+- `LessonAddBlock`: パラメータ付与の後、計算値が1以上なら `CalculateAddBlock → AddBlockFix`。
+- 上記8種類はELFの直接呼出しとテストベクトルに基づく。未実装は38種類。未収集の実機カードでの完全一致は未検証。
+
+### 指針ロック（ELF確認追加）
+
+- 強気・全力・温存への移行禁止状態は、ELFの `TryAddStanceLock*Effect` が既存のターン数に `Value1` を加算する処理であることを確認。JavaScriptの状態モデルと既存ターン消費へ接続。
+- テスト：`tests/test_elf_stance_locks.mjs`。
+
+### 有効期限付き状態（ELF確認追加）
+
+- `BuffConsumptionDown`, `StaminaConsumptionAddDown`, `StaminaConsumptionDownAdd`: いずれもELFで `TryAdd*Status(Value1=持続ターン)` を確認。既存の `genericTimedStatuses` に同種の期限を加算し、ターン境界で失効させる。
+- `GimmickEnthusiastic`: `TryAddEnthusiasticStatus(Value1, Value2)` を確認し、既存の `scalarTimedStatuses` に接続。
+- 単体テスト：`tests/test_elf_timed_status_executors.mjs`。
+
 ## 全クラス一覧
 
 | 実機クラス名 | Master Effect側 | Parsed Effect側 |
@@ -43,9 +63,9 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `AddGrowEffectExecutor` | 未実装 | `add_grow_effect` |
 | `AggressiveAdditiveEffectExecutor` | `ExamAggressiveAdditive` | 未実装 |
 | `AggressiveAdditiveFixEffectExecutor` | `ExamAggressiveAdditiveFix` | 未実装 |
-| `AggressiveDependReviewEffectExecutor` | 未実装 | 未実装 |
+| `AggressiveDependReviewEffectExecutor` | `ExamAggressiveDependReview` | 未実装 |
 | `AggressiveEffectExecutor` | 未実装 | `aggressive` |
-| `AggressivePerSearchCountEffectExecutor` | 未実装 | 未実装 |
+| `AggressivePerSearchCountEffectExecutor` | `ExamAggressivePerSearchCount` | 未実装 |
 | `AggressiveReduceCancellableEffectExecutor` | 未実装 | 未実装 |
 | `AggressiveReduceEffectExecutor` | `ExamAggressiveReduce` | 未実装 |
 | `AggressiveValueMultipleEffectExecutor` | `ExamAggressiveValueMultiple` | 未実装 |
@@ -58,12 +78,12 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `BlockDownEffectExecutor` | `ExamBlockDown` | 未実装 |
 | `BlockEffectExecutor` | 未実装 | `block` |
 | `BlockFixEffectExecutor` | `ExamBlockFix` | 未実装 |
-| `BlockPerSearchCountEffectExecutor` | 未実装 | 未実装 |
+| `BlockPerSearchCountEffectExecutor` | `ExamBlockPerSearchCount` | 未実装 |
 | `BlockPerUserCardCountEffectExecutor` | `ExamBlockPerUseCardCount` | 未実装 |
 | `BlockRestrictionEffectExecutor` | `ExamBlockRestriction` | 未実装 |
 | `BlockValueMultiplicationEffectExecutor` | `ExamBlockValueMultiple` | 未実装 |
 | `BuffConsumptionAddEffectExecutor` | `ExamBuffConsumptionAdd` | 未実装 |
-| `BuffConsumptionDownEffectExecutor` | 未実装 | 未実装 |
+| `BuffConsumptionDownEffectExecutor` | `ExamBuffConsumptionDown` | 未実装 |
 | `CardCreateIdEffectExecutor` | 未実装 | `card_create_id` |
 | `CardCreateSearchEffectExecutor` | `ExamCardCreateSearch` | 未実装 |
 | `CardDuplicateEffectExecutor` | `ExamCardDuplicate` | 未実装 |
@@ -94,13 +114,13 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `FullPowerLessonMultipleAdditiveEffectExecutor` | `ExamFullPowerLessonMultipleAdditive` | 未実装 |
 | `FullPowerPointAdditiveEffectExecutor` | `ExamFullPowerPointAdditive` | 未実装 |
 | `FullPowerPointAdditiveFixEffectExecutor` | 未実装 | 未実装 |
-| `FullPowerPointDependFullPowerPointGetSumEffectExecutor` | 未実装 | 未実装 |
+| `FullPowerPointDependFullPowerPointGetSumEffectExecutor` | `ExamFullPowerPointDependFullPowerPointGetSum` | 未実装 |
 | `FullPowerPointEffectExecutor` | `ExamFullPowerPoint` | 未実装 |
-| `FullPowerPointPerSearchCountEffectExecutor` | 未実装 | 未実装 |
+| `FullPowerPointPerSearchCountEffectExecutor` | `ExamFullPowerPointPerSearchCount` | 未実装 |
 | `FullPowerPointReduceCancellableEffectExecutor` | 未実装 | 未実装 |
 | `FullPowerPointReduceEffectExecutor` | `ExamFullPowerPointReduce` | 未実装 |
 | `GetCardUpgradeEffectExecutor` | 未実装 | 未実装 |
-| `GimmickEnthusiasticEffectExecutor` | 未実装 | 未実装 |
+| `GimmickEnthusiasticEffectExecutor` | `ExamGimmickEnthusiastic` | 未実装 |
 | `GimmickLessonDebuffEffectExecutor` | `ExamGimmickLessonDebuff` | 未実装 |
 | `GimmickParameterDebuffEffectExecutor` | `ExamGimmickParameterDebuff` | 未実装 |
 | `GimmickPlayCardLimitEffectExecutor` | `ExamGimmickPlayCardLimit` | 未実装 |
@@ -111,7 +131,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `HandGraveCountCardDrawEffectExecutor` | 未実装 | `hand_grave_count_card_draw` |
 | `HandHoldEffectExecutor` | 未実装 | 未実装 |
 | `ItemFireLimitAddEffectExecutor` | `ExamItemFireLimitAdd` | 未実装 |
-| `LessonAddBlockEffectExecutor` | 未実装 | 未実装 |
+| `LessonAddBlockEffectExecutor` | `ExamLessonAddBlock` | 未実装 |
 | `LessonAddMultipleParameterBuffEffectExecutor` | 未実装 | `lesson_add_multiple_parameter_buff` |
 | `LessonBuffAdditiveEffectExecutor` | `ExamLessonBuffAdditive` | 未実装 |
 | `LessonBuffAdditiveFixEffectExecutor` | `ExamLessonBuffAdditiveFix` | 未実装 |
@@ -123,7 +143,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `LessonBuffReduceEffectExecutor` | `ExamLessonBuffReduce` | 未実装 |
 | `LessonChangeSpecifyLessThanEffectExecutor` | 未実装 | 未実装 |
 | `LessonChangeSpecifyMoreThanEffectExecutor` | 未実装 | 未実装 |
-| `LessonDependAggressiveAndSearchCountEffectExecutor` | 未実装 | 未実装 |
+| `LessonDependAggressiveAndSearchCountEffectExecutor` | `ExamLessonDependAggressiveAndSearchCount` | 未実装 |
 | `LessonDependBlockAndSearchCountEffectExecutor` | `ExamLessonDependBlockAndSearchCount` | 未実装 |
 | `LessonDependBlockConsumptionSumEffectExecutor` | `ExamLessonDependBlockConsumptionSum` | 未実装 |
 | `LessonDependBlockEffectExecutor` | `ExamLessonDependBlock` | 未実装 |
@@ -132,7 +152,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `LessonDependExamReviewEffectExecutor` | 未実装 | `lesson_depend_exam_review` |
 | `LessonDependParameterBuffEffectExecutor` | `ExamLessonDependParameterBuff` | `lesson_depend_parameter_buff` |
 | `LessonDependPlayCardCountSumEffectExecutor` | `ExamLessonDependPlayCardCountSum` | 未実装 |
-| `LessonDependReviewAndSearchCountEffectExecutor` | 未実装 | 未実装 |
+| `LessonDependReviewAndSearchCountEffectExecutor` | `ExamLessonDependReviewAndSearchCount` | 未実装 |
 | `LessonDependReviewOrAggressiveEffectExecutor` | 未実装 | `lesson_value_multiple_depend_review_or_aggressive` |
 | `LessonDependStaminaConsumptionSumEffectExecutor` | `ExamLessonDependStaminaConsumptionSum` | 未実装 |
 | `LessonDependStaminaEffectExecutor` | `ExamLessonDependStamina` | 未実装 |
@@ -176,10 +196,10 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `SearchEffectPlayCountBuffEffectExecutor` | 未実装 | `card_search_effect_play_count_buff` |
 | `SearchPlayCardBuffConsumptionChangeEffectExecutor` | 未実装 | 未実装 |
 | `SearchPlayCardStaminaConsumptionChangeEffectExecutor` | `ExamSearchPlayCardStaminaConsumptionChange` | 未実装 |
-| `StaminaConsumptionAddDownEffectExecutor` | 未実装 | 未実装 |
+| `StaminaConsumptionAddDownEffectExecutor` | `ExamStaminaConsumptionAddDown` | 未実装 |
 | `StaminaConsumptionAddEffectExecutor` | 未実装 | `stamina_consumption_add` |
 | `StaminaConsumptionAddFixEffectExecutor` | 未実装 | `stamina_consumption_add_fix` |
-| `StaminaConsumptionDownAddEffectExecutor` | 未実装 | 未実装 |
+| `StaminaConsumptionDownAddEffectExecutor` | `ExamStaminaConsumptionDownAdd` | 未実装 |
 | `StaminaConsumptionDownEffectExecutor` | 未実装 | `stamina_consumption_down` |
 | `StaminaConsumptionDownFixEffectExecutor` | 未実装 | `stamina_consumption_down_fix` |
 | `StaminaDamageEffectExecutor` | `ExamStaminaDamage` | 未実装 |
@@ -190,10 +210,10 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `StaminaReduceChangeEffectExecutor` | 未実装 | 未実装 |
 | `StaminaReduceEffectExecutor` | `ExamStaminaReduce` | 未実装 |
 | `StaminaReduceFixEffectExecutor` | `ExamStaminaReduceFix` | 未実装 |
-| `StanceLockConcentrationEffectExecutor` | 未実装 | 未実装 |
+| `StanceLockConcentrationEffectExecutor` | `ExamStanceLockConcentration` | 未実装 |
 | `StanceLockEffectExecutor` | `StanceLock` | 未実装 |
-| `StanceLockFullPowerEffectExecutor` | 未実装 | 未実装 |
-| `StanceLockPreservationEffectExecutor` | 未実装 | 未実装 |
+| `StanceLockFullPowerEffectExecutor` | `ExamStanceLockFullPower` | 未実装 |
+| `StanceLockPreservationEffectExecutor` | `ExamStanceLockPreservation` | 未実装 |
 | `StanceResetEffectExecutor` | `ExamStanceReset` | 未実装 |
 | `StatusEnchantCountAddEffectExecutor` | 未実装 | 未実装 |
 | `StatusEnchantEffectExecutor` | `ExamStatusEnchant` | `status_enchant` |
