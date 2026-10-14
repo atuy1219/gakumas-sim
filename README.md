@@ -156,26 +156,21 @@ seed逆算では、画面上の開幕順からは `IsInitial` が元のシャッ
 
 `FixedDeckOrder > 0` を含む山札では固定順を使用します。同じ `FixedDeckOrder` を持つカードが複数ある入力は現在明示的に未対応です。
 
-## 共通Examエンジン
+## シミュレーション実装（JavaScript統一）
 
-現在のPython実装には以下を含みます。
+本番Web・Node.jsからの実機コンテスト再実行は、共通のJavaScript実装を利用します。
 
-- 共通Examのパラメータ・カードプール・ターン状態
-- コンテスト用DFS
-- 32-bit `XorShift32`
-- seed付きカードシャッフル
-- `FixedDeckOrder`
-- `ParameterBuff` / `Review` / `LessonBuff` とadditive fix / multiple
-- `ReviewStatusEffect.SpendTurn`
-- `ExamCardValueStatusEffect`
-- `PlayCardLimitPlayableValueAddStatusEffect`
-- countを持つ各種status
-- `TriggerEffectStatusEffect` のturn / limit / phase count
-- `HandHold` 中の手札リセット
-- deep copy / save / restore時の乱数状態保持
-- Lesson / Block / staminaなど、実装済みの効果計算
+- `web/tower_runtime.js`: 試験・ドル道の状態、カード使用、手札、発動予約、乱数と効果処理
+- `web/exam_effects.js` / `web/exam_score.js`: 効果処理とELF由来のスコア計算
+- `web/contest_native_replay.js`: 実機キャプチャの行動ログを使い、上記のJSエンジンを再実行
+- `web/tower_ai.js`: 状態複製、候補列挙、探索
+- `web/official_contest_dfs.js`: Pythonの独立研究コードから移した公式DFS探索規則と評価式。探索器は抽象sequence/calculateインターフェースを受け取り、現状WebのAI選択処理には**未接続**。シミュレーション本体を別実装するものではありません。
 
-未対応の分岐は代替ルールで補わず `UnsupportedPath` で停止します。
+実機との照合には `tests/*.mjs` と、原本・SHAを固定した実機キャプチャを利用します。
+JavaScript同士の比較だけで正しさは保証できません。未対応Executorは推測で実装せず明示的に記録します。
+
+Pythonの旧 `exam_engine.py`・`official_contest_ai.py` および専用テストは削除しました。
+`master_data.py` と `tools/build_tower_layer_snapshot.py` はゲームエンジンではなくオフラインのデータ抽出・変換用として維持します。
 
 ## Web試験の効果・ギミック
 
@@ -209,8 +204,8 @@ Webの試験エンジンは、Pアイテム・カード成長・継続効果・�
 ## テスト
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
-node --test tests/*.mjs
+node tests/test_official_contest_dfs.mjs
+# その他のWeb回帰テストは .github/workflows/ci.yml に列挙
 ```
 
 現行マスタ一式に対する試験効果・Pアイテムの網羅確認は、YAMLを置いた
@@ -220,4 +215,4 @@ node --test tests/*.mjs
 node tools/audit_exam_effect_coverage.mjs /path/to/master-data
 ```
 
-seed `0x12345678` の山札 `A..H` が `GFECBHDA` になる固定ベクトルをPython / JavaScriptで確認しています。`test_v3.mjs` では観測順からのseed条件復元、重複カード、Monte Carlo集計も検査します。
+seed `0x12345678` の山札 `A..H` が `GFECBHDA` になる固定ベクトルをJavaScriptのエンジンで確認しています。`test_v3.mjs` では観測順からのseed条件復元、重複カード、Monte Carlo集計も検査します。
