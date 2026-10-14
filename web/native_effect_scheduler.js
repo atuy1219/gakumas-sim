@@ -405,8 +405,16 @@ export function dispatchNativeEffectPhase(
         : Boolean(supported);
       return conditionMatched;
     });
+    // Native ExamSequence.GetInsertTriggerEffectListCommand (this ELF:
+    // RVA 0x80A7C18) creates all eligible commands and calls
+    // TriggerEffectStatusEffect.SpendCount @ 0x80A8104 *before* executing
+    // any effect command. Reserve each activation first, then execute the
+    // committed commands in priority/registration order. This is important
+    // when effects trigger nested dispatches or consume RNG: a nested phase
+    // must observe the already-spent counts of all reserved registrations.
+    const reservedCommands = [];
     for (const registration of matchedRegistrations) {
-      // Nested dispatches may have spent a shared limit or disabled an entry.
+      // Earlier reservations can exhaust a shared activation budget.
       if (!registrationCanRun(scheduler, registration)) continue;
       if (typeof hooks.beforeRegistration === "function"
         && hooks.beforeRegistration(registration, context) === false) continue;
@@ -415,23 +423,35 @@ export function dispatchNativeEffectPhase(
       registration.lastMatchedSequence = event.sequence;
       event.matchedRegistrationIds.push(registration.registrationId);
 
+      // SpendCount precedes command execution, including the first RNG call.
+      spendRegistration(registration, event.sequence);
+      // Status/Enchant/P-item shared count mirrors are part of the same
+      // reservation, not after-command side effects.
+      if (typeof hooks.afterRegistration === "function") {
+        hooks.afterRegistration(registration, context);
+      }
+      reservedCommands.push({
+        registration,
+        effects: [...registration.effects],
+      });
+    }
+
+    for (const command of reservedCommands) {
+      const { registration, effects } = command;
       scheduler.executingRegistrationIds.push(registration.registrationId);
       try {
-        for (const effect of registration.effects) {
+        for (const effect of effects) {
           if (typeof hooks.executeEffect === "function") {
             hooks.executeEffect(effect, context, registration);
           }
         }
-        spendRegistration(registration, event.sequence);
         event.executedRegistrationIds.push(registration.registrationId);
-        if (typeof hooks.afterRegistration === "function") {
-          hooks.afterRegistration(registration, context);
-        }
       } finally {
         const index = scheduler.executingRegistrationIds.lastIndexOf(registration.registrationId);
         if (index >= 0) scheduler.executingRegistrationIds.splice(index, 1);
       }
     }
+
   } finally {
     scheduler.dispatchStack.pop();
     scheduler.dispatchDepth -= 1;
