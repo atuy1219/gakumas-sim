@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **90** |
+| Master Effectからクラス単位に移した分岐数 | **93** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **123** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **38** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **126** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **35** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装38クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装35クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -44,6 +44,11 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `LessonDependAggressiveAndSearchCount`, `LessonDependReviewAndSearchCount`: 先にfloat32で1ヒットの基礎値を計算し、`Count` 回 `CalculateAddingParameter → AddParameter`。
 - `LessonAddBlock`: パラメータ付与の後、計算値が1以上なら `CalculateAddBlock → AddBlockFix`。
 - 上記8種類はELFの直接呼出しとテストベクトルに基づく。未実装は38種類。未収集の実機カードでの完全一致は未検証。
+
+### 指針ロック（ELF確認追加）
+
+- 強気・全力・温存への移行禁止状態は、ELFの `TryAddStanceLock*Effect` が既存のターン数に `Value1` を加算する処理であることを確認。JavaScriptの状態モデルと既存ターン消費へ接続。
+- テスト：`tests/test_elf_stance_locks.mjs`。
 
 ## 全クラス一覧
 
@@ -199,10 +204,10 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `StaminaReduceChangeEffectExecutor` | 未実装 | 未実装 |
 | `StaminaReduceEffectExecutor` | `ExamStaminaReduce` | 未実装 |
 | `StaminaReduceFixEffectExecutor` | `ExamStaminaReduceFix` | 未実装 |
-| `StanceLockConcentrationEffectExecutor` | 未実装 | 未実装 |
+| `StanceLockConcentrationEffectExecutor` | `ExamStanceLockConcentration` | 未実装 |
 | `StanceLockEffectExecutor` | `StanceLock` | 未実装 |
-| `StanceLockFullPowerEffectExecutor` | 未実装 | 未実装 |
-| `StanceLockPreservationEffectExecutor` | 未実装 | 未実装 |
+| `StanceLockFullPowerEffectExecutor` | `ExamStanceLockFullPower` | 未実装 |
+| `StanceLockPreservationEffectExecutor` | `ExamStanceLockPreservation` | 未実装 |
 | `StanceResetEffectExecutor` | `ExamStanceReset` | 未実装 |
 | `StatusEnchantCountAddEffectExecutor` | 未実装 | 未実装 |
 | `StatusEnchantEffectExecutor` | `ExamStatusEnchant` | `status_enchant` |
