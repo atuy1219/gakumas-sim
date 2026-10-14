@@ -961,6 +961,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     reviewMultiple: 1,
     reviewCountAdd: 0,
     reviewAdditivePermil: 0,
+    reviewAdditiveFix: 0,
     reviewTurnEndReduceLock: 0,
     parameterBuffTurnEndReduceLock: 0,
     aggressive: 0,
@@ -973,6 +974,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     lessonBuffMultiple: 1,
     parameterBuff: 0,
     parameterBuffAdditivePermil: 0,
+    parameterBuffAdditiveFix: 0,
     parameterBuffMultiplePerTurn: 0,
     parameterDebuff: 0,
     enthusiastic: 0,
@@ -996,6 +998,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     fullPowerLessonMultipleAdditive: 1,
     fullPowerPoint: 0,
     fullPowerPointAdditivePermil: 0,
+    fullPowerPointAdditiveFix: 0,
     fullPowerPointGetSum: 0,
     stanceLock: 0,
     stanceLockConcentration: 0,
@@ -1282,6 +1285,7 @@ export function syncNativeGenericTimedStatuses(exam) {
   const additiveFields = [
     "reviewAdditivePermil", "aggressiveAdditivePermil", "aggressiveAdditiveFix",
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
+    "reviewAdditiveFix", "parameterBuffAdditiveFix", "fullPowerPointAdditiveFix",
     "enthusiasticAdditivePermil", "enthusiasticTurnAdditive", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
     "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff",
   ];
@@ -1654,7 +1658,7 @@ export class BlockEffectExecutor {
 
 export class ReviewEffectExecutor {
   static ExecuteEffect(exam, parsed) {
-    const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000));
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000) + Number(exam.reviewAdditiveFix ?? 0));
     exam.review += value;
     return { applied: true, label: `好印象 +${value}` };
   }
@@ -1678,7 +1682,7 @@ export class LessonBuffEffectExecutor {
 
 export class ParameterBuffEffectExecutor {
   static ExecuteEffect(exam, parsed) {
-    const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000));
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000) + Number(exam.parameterBuffAdditiveFix ?? 0));
     exam.parameterBuff += value;
     return { applied: true, label: `好調 +${value}ターン` };
   }
