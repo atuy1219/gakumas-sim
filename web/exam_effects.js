@@ -1276,7 +1276,7 @@ export function syncNativeGenericTimedStatuses(exam) {
   const multiples = new Map();
   for (const status of exam?.genericTimedStatuses ?? []) {
     if (status.mode === "multiple") multiples.set(status.field, Math.fround(Math.fround(multiples.get(status.field) ?? 1) + Math.fround(status.value / 1000)));
-    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown"].includes(status.field))) flags.add(status.field);
+    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd"].includes(status.field))) flags.add(status.field);
     else additive.set(status.field, Number(additive.get(status.field) ?? 0) + Number(status.value ?? 0));
   }
   const additiveFields = [
@@ -1286,7 +1286,7 @@ export function syncNativeGenericTimedStatuses(exam) {
     "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
-  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown"]) {
+  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd"]) {
     exam[field] = flags.has(field);
   }
   for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive"]) exam[field] = multiples.get(field) ?? 1;
