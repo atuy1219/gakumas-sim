@@ -14,10 +14,14 @@ assert.deepEqual(event.effects,["ターン終了時に手札を保持（1T）"])
 finishTowerTurn(s,{type:"end"});
 assert.deepEqual(s.hand.map(x=>x.id),ids,"ResetHand returns early; Hand is not moved to Hold/Grave/Lost");
 assert.equal(s.hold.length,0,"preserved cards stay in Hand, not Hold");
-assert.equal(s.exam.handHold,false,"one-turn HandHold expires after end of turn");
-// Without a new HandHold, the next native ResetHand must discard remaining cards.
+assert.equal(s.exam.handHold,true,"the grant turn is not counted until StartPlay passes");
 drawTowerTurn(s,3);
 assert.ok(ids.every(id=>s.hand.some(x=>x.id===id)));
+finishTowerTurn(s,{type:"end"});
+assert.equal(s.exam.handHold,false,"HandHold expires after the next passed turn");
+assert.ok(ids.every(id=>s.hand.some(x=>x.id===id)),"the final guarded ResetHand preserved the Hand");
+// Without a new HandHold, the following turn resets remaining cards.
+drawTowerTurn(s,3);
 finishTowerTurn(s,{type:"end"});
 assert.equal(s.hand.length,0);
 console.log("ELF HandHold / ResetHand one-turn no-discard behavior: OK");
