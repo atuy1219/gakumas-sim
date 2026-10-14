@@ -1744,3 +1744,128 @@ assert.equal(run(0), 0, "zero matches skip chained effects");
 assert.equal(run(2), 4, "two matches run the chained effect twice");
 console.log("native effect per search count tests: ok");
 }
+
+
+// Native EffectTimerEffectExecutor delay regression (ELF RVA 0x0804D768).
+// The native constructor reads get_EffectValue1 rather than get_EffectTurn;
+// an effect with effectValue1=2 and effectTurn=0 must fire on the second
+// FOLLOWING turn, not together with a 1-turn timer.
+{
+  const timerCard = {
+    id: "timer-card",
+    upgradeCount: 0,
+    playEffects: [
+      { produceExamEffectId: "timer-after-1" },
+      { produceExamEffectId: "timer-after-2" },
+    ],
+  };
+  const timerDeck = [
+    timerCard,
+    { id: "timer-filler-a", upgradeCount: 0 },
+    { id: "timer-filler-b", upgradeCount: 0 },
+  ];
+  const timerMasters = new Map([
+    ["timer-after-1", {
+      id: "timer-after-1",
+      effectType: "ProduceExamEffectType_ExamEffectTimer",
+      effectValue1: 1, effectTurn: 0, effectCount: 1,
+      chainProduceExamEffectId: "timer-block-7",
+    }],
+    ["timer-after-2", {
+      id: "timer-after-2",
+      effectType: "ProduceExamEffectType_ExamEffectTimer",
+      effectValue1: 2, effectTurn: 0, effectCount: 1,
+      chainProduceExamEffectId: "timer-block-11",
+    }],
+    ["timer-block-7", {
+      id: "timer-block-7", effectType: "ProduceExamEffectType_ExamBlock", effectValue1: 7,
+    }],
+    ["timer-block-11", {
+      id: "timer-block-11", effectType: "ProduceExamEffectType_ExamBlock", effectValue1: 11,
+    }],
+  ]);
+  const timerState = createTowerTurnState(timerDeck, 199, new Map(timerDeck.map(card => [card.id, card])), {
+    stamina: 40, turnLimit: 3, drawPerTurn: 3, initialRandomState: 199,
+    examRuntimeSettings: {}, examScoreSettings: {}, examEffectById: timerMasters,
+  });
+  drawTowerTurn(timerState, 3);
+  playTowerCard(timerState, timerState.hand.findIndex(card => card.id === timerCard.id));
+  assert.deepEqual(timerState.timers.map(timer => timer.turn), [1, 2],
+    "native get_EffectValue1 supplies each timer's independent delay");
+  assert.equal(timerState.exam.block, 0, "timed effects must not resolve on registration");
+  finishTowerTurn(timerState);
+  drawTowerTurn(timerState, 3);
+  assert.equal(timerState.exam.block, 7, "Turn 2 must fire only the 1-turn timer");
+  assert.deepEqual(timerState.timers.map(timer => timer.turn), [1],
+    "2-turn timer must remain pending until Turn 3");
+  finishTowerTurn(timerState);
+  drawTowerTurn(timerState, 3);
+  assert.equal(timerState.exam.block, 18, "Turn 3 must fire the 2-turn timer once");
+  assert.equal(timerState.timers.length, 0, "completed reservations must be consumed");
+}
+
+
+// Regression from native contest capture 1.5.34: a multi-card DeckFirst
+// command must retain the selected order. Repeated unshift previously reversed
+// the first two cards and caused a turn-6 draw mismatch.
+{
+ const moveEffect={
+  id:"TEST-BATCH-DECK-FIRST",effectType:"ProduceExamEffectType_ExamCardMove",
+  produceCardSearchId:"test-deck-grave-targets",
+  movePositionType:"ProduceCardMovePositionType_DeckFirst",
+  pickRangeType:"ProducePickRangeType_All",pickCountMin:2,pickCountMax:2,
+ };
+ const cards=["MOVE","A","B","C"].map(id=>({
+  id,isInitial:id==="MOVE",
+  playMovePositionType:"ProduceCardMovePositionType_Grave",
+  playEffects:id==="MOVE"?[{produceExamTriggerId:"",produceExamEffectId:moveEffect.id}]:[],
+ }));
+ const masters=new Map(cards.map(card=>[card.id,card]));
+ const st=createTowerTurnState(cards.map(card=>({
+  id:card.id,upgradeCount:0,fixedDeckOrder:0
+ })),191,masters,{
+  examEffectById:new Map([[moveEffect.id,moveEffect]]),
+  cardSearchById:new Map([["test-deck-grave-targets",{
+   id:"test-deck-grave-targets",
+   cardPositionType:"ProduceCardPositionType_DeckGrave",
+   produceCardIds:["B","C"],limitCount:2,
+  }]]),
+ });
+ drawTowerTurn(st,1);
+ const all=[...st.hand,...st.deck];
+ const card=id=>all.find(x=>x.id===id);
+ st.hand=[card("MOVE")];st.deck=[card("A"),card("B")];st.discard=[card("C")];
+ playTowerCard(st,0);
+ assert.deepEqual(st.deck.map(x=>x.id),["B","C","A"],
+  "DeckFirst native batch insertion must preserve target selection order");
+}
+
+
+// Native contest session 6: a random 1_1 card move with no matching cards
+// skips the pick-count roll entirely (ExamParameterModel RNG unchanged).
+{
+ const effect={
+  id:"TEST-EMPTY-NATIVE-SEARCH",effectType:"ProduceExamEffectType_ExamCardMove",
+  produceCardSearchId:"test-empty-sleepy-search",
+  movePositionType:"ProduceCardMovePositionType_Lost",
+  pickRangeType:"ProducePickRangeType_Random",pickCountMin:1,pickCountMax:1,
+ };
+ const trigger={
+  id:"TEST-EMPTY-TRIGGER",isInitial:true,
+  playMovePositionType:"ProduceCardMovePositionType_Grave",
+  playEffects:[{produceExamTriggerId:"",produceExamEffectId:effect.id}],
+ };
+ const st=createTowerTurnState([{id:trigger.id,upgradeCount:0,fixedDeckOrder:0}],
+  193,new Map([[trigger.id,trigger]]),{
+   examEffectById:new Map([[effect.id,effect]]),
+   cardSearchById:new Map([["test-empty-sleepy-search",{
+    id:"test-empty-sleepy-search",cardPositionType:"ProduceCardPositionType_DeckGrave",
+    produceCardIds:["p_card-00-acc-0_002"],
+   }]]),
+  });
+ drawTowerTurn(st,1);
+ const before=st.randomState>>>0;
+ playTowerCard(st,0);
+ assert.equal(st.randomState>>>0,before,
+  "empty native card search must not consume RNG");
+}

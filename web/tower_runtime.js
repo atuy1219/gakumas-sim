@@ -277,6 +277,7 @@ function runtimeInstances(
       rarity: String(master.rarity ?? card.rarity ?? ""),
       planType: String(master.planType ?? card.planType ?? ""),
       searchTag: String(master.searchTag ?? card.searchTag ?? ""),
+      originIdolCardId: String(master.originIdolCardId ?? card.originIdolCardId ?? ""),
       effectGroupIds: Array.isArray(master.effectGroupIds) ? [...master.effectGroupIds] : [],
       stamina: Number(master.stamina ?? 0) || 0,
       forceStamina: Number(master.forceStamina ?? 0) || 0,
@@ -692,6 +693,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     turnOpen: false,
     generatedCardSerial: 0,
     pItems: Array.isArray(options.pItems) ? options.pItems.map((item) => ({ ...item })) : [],
+    captureActionTelemetry: options.captureActionTelemetry === true,
     pItemEffectRemainingCounts: new Map(),
     supportCards: Array.isArray(options.supportCards)
       ? options.supportCards.map((item) => ({ ...item }))
@@ -877,7 +879,7 @@ function nativeSchedulerHooks(state, runtimeEvent) {
 function currentNativeLessonType(state) {
   if (String(state?.lessonType ?? "")) return String(state.lessonType);
   const parameterType = String(currentTowerScoreContext(state).parameterType ?? "");
-  return parameterType ? `ProduceStepLessonType_${parameterType}Lesson` : "ProduceStepLessonType_Unknown";
+  return parameterType ? `ProduceStepLessonType_Lesson${parameterType[0].toUpperCase()}${parameterType.slice(1).toLowerCase()}` : "ProduceStepLessonType_Unknown";
 }
 
 function withNativeTransition(runtimeEvent, dispatch) {
@@ -1027,6 +1029,13 @@ const MASTER_FIELD_STATUS_TO_EXAM = Object.freeze({
 });
 
 function masterFieldStatusValue(state, fieldStatusType) {
+  // v3.4.1 contest: a card\u0027s CardPlayAggressiveUp condition is evaluated
+  // against the status at card declaration, not after CARD_PLAY P-item effects.
+  // The real #4 turn 1: 0 -> P-item +8 must not unlock the card\u0027s +88 effect.
+  if (String(fieldStatusType ?? "") === "ProduceExamFieldStatusType_CardPlayAggressiveUp"
+      && state.cardTriggerAggressiveAtPlayStart != null) {
+    return Number(state.cardTriggerAggressiveAtPlayStart);
+  }
   switch (MASTER_FIELD_STATUS_TO_EXAM[String(fieldStatusType ?? "")]) {
     case "lastMentalCard": return state.lastPlayedCard?.category === "ProduceCardCategory_MentalSkill" ? 1 : 0;
     case "playCardLesson": return state.lastPlayedCard?.category === "ProduceCardCategory_ActiveSkill" ? 1 : 0;
@@ -1077,7 +1086,12 @@ export function cardMatchesMasterSearch(card, search) {
   const planType = String(search.planType ?? "");
   if (planType && planType !== "ProducePlanType_Unknown" && planType !== String(card.planType ?? "")) return false;
   const tag = String(search.cardSearchTag ?? "");
-  if (tag && tag !== String(card.searchTag ?? "")) return false;
+  if (tag) {
+    // Idol-unique is derived from the card's official originIdolCardId;
+    // ProduceCard masters do not provide a literal searchTag for this class.
+    const idolUnique = tag === "idol-unique" && Boolean(String(card.originIdolCardId ?? ""));
+    if (!idolUnique && tag !== String(card.searchTag ?? "")) return false;
+  }
   const costType = String(search.costType ?? "");
   if (costType && costType !== "ExamCostType_Unknown" && costType !== String(card.costType ?? "")) return false;
   const groups = new Set((search.effectGroupIds ?? []).map(String));
@@ -1198,7 +1212,9 @@ function lessonTypeMatches(expectedInput, actualInput) {
 function masterPhaseValue(state, phaseType, context) {
   switch (String(phaseType ?? "")) {
     case "ProduceExamPhaseType_StartPlay":
-      return 0; // Phase count is not the current turn number.
+    case "ProduceExamPhaseType_ExamCardPlay":
+    case "ProduceExamPhaseType_ExamCardPlayAfter":
+      return 0; // These phase values are zero; they are not turn numbers.
     case "ProduceExamPhaseType_ExamStartExam":
       return Number(state.turn ?? 0) === 0 ? 1 : 0;
     case "ProduceExamPhaseType_ExamTurnCheck":
@@ -1227,11 +1243,23 @@ function triggerFieldStatusesMatch(state, trigger, context = {}) {
     let current;
     if (type === "ProduceExamFieldStatusType_CardSearchCountUp") {
       current = masterSearchMatchCount(state, trigger.fieldStatusCardSearches?.[index], context);
+    } else if (
+      (type === "ProduceExamFieldStatusType_StaminaUpMultiple"
+        || type === "ProduceExamFieldStatusType_StaminaLessMultiple")
+      && context?.card && Number.isFinite(context.beforeCardStaminaRatioPermil)
+    ) {
+      // Card-play P-items test the stamina threshold at play declaration,
+      // before this card pays its cost. The actual effect still executes
+      // in CARD_PLAY, before the card's own playEffects.
+      current = context.beforeCardStaminaRatioPermil;
     } else {
       current = masterFieldStatusValue(state, type);
     }
     if (current === null) return false;
-    const expected = Number(values[index] ?? 1);
+    const rawExpected = Number(values[index] ?? 1);
+    // FullPowerUp=0 is an existence test. It must never match no stance.
+    const expected = type === "ProduceExamFieldStatusType_FullPowerUp" && rawExpected === 0
+      ? 1 : rawExpected;
     const check = String(checks[index] ?? "ProduceExamTriggerCheckType_Unknown");
     const reverse = type === "ProduceExamFieldStatusType_StaminaLessMultiple"
       || type === "ProduceExamFieldStatusType_RemainingTurn"
@@ -1454,6 +1482,8 @@ function registerResolvedPItems(state) {
           specs.push({
             id: String(effect.id ?? enchant.id ?? pItemId),
             phase,
+            // Native ExamStartTurn precedes ExamTurnInterval within START_OF_TURN.
+            priority: phaseType === "ProduceExamPhaseType_ExamStartTurn" ? -1 : 0,
             turn,
             condition: {
               kind: "masterExamTrigger",
@@ -1966,9 +1996,25 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   }
 
   beginSimulationTurn(state, state.turn + 1, currentTowerScoreContext({ ...state, turn: state.turn + 1 }));
+  const phaseEvent = nativeRuntimeEvent();
+  // Native v3.4.1 ReviewStatusEffect.SpendTurn (0x08082A18) spends a
+  // previously-marked review at the NEXT turn boundary, before its actions.
+  // StartPlay P-item review is marked during its granting turn; a card grant
+  // stays unmarked until the next turn's StartPlay phase.
+  if (Number(state.turn ?? 0) > 0) {
+    const beforeReviewSpend = captureNativeStatusSnapshot(state.exam);
+    const exam = state.exam;
+    if (Number(exam.reviewTurnEndReduceLock ?? 0) === 0
+        && exam.passingTurnStartFields?.review !== false
+        && Number(exam.review ?? 0) > 0) {
+      exam.review -= 1;
+      exam.reviewConsumptionSum = Number(exam.reviewConsumptionSum ?? 0) + 1;
+    }
+    emitNativeStatusDiff(state, beforeReviewSpend, phaseEvent,
+      { cause: "turnStartReviewSpend" });
+  }
   state.ended = false;
   state.turnStartParameter = Number(state.exam.parameter ?? 0);
-  const phaseEvent = nativeRuntimeEvent();
   runNativeEffectPhase(
     state,
     NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
@@ -2024,11 +2070,13 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   }
   // ExamLoopTaskAsync 0x8070394 marks statuses after draw/StartOfTurn
   // and before StartPlay. Additions during card play have not passed it.
-  markNativeStatusTurnStart(state.exam);
+  // Scheduler/playable count flags must retain their original pre-StartPlay
+  // timing; only scalar status lifetime flags are marked after StartPlay.
   for (const registration of state.effectScheduler.registrations) registration.metadata.isPassingTurnStart = true;
   if (state.cardEffectPlayCountBuff) state.cardEffectPlayCountBuff.isPassingTurnStart = true;
   if (state.playableAddStatus) state.playableAddStatus.isPassingTurnStart = true;
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
+  markNativeStatusTurnStart(state.exam);
   state.turnStartEffects = [...phaseEvent.effects];
   return {
     turn: state.turn,
@@ -2105,6 +2153,10 @@ function checkRuntimeCardTrigger(state, triggerId, card = null, event = null) {
 }
 
 function masterPickCount(state, parsed, available) {
+  // Native does not request a random pick count for an empty candidate pool.
+  // The empty-眠気 search of p_card-00-sup-3_152 on native contest #6
+  // leaves the RNG unchanged; the old 0..1 call advanced it by one.
+  if (!(Number(available) > 0)) return 0;
   let min = Math.max(0, Math.trunc(Number(parsed.pickCountMin ?? 0)));
   let max = Math.max(min, Math.trunc(Number(parsed.pickCountMax ?? min)));
   const range = String(parsed.pickRangeType ?? "");
@@ -2516,13 +2568,17 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       event.effects.push(`継続効果を追加: ${parsed.enchantId}`);
       return;
     case "ExamEffectTimer": {
+      // Native EffectTimerEffectExecutor..ctor (v3.4.1 RVA 0x0804D768)
+      // reads IExamEffect.get_EffectValue1 (virtual slot 2) as the delay.
+      // EffectTurn is unrelated to the wait and is often zero in the masters.
+      const delay = Math.max(1, Math.trunc(Number(parsed.value1) || 1));
       const childId = parsed.chainEffectId || parsed.chainEffectIds?.[0];
       const master = state.examEffectById?.get?.(String(childId ?? ""));
       state.timers.push({
-        turn: Math.max(1, turn), count: Math.max(1, Number(parsed.count) || 1),
+        turn: delay, count: Math.max(1, Number(parsed.count) || 1),
         child: master ? parseExamEffectMaster(master) : parseExamEffectId(childId), id: parsed.id,
       });
-      event.effects.push(`${Math.max(1, turn)}ターン後に効果発動`);
+      event.effects.push(`${delay}ターン後に効果発動`);
       return;
     }
     case "ExamLessonFix": {
@@ -2581,7 +2637,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "ExamBlockFix": status("block", v1, "元気"); return;
     case "ExamBlockAddMultipleAggressive": {
-      const added = calculateNativeBlockAdd(exam, v1, v2 / 1000);
+      // Native ExamBlockAddMultipleAggressive: Value2 adds to 100%.
+      const added = calculateNativeBlockAdd(exam, v1, 1 + v2 / 1000);
       exam.block += added; event.effects.push(`元気 +${added}`); return;
     }
     case "ExamBlockPerUseCardCount": status("block", v1 * Math.min(Number(exam.cardPlayCount ?? 0), v2 || Infinity), "元気"); return;
@@ -2606,7 +2663,11 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       const amount = type === "ExamStaminaReduce" && v1 < 0
         ? Math.ceil(Number(exam.maxStamina ?? 0) * Math.abs(v1) / 1000)
         : Math.abs(v1);
-      const resolved = calculateNativeStaminaDamage(exam, amount, { penetrate: type !== "ExamStaminaDamage" });
+      const resolved = calculateNativeStaminaDamage(exam, amount, {
+        penetrate: type !== "ExamStaminaDamage",
+        // Fixed direct reduction bypasses ordinary card cost fixed discounts.
+        applyFixed: type !== "ExamStaminaReduceFix",
+      });
       exam.block = Math.max(0, exam.block - resolved.blockDamage);
       exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
       exam.blockConsumptionSum += resolved.blockDamage;
@@ -2716,6 +2777,15 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
         state.deck.unshift(...overflow.map(({ card }) => card));
         for (const move of accepted) { move.to = "hand"; notifications.push(move); }
         for (const move of overflow) { move.to = "deck_first"; notifications.push(move); }
+      } else if (destination === "DeckFirst") {
+        // Native ExamCardMoveController.MoveCard inserts a selected batch at
+        // deck top in selection order. Repeated unshift() reversed the batch:
+        // observed in native contest sessions 1 and 3 at the first draw mismatch.
+        state.deck.unshift(...moves.map(({ card }) => card));
+        for (const move of moves) {
+          move.to = "deck_first";
+          notifications.push(move);
+        }
       } else {
         for (const move of moves) move.to = addRuntimeCardAt(state, move.card, parsed.movePositionType, event, move.from, notifications);
       }
@@ -3166,6 +3236,36 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     onceOnly: Boolean(card.onceOnly),
     forced,
   };
+  // Optional independent replay telemetry. Captures *simulated* values,
+  // never copies observed native outcomes into the state machine.
+  let priorStep = null;
+  let priorEffectCount = 0;
+  const recordCardPhase = (phase) => {
+    if (!state.captureActionTelemetry) return;
+    const exam = state.exam;
+    const current = {
+      score: Number(exam.parameter ?? 0),
+      stamina: Number(exam.stamina ?? 0),
+      block: Number(exam.block ?? 0),
+      review: Number(exam.review ?? 0),
+      aggressive: Number(exam.aggressive ?? 0),
+      staminaConsumptionDown: Number(exam.staminaConsumptionDown ?? 0),
+      staminaConsumptionDownFix: Number(exam.staminaConsumptionDownFix ?? 0),
+      playable: Number(state.playsRemaining ?? 0),
+    };
+    const changes = priorStep ? Object.fromEntries(
+      Object.keys(current).map(key => [key, current[key] - priorStep[key]]),
+    ) : null;
+    event.actionTelemetry ??= [];
+    event.actionTelemetry.push({
+      phase, ...current, delta: changes,
+      effects: (event.effects ?? []).slice(priorEffectCount),
+    });
+    priorStep = current;
+    priorEffectCount = (event.effects ?? []).length;
+  };
+  recordCardPhase("before-card");
+  const cardTriggerAggressiveAtPlayStart = Number(state.exam.aggressive ?? 0);
   const cardTrigger = checkRuntimeCardTrigger(state, card.playProduceExamTriggerId, card, event);
   if (!cardTrigger.supported) {
     rememberUnsupported(state, `play-trigger:${card.playProduceExamTriggerId}`);
@@ -3175,6 +3275,9 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   }
 
   const beforeCostStatus = captureNativeStatusSnapshot(state.exam);
+  const maxBeforeCost = Number(state.exam.maxStamina ?? 0);
+  const beforeCardStaminaRatioPermil = maxBeforeCost > 0
+    ? Math.trunc(Number(state.exam.stamina ?? 0) * 1000 / maxBeforeCost) : 0;
   const beforeCost = {
     block: Number(state.exam.block ?? 0),
     stamina: Number(state.exam.stamina ?? 0),
@@ -3183,9 +3286,12 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   const costChange = state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)));
   if (!ignoreCost) event.cost.push(...payCardCost(state.exam, costChange ? { ...card, temporaryStaminaConsumptionFix: costChange.value } : card));
   if (!ignoreCost && costChange) costChange.count -= 1;
+  recordCardPhase("after-cost");
   const previousPlayingCard = state.playingCard ?? null;
   const previousEffectOwnerCard = state.effectOwnerCard;
   const previousEffectSource = state.effectSource;
+  const previousCardTriggerAggressiveAtPlayStart = state.cardTriggerAggressiveAtPlayStart;
+  state.cardTriggerAggressiveAtPlayStart = cardTriggerAggressiveAtPlayStart;
   state.effectSource = "card";
   state.effectOwnerCard = null;
   state.playingCard = card;
@@ -3225,7 +3331,8 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     // unplayable card does not execute its main effects or spend repeat buffs.
     // Reuse the eligibility snapshot taken before costs and play triggers.
     const canExecuteCardEffects = !card.isRestrict && cardTrigger.supported && cardTrigger.triggered;
-    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount });
+    runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.CARD_PLAY, event, { card, cardPlayCount, beforeCardStaminaRatioPermil });
+    recordCardPhase("before-main-card-effects-after-card-play-triggers");
     const repeatBuff = state.cardEffectPlayCountBuff;
     const repeatMatches = Boolean(
       canExecuteCardEffects
@@ -3248,10 +3355,13 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
         // first execution; repeat-buff executions keep native effect behavior.
         if (n === 0 && previouslyPlayed && entry.isOncePlayEffect) continue;
         applyCardEffectEntry(state, entry, event, card);
+        recordCardPhase("card-effect-"+n+"-"+String(entry.produceExamEffectId ?? entry.id ?? "unknown"));
       }
     }
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
+    recordCardPhase("after-card-play-triggers");
     resolveFullPowerAfterCard(state, event);
+    recordCardPhase("after-full-power-resolution");
 
     if (![state.hand, state.deck, state.discard, state.lost, state.hold].some((pool) => pool.includes(card))) {
       addRuntimeCardAt(state, card, card.onceOnly ? "Lost" : "Grave", event, "playing");
@@ -3261,6 +3371,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     return event;
   } finally {
     state.playingCard = previousPlayingCard;
+    state.cardTriggerAggressiveAtPlayStart = previousCardTriggerAggressiveAtPlayStart;
     state.effectOwnerCard = previousEffectOwnerCard;
     if (previousEffectSource === undefined) delete state.effectSource;
     else state.effectSource = previousEffectSource;
@@ -3268,17 +3379,11 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
 }
 
 function tickTurnDurations(exam) {
-  // Review's automatic score is resolved before status spending. Native lock
-  // statuses are checked before their own duration is spent.
-  const reviewLocked = Number(exam.reviewTurnEndReduceLock ?? 0) !== 0;
+  // Review spending occurs at the next turn start, after its previous
+  // StartPlay flag is set. Only the other timed statuses spend here.
   const parameterBuffLocked = Number(exam.parameterBuffTurnEndReduceLock ?? 0) !== 0;
 
   const passed = field => exam.passingTurnStartFields?.[field] !== false;
-  if (!reviewLocked && passed("review") && Number(exam.review ?? 0) > 0) {
-    exam.review -= 1;
-    // ReviewStatusEffect.SpendTurn (0x803C158) counts natural reduction too.
-    exam.reviewConsumptionSum = Number(exam.reviewConsumptionSum ?? 0) + 1;
-  }
   if (!parameterBuffLocked && passed("parameterBuff") && Number(exam.parameterBuff ?? 0) > 0) exam.parameterBuff -= 1;
 
   for (const field of ["parameterBuffMultiplePerTurn", "staminaConsumptionDown", "staminaConsumptionAdd"]) {

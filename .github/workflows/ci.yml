@@ -47,3 +47,7 @@ jobs:
           node tests/test_simulation_backup.mjs
           node tests/test_exam_completeness.mjs
           node tests/test_engine_comparison.mjs
+          node tests/test_contest_master_lesson_type.mjs
+          node tests/test_review_turn_boundary.mjs
+          node tests/test_card_play_aggressive_boundary.mjs
+          node tests/test_native_parity_effects.mjs
