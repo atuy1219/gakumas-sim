@@ -7,6 +7,8 @@ from exam_engine import (
     ExamParameterModel,
     ExamCardPoolModel,
     ExamPhase,
+    StatusKind,
+    StatusEffect,
     StrictExamSequence,
     LessonEffectExecutor,
     LessonFixEffectExecutor,
@@ -66,6 +68,21 @@ class NativeNameTests(unittest.TestCase):
         ctx.Reset()
         self.assertIsNone(ctx.PlayingEffect)
         self.assertEqual(ExamEffectUtilityBridge(ctx), 0)
+
+    def test_status_collection_native_getters(self):
+        statuses = sequence().parameter.StatusEffectCollection
+        statuses.effects.extend([
+            StatusEffect(StatusKind.REVIEW.value, turn=4),
+            StatusEffect(StatusKind.AGGRESSIVE.value, value=7),
+            StatusEffect(StatusKind.FULL_POWER_POINT.value, value=8),
+            StatusEffect(StatusKind.LESSON_BUFF.value, value=5),
+            StatusEffect(StatusKind.PARAMETER_BUFF.value, turn=3),
+        ])
+        self.assertEqual(statuses.GetReview(), 4)
+        self.assertEqual(statuses.GetAggressive(), 7)
+        self.assertEqual(statuses.GetFullPowerPoint(), 8)
+        self.assertEqual(statuses.GetLessonBuff(), 5)
+        self.assertEqual(statuses.GetParameterBuffTurn(), 3)
 
     def test_native_executors_match_resolver_dispatch(self):
         executor_types = {
