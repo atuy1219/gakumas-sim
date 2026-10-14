@@ -1374,7 +1374,7 @@ class ExamEffectUtility:
     def calculate_adding_parameter(value: int, context: ExamEffectCalculateContext,
                                    modifier: ParameterCalculationModifier | None = None) -> int:
         # isBuffActive=true.
-        p=context.ExamParameter; s=p.status_effects; st=p.setting
+        p=context.ExamParameter; s=p.StatusEffectCollection; st=p.setting
         if s.has(StatusKind.SLUMP):
             return 0
 
@@ -1528,19 +1528,19 @@ class ExamEffectUtility:
             parameter_type=p.get_current_turn_parameter_type()
             added=p.calc_current_turn_battle_bonus(added)
 
-        before=p.judge_parameter
+        before=p.JudgeParameter
         after=before+added
         if p.parameter_add_limit is not None:
             after=min(after,int(p.parameter_add_limit))
         actual_added=max(0,after-before)
-        p.judge_parameter=after
+        p.JudgeParameter=after
 
         if parameter_type == int(ExamParameterType.VOCAL):
-            p.judge_parameter_vocal += actual_added
+            p.JudgeParameterVocal += actual_added
         elif parameter_type == int(ExamParameterType.DANCE):
-            p.judge_parameter_dance += actual_added
+            p.JudgeParameterDance += actual_added
         elif parameter_type == int(ExamParameterType.VISUAL):
-            p.judge_parameter_visual += actual_added
+            p.JudgeParameterVisual += actual_added
 
         context.log_diff('Parameter',before,after)
 
@@ -1548,7 +1548,7 @@ class ExamEffectUtility:
     def calculate_add_block(value: int, context: ExamEffectCalculateContext, aggressive_multiple: float=1.0) -> int:
         # wrapper uses aggressive_multiple=1.0.
         if value < 1: return 0
-        p=context.ExamParameter; s=p.status_effects
+        p=context.ExamParameter; s=p.StatusEffectCollection
         if s.has(StatusKind.BLOCK_RESTRICTION): return 0
         value=int(value)+_ceil_f32(_f32(_f32(float(s.total_value(StatusKind.AGGRESSIVE)))*_f32(aggressive_multiple)))
         if value < 1: return max(0,value)
@@ -1562,19 +1562,19 @@ class ExamEffectUtility:
 
     @staticmethod
     def add_block_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.ExamParameter; before=p.block; delta=max(-before,int(value)); p.block=before+delta
-        context.log_diff('Block',before,p.block)
+        p=context.ExamParameter; before=p.Block; delta=max(-before,int(value)); p.Block=before+delta
+        context.log_diff('Block',before,p.Block)
 
     @staticmethod
     def add_stamina_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.ExamParameter; before=p.stamina; p.stamina=max(0,min(p.max_stamina,before+int(value)))
-        context.log_diff('Stamina',before,p.stamina)
+        p=context.ExamParameter; before=p.Stamina; p.Stamina=max(0,min(p.MaxStamina,before+int(value)))
+        context.log_diff('Stamina',before,p.Stamina)
 
     @staticmethod
     def calculate_damage(value: int, penetrate: bool, apply_fixed: bool, context: ExamEffectCalculateContext) -> tuple[int,int]:
         # Return order is (staminaDamage, blockDamage).
-        p=context.ExamParameter; s=p.status_effects; st=p.setting
-        block=0 if penetrate else p.block
+        p=context.ExamParameter; s=p.StatusEffectCollection; st=p.setting
+        block=0 if penetrate else p.Block
         f=_f32(float(int(value)))
         t=s.idol_status_type; step=s.idol_status_step
         if t==1: f=_f32(f*_from_permil(st.get(27 if step==1 else 28)))
@@ -1602,21 +1602,21 @@ class ExamEffectUtility:
     def damage_stamina(value: int, penetrate: bool, context: ExamEffectCalculateContext) -> None:
         # 0x7feefcc: CalculateDamage(..., applyFixed=true), SetBlock/SetStamina,
         # increment CurrentTurnConsumeStamina, then consume one Uplifting if stamina was hit.
-        p=context.ExamParameter; before_s=p.stamina; before_b=p.block
+        p=context.ExamParameter; before_s=p.Stamina; before_b=p.Block
         sd,bd=ExamEffectUtility.calculate_damage(value,penetrate,True,context)
-        if bd>=1: p.block=max(0,p.block-bd)
+        if bd>=1: p.Block=max(0,p.Block-bd)
         if sd>=1:
-            p.stamina=max(0,min(p.max_stamina,p.stamina-sd))
-            p.current_turn_consume_stamina += before_s-p.stamina
-        if sd>=1 and p.status_effects.total_value(StatusKind.UPLIFTING)>=1:
-            p.status_effects.reduce_value(StatusKind.UPLIFTING,1)
-        if bd and sd: context.log_diff('StaminaBlockMixDamage',(before_s,before_b),(p.stamina,p.block))
-        elif sd: context.log_diff('Stamina',before_s,p.stamina)
-        elif bd: context.log_diff('Block',before_b,p.block)
+            p.Stamina=max(0,min(p.MaxStamina,p.Stamina-sd))
+            p.CurrentTurnTotalConsumeStamina += before_s-p.Stamina
+        if sd>=1 and p.StatusEffectCollection.total_value(StatusKind.UPLIFTING)>=1:
+            p.StatusEffectCollection.reduce_value(StatusKind.UPLIFTING,1)
+        if bd and sd: context.log_diff('StaminaBlockMixDamage',(before_s,before_b),(p.Stamina,p.Block))
+        elif sd: context.log_diff('Stamina',before_s,p.Stamina)
+        elif bd: context.log_diff('Block',before_b,p.Block)
 
     @staticmethod
     def calculate_buff_cost(value: int, context: ExamEffectCalculateContext) -> int:
-        p=context.ExamParameter; s=p.status_effects; f=_f32(float(int(value)))
+        p=context.ExamParameter; s=p.StatusEffectCollection; f=_f32(float(int(value)))
         if s.has(StatusKind.BUFF_CONSUMPTION_DOWN): f=_f32(f*_from_permil(1000-p.setting.get(2)))
         if s.has(StatusKind.BUFF_CONSUMPTION_ADD): f=_f32(f*_from_permil(1000+p.setting.get(3)))
         return _ceil_f32(f)
