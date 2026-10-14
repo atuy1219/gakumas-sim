@@ -991,6 +991,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     slump: false,
     panic: false,
     antiDebuffCount: 0,
+    uplifting: 0,
 
     // Anomaly stance state used by CalculateAddingParameter.
     idolStatusType: 0,
