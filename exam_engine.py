@@ -1704,6 +1704,32 @@ for _native_name, _py_name in _EXAM_CONTEXT_NATIVE_FIELDS.items():
 del _native_name, _py_name
 
 
+# Method aliases preserve the original Python entry points for consumers.
+# The PascalCase surface follows actual methods exported by IL2CPP metadata.
+_IL2CPP_NATIVE_METHODS = (
+    (ExamParameterModel, "DeepCopy", "deep_copy"),
+    (ExamParameterModel, "ClearTurnState", "clear_turn_state"),
+    (ExamParameterModel, "CalcTurnParameterType", "calc_turn_parameter_type"),
+    (ExamParameterModel, "CalcCurrentTurnBattleBonus", "calc_current_turn_battle_bonus"),
+    (ExamParameterModel, "SetConfigParameter", "set_config_parameter"),
+    (ExamEffectCalculateContext, "Create", "create"),
+    (ExamEffectCalculateContext, "Reset", "reset"),
+    (ExamCardMoveController, "DrawCard", "draw_card"),
+    (ExamCardMoveController, "ShuffleDeck", "shuffle_deck"),
+    (ExamCardMoveController, "UseHand", "use_hand"),
+    (ExamCardMoveController, "MovePlayCard", "move_play_card"),
+    (ExamCardMoveController, "ResetHand", "reset_hand"),
+    (ExamEffectUtility, "CalculateAddingParameter", "calculate_adding_parameter"),
+    (ExamEffectUtility, "AddParameter", "add_parameter"),
+    (ExamEffectUtility, "AddParameterFix", "add_parameter_fix"),
+    (ExamEffectUtility, "CalculateAddBlock", "calculate_add_block"),
+    (ExamEffectUtility, "AddBlockFix", "add_block_fix"),
+)
+for _cls, _name, _old in _IL2CPP_NATIVE_METHODS:
+    setattr(_cls, _name, _cls.__dict__[_old])
+del _cls, _name, _old
+
+
 class IExamEffectExecutor:
     """Python port of the native IExamEffectExecutor.ExecuteEffect contract."""
 
