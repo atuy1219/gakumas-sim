@@ -4359,10 +4359,9 @@ class UpgradeEffectExecutor {
 }
 
 class UpliftingEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({exam,v1,event}) {
+    if(addNativeGenericTimedStatus(exam,"uplifting",v1,-1,"add"))
+      event.effects.push("体力減少無効 +"+v1);
   }
 }
 
