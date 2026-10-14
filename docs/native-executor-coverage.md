@@ -26,7 +26,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `web/exam_effects.js` : Parsed Effect側の独立 `ExecuteEffect` と `PARSED_EXAM_EFFECT_EXECUTOR_CLASSES`。
 - `web/native_effect_executor_registry.js` : IL2CPPから抽出した161クラス名とマスターIDの名称対応。
 - `tests/test_all_native_executors.mjs` : 161クラスの一意性、80+41分岐、113対応名を検証。
-- `tests/test_official_contest_dfs.mjs` : JSへ移した公式DFS方針の回帰検証。
+- `tests/test_contest_dfs.mjs` : JSへ移したコンテストDFS方針の回帰検証。
 
 ## 全クラス一覧
 
