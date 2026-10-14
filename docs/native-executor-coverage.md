@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **93** |
+| Master Effectからクラス単位に移した分岐数 | **97** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **126** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **35** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **130** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **31** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装35クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装31クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -50,6 +50,12 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - 強気・全力・温存への移行禁止状態は、ELFの `TryAddStanceLock*Effect` が既存のターン数に `Value1` を加算する処理であることを確認。JavaScriptの状態モデルと既存ターン消費へ接続。
 - テスト：`tests/test_elf_stance_locks.mjs`。
 
+### 有効期限付き状態（ELF確認追加）
+
+- `BuffConsumptionDown`, `StaminaConsumptionAddDown`, `StaminaConsumptionDownAdd`: いずれもELFで `TryAdd*Status(Value1=持続ターン)` を確認。既存の `genericTimedStatuses` に同種の期限を加算し、ターン境界で失効させる。
+- `GimmickEnthusiastic`: `TryAddEnthusiasticStatus(Value1, Value2)` を確認し、既存の `scalarTimedStatuses` に接続。
+- 単体テスト：`tests/test_elf_timed_status_executors.mjs`。
+
 ## 全クラス一覧
 
 | 実機クラス名 | Master Effect側 | Parsed Effect側 |
@@ -77,7 +83,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `BlockRestrictionEffectExecutor` | `ExamBlockRestriction` | 未実装 |
 | `BlockValueMultiplicationEffectExecutor` | `ExamBlockValueMultiple` | 未実装 |
 | `BuffConsumptionAddEffectExecutor` | `ExamBuffConsumptionAdd` | 未実装 |
-| `BuffConsumptionDownEffectExecutor` | 未実装 | 未実装 |
+| `BuffConsumptionDownEffectExecutor` | `ExamBuffConsumptionDown` | 未実装 |
 | `CardCreateIdEffectExecutor` | 未実装 | `card_create_id` |
 | `CardCreateSearchEffectExecutor` | `ExamCardCreateSearch` | 未実装 |
 | `CardDuplicateEffectExecutor` | `ExamCardDuplicate` | 未実装 |
@@ -114,7 +120,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `FullPowerPointReduceCancellableEffectExecutor` | 未実装 | 未実装 |
 | `FullPowerPointReduceEffectExecutor` | `ExamFullPowerPointReduce` | 未実装 |
 | `GetCardUpgradeEffectExecutor` | 未実装 | 未実装 |
-| `GimmickEnthusiasticEffectExecutor` | 未実装 | 未実装 |
+| `GimmickEnthusiasticEffectExecutor` | `ExamGimmickEnthusiastic` | 未実装 |
 | `GimmickLessonDebuffEffectExecutor` | `ExamGimmickLessonDebuff` | 未実装 |
 | `GimmickParameterDebuffEffectExecutor` | `ExamGimmickParameterDebuff` | 未実装 |
 | `GimmickPlayCardLimitEffectExecutor` | `ExamGimmickPlayCardLimit` | 未実装 |
@@ -190,10 +196,10 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `SearchEffectPlayCountBuffEffectExecutor` | 未実装 | `card_search_effect_play_count_buff` |
 | `SearchPlayCardBuffConsumptionChangeEffectExecutor` | 未実装 | 未実装 |
 | `SearchPlayCardStaminaConsumptionChangeEffectExecutor` | `ExamSearchPlayCardStaminaConsumptionChange` | 未実装 |
-| `StaminaConsumptionAddDownEffectExecutor` | 未実装 | 未実装 |
+| `StaminaConsumptionAddDownEffectExecutor` | `ExamStaminaConsumptionAddDown` | 未実装 |
 | `StaminaConsumptionAddEffectExecutor` | 未実装 | `stamina_consumption_add` |
 | `StaminaConsumptionAddFixEffectExecutor` | 未実装 | `stamina_consumption_add_fix` |
-| `StaminaConsumptionDownAddEffectExecutor` | 未実装 | 未実装 |
+| `StaminaConsumptionDownAddEffectExecutor` | `ExamStaminaConsumptionDownAdd` | 未実装 |
 | `StaminaConsumptionDownEffectExecutor` | 未実装 | `stamina_consumption_down` |
 | `StaminaConsumptionDownFixEffectExecutor` | 未実装 | `stamina_consumption_down_fix` |
 | `StaminaDamageEffectExecutor` | `ExamStaminaDamage` | 未実装 |
