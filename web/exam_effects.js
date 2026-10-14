@@ -1294,7 +1294,7 @@ export function syncNativeGenericTimedStatuses(exam) {
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
     "reviewAdditiveFix", "parameterBuffAdditiveFix", "fullPowerPointAdditiveFix",
     "enthusiasticAdditivePermil", "enthusiasticTurnAdditive", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
-    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff", "staminaRecoverAdd", "staminaReduceChange",
+    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff", "staminaRecoverAdd", "staminaReduceChange", "uplifting",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
   for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd", "blockAddDownRestriction", "handHold", "getCardUpgrade"]) {
