@@ -8,16 +8,15 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **97** |
+| Master Effectからクラス単位に移した分岐数 | **128** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **130** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **31** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **161** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **0** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
-今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
-`ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
+既存switchからの移行に加え、未対応ExecutorをELFの委譲先・状態寿命・乱数消費に基づいて追加しています。実装登録と全ケースの実機一致は区別します。
 
-JSの未実装31クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+161種類すべてにMasterまたはParsedの実行経路が接続されています。実装経路の存在と全条件の実機一致は区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -25,7 +24,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `web/tower_runtime.js` : 161個の独立クラス、Master型→Executor対応表。公開 `NATIVE_EFFECT_EXECUTOR_CLASSES`。
 - `web/exam_effects.js` : Parsed Effect側の独立 `ExecuteEffect` と `PARSED_EXAM_EFFECT_EXECUTOR_CLASSES`。
 - `web/native_effect_executor_registry.js` : IL2CPPから抽出した161クラス名とマスターIDの名称対応。
-- `tests/test_all_native_executors.mjs` : 161クラスの一意性、80+41分岐、113対応名を検証。
+- `tests/test_all_native_executors.mjs` : 161クラスの一意性、128+41分岐、161対応名を検証。
 - `tests/test_contest_dfs.mjs` : JSへ移したコンテストDFS方針の回帰検証。
 
 ## ELFによる追加実装（2026-10-14）
@@ -56,6 +55,43 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `GimmickEnthusiastic`: `TryAddEnthusiasticStatus(Value1, Value2)` を確認し、既存の `scalarTimedStatuses` に接続。
 - 単体テスト：`tests/test_elf_timed_status_executors.mjs`。
 
+### 固定加算ステータスの追加（2026-10-14）
+ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x805d7b8 / FullPowerPointAdditiveFix @ 0x8051df0）は、各 `TryAdd*Status(Value1,Value2)` 呼出しを確認。従来未接続だった固定値を状態の期限付きリストと加算計算に接続。テスト：`tests/test_elf_fixed_additive_executors.mjs`。今回の未収録効果について実機完全一致は未検証。
+
+### 検索枚数依存好調（ELF確認追加）
+`ParameterBuffPerSearchCountEffectExecutor @ 0x805e688` は、Value2のpermil変換後に検索候補数を掛けて上方丸めし、Value1を加え、`TryAddParameterBuffStatus` に渡す。ゼロ枚の場合もValue1を保持する。テスト：`tests/test_elf_parameter_buff_per_search.mjs`。
+
+### 累積熱意参照のスコア（ELF確認追加）
+`LessonDependEnthusiasticGetSumEffectExecutor @ 0x8058d88` は、`ExamParameterModel.EnthusiasticGetSumCount`（0x3d0）を使って `Value1 + ceil(FloatFromPermil(Value2) × 累積獲得熱意)` を求め、`Count` 回の`CalculateAddingParameter / AddParameter`を繰り返す。熱意の有効期限と累積獲得量を分離し、`tests/test_elf_enthusiastic_gain_sum.mjs`で境界値を検証した。
+
+### 体力減少変更（ELF確認追加）
+`StaminaReduceChangeEffectExecutor @ 0x8064178` は `Value1` と `Turn` を `TryAddStaminaReduceChangeStatus` に渡す。JSの期限付き状態と既存の `calculateNativeStaminaDamage` に接続。テスト：`tests/test_elf_stamina_reduce_change.mjs`。
+
+### 元気増加量減少の禁止と恒久体力回復加算（2026-10-14）
+
+- `BlockAddDownRestrictionEffectExecutor @ 0x8047e84` は `TryAddBlockAddDownRestrictionStatus(Value1)` を実行する。既存の `BlockAddDownEffectExecutor` を制御し、状態が期限切れになれば通常の元気低下を再度許可する。
+- `StaminaRecoverAddEffectExecutor @ 0x8063a08` は `TryAddStaminaRecoverAddStatus(Value1,-1)` を実行する。無期限加算状態として保持し、固定回復・最大体力割合回復・スキップ回復で適用する。
+- 専用回帰テスト：`tests/test_elf_native_status_protections.mjs`。
+- これらの効果を使う独立実機トレースの一致は未検証。残りの未対応23種類は推測実装しない。
+
+### 手札保持（ELF確認追加）
+
+`HandHoldEffectExecutor @0x8054E9C` は `TryAddHandHoldStatus(1)` を実行する。`ExamCardMoveController.ResetHand @0x827E4DC` は `IsHandHold(1)` がtrueなら即returnし、Hand→Grave/Lostへの移動を行わない。JSの `finishTowerTurn` に同じ分岐を設け、保持カードはHoldではなくHandへ残す。状態の期限は1ターン。テスト：`tests/test_elf_hand_hold.mjs`。
+
+### 新規カード取得時の強化（ELF確認追加）
+
+`GetCardUpgradeEffectExecutor @0x805320C` は `TryAddGetCardUpgradeStatus(Value1)` を呼び出す。実機の `ExamCardMoveController.AddCard @0x8276818 / @0x827A084` は `IsGetCardUpgrade(1)` を検査し、適用時に取得カードを強化する。JSでは生成後初回 `addRuntimeCardAt` でのみ既存 `applyTemporarySkillUpgradeInPlace` を適用し、既存カードの移動は強化しない。テスト：`tests/test_elf_get_card_upgrade.mjs`。
+
+### 取り消し可能な減少4種類（ELF照合中）
+
+`TryReduceAggressive` / `TryReduceLessonBuff` / `TryReduceParameterBuff` / `TryReduceReview` は `IsBlockAddStatus` で状態変更を拒否しうる。JS側では既存 `antiDebuffCount` を先に消費し、許可された場合のみ減算する経路を実装。
+
+未キャプチャ効果の全条件（対象Status UIDと解除可否）は依然検証課題。単体テストは `tests/test_all_native_executors.mjs`。
+
+### 高揚による体力減少無効化
+
+ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`の実行時に`GetUplifting`→`ReduceUplifting`で1回分消費する経路へ接続。`tests/test_all_native_executors.mjs`に状態消費境界を追加。
+
 ## 全クラス一覧
 
 | 実機クラス名 | Master Effect側 | Parsed Effect側 |
@@ -66,12 +102,12 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `AggressiveDependReviewEffectExecutor` | `ExamAggressiveDependReview` | 未実装 |
 | `AggressiveEffectExecutor` | 未実装 | `aggressive` |
 | `AggressivePerSearchCountEffectExecutor` | `ExamAggressivePerSearchCount` | 未実装 |
-| `AggressiveReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `AggressiveReduceCancellableEffectExecutor` | `ExamAggressiveReduceCancellable` | 未実装 |
 | `AggressiveReduceEffectExecutor` | `ExamAggressiveReduce` | 未実装 |
 | `AggressiveValueMultipleEffectExecutor` | `ExamAggressiveValueMultiple` | 未実装 |
 | `AntiDebuffEffectExecutor` | `ExamAntiDebuff` | 未実装 |
 | `BlockAddDownEffectExecutor` | `ExamBlockAddDown` | 未実装 |
-| `BlockAddDownRestrictionEffectExecutor` | 未実装 | 未実装 |
+| `BlockAddDownRestrictionEffectExecutor` | `ExamBlockAddDownRestriction` | 未実装 |
 | `BlockAddMultipleAggressiveEffectExecutor` | `ExamBlockAddMultipleAggressive` | 未実装 |
 | `BlockDependBlockConsumptionSumEffectExecutor` | `ExamBlockDependBlockConsumptionSum` | 未実装 |
 | `BlockDependReviewEffectExecutor` | `ExamBlockDependExamReview` | 未実装 |
@@ -88,38 +124,38 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `CardCreateSearchEffectExecutor` | `ExamCardCreateSearch` | 未実装 |
 | `CardDuplicateEffectExecutor` | `ExamCardDuplicate` | 未実装 |
 | `CardMoveEffectExecutor` | `ExamCardMove` | `card_move_search` |
-| `CardShuffleDeckGraveEffectExecutor` | 未実装 | 未実装 |
-| `CardShuffleDeckLostEffectExecutor` | 未実装 | 未実装 |
-| `ChainEffectExecutor` | 未実装 | 未実装 |
-| `ChainEffectPerPassedTurnEffectExecutor` | 未実装 | 未実装 |
-| `ChainEffectPerRemainTurnEffectExecutor` | 未実装 | 未実装 |
-| `ClearDebuffEffectExecutor` | 未実装 | 未実装 |
+| `CardShuffleDeckGraveEffectExecutor` | `ExamCardShuffleDeckGrave` | 未実装 |
+| `CardShuffleDeckLostEffectExecutor` | `ExamCardShuffleDeckLost` | 未実装 |
+| `ChainEffectExecutor` | `ExamChainEffect` | 未実装 |
+| `ChainEffectPerPassedTurnEffectExecutor` | `ExamChainEffectPerPassedTurn` | 未実装 |
+| `ChainEffectPerRemainTurnEffectExecutor` | `ExamChainEffectPerRemainTurn` | 未実装 |
+| `ClearDebuffEffectExecutor` | `ExamClearDebuff` | 未実装 |
 | `ConcentrationEffectExecutor` | 未実装 | `concentration` |
 | `ConcentrationLessonMultipleAdditiveEffectExecutor` | `ExamConcentrationLessonMultipleAdditive` | 未実装 |
 | `DebuffRecoverEffectExecutor` | `ExamDebuffRecover` | 未実装 |
 | `DrawEffectExecutor` | 未実装 | `card_draw` |
 | `EffectPerSearchCountEffectExecutor` | `ExamEffectPerSearchCount` | 未実装 |
 | `EffectTimerEffectExecutor` | `ExamEffectTimer` | `effect_timer` |
-| `EffectTimerEndTurnEffectExecutor` | 未実装 | 未実装 |
+| `EffectTimerEndTurnEffectExecutor` | `ExamEffectTimerEndTurn` | 未実装 |
 | `EnthusiasticAdditiveEffectExecutor` | `ExamEnthusiasticAdditive` | 未実装 |
 | `EnthusiasticMultipleEffectExecutor` | `ExamEnthusiasticMultiple` | 未実装 |
 | `EnthusiasticTurnAdditiveEffectExecutor` | `ExamEnthusiasticTurnAdditive` | 未実装 |
 | `ExamLessonAddMultipleLessonBuffEffectExecutor` | `ExamLessonAddMultipleLessonBuff` | 未実装 |
 | `LessonPerSearchCountEffectExecutor` | `ExamLessonPerSearchCount` | 未実装 |
-| `ExamPlayCardLimitPlayableValueAddEffectExecutor` | 未実装 | 未実装 |
+| `ExamPlayCardLimitPlayableValueAddEffectExecutor` | `ExamPlayCardLimitPlayableValueAdd` | 未実装 |
 | `ExtraTurnEffectExecutor` | 未実装 | `extra_turn` |
 | `ForcePlayCardSearchWithCostEffectExecutor` | `ExamForcePlayCardSearchWithCost` | 未実装 |
 | `ForcePlaySearchEffectExecutor` | `ExamForcePlayCardSearch` | 未実装 |
 | `FullPowerEffectExecutor` | `ExamFullPower` | 未実装 |
 | `FullPowerLessonMultipleAdditiveEffectExecutor` | `ExamFullPowerLessonMultipleAdditive` | 未実装 |
 | `FullPowerPointAdditiveEffectExecutor` | `ExamFullPowerPointAdditive` | 未実装 |
-| `FullPowerPointAdditiveFixEffectExecutor` | 未実装 | 未実装 |
+| `FullPowerPointAdditiveFixEffectExecutor` | `ExamFullPowerPointAdditiveFix` | 未実装 |
 | `FullPowerPointDependFullPowerPointGetSumEffectExecutor` | `ExamFullPowerPointDependFullPowerPointGetSum` | 未実装 |
 | `FullPowerPointEffectExecutor` | `ExamFullPowerPoint` | 未実装 |
 | `FullPowerPointPerSearchCountEffectExecutor` | `ExamFullPowerPointPerSearchCount` | 未実装 |
-| `FullPowerPointReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `FullPowerPointReduceCancellableEffectExecutor` | `ExamFullPowerPointReduceCancellable` | 未実装 |
 | `FullPowerPointReduceEffectExecutor` | `ExamFullPowerPointReduce` | 未実装 |
-| `GetCardUpgradeEffectExecutor` | 未実装 | 未実装 |
+| `GetCardUpgradeEffectExecutor` | `ExamGetCardUpgrade` | 未実装 |
 | `GimmickEnthusiasticEffectExecutor` | `ExamGimmickEnthusiastic` | 未実装 |
 | `GimmickLessonDebuffEffectExecutor` | `ExamGimmickLessonDebuff` | 未実装 |
 | `GimmickParameterDebuffEffectExecutor` | `ExamGimmickParameterDebuff` | 未実装 |
@@ -129,7 +165,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `GimmickStartTurnCardDrawDownEffectExecutor` | `ExamGimmickStartTurnCardDrawDown` | 未実装 |
 | `GrowEffectLessonAddAdditiveEffectExecutor` | 未実装 | 未実装 |
 | `HandGraveCountCardDrawEffectExecutor` | 未実装 | `hand_grave_count_card_draw` |
-| `HandHoldEffectExecutor` | 未実装 | 未実装 |
+| `HandHoldEffectExecutor` | `ExamHandHold` | 未実装 |
 | `ItemFireLimitAddEffectExecutor` | `ExamItemFireLimitAdd` | 未実装 |
 | `LessonAddBlockEffectExecutor` | `ExamLessonAddBlock` | 未実装 |
 | `LessonAddMultipleParameterBuffEffectExecutor` | 未実装 | `lesson_add_multiple_parameter_buff` |
@@ -139,15 +175,15 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `LessonBuffEffectExecutor` | 未実装 | `lesson_buff` |
 | `LessonBuffMultipleEffectExecutor` | 未実装 | `lesson_buff_multiple` |
 | `LessonBuffPerSearchCountEffectExecutor` | `ExamLessonBuffPerSearchCount` | 未実装 |
-| `LessonBuffReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `LessonBuffReduceCancellableEffectExecutor` | `ExamLessonBuffReduceCancellable` | 未実装 |
 | `LessonBuffReduceEffectExecutor` | `ExamLessonBuffReduce` | 未実装 |
-| `LessonChangeSpecifyLessThanEffectExecutor` | 未実装 | 未実装 |
-| `LessonChangeSpecifyMoreThanEffectExecutor` | 未実装 | 未実装 |
+| `LessonChangeSpecifyLessThanEffectExecutor` | `ExamLessonChangeSpecifyLessThan` | 未実装 |
+| `LessonChangeSpecifyMoreThanEffectExecutor` | `ExamLessonChangeSpecifyMoreThan` | 未実装 |
 | `LessonDependAggressiveAndSearchCountEffectExecutor` | `ExamLessonDependAggressiveAndSearchCount` | 未実装 |
 | `LessonDependBlockAndSearchCountEffectExecutor` | `ExamLessonDependBlockAndSearchCount` | 未実装 |
 | `LessonDependBlockConsumptionSumEffectExecutor` | `ExamLessonDependBlockConsumptionSum` | 未実装 |
 | `LessonDependBlockEffectExecutor` | `ExamLessonDependBlock` | 未実装 |
-| `LessonDependEnthusiasticGetSumEffectExecutor` | 未実装 | 未実装 |
+| `LessonDependEnthusiasticGetSumEffectExecutor` | `ExamLessonDependEnthusiasticGetSum` | 未実装 |
 | `LessonDependExamAggressiveEffectExecutor` | 未実装 | `lesson_depend_exam_aggressive` |
 | `LessonDependExamReviewEffectExecutor` | 未実装 | `lesson_depend_exam_review` |
 | `LessonDependParameterBuffEffectExecutor` | `ExamLessonDependParameterBuff` | `lesson_depend_parameter_buff` |
@@ -164,24 +200,24 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `LessonMultipleFullPowerEffectExecutor` | `ExamMultipleFullPowerLesson` | 未実装 |
 | `LessonValueMultipleDownEffectExecutor` | `ExamLessonValueMultipleDown` | `lesson_value_multiple_down` |
 | `LessonValueMultipleEffectExecutor` | 未実装 | `lesson_value_multiple` |
-| `MoveGrowEffectEffectExecutor` | 未実装 | 未実装 |
+| `MoveGrowEffectEffectExecutor` | `ExamMoveGrowEffect` | 未実装 |
 | `MultipleLessonBuffLessonEffectExecutor` | 未実装 | `lesson_multiple_lesson_buff` |
 | `OverPreservationEffectExecutor` | `ExamOverPreservation` | 未実装 |
 | `PanicEffectExecutor` | `ExamPanic` | 未実装 |
 | `ParameterBuffAdditiveEffectExecutor` | `ExamParameterBuffAdditive` | 未実装 |
-| `ParameterBuffAdditiveFixEffectExecutor` | 未実装 | 未実装 |
+| `ParameterBuffAdditiveFixEffectExecutor` | `ExamParameterBuffAdditiveFix` | 未実装 |
 | `ParameterBuffDependLessonBuffEffectExecutor` | `ExamParameterBuffDependLessonBuff` | 未実装 |
 | `ParameterBuffEffectExecutor` | 未実装 | `parameter_buff` |
 | `ParameterBuffMultiplePerTurnEffectExecutor` | 未実装 | `parameter_buff_multiple_per_turn` |
 | `ParameterBuffMultiplePerTurnReduceEffectExecutor` | `ExamParameterBuffMultiplePerTurnReduce` | 未実装 |
-| `ParameterBuffPerSearchCountEffectExecutor` | 未実装 | 未実装 |
-| `ParameterBuffReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `ParameterBuffPerSearchCountEffectExecutor` | `ExamParameterBuffPerSearchCount` | 未実装 |
+| `ParameterBuffReduceCancellableEffectExecutor` | `ExamParameterBuffReduceCancellable` | 未実装 |
 | `ParameterBuffReduceEffectExecutor` | 未実装 | `parameter_buff_reduce` |
 | `ParameterBuffTurnEndReduceLockEffectExecutor` | 未実装 | `parameter_buff_turn_end_reduce_lock` |
 | `PlayableValueAddEffectExecutor` | 未実装 | `playable_add` |
 | `PreservationEffectExecutor` | 未実装 | `preservation` |
 | `ReviewAdditiveEffectExecutor` | `ExamReviewAdditive` | 未実装 |
-| `ReviewAdditiveFixEffectExecutor` | 未実装 | 未実装 |
+| `ReviewAdditiveFixEffectExecutor` | `ExamReviewAdditiveFix` | 未実装 |
 | `ReviewCountAddEffectExecutor` | 未実装 | `review_count_add` |
 | `ReviewDependAggressiveEffectExecutor` | `ExamReviewDependExamCardPlayAggressive` | 未実装 |
 | `ReviewDependBlockEffectExecutor` | `ExamReviewDependExamBlock` | 未実装 |
@@ -189,12 +225,12 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `ReviewEffectExecutor` | 未実装 | `review` |
 | `ReviewMultipleEffectExecutor` | 未実装 | `review_multiple` |
 | `ReviewPerSearchCountEffectExecutor` | `ExamReviewPerSearchCount` | 未実装 |
-| `ReviewReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `ReviewReduceCancellableEffectExecutor` | `ExamReviewReduceCancellable` | 未実装 |
 | `ReviewReduceEffectExecutor` | `ExamReviewReduce` | 未実装 |
 | `ReviewTurnEndReduceLockEffectExecutor` | 未実装 | `review_turn_end_reduce_lock` |
 | `ReviewValueMultipleEffectExecutor` | `ExamReviewValueMultiple` | 未実装 |
 | `SearchEffectPlayCountBuffEffectExecutor` | 未実装 | `card_search_effect_play_count_buff` |
-| `SearchPlayCardBuffConsumptionChangeEffectExecutor` | 未実装 | 未実装 |
+| `SearchPlayCardBuffConsumptionChangeEffectExecutor` | `ExamSearchPlayCardBuffConsumptionChange` | 未実装 |
 | `SearchPlayCardStaminaConsumptionChangeEffectExecutor` | `ExamSearchPlayCardStaminaConsumptionChange` | 未実装 |
 | `StaminaConsumptionAddDownEffectExecutor` | `ExamStaminaConsumptionAddDown` | 未実装 |
 | `StaminaConsumptionAddEffectExecutor` | 未実装 | `stamina_consumption_add` |
@@ -203,11 +239,11 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `StaminaConsumptionDownEffectExecutor` | 未実装 | `stamina_consumption_down` |
 | `StaminaConsumptionDownFixEffectExecutor` | 未実装 | `stamina_consumption_down_fix` |
 | `StaminaDamageEffectExecutor` | `ExamStaminaDamage` | 未実装 |
-| `StaminaRecoverAddEffectExecutor` | 未実装 | 未実装 |
+| `StaminaRecoverAddEffectExecutor` | `ExamStaminaRecoverAdd` | 未実装 |
 | `StaminaRecoverFixEffectExecutor` | 未実装 | `stamina_recover` |
 | `StaminaRecoverMultipleEffectExecutor` | `ExamStaminaRecoverMultiple` | 未実装 |
 | `StaminaRecoverRestrictionEffectExecutor` | `ExamStaminaRecoverRestriction` | 未実装 |
-| `StaminaReduceChangeEffectExecutor` | 未実装 | 未実装 |
+| `StaminaReduceChangeEffectExecutor` | `ExamStaminaReduceChange` | 未実装 |
 | `StaminaReduceEffectExecutor` | `ExamStaminaReduce` | 未実装 |
 | `StaminaReduceFixEffectExecutor` | `ExamStaminaReduceFix` | 未実装 |
 | `StanceLockConcentrationEffectExecutor` | `ExamStanceLockConcentration` | 未実装 |
@@ -215,12 +251,12 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `StanceLockFullPowerEffectExecutor` | `ExamStanceLockFullPower` | 未実装 |
 | `StanceLockPreservationEffectExecutor` | `ExamStanceLockPreservation` | 未実装 |
 | `StanceResetEffectExecutor` | `ExamStanceReset` | 未実装 |
-| `StatusEnchantCountAddEffectExecutor` | 未実装 | 未実装 |
+| `StatusEnchantCountAddEffectExecutor` | `ExamStatusEnchantCountAdd` | 未実装 |
 | `StatusEnchantEffectExecutor` | `ExamStatusEnchant` | `status_enchant` |
 | `StatusEnchantEncoreEffectExecutor` | `ExamStatusEnchantEncore` | 未実装 |
-| `StatusEnchantTurnAddEffectExecutor` | 未実装 | 未実装 |
+| `StatusEnchantTurnAddEffectExecutor` | `ExamStatusEnchantTurnAdd` | 未実装 |
 | `UpgradeEffectExecutor` | `ExamCardUpgrade` | `card_upgrade_hand_all` |
-| `UpliftingEffectExecutor` | 未実装 | 未実装 |
+| `UpliftingEffectExecutor` | `ExamUplifting` | 未実装 |
 
 ## 変更していない部分
 
@@ -230,3 +266,11 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - 保存JSONと従来のUIのフィールド契約
 
 実機との差分を利用した処理順序の再実装は、名称移行フェーズが完了した後の独立PRで行います。
+
+### 残り処理の追加と成長倍率の修正（2026-10-14）
+
+シャッフル2種類、全低下状態解除、ターン終了タイマー、条件付きパラメータ変更2種類を追加。成長倍率も成長取得時の値へ接続。詳細な委譲先・数値ベクトル・未検証範囲は `docs/remaining-runtime-elf-validation.md`。専用テスト `tests/test_elf_remaining_runtime.mjs` を含むCIテスト46本がローカルで成功。
+
+### 最後の6種類（2026-10-14）
+
+チェーン3種類を先頭挿入コマンドスタックへ接続。条件付き再行動、対象カードのバフ消費変更、成長効果の移動も実装。委譲先・パラメータ・実行順・確認範囲は `docs/final-six-elf-validation.md`。全47本のNode CIテストがローカルで成功。全161種類の登録経路が接続されたが、未キャプチャ効果の実機全条件一致を意味しない。

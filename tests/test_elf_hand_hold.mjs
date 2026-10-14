@@ -1,0 +1,27 @@
+import assert from "node:assert/strict";
+import { createTowerTurnState, drawTowerTurn, finishTowerTurn, NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES } from "../web/tower_runtime.js";
+const cards=Array.from({length:12},(_,i)=>({id:"basic-"+i,upgradeCount:0,stamina:0,playEffects:[]}));
+const masters=new Map(cards.map(card=>[card.id,card]));
+const make=()=>createTowerTurnState(cards,123,masters,{stamina:35,turnLimit:4});
+const s=make();
+drawTowerTurn(s,3);
+const ids=s.hand.map(x=>x.id);
+assert.equal(ids.length,3);
+const event={effects:[]};
+NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamHandHold.ExecuteEffect({exam:s.exam,event});
+assert.equal(s.exam.handHold,true);
+assert.deepEqual(event.effects,["ターン終了時に手札を保持（1T）"]);
+finishTowerTurn(s,{type:"end"});
+assert.deepEqual(s.hand.map(x=>x.id),ids,"ResetHand returns early; Hand is not moved to Hold/Grave/Lost");
+assert.equal(s.hold.length,0,"preserved cards stay in Hand, not Hold");
+assert.equal(s.exam.handHold,true,"the grant turn is not counted until StartPlay passes");
+drawTowerTurn(s,3);
+assert.ok(ids.every(id=>s.hand.some(x=>x.id===id)));
+finishTowerTurn(s,{type:"end"});
+assert.equal(s.exam.handHold,false,"HandHold expires after the next passed turn");
+assert.ok(ids.every(id=>s.hand.some(x=>x.id===id)),"the final guarded ResetHand preserved the Hand");
+// Without a new HandHold, the following turn resets remaining cards.
+drawTowerTurn(s,3);
+finishTowerTurn(s,{type:"end"});
+assert.equal(s.hand.length,0);
+console.log("ELF HandHold / ResetHand one-turn no-discard behavior: OK");

@@ -58,6 +58,15 @@ jobs:
           node tests/test_elf_calculated_executors.mjs
           node tests/test_elf_stance_locks.mjs
           node tests/test_elf_timed_status_executors.mjs
+          node tests/test_elf_fixed_additive_executors.mjs
+          node tests/test_elf_parameter_buff_per_search.mjs
+          node tests/test_elf_enthusiastic_gain_sum.mjs
+          node tests/test_elf_stamina_reduce_change.mjs
+          node tests/test_elf_native_status_protections.mjs
+          node tests/test_elf_hand_hold.mjs
+          node tests/test_elf_get_card_upgrade.mjs
+          node tests/test_elf_remaining_runtime.mjs
+          node tests/test_elf_final_six.mjs
           node tests/test_native_command_order.mjs
           node tests/test_contest_dfs.mjs
           node tests/test_contest_native_upgrade.mjs

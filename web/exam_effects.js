@@ -525,6 +525,8 @@ export function parseExamEffectMaster(effectInput) {
     targetExamEffectType: String(effectInput.targetExamEffectType ?? ""),
     searchId: String(effectInput.produceCardSearchId ?? ""),
     searchId2: String(effectInput.produceCardSearchId2 ?? ""),
+    pickCountReferenceSearchId: String(effectInput.pickCountReferenceProduceCardSearchId ?? ""),
+    pickCountReferenceSearchId2: String(effectInput.pickCountReferenceProduceCardSearchId2 ?? ""),
     movePositionType: String(effectInput.movePositionType ?? ""),
     pickRangeType: String(effectInput.pickRangeType ?? ""),
     pickCountType: String(effectInput.pickCountType ?? ""),
@@ -961,6 +963,7 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     reviewMultiple: 1,
     reviewCountAdd: 0,
     reviewAdditivePermil: 0,
+    reviewAdditiveFix: 0,
     reviewTurnEndReduceLock: 0,
     parameterBuffTurnEndReduceLock: 0,
     aggressive: 0,
@@ -973,9 +976,11 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     lessonBuffMultiple: 1,
     parameterBuff: 0,
     parameterBuffAdditivePermil: 0,
+    parameterBuffAdditiveFix: 0,
     parameterBuffMultiplePerTurn: 0,
     parameterDebuff: 0,
     enthusiastic: 0,
+    enthusiasticGetSumCount: 0,
     // Native ExamStatusEffectBase: value, finite turn count and passage flag
     // are separate. EnthusiasticStatusEffect is usually 1 turn, not permanent.
     scalarTimedStatuses: [],
@@ -988,14 +993,17 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     slump: false,
     panic: false,
     antiDebuffCount: 0,
+    uplifting: 0,
 
     // Anomaly stance state used by CalculateAddingParameter.
     idolStatusType: 0,
     idolStatusStep: 0,
     concentrationLessonMultipleAdditive: 1,
     fullPowerLessonMultipleAdditive: 1,
+    growEffectLessonAddAdditiveMultiple: 1,
     fullPowerPoint: 0,
     fullPowerPointAdditivePermil: 0,
+    fullPowerPointAdditiveFix: 0,
     fullPowerPointGetSum: 0,
     stanceLock: 0,
     stanceLockConcentration: 0,
@@ -1018,6 +1026,10 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     aggressiveValueMultiple: 1,
     reviewValueMultiple: 1,
     staminaRecoverRestriction: false,
+    staminaRecoverAdd: 0,
+    blockAddDownRestriction: false,
+    handHold: false,
+    getCardUpgrade: false,
     buffConsumptionAdd: 0,
     buffConsumptionDown: 0,
     itemFireLimitAdd: 0,
@@ -1229,6 +1241,7 @@ export function addNativeScalarTimedStatus(exam, fieldInput, valueInput, turnInp
       isTurnLimited: turn >= 0, isPassingTurnStart: true,
       uid: nextNativeStatusUid(exam)});
   }
+  exam.enthusiasticGetSumCount = Math.trunc(Number(exam.enthusiasticGetSumCount ?? 0)) + Math.trunc(value);
   syncNativeScalarTimedStatuses(exam);
   return true;
 }
@@ -1270,26 +1283,38 @@ export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnIn
   return true;
 }
 
+// ELF DamageStamina and StaminaReduceFix consume one Uplifting stack
+// before applying damage, if a stack is available.
+export function consumeNativeUplifting(exam) {
+  const row=(exam?.genericTimedStatuses??[]).find(x => x.field==="uplifting" && x.mode==="add" && x.value>0);
+  if (!row) return false;
+  row.value=Math.max(0,Number(row.value)-1);
+  if (row.value===0) exam.genericTimedStatuses=exam.genericTimedStatuses.filter(x=>x!==row);
+  syncNativeGenericTimedStatuses(exam);
+  return true;
+}
+
 export function syncNativeGenericTimedStatuses(exam) {
   const additive = new Map();
   const flags = new Set();
   const multiples = new Map();
   for (const status of exam?.genericTimedStatuses ?? []) {
     if (status.mode === "multiple") multiples.set(status.field, Math.fround(Math.fround(multiples.get(status.field) ?? 1) + Math.fround(status.value / 1000)));
-    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd"].includes(status.field))) flags.add(status.field);
+    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd", "blockAddDownRestriction", "handHold", "getCardUpgrade"].includes(status.field))) flags.add(status.field);
     else additive.set(status.field, Number(additive.get(status.field) ?? 0) + Number(status.value ?? 0));
   }
   const additiveFields = [
     "reviewAdditivePermil", "aggressiveAdditivePermil", "aggressiveAdditiveFix",
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
+    "reviewAdditiveFix", "parameterBuffAdditiveFix", "fullPowerPointAdditiveFix",
     "enthusiasticAdditivePermil", "enthusiasticTurnAdditive", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
-    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff",
+    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff", "staminaRecoverAdd", "staminaReduceChange", "uplifting",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
-  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd"]) {
+  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd", "blockAddDownRestriction", "handHold", "getCardUpgrade"]) {
     exam[field] = flags.has(field);
   }
-  for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive"]) exam[field] = multiples.get(field) ?? 1;
+  for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive", "growEffectLessonAddAdditiveMultiple"]) exam[field] = multiples.get(field) ?? 1;
   return exam;
 }
 
@@ -1538,7 +1563,7 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
 
 export function payCardCost(exam, card) {
   const events = [];
-  const costValue = calculateNativeBuffCost(exam, card.costValue);
+  const costValue = calculateNativeBuffCost(exam, card.temporaryBuffConsumptionFix ?? card.costValue);
   const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
   const field = statusCosts[card.costType];
   if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");
@@ -1654,7 +1679,7 @@ export class BlockEffectExecutor {
 
 export class ReviewEffectExecutor {
   static ExecuteEffect(exam, parsed) {
-    const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000));
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000) + Number(exam.reviewAdditiveFix ?? 0));
     exam.review += value;
     return { applied: true, label: `好印象 +${value}` };
   }
@@ -1678,7 +1703,7 @@ export class LessonBuffEffectExecutor {
 
 export class ParameterBuffEffectExecutor {
   static ExecuteEffect(exam, parsed) {
-    const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000));
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000) + Number(exam.parameterBuffAdditiveFix ?? 0));
     exam.parameterBuff += value;
     return { applied: true, label: `好調 +${value}ターン` };
   }
@@ -1912,7 +1937,7 @@ export class StaminaRecoverFixEffectExecutor {
     {
           if (exam.staminaRecoverRestriction) return { applied: true, label: "体力回復不可" };
           const before = exam.stamina;
-          exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value) : exam.stamina + parsed.value;
+          exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value + Math.max(0, Math.trunc(Number(exam.staminaRecoverAdd ?? 0)))) : exam.stamina + parsed.value + Math.max(0, Math.trunc(Number(exam.staminaRecoverAdd ?? 0)));
           return { applied: true, label: `体力 +${exam.stamina - before}` };
         }
   }
