@@ -8,7 +8,9 @@ const check = (executorName, type, exam, { v1 = 0, v2 = 0, count = 1, search = 0
   const state = { exam, turn: 1, turnParameterTypes: [], parameterBonus: {} };
   const event = { effects: [] };
   ctor.ExecuteEffect({ state, exam, event, parsed: { count, value1: v1, value2: v2 },
-    v1, v2, searchCount: () => search, type });
+    v1, v2, searchCount: () => search, type,
+    status: (field, value, label) => { exam[field] = Number(exam[field] ?? 0) + value; event.effects.push(label + " +" + value); },
+  });
   for (const [key, value] of Object.entries(expected)) {
     assert.equal(exam[key], value, executorName + " " + key);
   }
