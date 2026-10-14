@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **103** |
+| Master Effectからクラス単位に移した分岐数 | **105** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **136** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **25** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **138** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **23** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装25クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装23クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -68,6 +68,13 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 ### 体力減少変更（ELF確認追加）
 `StaminaReduceChangeEffectExecutor @ 0x8064178` は `Value1` と `Turn` を `TryAddStaminaReduceChangeStatus` に渡す。JSの期限付き状態と既存の `calculateNativeStaminaDamage` に接続。テスト：`tests/test_elf_stamina_reduce_change.mjs`。
 
+### 元気増加量減少の禁止と恒久体力回復加算（2026-10-14）
+
+- `BlockAddDownRestrictionEffectExecutor @ 0x8047e84` は `TryAddBlockAddDownRestrictionStatus(Value1)` を実行する。既存の `BlockAddDownEffectExecutor` を制御し、状態が期限切れになれば通常の元気低下を再度許可する。
+- `StaminaRecoverAddEffectExecutor @ 0x8063a08` は `TryAddStaminaRecoverAddStatus(Value1,-1)` を実行する。無期限加算状態として保持し、固定回復・最大体力割合回復・スキップ回復で適用する。
+- 専用回帰テスト：`tests/test_elf_native_status_protections.mjs`。
+- これらの効果を使う独立実機トレースの一致は未検証。残りの未対応23種類は推測実装しない。
+
 ## 全クラス一覧
 
 | 実機クラス名 | Master Effect側 | Parsed Effect側 |
@@ -83,7 +90,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `AggressiveValueMultipleEffectExecutor` | `ExamAggressiveValueMultiple` | 未実装 |
 | `AntiDebuffEffectExecutor` | `ExamAntiDebuff` | 未実装 |
 | `BlockAddDownEffectExecutor` | `ExamBlockAddDown` | 未実装 |
-| `BlockAddDownRestrictionEffectExecutor` | 未実装 | 未実装 |
+| `BlockAddDownRestrictionEffectExecutor` | `ExamBlockAddDownRestriction` | 未実装 |
 | `BlockAddMultipleAggressiveEffectExecutor` | `ExamBlockAddMultipleAggressive` | 未実装 |
 | `BlockDependBlockConsumptionSumEffectExecutor` | `ExamBlockDependBlockConsumptionSum` | 未実装 |
 | `BlockDependReviewEffectExecutor` | `ExamBlockDependExamReview` | 未実装 |
@@ -215,7 +222,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `StaminaConsumptionDownEffectExecutor` | 未実装 | `stamina_consumption_down` |
 | `StaminaConsumptionDownFixEffectExecutor` | 未実装 | `stamina_consumption_down_fix` |
 | `StaminaDamageEffectExecutor` | `ExamStaminaDamage` | 未実装 |
-| `StaminaRecoverAddEffectExecutor` | 未実装 | 未実装 |
+| `StaminaRecoverAddEffectExecutor` | `ExamStaminaRecoverAdd` | 未実装 |
 | `StaminaRecoverFixEffectExecutor` | 未実装 | `stamina_recover` |
 | `StaminaRecoverMultipleEffectExecutor` | `ExamStaminaRecoverMultiple` | 未実装 |
 | `StaminaRecoverRestrictionEffectExecutor` | `ExamStaminaRecoverRestriction` | 未実装 |
