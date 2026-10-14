@@ -1022,6 +1022,8 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     aggressiveValueMultiple: 1,
     reviewValueMultiple: 1,
     staminaRecoverRestriction: false,
+    staminaRecoverAdd: 0,
+    blockAddDownRestriction: false,
     buffConsumptionAdd: 0,
     buffConsumptionDown: 0,
     itemFireLimitAdd: 0,
@@ -1281,7 +1283,7 @@ export function syncNativeGenericTimedStatuses(exam) {
   const multiples = new Map();
   for (const status of exam?.genericTimedStatuses ?? []) {
     if (status.mode === "multiple") multiples.set(status.field, Math.fround(Math.fround(multiples.get(status.field) ?? 1) + Math.fround(status.value / 1000)));
-    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd"].includes(status.field))) flags.add(status.field);
+    else if (status.mode === "flag" || (status.mode === "duration" && ["slump", "buffConsumptionDown", "staminaConsumptionAddDown", "blockAddDownRestriction"].includes(status.field))) flags.add(status.field);
     else additive.set(status.field, Number(additive.get(status.field) ?? 0) + Number(status.value ?? 0));
   }
   const additiveFields = [
@@ -1289,10 +1291,10 @@ export function syncNativeGenericTimedStatuses(exam) {
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
     "reviewAdditiveFix", "parameterBuffAdditiveFix", "fullPowerPointAdditiveFix",
     "enthusiasticAdditivePermil", "enthusiasticTurnAdditive", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
-    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff", "staminaReduceChange",
+    "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff", "staminaRecoverAdd", "staminaReduceChange",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
-  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd"]) {
+  for (const field of ["blockRestriction", "blockAddDown", "staminaRecoverRestriction", "panic", "slump", "buffConsumptionDown", "staminaConsumptionAddDown", "staminaConsumptionDownAdd", "blockAddDownRestriction"]) {
     exam[field] = flags.has(field);
   }
   for (const field of ["enthusiasticMultiple", "concentrationLessonMultipleAdditive", "fullPowerLessonMultipleAdditive"]) exam[field] = multiples.get(field) ?? 1;
@@ -1918,7 +1920,7 @@ export class StaminaRecoverFixEffectExecutor {
     {
           if (exam.staminaRecoverRestriction) return { applied: true, label: "体力回復不可" };
           const before = exam.stamina;
-          exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value) : exam.stamina + parsed.value;
+          exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value + Math.max(0, Math.trunc(Number(exam.staminaRecoverAdd ?? 0)))) : exam.stamina + parsed.value + Math.max(0, Math.trunc(Number(exam.staminaRecoverAdd ?? 0)));
           return { applied: true, label: `体力 +${exam.stamina - before}` };
         }
   }
