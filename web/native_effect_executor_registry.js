@@ -16,6 +16,11 @@ UpliftingEffectExecutor
 
 const knownClasses = new Set(NATIVE_EFFECT_EXECUTOR_CLASS_NAMES);
 const masterOverrides = Object.freeze({
+  "ExamBlockDependExamReview": "BlockDependReviewEffectExecutor",
+  "ExamReviewDependExamCardPlayAggressive": "ReviewDependAggressiveEffectExecutor",
+  "ExamBlockValueMultiple": "BlockValueMultiplicationEffectExecutor",
+  "ExamCardUpgrade": "UpgradeEffectExecutor",
+  "ExamForcePlayCardSearch": "ForcePlaySearchEffectExecutor",
   "ExamCardDraw": "DrawEffectExecutor",
   "ExamBlockPerUseCardCount": "BlockPerUserCardCountEffectExecutor",
   "ExamReviewDependExamBlock": "ReviewDependBlockEffectExecutor",
