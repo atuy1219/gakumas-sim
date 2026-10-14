@@ -495,6 +495,23 @@ class ExamStatusEffectCollection:
     idol_status_type: int = 0
     idol_status_step: int = 0
 
+    # Getter names and signatures reconstructed from IL2CPP metadata.
+    # Distinguish turn-based Review/ParameterBuff from value-based statuses.
+    def GetReview(self) -> int:
+        return self.turn(StatusKind.REVIEW)
+
+    def GetAggressive(self) -> int:
+        return self.total_value(StatusKind.AGGRESSIVE)
+
+    def GetFullPowerPoint(self) -> int:
+        return self.total_value(StatusKind.FULL_POWER_POINT)
+
+    def GetLessonBuff(self) -> int:
+        return self.total_value(StatusKind.LESSON_BUFF)
+
+    def GetParameterBuffTurn(self) -> int:
+        return self.turn(StatusKind.PARAMETER_BUFF)
+
     def deep_copy(self) -> "ExamStatusEffectCollection":
         # ExamStatusEffectCollection.DeepCopy maps every active and
         # removed status through its own DeepCopy and copies bookkeeping lists.
@@ -1275,7 +1292,7 @@ class ExamCardMoveController:
         # ResetHand starts by checking IsHandHold and processes each
         # card's reset destination.  We require that destination to be
         # supplied explicitly.
-        if context.parameter.status_effects.has(StatusKind.HAND_HOLD):
+        if context.ExamParameter.StatusEffectCollection.has(StatusKind.HAND_HOLD):
             return
         while self.hand.cards:
             card = self.hand.cards.pop(0)
@@ -1374,7 +1391,7 @@ class ExamEffectUtility:
     def calculate_adding_parameter(value: int, context: ExamEffectCalculateContext,
                                    modifier: ParameterCalculationModifier | None = None) -> int:
         # isBuffActive=true.
-        p=context.parameter; s=p.status_effects; st=p.setting
+        p=context.ExamParameter; s=p.StatusEffectCollection; st=p.setting
         if s.has(StatusKind.SLUMP):
             return 0
 
@@ -1455,7 +1472,7 @@ class ExamEffectUtility:
 
     @staticmethod
     def add_parameter(value: int, context: ExamEffectCalculateContext) -> None:
-        if context.parameter.status_effects.has(StatusKind.SLUMP): value=0
+        if context.ExamParameter.StatusEffectCollection.has(StatusKind.SLUMP): value=0
         ExamEffectUtility.add_parameter_fix(value,context)
 
     @staticmethod
@@ -1499,48 +1516,48 @@ class ExamEffectUtility:
             context,
             modifier,
         )
-        before = context.parameter.judge_parameter
+        before = context.ExamParameter.JudgeParameter
         for _ in range(max(0, int(count))):
             ExamEffectUtility.add_parameter(calculated, context)
-        return calculated, context.parameter.judge_parameter - before
+        return calculated, context.ExamParameter.JudgeParameter - before
 
     @staticmethod
     def apply_review_turn_end(context: ExamEffectCalculateContext) -> int:
         """Port the automatic Review score emitted during TURN_END."""
-        s = context.parameter.status_effects
+        s = context.ExamParameter.StatusEffectCollection
         review = s.turn(StatusKind.REVIEW)
         if review < 1:
             return 0
         base = _ceil_f32(_f32(s.ratio_multiple(StatusKind.REVIEW_MULTIPLE) * _f32(float(review))))
         count = max(0, s.total_value(StatusKind.REVIEW_COUNT_ADD)) + 1
-        before = context.parameter.judge_parameter
+        before = context.ExamParameter.JudgeParameter
         for _ in range(count):
             calculated = ExamEffectUtility.calculate_adding_parameter(base, context)
             ExamEffectUtility.add_parameter(calculated, context)
-        return context.parameter.judge_parameter - before
+        return context.ExamParameter.JudgeParameter - before
 
     @staticmethod
     def add_parameter_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter
+        p=context.ExamParameter
         added=int(value)
         parameter_type: int | None = None
         if p.is_battle:
             parameter_type=p.get_current_turn_parameter_type()
             added=p.calc_current_turn_battle_bonus(added)
 
-        before=p.judge_parameter
+        before=p.JudgeParameter
         after=before+added
         if p.parameter_add_limit is not None:
             after=min(after,int(p.parameter_add_limit))
         actual_added=max(0,after-before)
-        p.judge_parameter=after
+        p.JudgeParameter=after
 
         if parameter_type == int(ExamParameterType.VOCAL):
-            p.judge_parameter_vocal += actual_added
+            p.JudgeParameterVocal += actual_added
         elif parameter_type == int(ExamParameterType.DANCE):
-            p.judge_parameter_dance += actual_added
+            p.JudgeParameterDance += actual_added
         elif parameter_type == int(ExamParameterType.VISUAL):
-            p.judge_parameter_visual += actual_added
+            p.JudgeParameterVisual += actual_added
 
         context.log_diff('Parameter',before,after)
 
@@ -1548,7 +1565,7 @@ class ExamEffectUtility:
     def calculate_add_block(value: int, context: ExamEffectCalculateContext, aggressive_multiple: float=1.0) -> int:
         # wrapper uses aggressive_multiple=1.0.
         if value < 1: return 0
-        p=context.parameter; s=p.status_effects
+        p=context.ExamParameter; s=p.StatusEffectCollection
         if s.has(StatusKind.BLOCK_RESTRICTION): return 0
         value=int(value)+_ceil_f32(_f32(_f32(float(s.total_value(StatusKind.AGGRESSIVE)))*_f32(aggressive_multiple)))
         if value < 1: return max(0,value)
@@ -1562,19 +1579,19 @@ class ExamEffectUtility:
 
     @staticmethod
     def add_block_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter; before=p.block; delta=max(-before,int(value)); p.block=before+delta
-        context.log_diff('Block',before,p.block)
+        p=context.ExamParameter; before=p.Block; delta=max(-before,int(value)); p.Block=before+delta
+        context.log_diff('Block',before,p.Block)
 
     @staticmethod
     def add_stamina_fix(value: int, context: ExamEffectCalculateContext) -> None:
-        p=context.parameter; before=p.stamina; p.stamina=max(0,min(p.max_stamina,before+int(value)))
-        context.log_diff('Stamina',before,p.stamina)
+        p=context.ExamParameter; before=p.Stamina; p.Stamina=max(0,min(p.MaxStamina,before+int(value)))
+        context.log_diff('Stamina',before,p.Stamina)
 
     @staticmethod
     def calculate_damage(value: int, penetrate: bool, apply_fixed: bool, context: ExamEffectCalculateContext) -> tuple[int,int]:
         # Return order is (staminaDamage, blockDamage).
-        p=context.parameter; s=p.status_effects; st=p.setting
-        block=0 if penetrate else p.block
+        p=context.ExamParameter; s=p.StatusEffectCollection; st=p.setting
+        block=0 if penetrate else p.Block
         f=_f32(float(int(value)))
         t=s.idol_status_type; step=s.idol_status_step
         if t==1: f=_f32(f*_from_permil(st.get(27 if step==1 else 28)))
@@ -1602,28 +1619,28 @@ class ExamEffectUtility:
     def damage_stamina(value: int, penetrate: bool, context: ExamEffectCalculateContext) -> None:
         # 0x7feefcc: CalculateDamage(..., applyFixed=true), SetBlock/SetStamina,
         # increment CurrentTurnConsumeStamina, then consume one Uplifting if stamina was hit.
-        p=context.parameter; before_s=p.stamina; before_b=p.block
+        p=context.ExamParameter; before_s=p.Stamina; before_b=p.Block
         sd,bd=ExamEffectUtility.calculate_damage(value,penetrate,True,context)
-        if bd>=1: p.block=max(0,p.block-bd)
+        if bd>=1: p.Block=max(0,p.Block-bd)
         if sd>=1:
-            p.stamina=max(0,min(p.max_stamina,p.stamina-sd))
-            p.current_turn_consume_stamina += before_s-p.stamina
-        if sd>=1 and p.status_effects.total_value(StatusKind.UPLIFTING)>=1:
-            p.status_effects.reduce_value(StatusKind.UPLIFTING,1)
-        if bd and sd: context.log_diff('StaminaBlockMixDamage',(before_s,before_b),(p.stamina,p.block))
-        elif sd: context.log_diff('Stamina',before_s,p.stamina)
-        elif bd: context.log_diff('Block',before_b,p.block)
+            p.Stamina=max(0,min(p.MaxStamina,p.Stamina-sd))
+            p.CurrentTurnTotalConsumeStamina += before_s-p.Stamina
+        if sd>=1 and p.StatusEffectCollection.total_value(StatusKind.UPLIFTING)>=1:
+            p.StatusEffectCollection.reduce_value(StatusKind.UPLIFTING,1)
+        if bd and sd: context.log_diff('StaminaBlockMixDamage',(before_s,before_b),(p.Stamina,p.Block))
+        elif sd: context.log_diff('Stamina',before_s,p.Stamina)
+        elif bd: context.log_diff('Block',before_b,p.Block)
 
     @staticmethod
     def calculate_buff_cost(value: int, context: ExamEffectCalculateContext) -> int:
-        p=context.parameter; s=p.status_effects; f=_f32(float(int(value)))
+        p=context.ExamParameter; s=p.StatusEffectCollection; f=_f32(float(int(value)))
         if s.has(StatusKind.BUFF_CONSUMPTION_DOWN): f=_f32(f*_from_permil(1000-p.setting.get(2)))
         if s.has(StatusKind.BUFF_CONSUMPTION_ADD): f=_f32(f*_from_permil(1000+p.setting.get(3)))
         return _ceil_f32(f)
 
     @staticmethod
     def get_cost_buff_value(cost_type: int, context: ExamEffectCalculateContext) -> int:
-        s=context.parameter.status_effects
+        s=context.ExamParameter.StatusEffectCollection
         return {1:s.total_value(StatusKind.LESSON_BUFF),2:s.total_value(StatusKind.REVIEW),
                 3:s.total_value(StatusKind.AGGRESSIVE),4:s.turn(StatusKind.PARAMETER_BUFF),
                 5:s.total_value(StatusKind.FULL_POWER_POINT),
@@ -1631,7 +1648,7 @@ class ExamEffectUtility:
 
     @staticmethod
     def consume_buff_cost(cost_type: int, value: int, context: ExamEffectCalculateContext) -> None:
-        cost=ExamEffectUtility.calculate_buff_cost(value,context); s=context.parameter.status_effects
+        cost=ExamEffectUtility.calculate_buff_cost(value,context); s=context.ExamParameter.StatusEffectCollection
         ct=int(cost_type); before=ExamEffectUtility.get_cost_buff_value(ct,context)
         if ct==1: s.reduce_value(StatusKind.LESSON_BUFF,cost)
         elif ct==2: s.reduce_value(StatusKind.REVIEW,cost)
@@ -1648,35 +1665,102 @@ class ExamEffectUtility:
         ExamEffectUtility.damage_stamina(value,penetrate,context)
 
 
-class ExamEffectResolver:
-    """Executor dispatcher following the game's effect->executor architecture."""
+# IL2CPP public member names. Dataclass constructor arguments and stored
+# snake_case attributes are retained for existing callers and pickled fixtures.
+# Every alias is a live property, never a snapshot or an independent counter.
+def _il2cpp_field(field_name: str) -> property:
+    def read(instance):
+        return getattr(instance, field_name)
+
+    def write(instance, value):
+        setattr(instance, field_name, value)
+
+    return property(read, write)
+
+
+_EXAM_PARAMETER_NATIVE_FIELDS = {
+    "Seed": "seed",
+    "CurrentTurn": "current_turn",
+    "RemainTurn": "remain_turn",
+    "Stamina": "stamina",
+    "MaxStamina": "max_stamina",
+    "JudgeParameter": "judge_parameter",
+    "Block": "block",
+    "MainEffectType": "main_effect_type",
+    "ExtraTurn": "extra_turn",
+    "StatusEffectCollection": "status_effects",
+    "TurnCardPlayCount": "turn_card_play_count",
+    "IsTurnCardGrave": "is_turn_card_grave",
+    "IsTurnCardLost": "is_turn_card_lost",
+    "IsTurnCardPlayEnd": "is_turn_card_play_end",
+    "CurrentTurnTotalConsumeStamina": "current_turn_consume_stamina",
+    "ReviewConsumptionSumCount": "review_consumption_sum_count",
+    "JudgeParameterVocal": "judge_parameter_vocal",
+    "JudgeParameterDance": "judge_parameter_dance",
+    "JudgeParameterVisual": "judge_parameter_visual",
+    "VocalBonusPermil": "vocal_bonus_permil",
+    "DanceBonusPermil": "dance_bonus_permil",
+    "VisualBonusPermil": "visual_bonus_permil",
+    "ConfigParameterTypeOrderedList": "config_parameter_type_ordered_list",
+}
+_EXAM_CONTEXT_NATIVE_FIELDS = {
+    "ExamParameter": "parameter",
+    "CardController": "card_controller",
+    "HandList": "hand",
+    "DeckList": "deck",
+    "GraveList": "grave",
+    "LostList": "lost",
+    "HoldList": "hold",
+    "PlayingEffect": "playing_effect",
+    "PlayingEnchantIsTriggerActive": "is_enchant_trigger_active",
+}
+for _native_name, _py_name in _EXAM_PARAMETER_NATIVE_FIELDS.items():
+    setattr(ExamParameterModel, _native_name, _il2cpp_field(_py_name))
+for _native_name, _py_name in _EXAM_CONTEXT_NATIVE_FIELDS.items():
+    setattr(ExamEffectCalculateContext, _native_name, _il2cpp_field(_py_name))
+del _native_name, _py_name
+
+
+# Method aliases preserve the original Python entry points for consumers.
+# The PascalCase surface follows actual methods exported by IL2CPP metadata.
+_IL2CPP_NATIVE_METHODS = (
+    (ExamParameterModel, "DeepCopy", "deep_copy"),
+    (ExamParameterModel, "ClearTurnState", "clear_turn_state"),
+    (ExamParameterModel, "CalcTurnParameterType", "calc_turn_parameter_type"),
+    (ExamParameterModel, "CalcCurrentTurnBattleBonus", "calc_current_turn_battle_bonus"),
+    (ExamParameterModel, "SetConfigParameter", "set_config_parameter"),
+    (ExamEffectCalculateContext, "Create", "create"),
+    (ExamEffectCalculateContext, "Reset", "reset"),
+    (ExamCardMoveController, "DrawCard", "draw_card"),
+    (ExamCardMoveController, "ShuffleDeck", "shuffle_deck"),
+    (ExamCardMoveController, "UseHand", "use_hand"),
+    (ExamCardMoveController, "MovePlayCard", "move_play_card"),
+    (ExamCardMoveController, "ResetHand", "reset_hand"),
+    (ExamEffectUtility, "CalculateAddingParameter", "calculate_adding_parameter"),
+    (ExamEffectUtility, "AddParameter", "add_parameter"),
+    (ExamEffectUtility, "AddParameterFix", "add_parameter_fix"),
+    (ExamEffectUtility, "CalculateAddBlock", "calculate_add_block"),
+    (ExamEffectUtility, "AddBlockFix", "add_block_fix"),
+)
+for _cls, _name, _old in _IL2CPP_NATIVE_METHODS:
+    setattr(_cls, _name, _cls.__dict__[_old])
+del _cls, _name, _old
+
+
+class IExamEffectExecutor:
+    """Python port of the native IExamEffectExecutor.ExecuteEffect contract."""
 
     def __init__(self, context: ExamEffectCalculateContext):
         self.context = context
 
-    def execute(self, effect: ExamEffect) -> None:
-        self.context.playing_effect = effect
-        try:
-            fn = {
-                EffectKind.LESSON.value: self._lesson,
-                EffectKind.LESSON_FIX.value: self._lesson_fix,
-                EffectKind.BLOCK.value: self._block,
-                EffectKind.DRAW.value: self._draw,
-                EffectKind.EXTRA_TURN.value: self._extra_turn,
-                EffectKind.PARAMETER_BUFF.value: self._parameter_buff,
-                EffectKind.REVIEW.value: self._review,
-                EffectKind.LESSON_BUFF.value: self._lesson_buff,
-            }.get(effect.kind)
-            if fn is None:
-                raise UnsupportedPath(
-                    "ExamEffectUtility.CreateExecutor/AffectEffect",
-                    f"effect executor is unsupported: {effect.kind}",
-                )
-            fn(effect)
-        finally:
-            self.context.playing_effect = None
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise NotImplementedError
 
-    def _lesson(self, effect: ExamEffect) -> None:
+
+class LessonEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.LessonEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # LessonEffectExecutor.ExecuteEffect loops count times.
         if effect.count < 1:
             return
@@ -1684,7 +1768,11 @@ class ExamEffectResolver:
             v = ExamEffectUtility.calculate_adding_parameter(effect.value, self.context)
             ExamEffectUtility.add_parameter(v, self.context)
 
-    def _lesson_fix(self, effect: ExamEffect) -> None:
+
+class LessonFixEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.LessonFixEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # LessonFixEffectExecutor follows AddParameterFix and performs a fixed addition.
         if effect.count not in (0, 1):
             raise UnsupportedPath(
@@ -1692,18 +1780,30 @@ class ExamEffectResolver:
             )
         ExamEffectUtility.add_parameter_fix(effect.value, self.context)
 
-    def _block(self, effect: ExamEffect) -> None:
+
+class BlockEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.BlockEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # BlockEffectExecutor.
         v = ExamEffectUtility.calculate_add_block(effect.value, self.context)
         ExamEffectUtility.add_block_fix(v, self.context)
 
-    def _draw(self, effect: ExamEffect) -> None:
+
+class DrawEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.DrawEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # DrawEffectExecutor delegates to CardController.DrawCard(value,...).
         if effect.count not in (0, 1):
             raise UnsupportedPath("DrawEffectExecutor.ExecuteEffect", "counted draw")
-        self.context.card_controller.draw_card(effect.value, self.context, True)
+        self.context.CardController.draw_card(effect.value, self.context, True)
 
-    def _extra_turn(self, effect: ExamEffect) -> None:
+
+class ExtraTurnEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.ExtraTurnEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # ExtraTurnEffectExecutor increments both RemainTurn and
         # ExtraTurn by 1.  It has no data fields.
         if effect.value not in (0, 1) or effect.count not in (0, 1):
@@ -1711,25 +1811,1311 @@ class ExamEffectResolver:
                 "ExtraTurnEffectExecutor.ExecuteEffect",
                 "ExtraTurn executor has no value/count field in type",
             )
-        p = self.context.parameter
+        p = self.context.ExamParameter
         before = (p.remain_turn, p.extra_turn)
         p.remain_turn += 1
         p.extra_turn += 1
         self.context.log_diff("ExtraTurn", before, (p.remain_turn, p.extra_turn))
 
-    def _parameter_buff(self, effect: ExamEffect) -> None:
+
+class ParameterBuffEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.ParameterBuffEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # ParameterBuffEffectExecutor snapshots turn, calls
         # TryAddParameterBuffStatus(_turn), then snapshots again.
         turn = effect.turn if effect.turn else effect.value
-        self.context.parameter.status_effects.add_parameter_buff(turn, self.context)
+        self.context.ExamParameter.status_effects.add_parameter_buff(turn, self.context)
 
-    def _review(self, effect: ExamEffect) -> None:
+
+class ReviewEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.ReviewEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # ReviewEffectExecutor -> TryAddReviewStatus(_value).
-        self.context.parameter.status_effects.add_review(effect.value, self.context)
+        self.context.ExamParameter.status_effects.add_review(effect.value, self.context)
 
-    def _lesson_buff(self, effect: ExamEffect) -> None:
+
+class LessonBuffEffectExecutor(IExamEffectExecutor):
+    """Native Campus.InGame.Exam.LessonBuffEffectExecutor."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
         # LessonBuffEffectExecutor -> TryAddLessonBuffStatus(_value).
-        self.context.parameter.status_effects.add_lesson_buff(effect.value, self.context)
+        self.context.ExamParameter.status_effects.add_lesson_buff(effect.value, self.context)
+
+
+class ExamEffectResolver:
+    """Dispatch to the ELF-named concrete Executor, without changing ordering."""
+
+    EXECUTOR_TYPES = {
+        EffectKind.LESSON.value: LessonEffectExecutor,
+        EffectKind.LESSON_FIX.value: LessonFixEffectExecutor,
+        EffectKind.BLOCK.value: BlockEffectExecutor,
+        EffectKind.DRAW.value: DrawEffectExecutor,
+        EffectKind.EXTRA_TURN.value: ExtraTurnEffectExecutor,
+        EffectKind.PARAMETER_BUFF.value: ParameterBuffEffectExecutor,
+        EffectKind.REVIEW.value: ReviewEffectExecutor,
+        EffectKind.LESSON_BUFF.value: LessonBuffEffectExecutor,
+    }
+
+    def __init__(self, context: ExamEffectCalculateContext):
+        self.context = context
+
+    def execute(self, effect: ExamEffect) -> None:
+        self.context.PlayingEffect = effect
+        try:
+            executor_class = self.EXECUTOR_TYPES.get(effect.kind)
+            if executor_class is None:
+                raise UnsupportedPath(
+                    "ExamEffectUtility.CreateExecutor/AffectEffect",
+                    f"effect executor is unsupported: {effect.kind}",
+                )
+            executor_class(self.context).ExecuteEffect(effect)
+        finally:
+            self.context.PlayingEffect = None
+
+
+class AddGrowEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AddGrowEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveAdditiveFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveAdditiveFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveDependReviewEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveDependReviewEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressivePerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressivePerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveReduceCancellableEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveReduceCancellableEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AggressiveValueMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AggressiveValueMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class AntiDebuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("AntiDebuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockAddDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockAddDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockAddDownRestrictionEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockAddDownRestrictionEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockAddMultipleAggressiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockAddMultipleAggressiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockDependBlockConsumptionSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockDependBlockConsumptionSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockDependReviewEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockDependReviewEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockPerUserCardCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockPerUserCardCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockRestrictionEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockRestrictionEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BlockValueMultiplicationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BlockValueMultiplicationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BuffConsumptionAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BuffConsumptionAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class BuffConsumptionDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("BuffConsumptionDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class CardCreateIdEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("CardCreateIdEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class CardCreateSearchEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("CardCreateSearchEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class CardDuplicateEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("CardDuplicateEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class CardMoveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("CardMoveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class CardShuffleDeckGraveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("CardShuffleDeckGraveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class CardShuffleDeckLostEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("CardShuffleDeckLostEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ChainEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ChainEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ChainEffectPerPassedTurnEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ChainEffectPerPassedTurnEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ChainEffectPerRemainTurnEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ChainEffectPerRemainTurnEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ClearDebuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ClearDebuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ConcentrationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ConcentrationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ConcentrationLessonMultipleAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ConcentrationLessonMultipleAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class DebuffRecoverEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("DebuffRecoverEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class EffectPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("EffectPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class EffectTimerEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("EffectTimerEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class EffectTimerEndTurnEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("EffectTimerEndTurnEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class EnthusiasticAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("EnthusiasticAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class EnthusiasticMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("EnthusiasticMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class EnthusiasticTurnAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("EnthusiasticTurnAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ExamLessonAddMultipleLessonBuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ExamLessonAddMultipleLessonBuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ExamPlayCardLimitPlayableValueAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ExamPlayCardLimitPlayableValueAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ForcePlayCardSearchWithCostEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ForcePlayCardSearchWithCostEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ForcePlaySearchEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ForcePlaySearchEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerLessonMultipleAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerLessonMultipleAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointAdditiveFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointAdditiveFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointDependFullPowerPointGetSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointDependFullPowerPointGetSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointReduceCancellableEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointReduceCancellableEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class FullPowerPointReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("FullPowerPointReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GetCardUpgradeEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GetCardUpgradeEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickEnthusiasticEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickEnthusiasticEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickLessonDebuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickLessonDebuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickParameterDebuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickParameterDebuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickPlayCardLimitEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickPlayCardLimitEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickSleepyEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickSleepyEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickSlumpEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickSlumpEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GimmickStartTurnCardDrawDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GimmickStartTurnCardDrawDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class GrowEffectLessonAddAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("GrowEffectLessonAddAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class HandGraveCountCardDrawEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("HandGraveCountCardDrawEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class HandHoldEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("HandHoldEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ItemFireLimitAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ItemFireLimitAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonAddBlockEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonAddBlockEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonAddMultipleParameterBuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonAddMultipleParameterBuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffAdditiveFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffAdditiveFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffDependParameterBuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffDependParameterBuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffReduceCancellableEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffReduceCancellableEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonBuffReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonBuffReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonChangeSpecifyLessThanEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonChangeSpecifyLessThanEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonChangeSpecifyMoreThanEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonChangeSpecifyMoreThanEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependAggressiveAndSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependAggressiveAndSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependBlockAndSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependBlockAndSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependBlockConsumptionSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependBlockConsumptionSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependBlockEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependBlockEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependEnthusiasticGetSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependEnthusiasticGetSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependExamAggressiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependExamAggressiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependExamReviewEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependExamReviewEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependParameterBuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependParameterBuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependPlayCardCountSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependPlayCardCountSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependReviewAndSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependReviewAndSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependReviewOrAggressiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependReviewOrAggressiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependStaminaConsumptionSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependStaminaConsumptionSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonDependStaminaEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonDependStaminaEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonFullPowerPointEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonFullPowerPointEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonMultipleConcentrationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonMultipleConcentrationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonMultipleEnthusiasticEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonMultipleEnthusiasticEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonMultipleFullPowerEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonMultipleFullPowerEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonValueMultipleDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonValueMultipleDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class LessonValueMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("LessonValueMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class MoveGrowEffectEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("MoveGrowEffectEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class MultipleLessonBuffLessonEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("MultipleLessonBuffLessonEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class OverPreservationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("OverPreservationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class PanicEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("PanicEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffAdditiveFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffAdditiveFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffDependLessonBuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffDependLessonBuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffMultiplePerTurnEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffMultiplePerTurnEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffMultiplePerTurnReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffMultiplePerTurnReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffReduceCancellableEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffReduceCancellableEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ParameterBuffTurnEndReduceLockEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ParameterBuffTurnEndReduceLockEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class PlayableValueAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("PlayableValueAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class PreservationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("PreservationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewAdditiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewAdditiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewAdditiveFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewAdditiveFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewCountAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewCountAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewDependAggressiveEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewDependAggressiveEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewDependBlockEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewDependBlockEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewDependReviewConsumptionSumEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewDependReviewConsumptionSumEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewPerSearchCountEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewPerSearchCountEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewReduceCancellableEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewReduceCancellableEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewTurnEndReduceLockEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewTurnEndReduceLockEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class ReviewValueMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("ReviewValueMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class SearchEffectPlayCountBuffEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("SearchEffectPlayCountBuffEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class SearchPlayCardBuffConsumptionChangeEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("SearchPlayCardBuffConsumptionChangeEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class SearchPlayCardStaminaConsumptionChangeEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("SearchPlayCardStaminaConsumptionChangeEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaConsumptionAddDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaConsumptionAddDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaConsumptionAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaConsumptionAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaConsumptionAddFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaConsumptionAddFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaConsumptionDownAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaConsumptionDownAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaConsumptionDownEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaConsumptionDownEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaConsumptionDownFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaConsumptionDownFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaDamageEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaDamageEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaRecoverAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaRecoverAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaRecoverFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaRecoverFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaRecoverMultipleEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaRecoverMultipleEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaRecoverRestrictionEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaRecoverRestrictionEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaReduceChangeEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaReduceChangeEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaReduceEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaReduceEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StaminaReduceFixEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StaminaReduceFixEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StanceLockConcentrationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StanceLockConcentrationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StanceLockEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StanceLockEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StanceLockFullPowerEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StanceLockFullPowerEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StanceLockPreservationEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StanceLockPreservationEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StanceResetEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StanceResetEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StatusEnchantCountAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StatusEnchantCountAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StatusEnchantEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StatusEnchantEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StatusEnchantEncoreEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StatusEnchantEncoreEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class StatusEnchantTurnAddEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("StatusEnchantTurnAddEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class UpgradeEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("UpgradeEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+class UpliftingEffectExecutor(IExamEffectExecutor):
+    """ELF-verified executor; no supported Python calculation for this type."""
+
+    def ExecuteEffect(self, effect: ExamEffect) -> None:
+        raise UnsupportedPath("UpliftingEffectExecutor.ExecuteEffect", "native executor semantics not implemented")
+
+
+# Concrete classes, not dynamically generated types. Unsupported executors
+# deliberately raise instead of silently falling back to a different effect.
+NATIVE_IL2CPP_EFFECT_EXECUTOR_CLASSES = {
+    "AddGrowEffectExecutor": AddGrowEffectExecutor,
+    "AggressiveAdditiveEffectExecutor": AggressiveAdditiveEffectExecutor,
+    "AggressiveAdditiveFixEffectExecutor": AggressiveAdditiveFixEffectExecutor,
+    "AggressiveDependReviewEffectExecutor": AggressiveDependReviewEffectExecutor,
+    "AggressiveEffectExecutor": AggressiveEffectExecutor,
+    "AggressivePerSearchCountEffectExecutor": AggressivePerSearchCountEffectExecutor,
+    "AggressiveReduceCancellableEffectExecutor": AggressiveReduceCancellableEffectExecutor,
+    "AggressiveReduceEffectExecutor": AggressiveReduceEffectExecutor,
+    "AggressiveValueMultipleEffectExecutor": AggressiveValueMultipleEffectExecutor,
+    "AntiDebuffEffectExecutor": AntiDebuffEffectExecutor,
+    "BlockAddDownEffectExecutor": BlockAddDownEffectExecutor,
+    "BlockAddDownRestrictionEffectExecutor": BlockAddDownRestrictionEffectExecutor,
+    "BlockAddMultipleAggressiveEffectExecutor": BlockAddMultipleAggressiveEffectExecutor,
+    "BlockDependBlockConsumptionSumEffectExecutor": BlockDependBlockConsumptionSumEffectExecutor,
+    "BlockDependReviewEffectExecutor": BlockDependReviewEffectExecutor,
+    "BlockDownEffectExecutor": BlockDownEffectExecutor,
+    "BlockEffectExecutor": BlockEffectExecutor,
+    "BlockFixEffectExecutor": BlockFixEffectExecutor,
+    "BlockPerSearchCountEffectExecutor": BlockPerSearchCountEffectExecutor,
+    "BlockPerUserCardCountEffectExecutor": BlockPerUserCardCountEffectExecutor,
+    "BlockRestrictionEffectExecutor": BlockRestrictionEffectExecutor,
+    "BlockValueMultiplicationEffectExecutor": BlockValueMultiplicationEffectExecutor,
+    "BuffConsumptionAddEffectExecutor": BuffConsumptionAddEffectExecutor,
+    "BuffConsumptionDownEffectExecutor": BuffConsumptionDownEffectExecutor,
+    "CardCreateIdEffectExecutor": CardCreateIdEffectExecutor,
+    "CardCreateSearchEffectExecutor": CardCreateSearchEffectExecutor,
+    "CardDuplicateEffectExecutor": CardDuplicateEffectExecutor,
+    "CardMoveEffectExecutor": CardMoveEffectExecutor,
+    "CardShuffleDeckGraveEffectExecutor": CardShuffleDeckGraveEffectExecutor,
+    "CardShuffleDeckLostEffectExecutor": CardShuffleDeckLostEffectExecutor,
+    "ChainEffectExecutor": ChainEffectExecutor,
+    "ChainEffectPerPassedTurnEffectExecutor": ChainEffectPerPassedTurnEffectExecutor,
+    "ChainEffectPerRemainTurnEffectExecutor": ChainEffectPerRemainTurnEffectExecutor,
+    "ClearDebuffEffectExecutor": ClearDebuffEffectExecutor,
+    "ConcentrationEffectExecutor": ConcentrationEffectExecutor,
+    "ConcentrationLessonMultipleAdditiveEffectExecutor": ConcentrationLessonMultipleAdditiveEffectExecutor,
+    "DebuffRecoverEffectExecutor": DebuffRecoverEffectExecutor,
+    "DrawEffectExecutor": DrawEffectExecutor,
+    "EffectPerSearchCountEffectExecutor": EffectPerSearchCountEffectExecutor,
+    "EffectTimerEffectExecutor": EffectTimerEffectExecutor,
+    "EffectTimerEndTurnEffectExecutor": EffectTimerEndTurnEffectExecutor,
+    "EnthusiasticAdditiveEffectExecutor": EnthusiasticAdditiveEffectExecutor,
+    "EnthusiasticMultipleEffectExecutor": EnthusiasticMultipleEffectExecutor,
+    "EnthusiasticTurnAdditiveEffectExecutor": EnthusiasticTurnAdditiveEffectExecutor,
+    "ExamLessonAddMultipleLessonBuffEffectExecutor": ExamLessonAddMultipleLessonBuffEffectExecutor,
+    "LessonPerSearchCountEffectExecutor": LessonPerSearchCountEffectExecutor,
+    "ExamPlayCardLimitPlayableValueAddEffectExecutor": ExamPlayCardLimitPlayableValueAddEffectExecutor,
+    "ExtraTurnEffectExecutor": ExtraTurnEffectExecutor,
+    "ForcePlayCardSearchWithCostEffectExecutor": ForcePlayCardSearchWithCostEffectExecutor,
+    "ForcePlaySearchEffectExecutor": ForcePlaySearchEffectExecutor,
+    "FullPowerEffectExecutor": FullPowerEffectExecutor,
+    "FullPowerLessonMultipleAdditiveEffectExecutor": FullPowerLessonMultipleAdditiveEffectExecutor,
+    "FullPowerPointAdditiveEffectExecutor": FullPowerPointAdditiveEffectExecutor,
+    "FullPowerPointAdditiveFixEffectExecutor": FullPowerPointAdditiveFixEffectExecutor,
+    "FullPowerPointDependFullPowerPointGetSumEffectExecutor": FullPowerPointDependFullPowerPointGetSumEffectExecutor,
+    "FullPowerPointEffectExecutor": FullPowerPointEffectExecutor,
+    "FullPowerPointPerSearchCountEffectExecutor": FullPowerPointPerSearchCountEffectExecutor,
+    "FullPowerPointReduceCancellableEffectExecutor": FullPowerPointReduceCancellableEffectExecutor,
+    "FullPowerPointReduceEffectExecutor": FullPowerPointReduceEffectExecutor,
+    "GetCardUpgradeEffectExecutor": GetCardUpgradeEffectExecutor,
+    "GimmickEnthusiasticEffectExecutor": GimmickEnthusiasticEffectExecutor,
+    "GimmickLessonDebuffEffectExecutor": GimmickLessonDebuffEffectExecutor,
+    "GimmickParameterDebuffEffectExecutor": GimmickParameterDebuffEffectExecutor,
+    "GimmickPlayCardLimitEffectExecutor": GimmickPlayCardLimitEffectExecutor,
+    "GimmickSleepyEffectExecutor": GimmickSleepyEffectExecutor,
+    "GimmickSlumpEffectExecutor": GimmickSlumpEffectExecutor,
+    "GimmickStartTurnCardDrawDownEffectExecutor": GimmickStartTurnCardDrawDownEffectExecutor,
+    "GrowEffectLessonAddAdditiveEffectExecutor": GrowEffectLessonAddAdditiveEffectExecutor,
+    "HandGraveCountCardDrawEffectExecutor": HandGraveCountCardDrawEffectExecutor,
+    "HandHoldEffectExecutor": HandHoldEffectExecutor,
+    "ItemFireLimitAddEffectExecutor": ItemFireLimitAddEffectExecutor,
+    "LessonAddBlockEffectExecutor": LessonAddBlockEffectExecutor,
+    "LessonAddMultipleParameterBuffEffectExecutor": LessonAddMultipleParameterBuffEffectExecutor,
+    "LessonBuffAdditiveEffectExecutor": LessonBuffAdditiveEffectExecutor,
+    "LessonBuffAdditiveFixEffectExecutor": LessonBuffAdditiveFixEffectExecutor,
+    "LessonBuffDependParameterBuffEffectExecutor": LessonBuffDependParameterBuffEffectExecutor,
+    "LessonBuffEffectExecutor": LessonBuffEffectExecutor,
+    "LessonBuffMultipleEffectExecutor": LessonBuffMultipleEffectExecutor,
+    "LessonBuffPerSearchCountEffectExecutor": LessonBuffPerSearchCountEffectExecutor,
+    "LessonBuffReduceCancellableEffectExecutor": LessonBuffReduceCancellableEffectExecutor,
+    "LessonBuffReduceEffectExecutor": LessonBuffReduceEffectExecutor,
+    "LessonChangeSpecifyLessThanEffectExecutor": LessonChangeSpecifyLessThanEffectExecutor,
+    "LessonChangeSpecifyMoreThanEffectExecutor": LessonChangeSpecifyMoreThanEffectExecutor,
+    "LessonDependAggressiveAndSearchCountEffectExecutor": LessonDependAggressiveAndSearchCountEffectExecutor,
+    "LessonDependBlockAndSearchCountEffectExecutor": LessonDependBlockAndSearchCountEffectExecutor,
+    "LessonDependBlockConsumptionSumEffectExecutor": LessonDependBlockConsumptionSumEffectExecutor,
+    "LessonDependBlockEffectExecutor": LessonDependBlockEffectExecutor,
+    "LessonDependEnthusiasticGetSumEffectExecutor": LessonDependEnthusiasticGetSumEffectExecutor,
+    "LessonDependExamAggressiveEffectExecutor": LessonDependExamAggressiveEffectExecutor,
+    "LessonDependExamReviewEffectExecutor": LessonDependExamReviewEffectExecutor,
+    "LessonDependParameterBuffEffectExecutor": LessonDependParameterBuffEffectExecutor,
+    "LessonDependPlayCardCountSumEffectExecutor": LessonDependPlayCardCountSumEffectExecutor,
+    "LessonDependReviewAndSearchCountEffectExecutor": LessonDependReviewAndSearchCountEffectExecutor,
+    "LessonDependReviewOrAggressiveEffectExecutor": LessonDependReviewOrAggressiveEffectExecutor,
+    "LessonDependStaminaConsumptionSumEffectExecutor": LessonDependStaminaConsumptionSumEffectExecutor,
+    "LessonDependStaminaEffectExecutor": LessonDependStaminaEffectExecutor,
+    "LessonEffectExecutor": LessonEffectExecutor,
+    "LessonFixEffectExecutor": LessonFixEffectExecutor,
+    "LessonFullPowerPointEffectExecutor": LessonFullPowerPointEffectExecutor,
+    "LessonMultipleConcentrationEffectExecutor": LessonMultipleConcentrationEffectExecutor,
+    "LessonMultipleEnthusiasticEffectExecutor": LessonMultipleEnthusiasticEffectExecutor,
+    "LessonMultipleFullPowerEffectExecutor": LessonMultipleFullPowerEffectExecutor,
+    "LessonValueMultipleDownEffectExecutor": LessonValueMultipleDownEffectExecutor,
+    "LessonValueMultipleEffectExecutor": LessonValueMultipleEffectExecutor,
+    "MoveGrowEffectEffectExecutor": MoveGrowEffectEffectExecutor,
+    "MultipleLessonBuffLessonEffectExecutor": MultipleLessonBuffLessonEffectExecutor,
+    "OverPreservationEffectExecutor": OverPreservationEffectExecutor,
+    "PanicEffectExecutor": PanicEffectExecutor,
+    "ParameterBuffAdditiveEffectExecutor": ParameterBuffAdditiveEffectExecutor,
+    "ParameterBuffAdditiveFixEffectExecutor": ParameterBuffAdditiveFixEffectExecutor,
+    "ParameterBuffDependLessonBuffEffectExecutor": ParameterBuffDependLessonBuffEffectExecutor,
+    "ParameterBuffEffectExecutor": ParameterBuffEffectExecutor,
+    "ParameterBuffMultiplePerTurnEffectExecutor": ParameterBuffMultiplePerTurnEffectExecutor,
+    "ParameterBuffMultiplePerTurnReduceEffectExecutor": ParameterBuffMultiplePerTurnReduceEffectExecutor,
+    "ParameterBuffPerSearchCountEffectExecutor": ParameterBuffPerSearchCountEffectExecutor,
+    "ParameterBuffReduceCancellableEffectExecutor": ParameterBuffReduceCancellableEffectExecutor,
+    "ParameterBuffReduceEffectExecutor": ParameterBuffReduceEffectExecutor,
+    "ParameterBuffTurnEndReduceLockEffectExecutor": ParameterBuffTurnEndReduceLockEffectExecutor,
+    "PlayableValueAddEffectExecutor": PlayableValueAddEffectExecutor,
+    "PreservationEffectExecutor": PreservationEffectExecutor,
+    "ReviewAdditiveEffectExecutor": ReviewAdditiveEffectExecutor,
+    "ReviewAdditiveFixEffectExecutor": ReviewAdditiveFixEffectExecutor,
+    "ReviewCountAddEffectExecutor": ReviewCountAddEffectExecutor,
+    "ReviewDependAggressiveEffectExecutor": ReviewDependAggressiveEffectExecutor,
+    "ReviewDependBlockEffectExecutor": ReviewDependBlockEffectExecutor,
+    "ReviewDependReviewConsumptionSumEffectExecutor": ReviewDependReviewConsumptionSumEffectExecutor,
+    "ReviewEffectExecutor": ReviewEffectExecutor,
+    "ReviewMultipleEffectExecutor": ReviewMultipleEffectExecutor,
+    "ReviewPerSearchCountEffectExecutor": ReviewPerSearchCountEffectExecutor,
+    "ReviewReduceCancellableEffectExecutor": ReviewReduceCancellableEffectExecutor,
+    "ReviewReduceEffectExecutor": ReviewReduceEffectExecutor,
+    "ReviewTurnEndReduceLockEffectExecutor": ReviewTurnEndReduceLockEffectExecutor,
+    "ReviewValueMultipleEffectExecutor": ReviewValueMultipleEffectExecutor,
+    "SearchEffectPlayCountBuffEffectExecutor": SearchEffectPlayCountBuffEffectExecutor,
+    "SearchPlayCardBuffConsumptionChangeEffectExecutor": SearchPlayCardBuffConsumptionChangeEffectExecutor,
+    "SearchPlayCardStaminaConsumptionChangeEffectExecutor": SearchPlayCardStaminaConsumptionChangeEffectExecutor,
+    "StaminaConsumptionAddDownEffectExecutor": StaminaConsumptionAddDownEffectExecutor,
+    "StaminaConsumptionAddEffectExecutor": StaminaConsumptionAddEffectExecutor,
+    "StaminaConsumptionAddFixEffectExecutor": StaminaConsumptionAddFixEffectExecutor,
+    "StaminaConsumptionDownAddEffectExecutor": StaminaConsumptionDownAddEffectExecutor,
+    "StaminaConsumptionDownEffectExecutor": StaminaConsumptionDownEffectExecutor,
+    "StaminaConsumptionDownFixEffectExecutor": StaminaConsumptionDownFixEffectExecutor,
+    "StaminaDamageEffectExecutor": StaminaDamageEffectExecutor,
+    "StaminaRecoverAddEffectExecutor": StaminaRecoverAddEffectExecutor,
+    "StaminaRecoverFixEffectExecutor": StaminaRecoverFixEffectExecutor,
+    "StaminaRecoverMultipleEffectExecutor": StaminaRecoverMultipleEffectExecutor,
+    "StaminaRecoverRestrictionEffectExecutor": StaminaRecoverRestrictionEffectExecutor,
+    "StaminaReduceChangeEffectExecutor": StaminaReduceChangeEffectExecutor,
+    "StaminaReduceEffectExecutor": StaminaReduceEffectExecutor,
+    "StaminaReduceFixEffectExecutor": StaminaReduceFixEffectExecutor,
+    "StanceLockConcentrationEffectExecutor": StanceLockConcentrationEffectExecutor,
+    "StanceLockEffectExecutor": StanceLockEffectExecutor,
+    "StanceLockFullPowerEffectExecutor": StanceLockFullPowerEffectExecutor,
+    "StanceLockPreservationEffectExecutor": StanceLockPreservationEffectExecutor,
+    "StanceResetEffectExecutor": StanceResetEffectExecutor,
+    "StatusEnchantCountAddEffectExecutor": StatusEnchantCountAddEffectExecutor,
+    "StatusEnchantEffectExecutor": StatusEnchantEffectExecutor,
+    "StatusEnchantEncoreEffectExecutor": StatusEnchantEncoreEffectExecutor,
+    "StatusEnchantTurnAddEffectExecutor": StatusEnchantTurnAddEffectExecutor,
+    "UpgradeEffectExecutor": UpgradeEffectExecutor,
+    "UpliftingEffectExecutor": UpliftingEffectExecutor,
+}
+assert len(NATIVE_IL2CPP_EFFECT_EXECUTOR_CLASSES) == 161
+PYTHON_IMPLEMENTED_NATIVE_EXECUTOR_NAMES = frozenset(["LessonEffectExecutor","LessonFixEffectExecutor","BlockEffectExecutor","DrawEffectExecutor","ExtraTurnEffectExecutor","ParameterBuffEffectExecutor","ReviewEffectExecutor","LessonBuffEffectExecutor"])
+PYTHON_UNSUPPORTED_NATIVE_EXECUTOR_NAMES = frozenset(
+    NATIVE_IL2CPP_EFFECT_EXECUTOR_CLASSES.keys()
+) - PYTHON_IMPLEMENTED_NATIVE_EXECUTOR_NAMES
 
 
 @dataclass

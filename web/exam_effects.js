@@ -1634,6 +1634,491 @@ export function calculateNativeBuffCost(exam, valueInput) {
   return Math.max(0, Math.ceil(value));
 }
 
+// Native class-named effect executors. Their method bodies are moved from the
+// parsed-effect switch without changing arithmetic, state mutation, or timing.
+export class LessonEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext = {}) {
+    // Execute each repeat independently; each hit has its own rounding.
+    const result = applyNativeLessonHits(exam, Number(parsed.value), Math.max(1, Number(parsed.count) || 1), scoreContext);
+    return { applied: true, label: `パラメータ +${result.added}`, score: result };
+  }
+}
+
+export class BlockEffectExecutor {
+  static ExecuteEffect(exam, parsed) {
+    const value = calculateNativeBlockAdd(exam, parsed.value);
+    exam.block += value;
+    return { applied: true, label: `元気 +${value}` };
+  }
+}
+
+export class ReviewEffectExecutor {
+  static ExecuteEffect(exam, parsed) {
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000));
+    exam.review += value;
+    return { applied: true, label: `好印象 +${value}` };
+  }
+}
+
+export class AggressiveEffectExecutor {
+  static ExecuteEffect(exam, parsed) {
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.aggressiveValueMultiple ?? 1) * (1000 + Number(exam.aggressiveAdditivePermil ?? 0)) / 1000) + Number(exam.aggressiveAdditiveFix ?? 0));
+    exam.aggressive += value;
+    return { applied: true, label: `やる気 +${value}` };
+  }
+}
+
+export class LessonBuffEffectExecutor {
+  static ExecuteEffect(exam, parsed) {
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.lessonBuffAdditivePermil ?? 0)) / 1000) + Number(exam.lessonBuffAdditiveFix ?? 0));
+    exam.lessonBuff += value;
+    return { applied: true, label: `集中 +${value}` };
+  }
+}
+
+export class ParameterBuffEffectExecutor {
+  static ExecuteEffect(exam, parsed) {
+    const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000));
+    exam.parameterBuff += value;
+    return { applied: true, label: `好調 +${value}ターン` };
+  }
+}
+
+export class DrawEffectExecutor {
+  static ExecuteEffect(_exam, parsed) {
+    return { applied: true, command: "draw", value: parsed.value, label: `${parsed.value}枚ドロー` };
+  }
+}
+
+export class ExtraTurnEffectExecutor {
+  static ExecuteEffect(exam, parsed) {
+    exam.extraTurns += Math.max(1, Number(parsed.value) || 1);
+    return { applied: true, command: "extra_turn", value: Math.max(1, Number(parsed.value) || 1), label: "追加ターン +1" };
+  }
+}
+
+// Parsed-effect command-level executors, isolated from master-effect scheduling.
+export class NoEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return { applied: false, label: "" };
+  }
+}
+
+export class MultipleLessonBuffLessonEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          // MultipleLessonBuffLessonEffectExecutor @ 0x805cf84 adds a separately
+          // rounded concentration contribution to Value1. CalculateAddingParameter
+          // then adds the usual concentration contribution with its own ceil.
+          const contribution = Math.ceil(Math.fround(
+            Math.fround(Math.fround(Number(exam.lessonBuffMultiple ?? 1))
+              * Math.fround(Number(parsed.permil) * Number(exam.lessonBuff ?? 0)))
+            / Math.fround(1000),
+          ));
+          const result = applyNativeLessonHits(exam, Number(parsed.value) + contribution,
+            Math.max(1, Number(parsed.count) || 1), scoreContext);
+          return {
+            applied: true,
+            label: `集中効果×${1 + Number(parsed.permil) / 1000}でパラメータ +${result.added}`,
+            score: result,
+          };
+        }
+  }
+}
+
+export class LessonAddMultipleParameterBuffEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          // ExamAddingParameterAdditionalData.ParameterBuffMultiple receives
+          // 1 + effectPermil/1000 and modifies only the ParameterBuff component.
+          const modifier = {
+            parameterBuffMultiple: Math.fround(
+              Math.fround(1) + Math.fround(Math.fround(Number(parsed.permil)) / Math.fround(1000)),
+            ),
+          };
+          return lessonResult(
+            Number(parsed.value),
+            Math.max(1, Number(parsed.count) || 1),
+            modifier,
+          );
+        }
+  }
+}
+
+export class LessonDependParameterBuffEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const base = calculateNativeDependentLessonBase(
+            Number(exam.parameterBuff ?? 0),
+            Number(parsed.permil ?? 0),
+          );
+          const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+          result.label = `好調に応じて${result.label}`;
+          return result;
+        }
+  }
+}
+
+export class LessonDependExamReviewEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const base = calculateNativeDependentLessonBase(
+            Number(exam.review ?? 0),
+            Number(parsed.permil ?? 0),
+          );
+          const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+          result.label = `好印象に応じて${result.label}`;
+          return result;
+        }
+  }
+}
+
+export class LessonDependExamAggressiveEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const base = calculateNativeDependentLessonBase(
+            Number(exam.aggressive ?? 0),
+            Number(parsed.permil ?? 0),
+          );
+          const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
+          result.label = `やる気に応じて${result.label}`;
+          return result;
+        }
+  }
+}
+
+export class LessonValueMultipleEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "lessonParameterMultiple", parsed.permil, parsed.turn);
+          return { applied: true, label: `パラメータ上昇量 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class LessonValueMultipleDownEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "lessonParameterDown", parsed.permil, parsed.turn);
+          return { applied: true, label: `パラメータ上昇量 -${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class LessonBuffMultipleEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "lessonBuffMultiple", parsed.permil, parsed.turn);
+          return { applied: true, label: `集中効果量 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class ReviewMultipleEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "reviewMultiple", parsed.permil, parsed.turn);
+          return { applied: true, label: `好印象強化 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class ReviewCountAddEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "reviewCountAdd", parsed.value, parsed.turn);
+          return { applied: true, label: `好印象追加発動 +${parsed.value}（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class LessonDependReviewOrAggressiveEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "lessonValueDependReviewAggressive", 0, parsed.turn);
+          return { applied: true, label: `プライド（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class ReviewTurnEndReduceLockEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "reviewTurnEndReduceLock", 0, parsed.turn);
+          return { applied: true, label: `好印象ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class ParameterBuffTurnEndReduceLockEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    addNativeScoreTimedStatus(exam, "parameterBuffTurnEndReduceLock", 0, parsed.turn);
+          return { applied: true, label: `好調ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
+  }
+}
+
+export class ParameterBuffReduceEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const before = Math.max(0, Number(exam.parameterBuff ?? 0));
+          exam.parameterBuff = Math.max(0, before - Math.max(0, Number(parsed.value) || 0));
+          return { applied: true, label: `好調 -${before - exam.parameterBuff}ターン` };
+        }
+  }
+}
+
+export class ConcentrationEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const stance = trySetExamStance(
+            exam,
+            EXAM_IDOL_STATUS_TYPE.Concentration,
+            Math.max(1, Number(parsed.step) || 1),
+          );
+          return {
+            applied: true,
+            command: stance.changed ? "stance_change" : undefined,
+            stance,
+            label: stance.changed ? `強気${stance.step}段階目に変更` : "指針変更なし",
+          };
+        }
+  }
+}
+
+export class PreservationEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const stance = trySetExamStance(
+            exam,
+            EXAM_IDOL_STATUS_TYPE.Preservation,
+            Math.max(1, Number(parsed.step) || 1),
+          );
+          return {
+            applied: true,
+            command: stance.changed ? "stance_change" : undefined,
+            stance,
+            label: stance.changed ? `温存${stance.step}段階目に変更` : "指針変更なし",
+          };
+        }
+  }
+}
+
+export class StaminaRecoverFixEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          if (exam.staminaRecoverRestriction) return { applied: true, label: "体力回復不可" };
+          const before = exam.stamina;
+          exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value) : exam.stamina + parsed.value;
+          return { applied: true, label: `体力 +${exam.stamina - before}` };
+        }
+  }
+}
+
+export class StaminaConsumptionDownEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    exam.staminaConsumptionDown += parsed.value; return { applied: true, label: `体力消費減少 +${parsed.value}ターン` };
+  }
+}
+
+export class StaminaConsumptionAddEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    exam.debuffFieldUids ??= {};
+          if (!exam.staminaConsumptionAdd) exam.debuffFieldUids.staminaConsumptionAdd = nextNativeStatusUid(exam);
+          exam.staminaConsumptionAdd += parsed.value; return { applied: true, label: `体力消費増加 +${parsed.value}ターン` };
+  }
+}
+
+export class StaminaConsumptionDownFixEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    exam.staminaConsumptionDownFix += parsed.value; return { applied: true, label: `体力消費固定軽減 +${parsed.value}` };
+  }
+}
+
+export class StaminaConsumptionAddFixEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    exam.debuffFieldUids ??= {};
+          if (!exam.staminaConsumptionAddFix) exam.debuffFieldUids.staminaConsumptionAddFix = nextNativeStatusUid(exam);
+          exam.staminaConsumptionAddFix += parsed.value; return { applied: true, label: `体力消費固定追加 +${parsed.value}` };
+  }
+}
+
+export class CardCreateIdEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return {
+            applied: true,
+            command: "card_create_id",
+            id: parsed.id,
+            cardId: parsed.cardId,
+            upgradeCount: parsed.upgradeCount,
+            movePosition: parsed.movePosition,
+            pickCountMin: parsed.pickCountMin,
+            pickCountMax: parsed.pickCountMax,
+            label: `カード生成: ${parsed.cardId} ×${parsed.pickCountMin}`,
+          };
+  }
+}
+
+export class CardMoveEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return {
+            applied: true,
+            command: "card_move_search",
+            id: parsed.id,
+            searchPosition: parsed.searchPosition,
+            cardId: parsed.cardId,
+            movePosition: parsed.movePosition,
+            pickRange: parsed.pickRange,
+            pickCountMin: parsed.pickCountMin,
+            pickCountMax: parsed.pickCountMax,
+            label: `${parsed.searchPosition} の ${parsed.cardId} を ${parsed.movePosition} へ移動`,
+          };
+  }
+}
+
+export class AddGrowEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return {
+            applied: true,
+            command: "add_grow_effect",
+            effect: parsed,
+            label: `対象カードに元気値 +${parsed.blockAdd} / コスト +${parsed.costAdd}`,
+          };
+  }
+}
+
+export class PlayableValueAddEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return { applied: true, command: "playable_add", value: parsed.value, label: `スキルカード使用数追加 +${parsed.value}` };
+  }
+}
+
+export class EffectTimerEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    {
+          const childLabel = parsed.child ? describeParsedEffect(parsed.child) : "";
+          return {
+            applied: true,
+            command: "timer",
+            timer: parsed,
+            label: childLabel
+              ? `${parsed.turn}ターン後: ${childLabel}`
+              : `${parsed.turn}ターン後に効果発動`,
+          };
+        }
+  }
+}
+
+export class SearchEffectPlayCountBuffEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return { applied: true, command: "effect_repeat", effect: parsed, label: `次のスキルカードの効果を追加で${parsed.value}回発動` };
+  }
+}
+
+export class HandGraveCountCardDrawEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return { applied: true, command: "hand_swap", label: "手札をすべて入れ替え" };
+  }
+}
+
+export class UpgradeEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return { applied: true, command: "upgrade_hand", label: "手札をすべて強化" };
+  }
+}
+
+export class ParameterBuffMultiplePerTurnEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    // Native TryAddParameterBuffMultiplePerTurnStatus (0x8069AA8):
+          // active finite duration is extended, rather than using max(current, grant).
+          // Preserve -1 for an unlimited existing status.
+          const previousTurn = Number(exam.parameterBuffMultiplePerTurn ?? 0);
+          const grantedTurn = Number(parsed.turn ?? 0);
+          exam.parameterBuffMultiplePerTurn = previousTurn < 0 || grantedTurn < 0
+            ? -1 : Math.max(0, previousTurn) + Math.max(0, grantedTurn);
+          return { applied: true, label: `絶好調 ${parsed.turn}ターン` };
+  }
+}
+
+export class StatusEnchantEffectExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return { applied: true, command: "status_enchant", enchant: parsed, label: `継続効果を追加: ${parsed.enchantId}` };
+  }
+}
+
+export class DeferredMasterEffectCommandExecutor {
+  static ExecuteEffect(exam, parsed, scoreContext, lessonResult) {
+    // Native-named executor; behavior extracted from applyParsedExamEffect.
+    return {
+          applied: true,
+          command: "master_effect",
+          effect: parsed,
+          label: parsed.id,
+        };
+  }
+}
+
+export const PARSED_EXAM_EFFECT_EXECUTOR_CLASSES = Object.freeze({
+  "none": NoEffectExecutor,
+  "lesson": LessonEffectExecutor,
+  "lesson_multiple_lesson_buff": MultipleLessonBuffLessonEffectExecutor,
+  "lesson_add_multiple_parameter_buff": LessonAddMultipleParameterBuffEffectExecutor,
+  "lesson_depend_parameter_buff": LessonDependParameterBuffEffectExecutor,
+  "lesson_depend_exam_review": LessonDependExamReviewEffectExecutor,
+  "lesson_depend_exam_aggressive": LessonDependExamAggressiveEffectExecutor,
+  "lesson_value_multiple": LessonValueMultipleEffectExecutor,
+  "lesson_value_multiple_down": LessonValueMultipleDownEffectExecutor,
+  "lesson_buff_multiple": LessonBuffMultipleEffectExecutor,
+  "review_multiple": ReviewMultipleEffectExecutor,
+  "review_count_add": ReviewCountAddEffectExecutor,
+  "lesson_value_multiple_depend_review_or_aggressive": LessonDependReviewOrAggressiveEffectExecutor,
+  "review_turn_end_reduce_lock": ReviewTurnEndReduceLockEffectExecutor,
+  "parameter_buff_turn_end_reduce_lock": ParameterBuffTurnEndReduceLockEffectExecutor,
+  "block": BlockEffectExecutor,
+  "review": ReviewEffectExecutor,
+  "aggressive": AggressiveEffectExecutor,
+  "lesson_buff": LessonBuffEffectExecutor,
+  "parameter_buff": ParameterBuffEffectExecutor,
+  "parameter_buff_reduce": ParameterBuffReduceEffectExecutor,
+  "concentration": ConcentrationEffectExecutor,
+  "preservation": PreservationEffectExecutor,
+  "stamina_recover": StaminaRecoverFixEffectExecutor,
+  "stamina_consumption_down": StaminaConsumptionDownEffectExecutor,
+  "stamina_consumption_add": StaminaConsumptionAddEffectExecutor,
+  "stamina_consumption_down_fix": StaminaConsumptionDownFixEffectExecutor,
+  "stamina_consumption_add_fix": StaminaConsumptionAddFixEffectExecutor,
+  "extra_turn": ExtraTurnEffectExecutor,
+  "card_draw": DrawEffectExecutor,
+  "card_create_id": CardCreateIdEffectExecutor,
+  "card_move_search": CardMoveEffectExecutor,
+  "add_grow_effect": AddGrowEffectExecutor,
+  "playable_add": PlayableValueAddEffectExecutor,
+  "effect_timer": EffectTimerEffectExecutor,
+  "card_search_effect_play_count_buff": SearchEffectPlayCountBuffEffectExecutor,
+  "hand_grave_count_card_draw": HandGraveCountCardDrawEffectExecutor,
+  "card_upgrade_hand_all": UpgradeEffectExecutor,
+  "parameter_buff_multiple_per_turn": ParameterBuffMultiplePerTurnEffectExecutor,
+  "status_enchant": StatusEnchantEffectExecutor,
+  "master_effect": DeferredMasterEffectCommandExecutor,
+});
+
 export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
   const lessonResult = (baseValue, count = 1, modifier = null) => {
     const result = applyNativeLessonHits(exam, baseValue, count, scoreContext, modifier);
@@ -1643,253 +2128,9 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       score: result,
     };
   };
-
-  switch (parsed.kind) {
-    case "none": return { applied: false, label: "" };
-
-    case "lesson":
-      // Native LessonEffectExecutor calculates and adds every repeat
-      // independently. Do not aggregate value * count before rounding.
-      return lessonResult(Number(parsed.value), Math.max(1, Number(parsed.count) || 1));
-
-    case "lesson_multiple_lesson_buff": {
-      // MultipleLessonBuffLessonEffectExecutor @ 0x805cf84 adds a separately
-      // rounded concentration contribution to Value1. CalculateAddingParameter
-      // then adds the usual concentration contribution with its own ceil.
-      const contribution = Math.ceil(Math.fround(
-        Math.fround(Math.fround(Number(exam.lessonBuffMultiple ?? 1))
-          * Math.fround(Number(parsed.permil) * Number(exam.lessonBuff ?? 0)))
-        / Math.fround(1000),
-      ));
-      const result = applyNativeLessonHits(exam, Number(parsed.value) + contribution,
-        Math.max(1, Number(parsed.count) || 1), scoreContext);
-      return {
-        applied: true,
-        label: `集中効果×${1 + Number(parsed.permil) / 1000}でパラメータ +${result.added}`,
-        score: result,
-      };
-    }
-
-    case "lesson_add_multiple_parameter_buff": {
-      // ExamAddingParameterAdditionalData.ParameterBuffMultiple receives
-      // 1 + effectPermil/1000 and modifies only the ParameterBuff component.
-      const modifier = {
-        parameterBuffMultiple: Math.fround(
-          Math.fround(1) + Math.fround(Math.fround(Number(parsed.permil)) / Math.fround(1000)),
-        ),
-      };
-      return lessonResult(
-        Number(parsed.value),
-        Math.max(1, Number(parsed.count) || 1),
-        modifier,
-      );
-    }
-
-    case "lesson_depend_parameter_buff": {
-      const base = calculateNativeDependentLessonBase(
-        Number(exam.parameterBuff ?? 0),
-        Number(parsed.permil ?? 0),
-      );
-      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
-      result.label = `好調に応じて${result.label}`;
-      return result;
-    }
-
-    case "lesson_depend_exam_review": {
-      const base = calculateNativeDependentLessonBase(
-        Number(exam.review ?? 0),
-        Number(parsed.permil ?? 0),
-      );
-      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
-      result.label = `好印象に応じて${result.label}`;
-      return result;
-    }
-
-    case "lesson_depend_exam_aggressive": {
-      const base = calculateNativeDependentLessonBase(
-        Number(exam.aggressive ?? 0),
-        Number(parsed.permil ?? 0),
-      );
-      const result = lessonResult(base, Math.max(1, Number(parsed.count) || 1));
-      result.label = `やる気に応じて${result.label}`;
-      return result;
-    }
-
-    case "lesson_value_multiple":
-      addNativeScoreTimedStatus(exam, "lessonParameterMultiple", parsed.permil, parsed.turn);
-      return { applied: true, label: `パラメータ上昇量 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "lesson_value_multiple_down":
-      addNativeScoreTimedStatus(exam, "lessonParameterDown", parsed.permil, parsed.turn);
-      return { applied: true, label: `パラメータ上昇量 -${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "lesson_buff_multiple":
-      addNativeScoreTimedStatus(exam, "lessonBuffMultiple", parsed.permil, parsed.turn);
-      return { applied: true, label: `集中効果量 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "review_multiple":
-      addNativeScoreTimedStatus(exam, "reviewMultiple", parsed.permil, parsed.turn);
-      return { applied: true, label: `好印象強化 +${Number(parsed.permil) / 10}%（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "review_count_add":
-      addNativeScoreTimedStatus(exam, "reviewCountAdd", parsed.value, parsed.turn);
-      return { applied: true, label: `好印象追加発動 +${parsed.value}（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "lesson_value_multiple_depend_review_or_aggressive":
-      addNativeScoreTimedStatus(exam, "lessonValueDependReviewAggressive", 0, parsed.turn);
-      return { applied: true, label: `プライド（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "review_turn_end_reduce_lock":
-      addNativeScoreTimedStatus(exam, "reviewTurnEndReduceLock", 0, parsed.turn);
-      return { applied: true, label: `好印象ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "parameter_buff_turn_end_reduce_lock":
-      addNativeScoreTimedStatus(exam, "parameterBuffTurnEndReduceLock", 0, parsed.turn);
-      return { applied: true, label: `好調ターン減少無効（${parsed.turn < 0 ? "∞" : parsed.turn}T）` };
-
-    case "block": {
-      const value = calculateNativeBlockAdd(exam, parsed.value);
-      exam.block += value;
-      return { applied: true, label: `元気 +${value}` };
-    }
-    case "review": {
-      const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.reviewValueMultiple ?? 1) * (1000 + Number(exam.reviewAdditivePermil ?? 0)) / 1000));
-      exam.review += value;
-      return { applied: true, label: `好印象 +${value}` };
-    }
-    case "aggressive": {
-      const value = Math.max(0, Math.ceil(Number(parsed.value) * Number(exam.aggressiveValueMultiple ?? 1) * (1000 + Number(exam.aggressiveAdditivePermil ?? 0)) / 1000) + Number(exam.aggressiveAdditiveFix ?? 0));
-      exam.aggressive += value;
-      return { applied: true, label: `やる気 +${value}` };
-    }
-    case "lesson_buff": {
-      const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.lessonBuffAdditivePermil ?? 0)) / 1000) + Number(exam.lessonBuffAdditiveFix ?? 0));
-      exam.lessonBuff += value;
-      return { applied: true, label: `集中 +${value}` };
-    }
-    case "parameter_buff": {
-      const value = Math.max(0, Math.ceil(Number(parsed.value) * (1000 + Number(exam.parameterBuffAdditivePermil ?? 0)) / 1000));
-      exam.parameterBuff += value;
-      return { applied: true, label: `好調 +${value}ターン` };
-    }
-    case "parameter_buff_reduce": {
-      const before = Math.max(0, Number(exam.parameterBuff ?? 0));
-      exam.parameterBuff = Math.max(0, before - Math.max(0, Number(parsed.value) || 0));
-      return { applied: true, label: `好調 -${before - exam.parameterBuff}ターン` };
-    }
-    case "concentration":
-    {
-      const stance = trySetExamStance(
-        exam,
-        EXAM_IDOL_STATUS_TYPE.Concentration,
-        Math.max(1, Number(parsed.step) || 1),
-      );
-      return {
-        applied: true,
-        command: stance.changed ? "stance_change" : undefined,
-        stance,
-        label: stance.changed ? `強気${stance.step}段階目に変更` : "指針変更なし",
-      };
-    }
-    case "preservation":
-    {
-      const stance = trySetExamStance(
-        exam,
-        EXAM_IDOL_STATUS_TYPE.Preservation,
-        Math.max(1, Number(parsed.step) || 1),
-      );
-      return {
-        applied: true,
-        command: stance.changed ? "stance_change" : undefined,
-        stance,
-        label: stance.changed ? `温存${stance.step}段階目に変更` : "指針変更なし",
-      };
-    }
-    case "stamina_recover": {
-      if (exam.staminaRecoverRestriction) return { applied: true, label: "体力回復不可" };
-      const before = exam.stamina;
-      exam.stamina = exam.maxStamina > 0 ? Math.min(exam.maxStamina, exam.stamina + parsed.value) : exam.stamina + parsed.value;
-      return { applied: true, label: `体力 +${exam.stamina - before}` };
-    }
-    case "stamina_consumption_down": exam.staminaConsumptionDown += parsed.value; return { applied: true, label: `体力消費減少 +${parsed.value}ターン` };
-    case "stamina_consumption_add":
-      exam.debuffFieldUids ??= {};
-      if (!exam.staminaConsumptionAdd) exam.debuffFieldUids.staminaConsumptionAdd = nextNativeStatusUid(exam);
-      exam.staminaConsumptionAdd += parsed.value; return { applied: true, label: `体力消費増加 +${parsed.value}ターン` };
-    case "stamina_consumption_down_fix": exam.staminaConsumptionDownFix += parsed.value; return { applied: true, label: `体力消費固定軽減 +${parsed.value}` };
-    case "stamina_consumption_add_fix":
-      exam.debuffFieldUids ??= {};
-      if (!exam.staminaConsumptionAddFix) exam.debuffFieldUids.staminaConsumptionAddFix = nextNativeStatusUid(exam);
-      exam.staminaConsumptionAddFix += parsed.value; return { applied: true, label: `体力消費固定追加 +${parsed.value}` };
-    case "extra_turn":
-      exam.extraTurns += Math.max(1, Number(parsed.value) || 1);
-      return { applied: true, command: "extra_turn", value: Math.max(1, Number(parsed.value) || 1), label: "追加ターン +1" };
-    case "card_draw": return { applied: true, command: "draw", value: parsed.value, label: `${parsed.value}枚ドロー` };
-    case "card_create_id":
-      return {
-        applied: true,
-        command: "card_create_id",
-        id: parsed.id,
-        cardId: parsed.cardId,
-        upgradeCount: parsed.upgradeCount,
-        movePosition: parsed.movePosition,
-        pickCountMin: parsed.pickCountMin,
-        pickCountMax: parsed.pickCountMax,
-        label: `カード生成: ${parsed.cardId} ×${parsed.pickCountMin}`,
-      };
-    case "card_move_search":
-      return {
-        applied: true,
-        command: "card_move_search",
-        id: parsed.id,
-        searchPosition: parsed.searchPosition,
-        cardId: parsed.cardId,
-        movePosition: parsed.movePosition,
-        pickRange: parsed.pickRange,
-        pickCountMin: parsed.pickCountMin,
-        pickCountMax: parsed.pickCountMax,
-        label: `${parsed.searchPosition} の ${parsed.cardId} を ${parsed.movePosition} へ移動`,
-      };
-    case "add_grow_effect":
-      return {
-        applied: true,
-        command: "add_grow_effect",
-        effect: parsed,
-        label: `対象カードに元気値 +${parsed.blockAdd} / コスト +${parsed.costAdd}`,
-      };
-    case "playable_add": return { applied: true, command: "playable_add", value: parsed.value, label: `スキルカード使用数追加 +${parsed.value}` };
-    case "effect_timer": {
-      const childLabel = parsed.child ? describeParsedEffect(parsed.child) : "";
-      return {
-        applied: true,
-        command: "timer",
-        timer: parsed,
-        label: childLabel
-          ? `${parsed.turn}ターン後: ${childLabel}`
-          : `${parsed.turn}ターン後に効果発動`,
-      };
-    }
-    case "card_search_effect_play_count_buff": return { applied: true, command: "effect_repeat", effect: parsed, label: `次のスキルカードの効果を追加で${parsed.value}回発動` };
-    case "hand_grave_count_card_draw": return { applied: true, command: "hand_swap", label: "手札をすべて入れ替え" };
-    case "card_upgrade_hand_all": return { applied: true, command: "upgrade_hand", label: "手札をすべて強化" };
-    case "parameter_buff_multiple_per_turn":
-      // Native TryAddParameterBuffMultiplePerTurnStatus (0x8069AA8):
-      // active finite duration is extended, rather than using max(current, grant).
-      // Preserve -1 for an unlimited existing status.
-      const previousTurn = Number(exam.parameterBuffMultiplePerTurn ?? 0);
-      const grantedTurn = Number(parsed.turn ?? 0);
-      exam.parameterBuffMultiplePerTurn = previousTurn < 0 || grantedTurn < 0
-        ? -1 : Math.max(0, previousTurn) + Math.max(0, grantedTurn);
-      return { applied: true, label: `絶好調 ${parsed.turn}ターン` };
-    case "status_enchant": return { applied: true, command: "status_enchant", enchant: parsed, label: `継続効果を追加: ${parsed.enchantId}` };
-    case "master_effect": return {
-      applied: true,
-      command: "master_effect",
-      effect: parsed,
-      label: parsed.id,
-    };
-    default: return { applied: false, unsupported: true, label: `未対応: ${parsed.id}` };
-  }
+  const executor = PARSED_EXAM_EFFECT_EXECUTOR_CLASSES[parsed.kind];
+  if (!executor) return { applied: false, unsupported: true, label: `未対応: ${parsed.id}` };
+  return executor.ExecuteEffect(exam, parsed, scoreContext, lessonResult);
 }
 export function describeParsedEffect(parsed, catalogs = {}) {
   if (parsed.kind === "master_effect" && /ExamStatusEnchant(?:Encore)?$/.test(parsed.masterEffectType)) {
