@@ -7,6 +7,10 @@ from exam_engine import (
     ExamParameterModel,
     ExamCardPoolModel,
     ExamPhase,
+    NATIVE_IL2CPP_EFFECT_EXECUTOR_CLASSES,
+    PYTHON_IMPLEMENTED_NATIVE_EXECUTOR_NAMES,
+    PYTHON_UNSUPPORTED_NATIVE_EXECUTOR_NAMES,
+    UnsupportedPath,
     StatusKind,
     StatusEffect,
     StrictExamSequence,
@@ -37,6 +41,21 @@ def sequence():
 
 
 class NativeNameTests(unittest.TestCase):
+    def test_all_161_native_executors_are_independent_classes(self):
+        registry = NATIVE_IL2CPP_EFFECT_EXECUTOR_CLASSES
+        self.assertEqual(len(registry), 161)
+        self.assertEqual(len(set(registry.values())), 161)
+        self.assertEqual(len(PYTHON_IMPLEMENTED_NATIVE_EXECUTOR_NAMES), 8)
+        self.assertEqual(len(PYTHON_UNSUPPORTED_NATIVE_EXECUTOR_NAMES), 153)
+        context = ExamEffectCalculateContext.Create(sequence())
+        for name, executor_type in registry.items():
+            self.assertEqual(executor_type.__name__, name)
+            self.assertIn("ExecuteEffect", executor_type.__dict__)
+        with self.assertRaises(UnsupportedPath):
+            registry["StatusEnchantEncoreEffectExecutor"](context).ExecuteEffect(
+                ExamEffect("ExamStatusEnchantEncore")
+            )
+
     def test_model_fields_read_and_write_through_legacy_attributes(self):
         s = sequence()
         p = s.parameter
