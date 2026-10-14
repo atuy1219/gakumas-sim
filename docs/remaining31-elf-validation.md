@@ -2,7 +2,7 @@
 
 対象 ELF Build ID `77fda4e2a21f23954e2349b83fc113ede408f70b`。
 
-## 実装済み（5種類 / 31種類）
+## 実装済み（6種類 / 31種類）
 
 | Executor | ELF RVA | JSで再現した処理 |
 | --- | --- | --- |
@@ -11,12 +11,13 @@
 | `FullPowerPointAdditiveFixEffectExecutor` | `0x8051df0` | `TryAddFullPowerPointAdditiveFixStatus(Value1,Value2)` と期限付き固定加算 |
 | `ParameterBuffPerSearchCountEffectExecutor` | `0x805e688` | `Value1+ceil(FloatFromPermil(Value2)×検索枚数)`、好調付与 |
 | `LessonDependEnthusiasticGetSumEffectExecutor` | `0x8058d88` | `EnthusiasticGetSumCount` (offset `0x3d0`) を参照し、`Count`回のスコア計算 |
+| `StaminaReduceChangeEffectExecutor` | `0x8064178` | `Value1/Turn` に基づく体力減少変更状態を期限付きで保持し、既存ダメージ計算へ接続 |
 
-Executor総数161、JSの実装に接続されたクラス135、未対応26。追加テストは `tests/test_elf_fixed_additive_executors.mjs`、`tests/test_elf_parameter_buff_per_search.mjs`、`tests/test_elf_enthusiastic_gain_sum.mjs`。CI成功。
+Executor総数161、JSの実装に接続されたクラス136、未対応25。追加テストは `tests/test_elf_fixed_additive_executors.mjs`、`tests/test_elf_parameter_buff_per_search.mjs`、`tests/test_elf_enthusiastic_gain_sum.mjs`、`tests/test_elf_stamina_reduce_change.mjs`。CI成功。
 
 ## 原本36試合・380ターンの回帰
 
-PR #100のJS実装で、キャプチャ（16）〜（19）、同じ固定マスター `vertesan/gakumasu-diff@1f07db111068a65defc13bd44e3e8957ca4baca4` とカスタマイズ補完を使用してローカル再実行した。
+PR #100の最新JS実装（StaminaReduceChange追加後）で、キャプチャ（16）〜（19）、同じ固定マスター `vertesan/gakumasu-diff@1f07db111068a65defc13bd44e3e8957ca4baca4` とカスタマイズ補完を使用してローカル再実行した。
 
 | Capture | 試合数 | ターン数 | 比較器status | 以前のPR #99の比較JSONとSHA-256一致 |
 | --- | ---: | ---: | --- | --- |
@@ -27,7 +28,7 @@ PR #100のJS実装で、キャプチャ（16）〜（19）、同じ固定マス�
 
 **4ファイルすべて完全同一のバイト列**で、元から検出差異が0だった36試合の結果を維持。新効果を含む実機キャプチャが必ずしも存在するわけではなく、これにより新効果の完全一致を証明したわけではない。
 
-## 未実装26種類と分析上の注意
+## 未実装25種類と分析上の注意
 
 `docs/native-pending-executors.md` に関数RVA・分類を記録している。未実装とした理由は主に以下。
 
