@@ -94,4 +94,18 @@ import {
   assert.deepEqual(calls, ["first"]);
 }
 
+// Verified directly from AArch64 GetRandomInt overloads in the 77fda4e2 ELF.
+// 0x808A340 reads the old state; 0x808A438 multiplies it by (max-min).
+// Both functions update the state even when the requested range has width 0.
+{
+  const seed = 0x12345678;
+  const a = new XorShift32(seed);
+  assert.equal(a.getRandomInt(), -1842063752);
+  assert.equal(a.state, 0x87985aa5);
+  const b = new XorShift32(seed);
+  assert.equal(b.nextInt(7, 7), 7);
+  assert.equal(b.state, 0x87985aa5);
+  assert.throws(() => b.nextInt(8, 7), /乱数範囲/);
+}
+
 console.log("native command materialization, trigger timing, and RNG sequence: OK");
