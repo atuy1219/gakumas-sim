@@ -164,7 +164,7 @@ seed逆算では、画面上の開幕順からは `IsInitial` が元のシャッ
 - `web/exam_effects.js` / `web/exam_score.js`: 効果処理とELF由来のスコア計算
 - `web/contest_native_replay.js`: 実機キャプチャの行動ログを使い、上記のJSエンジンを再実行
 - `web/tower_ai.js`: 状態複製、候補列挙、探索
-- `web/official_contest_dfs.js`: Pythonの独立研究コードから移した公式DFS探索規則と評価式。探索器は抽象sequence/calculateインターフェースを受け取り、現状WebのAI選択処理には**未接続**。シミュレーション本体を別実装するものではありません。
+- `web/contest_dfs.js` と `web/contest_dfs.json`: JavaScriptのコンテストDFS探索ロジックと宣言的な探索ポリシー定義。探索器は抽象sequence/calculateインターフェースを受け取り、現状WebのAI選択処理には**未接続**。シミュレーション本体を別実装するものではありません。
 
 実機との照合には `tests/*.mjs` と、原本・SHAを固定した実機キャプチャを利用します。
 JavaScript同士の比較だけで正しさは保証できません。未対応Executorは推測で実装せず明示的に記録します。
@@ -204,7 +204,7 @@ Webの試験エンジンは、Pアイテム・カード成長・継続効果・�
 ## テスト
 
 ```bash
-node tests/test_official_contest_dfs.mjs
+node tests/test_contest_dfs.mjs
 # その他のWeb回帰テストは .github/workflows/ci.yml に列挙
 ```
 
