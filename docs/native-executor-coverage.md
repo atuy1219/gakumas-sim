@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **102** |
+| Master Effectからクラス単位に移した分岐数 | **103** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **135** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **26** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **136** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **25** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装26クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装25クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -64,6 +64,9 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 
 ### 累積熱意参照のスコア（ELF確認追加）
 `LessonDependEnthusiasticGetSumEffectExecutor @ 0x8058d88` は、`ExamParameterModel.EnthusiasticGetSumCount`（0x3d0）を使って `Value1 + ceil(FloatFromPermil(Value2) × 累積獲得熱意)` を求め、`Count` 回の`CalculateAddingParameter / AddParameter`を繰り返す。熱意の有効期限と累積獲得量を分離し、`tests/test_elf_enthusiastic_gain_sum.mjs`で境界値を検証した。
+
+### 体力減少変更（ELF確認追加）
+`StaminaReduceChangeEffectExecutor @ 0x8064178` は `Value1` と `Turn` を `TryAddStaminaReduceChangeStatus` に渡す。JSの期限付き状態と既存の `calculateNativeStaminaDamage` に接続。テスト：`tests/test_elf_stamina_reduce_change.mjs`。
 
 ## 全クラス一覧
 
@@ -216,7 +219,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `StaminaRecoverFixEffectExecutor` | 未実装 | `stamina_recover` |
 | `StaminaRecoverMultipleEffectExecutor` | `ExamStaminaRecoverMultiple` | 未実装 |
 | `StaminaRecoverRestrictionEffectExecutor` | `ExamStaminaRecoverRestriction` | 未実装 |
-| `StaminaReduceChangeEffectExecutor` | 未実装 | 未実装 |
+| `StaminaReduceChangeEffectExecutor` | `ExamStaminaReduceChange` | 未実装 |
 | `StaminaReduceEffectExecutor` | `ExamStaminaReduce` | 未実装 |
 | `StaminaReduceFixEffectExecutor` | `ExamStaminaReduceFix` | 未実装 |
 | `StanceLockConcentrationEffectExecutor` | `ExamStanceLockConcentration` | 未実装 |
