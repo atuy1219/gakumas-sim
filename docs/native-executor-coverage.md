@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **97** |
+| Master Effectからクラス単位に移した分岐数 | **100** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **130** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **31** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **133** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **28** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装31クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装28クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -55,6 +55,9 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `BuffConsumptionDown`, `StaminaConsumptionAddDown`, `StaminaConsumptionDownAdd`: いずれもELFで `TryAdd*Status(Value1=持続ターン)` を確認。既存の `genericTimedStatuses` に同種の期限を加算し、ターン境界で失効させる。
 - `GimmickEnthusiastic`: `TryAddEnthusiasticStatus(Value1, Value2)` を確認し、既存の `scalarTimedStatuses` に接続。
 - 単体テスト：`tests/test_elf_timed_status_executors.mjs`。
+
+### 固定加算ステータスの追加（2026-10-14）
+ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x805d7b8 / FullPowerPointAdditiveFix @ 0x8051df0）は、各 `TryAdd*Status(Value1,Value2)` 呼出しを確認。従来未接続だった固定値を状態の期限付きリストと加算計算に接続。テスト：`tests/test_elf_fixed_additive_executors.mjs`。今回の未収録効果について実機完全一致は未検証。
 
 ## 全クラス一覧
 
@@ -113,7 +116,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `FullPowerEffectExecutor` | `ExamFullPower` | 未実装 |
 | `FullPowerLessonMultipleAdditiveEffectExecutor` | `ExamFullPowerLessonMultipleAdditive` | 未実装 |
 | `FullPowerPointAdditiveEffectExecutor` | `ExamFullPowerPointAdditive` | 未実装 |
-| `FullPowerPointAdditiveFixEffectExecutor` | 未実装 | 未実装 |
+| `FullPowerPointAdditiveFixEffectExecutor` | `ExamFullPowerPointAdditiveFix` | 未実装 |
 | `FullPowerPointDependFullPowerPointGetSumEffectExecutor` | `ExamFullPowerPointDependFullPowerPointGetSum` | 未実装 |
 | `FullPowerPointEffectExecutor` | `ExamFullPowerPoint` | 未実装 |
 | `FullPowerPointPerSearchCountEffectExecutor` | `ExamFullPowerPointPerSearchCount` | 未実装 |
@@ -169,7 +172,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `OverPreservationEffectExecutor` | `ExamOverPreservation` | 未実装 |
 | `PanicEffectExecutor` | `ExamPanic` | 未実装 |
 | `ParameterBuffAdditiveEffectExecutor` | `ExamParameterBuffAdditive` | 未実装 |
-| `ParameterBuffAdditiveFixEffectExecutor` | 未実装 | 未実装 |
+| `ParameterBuffAdditiveFixEffectExecutor` | `ExamParameterBuffAdditiveFix` | 未実装 |
 | `ParameterBuffDependLessonBuffEffectExecutor` | `ExamParameterBuffDependLessonBuff` | 未実装 |
 | `ParameterBuffEffectExecutor` | 未実装 | `parameter_buff` |
 | `ParameterBuffMultiplePerTurnEffectExecutor` | 未実装 | `parameter_buff_multiple_per_turn` |
@@ -181,7 +184,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `PlayableValueAddEffectExecutor` | 未実装 | `playable_add` |
 | `PreservationEffectExecutor` | 未実装 | `preservation` |
 | `ReviewAdditiveEffectExecutor` | `ExamReviewAdditive` | 未実装 |
-| `ReviewAdditiveFixEffectExecutor` | 未実装 | 未実装 |
+| `ReviewAdditiveFixEffectExecutor` | `ExamReviewAdditiveFix` | 未実装 |
 | `ReviewCountAddEffectExecutor` | 未実装 | `review_count_add` |
 | `ReviewDependAggressiveEffectExecutor` | `ExamReviewDependExamCardPlayAggressive` | 未実装 |
 | `ReviewDependBlockEffectExecutor` | `ExamReviewDependExamBlock` | 未実装 |
