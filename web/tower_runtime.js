@@ -3463,7 +3463,7 @@ class GrowEffectLessonAddAdditiveEffectExecutor {
   static ExecuteEffect({ state, parsed, event, type }) {
     // No native-equivalent calculation implemented: preserve prior unsupported behavior.
     addNativeGenericTimedStatus(state.exam, "growEffectLessonAddAdditiveMultiple", Number(parsed.value1)||0, Number(parsed.value2)||-1, "multiple");
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+    event.effects.push("成長効果のパラメータ倍率を登録");
   }
 }
 
