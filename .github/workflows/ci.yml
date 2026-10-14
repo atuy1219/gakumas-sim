@@ -55,7 +55,7 @@ jobs:
           node tests/test_native_effect_executor_names.mjs
           node tests/test_all_native_executors.mjs
           node tests/test_native_command_order.mjs
-          node tests/test_official_contest_dfs.mjs
+          node tests/test_contest_dfs.mjs
           node tests/test_contest_native_upgrade.mjs
           node tests/test_contest_capture_compare.mjs
           node tests/test_contest_catalog_provider.mjs
