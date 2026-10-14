@@ -56,29 +56,24 @@ ELFに名称があってもシミュレーターの同名データと **意味�
 この段階は名称とモデル境界の統一であり、すべてのExecutorの呼び出し順を
 実機通りに変更するものではない。残るモジュールの移行もこの規則で段階的に行う。
 
-## Executor と Python モデルの名称移行
+## Executor とJavaScriptモデルの名称移行
 
 - `web/native_effect_executor_registry.js`: 添付ELFから検証した **161種類** の具体的な `*EffectExecutor` クラス名を登録する。
-  `ProduceExamEffectType_*` / 解析済みの `parsed.kind` を実機クラスへ解決し、曖昧・未確認の名前は `null` を返す。
+  `ProduceExamEffectType_*` / 解析済み `parsed.kind` を実機クラスへ解決し、曖昧・未確認の名前は `null` を返す。
   これは **実行順の再実装ではなくシンボル名対応表** である。
-- `web/exam_effects.js`: 8種類の効果（Lesson / Block / Review / Aggressive / LessonBuff /
-  ParameterBuff / Draw / ExtraTurn）を、実機名称を持つ独立した `ExecuteEffect` 実装へ分離。
-  `applyParsedExamEffect()` の入口や効果計算の実行順・戻り値・丸め式は変えない。
-- `exam_engine.py`: 8種類の処理を `LessonEffectExecutor` など個別クラスの `ExecuteEffect()`
-  へ移設し、`ExamEffectResolver` はクラスを選択して実行するだけの役割に変更。
-  `ExamParameterModel.JudgeParameter`、`CurrentTurn`、`StatusEffectCollection`、
-  `ExamEffectCalculateContext.ExamParameter`、`HandList` などの **実機名ライブプロパティ** と、
-  `ExamCardMoveController.DrawCard` / `ResetHand` などのメソッド別名を追加。
-  既存のsnake_caseコンストラクタ・dataclassフィールドは残す。
+- `web/exam_effects.js`: 効果を実機名称の独立した `ExecuteEffect` 実装へ分離。
+  `applyParsedExamEffect()` の呼出し契約と丸め式を維持する。
+- `web/native_exam_context.js`: ネイティブ名のライブビューと従来UI名との互換性を維持。
+- Python側の独立Examエンジンは本番で参照されておらず、シミュレーション・回帰テストのJavaScript統一時に廃止した。
 
 ### 未移行・フェーズ管理
 
 名称統一はまだ全経路では完了していない。その他のMaster Effectの大きなswitch、
-対応する各コマンドクラス、AI/保存/履歴インターフェース、Pythonの未実装メンバーは、
+対応する各コマンドクラス、AI/保存/履歴インターフェースの未実装メンバーは、
 実機メタデータにあることだけを理由に架空の実装を追加しない。
 
 **内部の呼び出し順序・コマンドスタックの制御・効果発動のタイミングは、本名称統一フェーズでは変更しない。**
 名称移行が完了し、旧形式の互換性と既存回帰テストが確認できた後に、独立したPRで実機の処理順を照合する。
 
-テストは `tests/test_native_python_names.py`、`tests/test_native_effect_executor_names.mjs`、
-`tests/test_native_exam_context.mjs`。JS 2テストはCIのWeb testsに追加済み、Pythonテストは unittest discover で実行する。
+テストは `tests/test_native_effect_executor_names.mjs`、
+`tests/test_native_exam_context.mjs`、`tests/test_all_native_executors.mjs`。すべてNode.jsでCI実行する。
