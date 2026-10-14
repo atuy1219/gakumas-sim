@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **112** |
+| Master Effectからクラス単位に移した分岐数 | **115** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **145** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **16** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **148** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **13** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装16クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装13クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -154,7 +154,7 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `FullPowerPointDependFullPowerPointGetSumEffectExecutor` | `ExamFullPowerPointDependFullPowerPointGetSum` | 未実装 |
 | `FullPowerPointEffectExecutor` | `ExamFullPowerPoint` | 未実装 |
 | `FullPowerPointPerSearchCountEffectExecutor` | `ExamFullPowerPointPerSearchCount` | 未実装 |
-| `FullPowerPointReduceCancellableEffectExecutor` | 未実装 | 未実装 |
+| `FullPowerPointReduceCancellableEffectExecutor` | `ExamFullPowerPointReduceCancellable` | 未実装 |
 | `FullPowerPointReduceEffectExecutor` | `ExamFullPowerPointReduce` | 未実装 |
 | `GetCardUpgradeEffectExecutor` | `ExamGetCardUpgrade` | 未実装 |
 | `GimmickEnthusiasticEffectExecutor` | `ExamGimmickEnthusiastic` | 未実装 |
@@ -252,10 +252,10 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `StanceLockFullPowerEffectExecutor` | `ExamStanceLockFullPower` | 未実装 |
 | `StanceLockPreservationEffectExecutor` | `ExamStanceLockPreservation` | 未実装 |
 | `StanceResetEffectExecutor` | `ExamStanceReset` | 未実装 |
-| `StatusEnchantCountAddEffectExecutor` | 未実装 | 未実装 |
+| `StatusEnchantCountAddEffectExecutor` | `ExamStatusEnchantCountAdd` | 未実装 |
 | `StatusEnchantEffectExecutor` | `ExamStatusEnchant` | `status_enchant` |
 | `StatusEnchantEncoreEffectExecutor` | `ExamStatusEnchantEncore` | 未実装 |
-| `StatusEnchantTurnAddEffectExecutor` | 未実装 | 未実装 |
+| `StatusEnchantTurnAddEffectExecutor` | `ExamStatusEnchantTurnAdd` | 未実装 |
 | `UpgradeEffectExecutor` | `ExamCardUpgrade` | `card_upgrade_hand_all` |
 | `UpliftingEffectExecutor` | `ExamUplifting` | 未実装 |
 
