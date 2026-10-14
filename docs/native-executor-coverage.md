@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **80** |
+| Master Effectからクラス単位に移した分岐数 | **82** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで既存挙動を移せた**重複除外の実機クラス名** | **113** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **48** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **115** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **46** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装48クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装46クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -27,6 +27,14 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `web/native_effect_executor_registry.js` : IL2CPPから抽出した161クラス名とマスターIDの名称対応。
 - `tests/test_all_native_executors.mjs` : 161クラスの一意性、80+41分岐、113対応名を検証。
 - `tests/test_contest_dfs.mjs` : JSへ移したコンテストDFS方針の回帰検証。
+
+## ELFによる追加実装（2026-10-14）
+
+- `LessonMultipleConcentrationEffectExecutor`（0x805b180）：`Value1` / `Value2` / `Count` を読み、`FloatFromPermil(Value2) + 1` を追加倍率として一度だけ `CalculateAddingParameter`、`AddParameter` を `Count` 回呼び出す。
+- `LessonMultipleFullPowerEffectExecutor`（0x805b658）：同じ処理だが補正対象は `fullPowerMultiple` となる。双方とも既存の `applyNativeModifiedLessonRepeat` を再利用。
+- 48→46個の未対応削減を確認。ただしELFで関数シンボルが見つかったことだけで他46種類を推測実装しない。
+- テスト：`tests/test_elf_lesson_multiplier_executors.mjs`、`tests/test_all_native_executors.mjs`。
+- 注意：この2効果を含む新しい実機キャプチャの比較は未実施。分岐表への追加とELFの機械語呼出し順の整合を確認した段階。
 
 ## 全クラス一覧
 
@@ -131,9 +139,9 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 | `LessonEffectExecutor` | 未実装 | `lesson` |
 | `LessonFixEffectExecutor` | `ExamLessonFix` | 未実装 |
 | `LessonFullPowerPointEffectExecutor` | `ExamLessonFullPowerPoint` | 未実装 |
-| `LessonMultipleConcentrationEffectExecutor` | 未実装 | 未実装 |
+| `LessonMultipleConcentrationEffectExecutor` | `ExamMultipleConcentrationLesson` | 未実装 |
 | `LessonMultipleEnthusiasticEffectExecutor` | `ExamMultipleEnthusiasticLesson` | 未実装 |
-| `LessonMultipleFullPowerEffectExecutor` | 未実装 | 未実装 |
+| `LessonMultipleFullPowerEffectExecutor` | `ExamMultipleFullPowerLesson` | 未実装 |
 | `LessonValueMultipleDownEffectExecutor` | `ExamLessonValueMultipleDown` | `lesson_value_multiple_down` |
 | `LessonValueMultipleEffectExecutor` | 未実装 | `lesson_value_multiple` |
 | `MoveGrowEffectEffectExecutor` | 未実装 | 未実装 |
