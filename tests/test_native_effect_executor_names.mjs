@@ -26,6 +26,8 @@ for (const [kind, name] of Object.entries(PARSED_EFFECT_EXECUTOR_CLASS_NAMES)) {
 }
 assert.equal(resolveNativeEffectExecutorClassName("ProduceExamEffectType_ExamCardDraw"), "DrawEffectExecutor");
 assert.equal(resolveNativeEffectExecutorClassName("ProduceExamEffectType_ExamStatusEnchantEncore"), "StatusEnchantEncoreEffectExecutor");
+assert.equal(resolveNativeEffectExecutorClassName("ProduceExamEffectType_ExamMultipleConcentrationLesson"), "LessonMultipleConcentrationEffectExecutor");
+assert.equal(resolveNativeEffectExecutorClassName("ProduceExamEffectType_ExamMultipleFullPowerLesson"), "LessonMultipleFullPowerEffectExecutor");
 assert.equal(resolveNativeEffectExecutorClassName("not-an-effect"), null);
 assert.throws(() => assertNativeExecutorClassName("UnknownExecutor"), RangeError);
 
