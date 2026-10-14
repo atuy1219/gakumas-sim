@@ -20,3 +20,7 @@ All 47 Node CI test files passed locally; JavaScript syntax and diff whitespace 
 ## Limits
 
 This closes the six **unconnected executor paths**, not every potential native parity difference. Existing fixture regressions and decoded boundary vectors passed. No new live capture was supplied, and historical captures (16)-(19) were not rerun in this update. Native execution paths not represented by those fixtures still need live trace comparison. The other attachment `gakumas_analysis.elf` was unavailable and was not used.
+
+## Subsequent 36-session replay
+
+The historical captures (16)-(19) were subsequently rerun at commit `036563d444d2ec4b61e6e86fc585df9f2b654b9f`. All 36 supplemented sessions had no detected differences, and all four reports were byte-identical to a fresh PR #99 baseline using the same inputs. Without the existing customization supplement, six sessions differ; 247 initial-card customization instances remain unknown even after supplementation. See `docs/pr100-capture36-recomparison.md` for conditions, counts and limits.
