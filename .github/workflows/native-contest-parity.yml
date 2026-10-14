@@ -1,0 +1,234 @@
+name: Native contest capture parity
+
+on:
+  push:
+    branches:
+      - feature/contest-native-comparison
+  pull_request:
+    branches:
+      - feature/simulator-native-parity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Verify ELF excellent-condition duration extension
+        run: node tests/test_excellent_condition_duration_elf.mjs
+      - name: Verify native 22 grave-recycle observations against simulator shuffle
+        run: node tests/test_native_grave_recycles.mjs
+      - name: Verify Encore, reserved draw boundaries and eight native move RNG observations
+        run: node tests/test_encore_draw_boundary.mjs
+      - name: Verify native score, cost, condition and FullPower boundaries
+        run: node tests/test_native_contest_remaining_effects.mjs
+      - name: Replay nine anonymized native sessions against independent simulator
+        run: |
+          node tools/compare_contest_capture.mjs \
+            tests/fixtures/contest-native-sanitized-v1534.json \
+            /tmp/contest-native-parity.json "" main \
+            --observed-customs-provisional
+      - name: Trace anomaly card costs and native score effects
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('/tmp/contest-native-parity.json','utf8'));
+          for(const sid of [1,3,5,7,8]){
+            const q=r.sessions.find(s=>Number(s.sessionId)===sid);
+            if(!q)continue;
+            const actions=(q.simulation?.cardActionTrace??[]).filter(c=>
+              sid===7 ? (c.turn===2 && c.cardId==='p_card-03-men-3_058') :
+              sid===8 ? (c.cardId==='p_card-03-men-1_050' || c.turn===6) :
+              sid===3 ? c.turn===3 || c.turn===4 :
+              sid===5 ? c.turn===5 || c.turn===7 :
+              c.turn===5);
+            console.log('DEEP_CARD '+sid+' '+JSON.stringify(actions.map(c=>({
+              turn:c.turn,card:c.cardId,cost:c.simulated?.cardCostEvents,costDebug:c.simulated?.beforeCostDebug,
+              phases:c.simulated?.phases?.map(p=>({
+                phase:p.phase,score:p.score,stamina:p.stamina,block:p.block,
+                lessonBuff:p.lessonBuff,parameterBuff:p.parameterBuff,
+              })),
+            }))).slice(0,25000));
+            console.log('DEEP_RNG '+sid+' '+JSON.stringify((q.simulation?.rngTrace??[]).filter(x=>
+              sid===1 ? x.turn===5||x.turn===6 :
+              sid===3 ? x.turn===3||x.turn===4||x.turn===5 :
+              sid===5 ? x.turn===7||x.turn===8 : x.turn===2||x.turn===7)).slice(0,12000));
+          }
+          NODE
+      - name: Show first differences in every session
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,existsSync} from "node:fs";
+          const path="/tmp/contest-native-parity.json";
+          if(!existsSync(path)){ console.error("Replay did not produce a report"); process.exitCode=1; }
+          else {
+            const report=JSON.parse(readFileSync(path,"utf8"));
+            console.log(JSON.stringify({
+              status:report.status,summary:report.summary,master:report.masterProvenance,
+              sessions:report.sessions.map(s=>({
+                id:s.sessionId,seed:s.seed,nativeScore:s.realDevice?.score,
+                normalization:s.normalization?.reasons,
+                setupRng:s.rngVerification?.status,
+                status:s.comparison?.status,
+                firstDivergence:s.comparison?.firstDivergence,
+                nativeCardMetricsVerified:s.comparison?.nativeCardMetricsVerified,
+                nativeCardMetricsCompared:s.comparison?.nativeCardMetricsCompared,
+                scheduled:s.comparison?.scheduledNativeCardActions,
+                warnings:s.warnings?.filter(w=>/simulator|failed|native-capture|missing|unverified-pre-shuffle/.test(w)).slice(0,4)
+              }))
+            },null,2));
+            for(const s of report.sessions){
+              const cmp=s.comparison;
+              console.log("DIAGNOSTIC SESSION "+s.sessionId+" "+JSON.stringify({
+                normalization:s.normalization,
+                nativePItems:s.nativeSetup?.nativePItemIds??null,
+                firstDivergence:cmp?.firstDivergence,
+                firstCardDifferences:(cmp?.cardDiagnostics??[]).filter(d=>d.mismatchedFields?.length).slice(0,5),
+                cardCount:(cmp?.cardDiagnostics??[]).length,
+                firstTenActions:(cmp?.cardDiagnostics??[]).slice(0,10).map(d=>({
+                  turn:d.turn,card:d.cardId,
+                  real:d.realDevice,sim:d.simulation,mismatch:d.mismatchedFields
+                })),
+                turns:(cmp?.turnDiagnostics??[]).map(d=>({
+                  turn:d.turn,native:d.nativeScore,sim:d.simulationScore,
+                  scoreDelta:d.scoreDelta,mismatches:d.mismatchedFields,
+                  cards:d.nativeCards
+                })).slice(0,15),
+                warnings:s.simulation?.warnings??[],
+                pitems:s.normalization?.candidates?.pItemIds??[],
+              }));
+            }
+            if(!report.summary.simulationCompared)process.exitCode=1;
+          }
+          NODE
+      - name: Diagnose master and execution phases at first native differences
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          const report=JSON.parse(readFileSync("/tmp/contest-native-parity.json","utf8"));
+          const catalog=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
+          const byId=rows=>new Map((rows??[]).map(x=>[x.id,x]));
+          const cards=byId(catalog.cards),items=byId(catalog.items),effects=byId(catalog.examEffects);
+          const itemEffects=byId(catalog.itemEffects),variants=catalog.cardVariants??[];
+          const sample=[[1,6,"p_card-01-ido-3_200"],[2,1,"p_card-01-act-1_001"],[3,1,"p_card-01-ido-3_202"],
+            [5,5,"p_card-02-men-2_060"],[6,1,"p_card-02-men-0_011"],[7,2,"p_card-03-men-3_058"],
+            [8,2,"p_card-03-sup-3_162"],[9,1,"p_card-00-act-0_001"]];
+          for(const [sessionId,turn,id] of sample){
+            const s=report.sessions.find(s=>s.sessionId===sessionId);
+            const native=s.nativeCardActions??[];
+            const action=s.simulation?.cardActionTrace?.find(a=>a.turn===turn&&a.cardId===id);
+            const variant=variants.filter(x=>x.id===id);
+            const pItems=s.normalization?.candidates?.pItemIds??[];
+            const result={
+             s:sessionId,t:turn,cardId:id,cardVariants:variant.map(v=>({id:v.id,upgrade:v.upgradeCount,
+              name:v.name,stamina:v.stamina,forceStamina:v.forceStamina,playEffects:v.playEffects,
+              moveEffects:v.moveProduceExamEffectIds,costType:v.costType,costValue:v.costValue,
+              enchant:v.produceCardStatusEnchantId})),
+             pItems:pItems.map(id=>({id,
+              item:items.get(id),effect:itemEffects.get(id)})),
+             native:native.filter(a=>a.turn===turn&&a.cardId===id).map(a=>({before:a.before,after:a.after})),
+             sim:action?.simulated,
+             turnPhases:s.simulation?.turnPhaseTrace?.find(x=>x.turn===turn)
+            };
+            console.log("DETAILED_SESSION "+sessionId+" "+JSON.stringify(result).slice(0,26000));
+          }
+          NODE
+      - name: Expand P-item enchant master chains for observed differences
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          const cat=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
+          const sources=Object.fromEntries(["items","itemEffects","examStatusEnchants",
+           "examTriggers","examEffects","cardSearches","growEffects"].map(k=>[k,
+            new Map((cat[k]??[]).map(v=>[v.id,v]))]));
+          const list=[
+            "pitem_03-0-007-0-016","pitem_03-3-077-0","pitem_03-3-065-0",
+            "pitem_00-3-011-0","pitem_03-3-072-0","pitem_03-3-298-0",
+            "pitem_02-3-075-0","pitem_02-3-262-0","pitem_02-3-309-0",
+            "pitem_01-3-079-0","pitem_01-3-313-0","pitem_02-3-293-0"
+          ];
+          function normalize(v){return JSON.stringify(v??null).slice(0,6500)}
+          for(const id of list){
+            const item=sources.items.get(id);
+            const itemEffects=(item?.produceItemEffectIds??[]).map(eid=>sources.itemEffects.get(eid)).filter(Boolean);
+            const enchants=(cat.examStatusEnchants??[]).filter(e=>e.id?.includes(id));
+            const triggers=enchants.flatMap(e=>(e.triggerIds??[e.produceExamTriggerId]).map(eid=>sources.examTriggers.get(eid))).filter(Boolean);
+            const effectIds=new Set();
+            for(const e of enchants)for(const v of (e.effects??[]))effectIds.add(v.produceExamEffectId);
+            const effects=[...effectIds].map(eid=>sources.examEffects.get(eid)).filter(Boolean);
+            console.log("ITEM_CHAIN "+id+" "+normalize({item,itemEffects,enchants,triggers,effects}));
+          }
+          NODE
+      - name: Compare actual native and simulated recycle pools
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,existsSync} from "node:fs";
+          if(!existsSync("/tmp/contest-native-parity.json"))process.exit(0);
+          const report=JSON.parse(readFileSync("/tmp/contest-native-parity.json","utf8"));
+          const native=JSON.parse(readFileSync("tests/fixtures/native-grave-recycles-v1534.json","utf8"));
+          for(const s of report.sessions){
+            const sid=s.sessionId;
+            const refs=native.observations.filter(x=>x.sessionId===sid);
+            const sims=s.simulation?.recycleEvents??[];
+            const compare=(n,b)=>({
+             sourceEqual:JSON.stringify(n.grave)===JSON.stringify(b.source.map(c=>c.id)),
+             orderEqual:JSON.stringify(n.deck)===JSON.stringify(b.shuffled.map(c=>c.id)),
+             randomEqual:n.afterRandomState===b.randomState,
+            });
+            console.log("RNG_TRACE_SESSION "+sid+" "+JSON.stringify({
+              observations:s.simulation?.rngTrace??[],
+              firstNativeRandomState:refs[0]?.beforeRandomState,
+            }));
+            console.log("RECYCLE_DIFF_SESSION "+sid+" "+JSON.stringify({
+              native:refs.map(x=>({step:x.step,startRng:x.beforeRandomState,endRng:x.afterRandomState,grave:x.grave,deck:x.deck})),
+              simulated:sims.map(x=>({turn:x.turn,phase:x.phase,randomState:x.randomState,source:x.source.map(c=>c.id),shuffled:x.shuffled.map(c=>c.id)})),
+              comparisons:refs.slice(0,sims.length).map((x,i)=>compare(x,sims[i]))
+            }).slice(0,27000));
+          }
+          NODE
+      - name: Inspect temporary-upgrade source and active master effects
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          const c=JSON.parse(readFileSync("/tmp/gakumas-contest-catalog.json","utf8"));
+          const keys=["p_card-00-sup-3_027","p_card-03-men-0_013","p_card-03-act-3_055",
+            "p_card-03-ido-3_106","p_card-03-men-3_058","p_card-03-act-3_065","p_card-03-men-1_050","p_card-03-men-2_066",
+            "p_card-00-sup-3_152","p_card-01-men-3_034"];
+          for(const id of keys){
+            const variants=(c.cardVariants??[]).filter(v=>v.id===id);
+            console.log("UPGRADE_MASTER "+id+" "+JSON.stringify(variants.map(v=>({
+              id:v.id,name:v.name,upgrade:v.upgradeCount,stamina:v.stamina,costType:v.costType,costValue:v.costValue,
+              playEffects:v.playEffects,statusEnchant:v.produceCardStatusEnchantId,
+              moveEffects:v.moveProduceExamEffectIds,originSupport:v.originSupportCardId,
+              movePosition:v.playMovePositionType,
+            }))).slice(0,12000));
+          }
+          const ie=new Map((c.itemEffects??[]).map(x=>[x.id,x]));
+          const en=new Map((c.examStatusEnchants??[]).map(x=>[x.id,x]));
+          const tr=new Map((c.examTriggers??[]).map(x=>[x.id,x]));
+          for(const id of ["pitem_03-0-007-0-016","pitem_03-3-077-0","pitem_03-3-065-0","pitem_00-3-011-0",
+            "pitem_03-3-072-0","pitem_03-3-134-0","pitem_00-3-010-0"]){
+            const item=(c.items??[]).find(x=>x.id===id);
+            const eff=(item?.produceItemEffectIds??[]).map(eid=>ie.get(eid)).filter(Boolean);
+            const ench=eff.map(x=>en.get(x.produceExamStatusEnchantId)).filter(Boolean);
+            console.log("ITEM_EXACT "+id+" "+JSON.stringify({
+              item,eff,ench:ench.map(e=>({...e,trigger:tr.get(e.produceExamTriggerId)}))
+            }).slice(0,16000));
+          }
+          NODE
+      - name: Upload independent replay report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contest-native-parity-v1534
+          path: /tmp/contest-native-parity.json
+          if-no-files-found: warn

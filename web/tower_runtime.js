@@ -221,11 +221,13 @@ export function restoreTowerTurnState(input, shared = {}) {
   }
   state.exam.turnLifetimeEnabled = true;
   state.exam.passingTurnStartFields ??= {};
+  state.exam.scalarTimedStatuses ??= [];
   const turnCardUses = (state.simulationLog?.events ?? []).filter(event => event.turn === state.turn && event.kind === "cardUse");
   state.normalPlayUsed ??= turnCardUses.length
     ? turnCardUses.some(event => !event.forced)
     : (state.currentTurnPlays ?? []).some(play => !play.forced);
   for (const card of [...(state.initialDeck ?? []), ...(state.shuffledInitialDeck ?? [])]) restoreLegacySpecificCostGrow(card);
+  state.pendingTimedCardUpgradeEffects ??= [];
   state.searchPlayCardLimits ??= [];
   state.searchCardCostChanges ??= [];
   state.cardEnchantRegistrations ??= new Map();
@@ -233,6 +235,17 @@ export function restoreTowerTurnState(input, shared = {}) {
   state.statusEnchantSerial ??= 0;
   state.exam.turnCardPlayCount ??= state.currentTurnPlays?.length ?? 0;
   state.turnOpen ??= Number(state.turn) > 0 && !state.ended && Number(state.history?.at(-1)?.turn ?? 0) < Number(state.turn);
+  // Older checkpoints lack installedTurn. Initial-only Encore belongs to
+  // the owner's first normal use, which is recoverable from recorded plays.
+  const pastTurns = [...(state.history ?? []), ...(state.turnOpen ? [{ turn: state.turn, plays: state.currentTurnPlays ?? [] }] : [])];
+  for (const registration of state.effectScheduler?.registrations ?? []) {
+    if (registration.installedTurn != null || !registration.metadata?.originCardToken) continue;
+    const parsed = schedulerParsedEffect(state.examEffectById.get(registration.id) ?? registration.id);
+    if (parsed.masterEffectType !== "ProduceExamEffectType_ExamStatusEnchantEncore") continue;
+    const first = pastTurns.find(turn => (turn.plays ?? []).some(play =>
+      !play.forced && play.card?.token === registration.metadata.originCardToken));
+    if (first) registration.installedTurn = Number(first.turn);
+  }
   // Older checkpoints did not store per-card play counts. Recover them from
   // recorded plays so resuming an Encore cannot reinstall its initial effect.
   const playedCounts = new Map();
@@ -512,14 +525,12 @@ function moveSearchedCards(state, parsed, event) {
     }
   }
 
-  // Native path:
-  // ExamEffectUtility.PickCardPositionListImpl @ 0x7FE99E8
-  //   1) GetPickCountMinMax
-  //   2) GetRandomInt(min, max + 1) @ 0x7FEA0C8 -- ALWAYS consumes one
-  //      XorShift word, even for a fixed 1_1 count.
-  //   3) ProducePickRangeType_Random orders every candidate by a random Int32.
-  //      <PickCardPositionListImpl>b__3 @ 0x7FFE17C calls
-  //      ExamEffectCalculateContext.GetRandomInt() once PER candidate.
+  // ELF (build 77fda4e2): ExamEffectUtility.PickCardPositionListImpl
+  // at RVA 0x80302A8; the older 0x7FE99E8 was a branch-table address.
+  // In its Random branch (RVA 0x8030954), GetPickCountMinMax is followed
+  // by GetRandomInt(min, max + 1) at RVA 0x8030988. Even a fixed count
+  // consumes one XorShift word. The All branch returns the complete list
+  // without this count roll. Candidate-order RNG is a separate concern.
   //
   // The old replay consumed only one RNG word for selecting an index. For
   // 夏夜に咲く思い出 with exactly one 眠気, native consumes two words:
@@ -672,6 +683,7 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     timers: [],
     pendingDraw: 0,
     pendingHandUpgradeAll: 0,
+    pendingTimedCardUpgradeEffects: [],
     cardEffectPlayCountBuff: null,
     cardById: cardById ?? new Map(),
     cardVariantByKey: options.cardVariantByKey ?? new Map(),
@@ -804,10 +816,24 @@ function nativeSchedulerHooks(state, runtimeEvent) {
           if (!card) return;
           const grows = effect.growEffectIds.map((id) => state.growEffectById.get(id)).filter(Boolean);
           for (const id of effect.growEffectIds) if (!state.growEffectById.has(id)) rememberUnsupported(state, "grow-effect:" + id);
-          applyPersistentRuntimeCardGrowEffects(card, grows);
+          // A self-enchant triggered by a direct stance-change effect grows
+          // the card for its *next* use.  In native contest #9 turn 7 the
+          // +2 lesson / +1 Block grow must not modify the same play's later
+          // lesson and Block effects (score +152, Block +1 otherwise).
+          // Another card affected by the same trigger can grow immediately.
+          if (card === state.playingCard) {
+            state._deferredPlayingCardGrows ??= [];
+            state._deferredPlayingCardGrows.push({
+              card,
+              grows: grows.map(grow => ({ ...grow })),
+            });
+          } else {
+            applyPersistentRuntimeCardGrowEffects(card, grows);
+          }
           runtimeEvent.grown ??= [];
-          runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1 });
-          runtimeEvent.effects.push((card.name ?? card.id) + "を成長");
+          runtimeEvent.grown.push({ token: card.token, growEffectIds: [...effect.growEffectIds], matched: 1,
+            deferredUntilAfterPlay: card === state.playingCard });
+          runtimeEvent.effects.push((card.name ?? card.id) + (card === state.playingCard ? "を次回使用に向けて成長" : "を成長"));
           return;
         }
         if (effect?.kind === "nativeGimmickRow") {
@@ -926,6 +952,23 @@ function emitNativeStatusDiff(state, before, runtimeEvent, extra = {}) {
     }
   }
   if (!nativeResultTriggersAllowed(state)) return [];
+  // Card-cost consumption is observed by the native card-use completion hook
+  // before the P-item recovery is applied. Capture the consumption now, but
+  // resolve ExamBuffConsume after the card's main effects (same card action).
+  if (extra.cause === "cardCost") {
+    const afterCost = captureNativeStatusSnapshot(state.exam);
+    const consumptionFields = ["review", "aggressive", "parameterBuff", "lessonBuff", "parameterBuffMultiplePerTurn"];
+    for (const field of consumptionFields) {
+      const beforeValue = Number(before[field] ?? 0);
+      const afterValue = Number(afterCost[field] ?? 0);
+      if (afterValue < beforeValue) {
+        runtimeEvent.__deferredBuffConsumes ??= [];
+        runtimeEvent.__deferredBuffConsumes.push({
+          field, before: beforeValue, after: afterValue, delta: afterValue - beforeValue,
+        });
+      }
+    }
+  }
   registerRuntimeCardEnchants(state);
   return withNativeTransition(runtimeEvent, () => dispatchNativeStatusDiff(
     state.effectScheduler,
@@ -966,8 +1009,8 @@ const MASTER_EXAM_PHASE_TO_NATIVE = Object.freeze({
   ProduceExamPhaseType_ExamCardPlayAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamEndTurn: NATIVE_EFFECT_PHASE.END_TURN,
   ProduceExamPhaseType_ExamTurnCheck: NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
-  ProduceExamPhaseType_ExamTurnTimer: NATIVE_EFFECT_PHASE.START_OF_TURN,
-  ProduceExamPhaseType_ExamTurnInterval: NATIVE_EFFECT_PHASE.START_OF_TURN,
+  ProduceExamPhaseType_ExamTurnTimer: NATIVE_EFFECT_PHASE.TURN_START_AFTER_DRAW,
+  ProduceExamPhaseType_ExamTurnInterval: NATIVE_EFFECT_PHASE.TURN_START_AFTER_DRAW,
   ProduceExamPhaseType_ExamPlayCountInterval: NATIVE_EFFECT_PHASE.CARD_PLAY,
   ProduceExamPhaseType_ExamPlayCountIntervalAfter: NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY,
   ProduceExamPhaseType_ExamTurnSkip: NATIVE_EFFECT_PHASE.END_TURN,
@@ -1121,7 +1164,10 @@ function cardsForMasterSearch(state, search, context = {}) {
     ...(state.hold ?? []),
   ];
 
-  if (position === "ProduceCardPositionType_DeckAll") return [...all, ...(state.playingCard && !all.includes(state.playingCard) ? [state.playingCard] : [])];
+  // DeckAll enumerates card-pool slots; a currently playing card has already
+  // left Hand and is not in the Deck/Grave/Hold/Lost pools. In particular,
+  // this prevents DeckAll grow effects from upgrading their own in-flight card.
+  if (position === "ProduceCardPositionType_DeckAll") return all;
   if (position === "ProduceCardPositionType_NotLost") return all.filter((card) => !state.lost.includes(card));
   if (position === "ProduceCardPositionType_Target") return context.card ? [context.card] : [];
   if (!position || position.endsWith("_Unknown")) {
@@ -1219,6 +1265,18 @@ function masterPhaseValue(state, phaseType, context) {
       return Number(state.turn ?? 0) === 0 ? 1 : 0;
     case "ProduceExamPhaseType_ExamTurnCheck":
       return Number(context.nextTurn ?? state.turn ?? 0) + (context.nextTurn === undefined ? 1 : 0);
+    case "ProduceExamPhaseType_ExamTurnInterval":
+    case "ProduceExamPhaseType_ExamEndTurnInterval":
+    case "ProduceExamPhaseType_ExamTurnTimer":
+      // Card-installed TriggerEffectStatusEffect.TurnCount (+0x88):
+      // GetTurnIntervalEffectList.b__0 @0x807ff14 -> IsTurnIntervalTrigger
+      // @0x803fc34. Keep the existing setup P-item clock; it is independently
+      // verified by all four contest #4 recordings. Card installs carry
+      // their own origin, which must also survive checkpoint restoration.
+      return context.registration?.installedTurn == null
+        ? Number(state.turn ?? 0)
+        : Math.max(0, Number(state.turn ?? 0)
+          - Math.max(1, Number(context.registration.installedTurn)));
     case "ProduceExamPhaseType_ExamPlayCountInterval":
     case "ProduceExamPhaseType_ExamPlayCountIntervalAfter":
     case "ProduceExamPhaseType_ExamPlayTurnCountInterval":
@@ -1320,6 +1378,25 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   if (condition.phaseType === "ProduceExamPhaseType_ExamTurnSkip" && String(context.action ?? "") !== "skip") return false;
 
   const statusField = context.statusChange?.field;
+  // A delayed consumption event must not retrigger unrelated status-decrease
+  // enchantments that already saw the immediate card-cost transition.
+  if (context.deferredBuffConsume && condition.phaseType !== "ProduceExamPhaseType_ExamBuffConsume") return false;
+  // ExamBuffConsume is a consumption trigger, not a general STATUS_DECREASED.
+  // In particular Block (元気) being spent to pay card cost must not fire it.
+  // Only the recognized consumable buff-status fields qualify. This is a
+  // conservative filter pending additional native status-class coverage.
+  if (condition.phaseType === "ProduceExamPhaseType_ExamBuffConsume") {
+    // SpendTurn reduces finite-turn buff counters but is not a buff *cost*.
+    // The native ExamBuffConsume phase fires when paying a buff cost (or an
+    // explicit consume effect), not when a status duration naturally ticks.
+    if (context.cause !== "cardCostDeferred"
+      && !(context.cause === "effect" && /Consume|Reduce/.test(String(context.effectType ?? "")))) return false;
+    const consumableBuffs = new Set([
+      "review", "aggressive", "parameterBuff", "lessonBuff",
+      "staminaConsumptionDown", "parameterBuffMultiplePerTurn",
+    ]);
+    if (!consumableBuffs.has(statusField) || !(Number(context.statusChange?.delta) < 0)) return false;
+  }
   const requiredField = {
     ProduceExamPhaseType_ExamStanceChangeConcentration: "concentrationChangeCount",
     ProduceExamPhaseType_ExamStanceChangePreservation: "preservationChangeCount",
@@ -1348,7 +1425,8 @@ function matchesMasterExamTrigger(state, condition, context, runtimeEvent) {
   if (phaseValues.length) {
     const value = masterPhaseValue(state, condition.phaseType, context);
     const interval = /Interval(?:After)?$/.test(condition.phaseType);
-    if (!(interval ? phaseValues.some((n) => n > 0 && value > 0 && value % n === 0) : phaseValues.includes(value))) return false;
+    const zeroInterval = condition.phaseType === "ProduceExamPhaseType_ExamEndTurnInterval";
+    if (!(interval ? phaseValues.some((n) => n > 0 && (value > 0 || zeroInterval && value === 0) && value % n === 0) : phaseValues.includes(value))) return false;
   }
   if (!triggerFieldStatusesMatch(state, trigger, context)) return false;
   if (!lessonTypeMatches(trigger.lessonType, context.lessonType)) return false;
@@ -1410,7 +1488,7 @@ function registerRuntimeCardEnchants(state) {
       if (issue) { rememberUnsupported(state, "card-enchant-trigger:" + trigger.id + ":" + issue); continue; }
       const mapped = MASTER_EXAM_PHASE_TO_NATIVE[phaseType];
       for (const phase of mapped === "statusChange" ? [NATIVE_EFFECT_PHASE.STATUS_INCREASED, NATIVE_EFFECT_PHASE.STATUS_DECREASED] : [mapped]) {
-        specs.push({ id, phase,
+        specs.push({ id, phase, installedTurn: state.turn,
           condition: { kind: "masterExamTrigger", phaseType, trigger, ownerToken: card.token, enchantId: id, activationKey: key },
           effects: [{ kind: "cardEnchantGrow", token: card.token, growEffectIds: enchant.produceCardGrowEffectIds ?? [] }],
           metadata: { activationKey: key, cardEnchantKey: key } });
@@ -1628,7 +1706,9 @@ function registerParsedStatusEnchant(state, parsed) {
     return null;
   }
 
-  const installedCardPlayCount = Number(state.exam.cardPlayCount ?? 0);
+  // Activation starts after the installing card's after-check. During main
+  // effects the completed-use counter does not yet contain that card.
+  const installedCardPlayCount = Number(state.exam.cardPlayCount ?? 0) + (state.playingCard ? 1 : 0);
   const conditions = [];
 
   if (trigger.field && trigger.min !== undefined && trigger.min !== null) {
@@ -1793,6 +1873,10 @@ function applyRuntimeUpgradeVariant(state, card, targetUpgradeCount) {
   }, state.customizeById, state.growEffectById);
   const grows = [...(card.runtimeGrowEffects ?? [])];
   rebuilt.runtimeGrowEffects = [];
+  // Each upgrade variant has its own master/customization cost baseline.
+  // Recompute all in-exam cost growth on that baseline, never the preceding
+  // upgrade's already-modified stamina.
+  delete rebuilt._runtimeGrowStaminaBase;
   applyRuntimeCardGrowEffects(rebuilt, grows);
   Object.assign(card, rebuilt);
   card.onceOnly = isOnceOnlyMove(card.playMovePositionType);
@@ -1808,29 +1892,23 @@ function applySupportCardUpgradeInPlace(state, card) {
   return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
 }
 
-function applyPermanentCardUpgradeInPlace(state, card) {
-  const supportCount = Math.max(0, Math.trunc(Number(card?._supportUpgradeCount ?? 0)));
-  // UpgradeEffectExecutor @ 0x80202FC checks IsUpgradableRaw @ 0x822A738:
-  // original + skill-effect upgrade must be zero, and the + master must exist.
-  // Support upgrades are separate and may still produce ++ in ordinary exams.
-  const baseCard = card?._supportBaseSnapshot ?? card;
-  if (Number(baseCard?.upgradeCount ?? 0) !== 0
-    || !state.cardVariantByKey?.has(`${card.id}@@1`)) return Number(card.upgradeCount ?? 0);
-  if (!card?._supportBaseSnapshot || supportCount <= 0) {
-    return applyRuntimeUpgradeVariant(state, card, Number(card?.upgradeCount ?? 0) + 1);
-  }
-
-  const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
-  const nextBaseCount = Math.max(0, Number(base.upgradeCount ?? 0)) + 1;
-  const nextBase = cloneRuntimeCardSnapshot(base);
-  applyRuntimeUpgradeVariant(state, nextBase, nextBaseCount);
-  card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
-
-  Object.assign(card, cloneRuntimeCardSnapshot(nextBase));
-  card._supportBaseSnapshot = cloneRuntimeCardSnapshot(nextBase);
-  card._supportUpgradeCount = supportCount;
-  return applyRuntimeUpgradeVariant(state, card, nextBaseCount + supportCount);
+// ExamCardUpgrade writes ExamCardData._tmpUpgradeCount, separately from the
+// initial _baseUpgradeCount. Native pool captures preserve this count across
+// turn boundaries and card moves: the upgrade lasts for the exam, not just the
+// current turn. Support-card-triggered upgrades have their own rollback scope.
+// IsUpgradableRaw restricts the skill effect to a base-unupgraded card.
+function applyTemporarySkillUpgradeInPlace(state, card) {
+  const base = card?._supportBaseSnapshot ?? card;
+  if (Number(base?.upgradeCount ?? 0) !== 0
+    || Number(card?._skillUpgradeCount ?? 0) > 0
+    || !state.cardVariantByKey?.has(`${card.id}@@1`)) return Number(card?.upgradeCount ?? 0);
+  card._skillUpgradeCount = 1;
+  // A support upgrade may already have raised the effective stage. Load the
+  // matching ++/+++ master rather than only changing the visible counter.
+  // Do not save this as a turn-limited support snapshot.
+  return applyRuntimeUpgradeVariant(state, card, Number(card.upgradeCount ?? 0) + 1);
 }
+
 
 function clearSupportCardUpgrades(state) {
   const seen = new Set();
@@ -1840,8 +1918,17 @@ function clearSupportCardUpgrades(state) {
       seen.add(card);
       if (!card._supportBaseSnapshot) continue;
       const base = cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
+      // If ExamCardUpgrade was applied after a support upgrade, the support
+      // snapshot predates it. Carry that skill upgrade forward at turn end.
+      const skillAddedAfterSnapshot = Math.max(0,
+        Number(card._skillUpgradeCount ?? 0) - Number(base._skillUpgradeCount ?? 0));
       for (const key of Object.keys(card)) delete card[key];
       Object.assign(card, base);
+      if (skillAddedAfterSnapshot) {
+        card._skillUpgradeCount = Number(base._skillUpgradeCount ?? 0) + skillAddedAfterSnapshot;
+        applyRuntimeUpgradeVariant(state, card,
+          Number(card.upgradeCount ?? 0) + skillAddedAfterSnapshot);
+      }
     }
   }
 }
@@ -2032,15 +2119,21 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   state.currentTurnDrinks = [];
   state.turnUseSupportCardIds = new Set();
 
-  // EffectTimer counts completed turn boundaries and fires when the delayed
-  // turn actually starts. A 1-turn timer created on Turn 1 therefore resolves
-  // here on Turn 2, before that turn's ordinary StartOfTurn effects and draw.
-  tickTimers(state, phaseEvent);
+  // ExamLoopTaskAsync @ 0x80b8260 clears the prior turn, then unsets
+  // FullPower and consumes ten points before the next turn's card phases.
+  resolveFullPowerAtTurnStart(state, phaseEvent);
+
+  // Expire the timers now, but execute their commands after ordinary draw.
+  // Phase-4 replay/timer commands can then add cards beyond the normal draw.
+  const expiredTimers = takeExpiredTimers(state);
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.START_OF_TURN, phaseEvent);
 
   const extraDraw = Math.max(0, Number(state.pendingDraw ?? 0));
   state.pendingDraw = 0;
-  const requested = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
+  // Before-draw setup/gimmicks can populate Hand. Interval replays and timer
+  // effects run below, so their additional cards do not consume this quota.
+  const targetHandSize = Math.max(0, count + extraDraw - Math.max(0, Number(state.exam.startTurnCardDrawDown ?? 0)));
+  const requested = Math.max(0, targetHandSize - state.hand.length);
   const result = isOpeningTurn
     ? setNativeInitialCard(state, requested, phaseEvent)
     : drawCardsIntoHand(state, requested, phaseEvent);
@@ -2055,11 +2148,23 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   // In the verified H.I.F opening (Vi turn), two Vi supports therefore produce
   // 4 rolls across the three opening cards: 531,20(success),826,786.
   applyExamSupportCardUpgrades(state, result.drawn, phaseEvent);
+  // Native phase 4 runs timer commands after ordinary draw. Resolve each
+  // reserved draw immediately; pendingDraw would postpone it another turn.
+  for (const timer of expiredTimers) {
+    for (let index = 0; index < Math.max(1, Math.trunc(Number(timer.count ?? 1) || 1)); index += 1) {
+      executeParsedTowerEffect(state, timer.child, phaseEvent);
+    }
+  }
+  runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.TURN_START_AFTER_DRAW, phaseEvent);
   state.turnStartSupportCardRolls = (phaseEvent.supportCardRolls ?? []).map((roll) => ({ ...roll }));
   if (Number(state.pendingHandUpgradeAll ?? 0) > 0) {
     upgradeHandCards(state);
     state.pendingHandUpgradeAll = 0;
   }
+  // Deferred master effects retain their actual card-search predicates.
+  // Resolve against the newly populated Hand, before the first card is used.
+  const timedUpgrades = state.pendingTimedCardUpgradeEffects.splice(0);
+  for (const effect of timedUpgrades) executeMasterEffect(state, effect, phaseEvent);
   if (Number(state.exam.idolStatusType) === EXAM_IDOL_STATUS_TYPE.FullPower) {
     const returned = state.hold.splice(0, Math.max(0, Math.min(2, normalizeHandLimit(state.handLimit) - state.hand.length)));
     state.hand.push(...returned);
@@ -2088,7 +2193,7 @@ function drawTowerTurnImpl(state, drawCount = 3) {
 }
 
 function upgradeHandCards(state) {
-  for (const card of state.hand) applyPermanentCardUpgradeInPlace(state, card);
+  for (const card of state.hand) applyTemporarySkillUpgradeInPlace(state, card);
 }
 
 export function currentTowerScoreContext(state) {
@@ -2167,10 +2272,9 @@ function masterPickCount(state, parsed, available) {
   min = Math.min(min, max);
   if (range.endsWith("_Select")) return max;
 
-  // Native ExamEffectUtility.PickCardPositionListImpl calls
-  // GetRandomInt(min, max + 1) before the range-specific selection. This call
-  // is present even for a fixed 1_1 Random pick, so width==1 must still advance
-  // the shared Exam XorShift state.
+  // ELF PickCardPositionListImpl (RVA 0x80302A8) performs a count
+  // GetRandomInt only for the Random branch. Its All branch returns without
+  // that roll; a fixed 1_1 Random count still advances XorShift once.
   if (range.endsWith("_Random")) {
     return consumeNativeRandomInt(state, min, max + 1);
   }
@@ -2256,6 +2360,13 @@ function selectedMasterCandidates(state, parsed, candidates) {
   return selected;
 }
 
+function masterSearchCandidates(state, search, context) {
+  let candidates = cardsForMasterSearch(state, search, context).filter((card) => cardMatchesMasterSearch(card, search));
+  if (search?.isSelf) candidates = candidates.filter((card) => card.token === context.card?.token);
+  if (search?.orderType === "ProduceCardOrderType_Random") candidates = candidates.map((card, order) => ({ card, order, key: consumeNativeRandomSortKey(state) })).sort((a,b) => a.key - b.key || a.order - b.order).map((row) => row.card);
+  return Number(search?.limitCount) > 0 ? candidates.slice(0, Number(search.limitCount)) : candidates;
+}
+
 function pickedMasterCards(state, parsed, context = {}) {
   context = { card: state.effectOwnerCard ?? state.playingCard, ...context };
   const search = resolvedMasterSearch(state, parsed.searchId);
@@ -2266,10 +2377,7 @@ function pickedMasterCards(state, parsed, context = {}) {
       return row ? generatedRuntimeCard(state, row.produceCardId, row.upgradeCount) : null;
     }).filter(Boolean);
   }
-  let candidates = cardsForMasterSearch(state, search, context).filter((card) => cardMatchesMasterSearch(card, search));
-  if (search?.isSelf) candidates = candidates.filter((card) => card.token === context.card?.token);
-  if (search?.orderType === "ProduceCardOrderType_Random") candidates = candidates.map((card, order) => ({ card, order, key: consumeNativeRandomSortKey(state) })).sort((a,b) => a.key - b.key || a.order - b.order).map((row) => row.card);
-  if (Number(search?.limitCount) > 0) candidates = candidates.slice(0, Number(search.limitCount));
+  const candidates = masterSearchCandidates(state, search, context);
   const selected = selectedMasterCandidates(state, parsed, candidates);
   if (selected) return selected;
   const count = masterPickCount(state, parsed, candidates.length);
@@ -2412,6 +2520,7 @@ function registerMasterStatusEnchant(state, parsed) {
       specs.push({
         id: parsed.id,
         phase,
+        installedTurn: state.turn,
         turn: Number(parsed.turn) > 0 ? Number(parsed.turn) : null,
         condition: {
           kind: "masterExamTrigger",
@@ -2489,6 +2598,15 @@ function addPlayableStatus(state, value) {
 }
 
 function applyStanceRuntimeRewards(state, stance, event) {
+  // Native TryInternalSetStance runs AddBlockFix and TryAddEnthusiasticStatus
+  // when leaving Preservation/OverPreservation; they are separate from any
+  // block/effect on the destination Concentration card or P-item.
+  if (Number(stance?.releasedBlockAdd ?? 0) > 0) {
+    event.effects.push(`温存解除・固定元気 +${stance.releasedBlockAdd}`);
+  }
+  if (Number(stance?.releasedEnthusiasticAdd ?? 0) > 0) {
+    event.effects.push(`温存解除・熱意 +${stance.releasedEnthusiasticAdd}`);
+  }
   const playable = Math.max(0, Math.trunc(Number(stance?.playableValueAdd) || 0));
   if (playable > 0) {
     addPlayableStatus(state, playable);
@@ -2516,10 +2634,10 @@ function applyStanceRuntimeRewards(state, stance, event) {
   event.effects.push(`全カード ${matched}枚のパラメータ上昇量 +${lessonAdd}`);
 }
 
-function resolveFullPowerAfterCard(state, event) {
+function resolveFullPowerAtTurnStart(state, event) {
   const exam = state.exam;
-  // Native ExamLoopTaskAsync first removes the one-card Full Power stance,
-  // then converts each complete 10-point gauge into the next Full Power.
+  // ExamLoopTaskAsync @ 0x80b82b4 removes the prior turn's FullPower,
+  // then @ 0x80b8310 consumes ten points for the upcoming turn.
   if (Number(exam.idolStatusType ?? 0) === EXAM_IDOL_STATUS_TYPE.FullPower) {
     const beforeUnset = captureNativeStatusSnapshot(exam);
     exam.idolStatusType = EXAM_IDOL_STATUS_TYPE.Unknown;
@@ -2599,7 +2717,8 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamLessonDependBlockConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.blockConsumptionSum, parsed), event, "元気消費量参照"); return;
     case "ExamLessonDependStaminaConsumptionSum": applyMasterLesson(state, parsed, scaledMasterValue(exam.staminaConsumptionSum, parsed), event, "体力消費量参照"); return;
     case "ExamLessonDependPlayCardCountSum":
-      // Native executor @ 0x80133E0: value1 + value2 * ExamCardPlayCount.
+      // LessonDependPlayCardCountSumEffectExecutor @ 0x8059ca0 reads the
+      // completed-card count, before this card's UseCardAfterCheck increment.
       applyMasterLesson(state, parsed, v1 + v2 * Number(exam.cardPlayCount ?? 0), event, "カード使用数参照");
       return;
     case "ExamLessonFullPowerPoint": {
@@ -2660,13 +2779,25 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamStaminaDamage":
     case "ExamStaminaReduceFix":
     case "ExamStaminaReduce": {
-      const amount = type === "ExamStaminaReduce" && v1 < 0
-        ? Math.ceil(Number(exam.maxStamina ?? 0) * Math.abs(v1) / 1000)
+      // StaminaReduceEffectExecutor.ExecuteEffect (IL2CPP RVA 0x80643D4):
+      // a positive effectValue is a permille ratio of max stamina, not a
+      // fixed amount. Keep StaminaReduceFix as a distinct absolute reduction.
+      // The native path converts to float32, adds 0.0001f, then truncates.
+      const amount = type === "ExamStaminaReduce"
+        ? (v1 <= 0 ? 0 : Math.trunc(Math.fround(
+            Math.fround(Math.fround(v1 / 1000) + Math.fround(0.0001))
+            * Math.fround(Number(exam.maxStamina ?? 0)))))
         : Math.abs(v1);
+      // StaminaReduceFixEffectExecutor -> ReduceStaminaFix @0x80355fc:
+      // direct subtraction @0x8035698 bypasses all card-cost multipliers.
+      if (type === "ExamStaminaReduceFix") {
+        exam.stamina = Math.max(0, exam.stamina - amount);
+        event.effects.push(`体力減少 ${amount}`);
+        return;
+      }
       const resolved = calculateNativeStaminaDamage(exam, amount, {
         penetrate: type !== "ExamStaminaDamage",
-        // Fixed direct reduction bypasses ordinary card cost fixed discounts.
-        applyFixed: type !== "ExamStaminaReduceFix",
+        applyFixed: true,
       });
       exam.block = Math.max(0, exam.block - resolved.blockDamage);
       exam.stamina = Math.max(0, exam.stamina - resolved.staminaDamage);
@@ -2699,6 +2830,7 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     case "ExamParameterBuffAdditive": timedAdd("parameterBuffAdditivePermil", v1, "好調効果増加"); return;
     case "ExamEnthusiasticAdditive": timedAdd("enthusiasticAdditivePermil", v1, "熱意効果増加"); return;
     case "ExamEnthusiasticMultiple": timedAdd("enthusiasticMultiple", v1, "熱意倍率変更", "multiple"); return;
+    case "ExamEnthusiasticTurnAdditive": timedAdd("enthusiasticTurnAdditive", v1, "熱意持続ターン増加"); return;
     case "ExamFullPowerPointAdditive": timedAdd("fullPowerPointAdditivePermil", v1, "全力値効果増加"); return;
     case "ExamConcentrationLessonMultipleAdditive": timedAdd("concentrationLessonMultipleAdditive", v1, "強気時スコア倍率増加", "multiple"); return;
     case "ExamFullPowerLessonMultipleAdditive": timedAdd("fullPowerLessonMultipleAdditive", v1, "全力時スコア倍率増加", "multiple"); return;
@@ -2749,9 +2881,24 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
     }
     case "StanceLock": exam.stanceLock = turn || 1; event.effects.push(`指針固定 ${exam.stanceLock}ターン`); return;
     case "ExamCardMove": {
-      const cards = pickedMasterCards(state, parsed);
-      const moves = cards.map((card) => ({ card, from: removeRuntimeCard(state, card) || "playing" }));
       const destination = String(parsed.movePositionType ?? "").replace(/^ProduceCardMovePositionType_/, "");
+      // GetEffectWarning @ 0x803166c..0x803173c returns warning 9 for
+      // Hand moves when current Hand count equals HandLimit. The command's
+      // IsUsableWarningType gate rejects it before calling MoveCard.
+      if (destination === "Hand" && state.hand.length === normalizeHandLimit(state.handLimit)) return;
+      const selectedCards = pickedMasterCards(state, parsed);
+      // MoveCard groups positions before moving them. Stable groups preserve
+      // their first appearance; Playing is processed before other sources.
+      const groups = new Map();
+      for (const card of selectedCards) {
+        const source = state.deck.includes(card) ? "deck" : state.discard.includes(card) ? "grave" : state.hand.includes(card) ? "hand" : state.lost.includes(card) ? "lost" : state.hold.includes(card) ? "hold" : "playing";
+        if (!groups.has(source)) groups.set(source, []);
+        groups.get(source).push(card);
+      }
+      const cards = [...(groups.get("playing") ?? []), ...[...groups].filter(([source]) => source !== "playing").flatMap(([, cards]) => cards)];
+      // ELF MoveCard RVA 0x8277C3C..0x8277CB4: excess Hand moves
+      // are redirected to DeckFirst (move position 2), not left in the source.
+      const moves = cards.map((card) => ({ card, from: removeRuntimeCard(state, card) || "playing" }));
       const notifications = [];
       if (destination === "Hold") {
         // MoveCard @ 0x8231510: evict the oldest existing held cards first.
@@ -2794,8 +2941,16 @@ function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
       event.effects.push("対象カードを移動"); return;
     }
     case "ExamCardUpgrade": {
-      for (const card of pickedMasterCards(state, parsed)) {
-        applyPermanentCardUpgradeInPlace(state, card);
+      // A timer with a Hand search is resolved at the next turn's draw
+      // boundary. Searching here would see an empty hand, silently losing
+      // アイドル魂+'s delayed upgrade (native contest #8 turn 2).
+      const search = resolvedMasterSearch(state, parsed.searchId);
+      if (timed && String(search?.cardPositionType ?? "").includes("Hand")) {
+        state.pendingTimedCardUpgradeEffects.push(parsed);
+      } else {
+        for (const card of pickedMasterCards(state, parsed)) {
+          applyTemporarySkillUpgradeInPlace(state, card);
+        }
       }
       event.effects.push("対象カードを強化"); return;
     }
@@ -2949,7 +3104,22 @@ function withNativeEffectFrame(state, execute) {
 
 function executeParsedTowerEffect(state, parsed, event, options = {}) {
   return traceSimulation(state, currentSimulationSource(state),
-    () => withNativeEffectFrame(state, (frame) => executeParsedTowerEffectImpl(state, parsed, event, options, frame)),
+    () => withNativeEffectFrame(state, (frame) => {
+      // ExecuteCommandImplAsync @0x80dbc18 prepares the card-move search
+      // before CardMoveEffectExecutor @0x804bce4 searches again. Random
+      // order generates one key per source candidate in each pass; this
+      // preparation must not select cards or consume a ranged pick roll.
+      if (parsed.masterEffectType === "ProduceExamEffectType_ExamCardMove") {
+        const search = resolvedMasterSearch(state, parsed.searchId);
+        const fullHand = String(parsed.movePositionType).endsWith("_Hand")
+          && state.hand.length === normalizeHandLimit(state.handLimit);
+        if (!fullHand && search?.orderType === "ProduceCardOrderType_Random"
+          && !search.produceCardPoolId && !search.produceCardRandomPoolId) {
+          masterSearchCandidates(state, search, { card: state.effectOwnerCard ?? state.playingCard });
+        }
+      }
+      return executeParsedTowerEffectImpl(state, parsed, event, options, frame);
+    }),
     { effectId: parsed.id, recordIfUnchanged: true });
 }
 
@@ -3052,8 +3222,8 @@ function executeParsedTowerEffectImpl(state, parsed, event, { timed = false } = 
   );
 }
 
-function applyCardEffectEntry(state, entry, event, card = null) {
-  const trigger = checkRuntimeCardTrigger(state, entry?.produceExamTriggerId, card, event);
+function applyCardEffectEntry(state, entry, event, card = null, preparedTrigger = null) {
+  const trigger = preparedTrigger ?? checkRuntimeCardTrigger(state, entry?.produceExamTriggerId, card, event);
   if (!trigger.supported) {
     rememberUnsupported(state, `trigger:${trigger.triggerId}`);
     event.effects.push(`未対応条件: ${trigger.triggerId}`);
@@ -3111,10 +3281,23 @@ function addGrowEffectsToDeckAll(state, parsed, event) {
   if (grows.length) {
     const candidates = parsed.pickRangeType ? pickedMasterCards(state, parsed) : [...state.deck, ...state.hand, ...state.discard, ...state.hold].filter((card) => cardMatchesSearchId(card, parsed.searchId));
     for (const card of candidates) applyPersistentRuntimeCardGrowEffects(card, grows);
+    // DeckAll growth targets the card currently being used as well, but
+    // native AddGrowEffect takes effect only after this play's lesson result.
+    // Store it on the original card object, for its next play. Do not mutate
+    // the in-flight score or replay an observed score from the capture.
+    const search = resolvedMasterSearch(state, parsed.searchId);
+    const playingCard = state.playingCard;
+    const targetsPlayingCard = playingCard && search?.cardPositionType === "ProduceCardPositionType_DeckAll"
+      && cardMatchesMasterSearch(playingCard, search);
+    if (targetsPlayingCard) {
+      state._deferredPlayingCardGrows ??= [];
+      state._deferredPlayingCardGrows.push({ card: playingCard, grows: grows.map(grow => ({ ...grow })) });
+    }
     event.grown ??= [];
-    event.grown.push({ searchId: parsed.searchId, growEffectIds: [...parsed.growEffectIds], matched: candidates.length });
+    const matched = candidates.length + Number(Boolean(targetsPlayingCard));
+    event.grown.push({ searchId: parsed.searchId, growEffectIds: [...parsed.growEffectIds], matched });
     event.effects.push("対象カードを成長");
-    return candidates.length;
+    return matched;
   }
   const pools = [state.deck, state.hand, state.discard, state.hold];
   const seen = new Set();
@@ -3252,6 +3435,19 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       staminaConsumptionDown: Number(exam.staminaConsumptionDown ?? 0),
       staminaConsumptionDownFix: Number(exam.staminaConsumptionDownFix ?? 0),
       playable: Number(state.playsRemaining ?? 0),
+      lessonBuff: Number(exam.lessonBuff ?? 0),
+      parameterBuff: Number(exam.parameterBuff ?? 0),
+      parameterBuffMultiplePerTurn: Number(exam.parameterBuffMultiplePerTurn ?? 0),
+      fullPowerPoint: Number(exam.fullPowerPoint ?? 0),
+      enthusiastic: Number(exam.enthusiastic ?? 0),
+      antiDebuffCount: Number(exam.antiDebuffCount ?? 0),
+      reviewAdditivePermil: Number(exam.reviewAdditivePermil ?? 0),
+      aggressiveAdditivePermil: Number(exam.aggressiveAdditivePermil ?? 0),
+      lessonBuffAdditiveFix: Number(exam.lessonBuffAdditiveFix ?? 0),
+      aggressiveAdditiveFix: Number(exam.aggressiveAdditiveFix ?? 0),
+      lessonBuffMultiplePermil: Math.round((Number(exam.lessonBuffMultiple ?? 1) - 1) * 1000),
+      reviewMultiplePermil: Math.round((Number(exam.reviewMultiple ?? 1) - 1) * 1000),
+      searchCostCount: (state.searchCardCostChanges ?? []).reduce((sum, row) => sum + Math.max(0, Number(row.count ?? 0)), 0),
     };
     const changes = priorStep ? Object.fromEntries(
       Object.keys(current).map(key => [key, current[key] - priorStep[key]]),
@@ -3265,6 +3461,12 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     priorEffectCount = (event.effects ?? []).length;
   };
   recordCardPhase("before-card");
+  // ExecuteCardCommandImpl @ 0x80a6520 prepares all effect conditions before
+  // it executes any cost, play-trigger or main-effect commands.
+  const plannedEffects = (card.playEffects ?? []).map((entry) => ({
+    entry,
+    trigger: checkRuntimeCardTrigger(state, entry.produceExamTriggerId, card, event),
+  }));
   const cardTriggerAggressiveAtPlayStart = Number(state.exam.aggressive ?? 0);
   const cardTrigger = checkRuntimeCardTrigger(state, card.playProduceExamTriggerId, card, event);
   if (!cardTrigger.supported) {
@@ -3283,7 +3485,9 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     stamina: Number(state.exam.stamina ?? 0),
     review: Number(state.exam.review ?? 0),
   };
-  const costChange = state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)));
+  const costChange = (!card.costType || card.costType === "ExamCostType_Unknown")
+    ? state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)))
+    : null;
   if (!ignoreCost) event.cost.push(...payCardCost(state.exam, costChange ? { ...card, temporaryStaminaConsumptionFix: costChange.value } : card));
   if (!ignoreCost && costChange) costChange.count -= 1;
   recordCardPhase("after-cost");
@@ -3319,11 +3523,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       }
       state.normalPlayUsed = true;
     }
-    state.exam.cardPlayCount += 1;
-    state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
-    state.exam.playCardCountSum += 1;
-    state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
-    const cardPlayCount = state.exam.cardPlayCount;
+    const cardPlayCount = Number(state.exam.cardPlayCount ?? 0) + 1;
     const previouslyPlayed = Number(card.playCount ?? 0) > 0;
     card.playCount = Number(card.playCount ?? 0) + 1;
     if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
@@ -3350,18 +3550,50 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       if (repeatBuff.count <= 0) state.cardEffectPlayCountBuff = null;
     }
     for (let n = 0; canExecuteCardEffects && n <= repeat; n += 1) {
-      for (const entry of card.playEffects ?? []) {
+      for (const { entry, trigger } of plannedEffects) {
         // ExecuteCardCommandImpl tests the card's prior play count for the
         // first execution; repeat-buff executions keep native effect behavior.
         if (n === 0 && previouslyPlayed && entry.isOncePlayEffect) continue;
-        applyCardEffectEntry(state, entry, event, card);
+        applyCardEffectEntry(state, entry, event, card, trigger);
         recordCardPhase("card-effect-"+n+"-"+String(entry.produceExamEffectId ?? entry.id ?? "unknown"));
       }
     }
+    // Passive native card-use completion is observed before the deferred
+    // after-card phase commands run. Preserve this boundary separately;
+    // those commands still run normally and affect subsequent native actions.
+    recordCardPhase("after-main-card-effects-before-after-card-play-triggers");
+    // PlayCardCountIncrement @ 0x8092358 runs from UseCardAfterCheck
+    // (@ 0x80dcb20), after the main effects, including forced uses.
+    state.exam.cardPlayCount += 1;
+    state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
+    state.exam.playCardCountSum += 1;
+    state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
+    // Native ExamBuffConsume recovery is an after-completion consequence of
+    // spending a buff for card cost. It does not affect the card's own score
+    // or the passive card-use-complete snapshot.
+    const deferredBuffConsumes = event.__deferredBuffConsumes ?? [];
+    delete event.__deferredBuffConsumes;
+    for (const statusChange of deferredBuffConsumes) {
+      withNativeTransition(event, () => dispatchNativeEffectPhase(
+        state.effectScheduler,
+        NATIVE_EFFECT_PHASE.STATUS_DECREASED,
+        { state, exam: state.exam, event, card,
+          lessonType: currentNativeLessonType(state),
+          statusChange, cause: "cardCostDeferred", deferredBuffConsume: true },
+        nativeSchedulerHooks(state, event),
+      ));
+    }
     runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_CARD_PLAY, event, { card, cardPlayCount });
     recordCardPhase("after-card-play-triggers");
-    resolveFullPowerAfterCard(state, event);
-    recordCardPhase("after-full-power-resolution");
+    recordCardPhase("after-card-resolution");
+
+    // Flush only this playing card's deferred growth. A nested/forced play
+    // may have its own in-flight card, so never consume that card's queue.
+    const deferred = state._deferredPlayingCardGrows ?? [];
+    state._deferredPlayingCardGrows = deferred.filter(entry => entry.card !== card);
+    for (const entry of deferred) {
+      if (entry.card === card) applyPersistentRuntimeCardGrowEffects(entry.card, entry.grows);
+    }
 
     if (![state.hand, state.deck, state.discard, state.lost, state.hold].some((pool) => pool.includes(card))) {
       addRuntimeCardAt(state, card, card.onceOnly ? "Lost" : "Grave", event, "playing");
@@ -3370,6 +3602,10 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     state.lastPlayedCard = { id: card.id, token: card.token, category: card.category };
     return event;
   } finally {
+    // A failed card action must not leak deferred effects into a later play.
+    if (state._deferredPlayingCardGrows?.length) {
+      state._deferredPlayingCardGrows = state._deferredPlayingCardGrows.filter(entry => entry.card !== card);
+    }
     state.playingCard = previousPlayingCard;
     state.cardTriggerAggressiveAtPlayStart = previousCardTriggerAggressiveAtPlayStart;
     state.effectOwnerCard = previousEffectOwnerCard;
@@ -3410,19 +3646,14 @@ function tickCardEffectPlayCountBuff(state) {
   if (buff.turn <= 0) state.cardEffectPlayCountBuff = null;
 }
 
-function tickTimers(state, event) {
+function takeExpiredTimers(state) {
   const expired = [];
   for (const timer of state.timers) {
     timer.turn -= 1;
     if (timer.turn <= 0) expired.push(timer);
   }
   state.timers = state.timers.filter((timer) => !expired.includes(timer));
-  for (const timer of expired) {
-    const count = Math.max(1, Math.trunc(Number(timer.count ?? 1) || 1));
-    for (let index = 0; index < count; index += 1) {
-      executeParsedTowerEffect(state, timer.child, event, { timed: true });
-    }
-  }
+  return expired;
 }
 
 export function finishTowerTurn(state, action = { type: "skip" }) {
@@ -3437,7 +3668,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   else if (type !== "skip" && type !== "end") throw new Error(`未知のターン操作です: ${type}`);
 
   if (!state.turnOpen && !state.hand.length && !state.currentTurnPlays.length) throw new Error("終了するターンがありません。");
-  const recoverStaminaAtTurnEnd = Number(state.playsRemaining ?? 0) > 0;
+  const recoverStaminaAtTurnEnd = type === "skip" && Number(state.playsRemaining ?? 0) > 0;
   const remainingHand = state.hand.map((card) => ({ ...card }));
   // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
   // IsEndTurnLost cards are batched to Lost; all other remaining cards are
@@ -3545,9 +3776,8 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   state.playsRemaining = 0;
   state.turnOpen = false;
 
-  // Support-card upgrades are temporary for the current turn. Revert every
-  // affected runtime instance after all turn-end effects have resolved so a
-  // recycled card starts the next turn at its permanent upgrade level.
+  // Only turn-scoped support bonuses are reverted here. ExamCardUpgrade
+  // persists in ExamCardData._tmpUpgradeCount through the current exam.
   clearSupportCardUpgrades(state);
   for (const card of [...state.deck, ...state.hand, ...state.discard, ...state.lost, ...state.hold]) delete card.temporaryStaminaConsumptionFix;
   return entry;

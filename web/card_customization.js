@@ -183,9 +183,17 @@ export function restoreLegacySpecificCostGrow(card) {
 export function applyRuntimeCardGrowEffects(card, effects) {
   card.runtimeGrowEffects ??= [];
   card.customGrowEffects ??= [];
+  // Native cost growth is stored as separate additive/reductive values.
+  // Resolve (base + all adds - all reductions) and clamp once at zero.
+  // Incremental per-effect clamping loses reductions applied before an add.
+  if (card._runtimeGrowStaminaBase === undefined) {
+    card._runtimeGrowStaminaBase = Math.max(0, Number(card.stamina ?? 0));
+  }
   for (const effect of effects ?? []) {
-    applyCostGrow(card, effect) || applyEffectGrow(card, effect);
     const type = growType(effect);
+    const isOrdinaryCostGrow = type === "ProduceCardGrowEffectType_CostAdd"
+      || type === "ProduceCardGrowEffectType_CostReduce";
+    if (!isOrdinaryCostGrow) applyCostGrow(card, effect) || applyEffectGrow(card, effect);
     if (type === "ProduceCardGrowEffectType_InitialAdd") card.isInitial = true;
     if (type === "ProduceCardGrowEffectType_PlayMovePositionTypeChange") {
       card.playMovePositionType = effect.playMovePositionType;
@@ -199,6 +207,13 @@ export function applyRuntimeCardGrowEffects(card, effects) {
     card.runtimeGrowEffects.push({ ...effect });
     card.customGrowEffects.push({ ...effect });
   }
+  const staminaGrowDelta = (card.runtimeGrowEffects ?? []).reduce((sum, effect) => {
+    const type = growType(effect);
+    if (type === "ProduceCardGrowEffectType_CostAdd") return sum + Math.max(0, Number(effect.value ?? 0));
+    if (type === "ProduceCardGrowEffectType_CostReduce") return sum - Math.max(0, Number(effect.value ?? 0));
+    return sum;
+  }, 0);
+  card.stamina = Math.max(0, Math.trunc(Number(card._runtimeGrowStaminaBase) + staminaGrowDelta));
   return card;
 }
 

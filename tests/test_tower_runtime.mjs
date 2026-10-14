@@ -1530,11 +1530,16 @@ let anomalyState = createTowerTurnState(
 );
 drawTowerTurn(anomalyState, 3);
 playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "GAIN-POINT"));
-assert.equal(anomalyState.exam.fullPowerPoint, 0, "10 points are consumed by automatic Full Power");
+assert.equal(anomalyState.exam.fullPowerPoint, 10, "points wait for the next turn boundary");
+assert.equal(anomalyState.exam.idolStatusType, 0);
+assert.equal(anomalyState.playsRemaining, 0);
+finishTowerTurn(anomalyState);
+drawTowerTurn(anomalyState, 3);
+assert.equal(anomalyState.exam.fullPowerPoint, 0, "turn-start FullPower consumes ten points");
 assert.equal(anomalyState.exam.idolStatusType, 3);
-assert.equal(anomalyState.playsRemaining, 1, "automatic Full Power adds one card play");
+assert.equal(anomalyState.playsRemaining, 2, "turn-start FullPower adds one card play");
 playTowerCard(anomalyState, anomalyState.hand.findIndex((card) => card.id === "NEXT"));
-assert.equal(anomalyState.exam.idolStatusType, 0, "Full Power ends after one card");
+assert.equal(anomalyState.exam.idolStatusType, 3, "FullPower lasts across cards in this turn");
 
 anomalyState = createTowerTurnState(
   anomalyCards.map((card) => ({ id: card.id, upgradeCount: 0, fixedDeckOrder: 0 })),
@@ -1707,7 +1712,7 @@ assert.equal(runEffect({
   id: "PLAY-COUNT-LESSON", effectType: "ProduceExamEffectType_ExamLessonDependPlayCardCountSum",
   effectValue1: 2, effectValue2: 3, effectCount: 1,
 }, (state) => { state.exam.cardPlayCount = 3; state.exam.playCardCountSum = 99; }),
-14, "native reads the current card-play counter including the played card");
+11, "native reads completed card uses before the current card's after-check");
 assert.equal(runEffect({
   id: "FULL-POWER-SUM-LESSON", effectType: "ProduceExamEffectType_ExamLessonFullPowerPoint",
   effectValue1: 2, effectValue2: 1200, effectCount: 2,
@@ -1744,7 +1749,6 @@ assert.equal(run(0), 0, "zero matches skip chained effects");
 assert.equal(run(2), 4, "two matches run the chained effect twice");
 console.log("native effect per search count tests: ok");
 }
-
 
 // Native EffectTimerEffectExecutor delay regression (ELF RVA 0x0804D768).
 // The native constructor reads get_EffectValue1 rather than get_EffectTurn;
@@ -1868,4 +1872,57 @@ console.log("native effect per search count tests: ok");
  playTowerCard(st,0);
  assert.equal(st.randomState>>>0,before,
   "empty native card search must not consume RNG");
+}
+
+
+// Native MoveCard (ELF 0x8277C3C..0x8277CB4) redirects overflow from
+// a five-card hand to DeckFirst, removing it from the source pool.
+{
+  const ids = ["CAP-TRIGGER", "CAP-F1", "CAP-F2", "CAP-F3", "CAP-F4", "CAP-DRAW", "CAP-TARGET1", "CAP-TARGET2"];
+  const masters = ids.map((id) => ({
+    id,
+    rarity: id.startsWith("CAP-TARGET") ? "ProduceCardRarity_Ssr" : "ProduceCardRarity_N",
+    playMovePositionType: "ProduceCardMovePositionType_Grave",
+    playEffects: id === "CAP-TRIGGER"
+      ? [{ produceExamTriggerId: "", produceExamEffectId: "CAP-MOVE" }]
+      : [],
+  }));
+  const effectById = new Map([
+    ["CAP-DRAW", { id: "CAP-DRAW", effectType: "ProduceExamEffectType_ExamCardDraw", effectValue1: 1 }],
+    ["CAP-MOVE", { id: "CAP-MOVE", effectType: "ProduceExamEffectType_ExamCardMove",
+      produceCardSearchId: "CAP-SEARCH", movePositionType: "ProduceCardMovePositionType_Hand",
+      pickRangeType: "ProducePickRangeType_All" }],
+  ]);
+  const searchById = new Map([["CAP-SEARCH", {
+    id: "CAP-SEARCH", cardRarities: ["ProduceCardRarity_Ssr"],
+    cardPositionType: "ProduceCardPositionType_Grave",
+  }]]);
+  function setUp(drawBeforeMove) {
+    const state = createTowerTurnState(
+      ids.map((id) => ({ id, upgradeCount: 0, fixedDeckOrder: 0 })),
+      1, new Map(masters.map((card) => [card.id, card])),
+      { examEffectById: effectById, cardSearchById: searchById },
+    );
+    drawTowerTurn(state, 5);
+    const cards = new Map([...state.hand, ...state.deck].map((card) => [card.id, card]));
+    state.hand = ["CAP-TRIGGER", "CAP-F1", "CAP-F2", "CAP-F3", "CAP-F4"].map((id) => cards.get(id));
+    state.deck = [cards.get("CAP-DRAW")];
+    state.discard = [cards.get("CAP-TARGET1"), cards.get("CAP-TARGET2")];
+    if (drawBeforeMove) state.hand[0].playEffects.unshift({ produceExamTriggerId: "", produceExamEffectId: "CAP-DRAW" });
+    return state;
+  }
+  const full = setUp(true);
+  playTowerCard(full, 0); // 5 -> play -> 4 -> draw -> 5 before move
+  assert.equal(full.hand.length, 5);
+  assert.equal(full.discard.filter((card) => card.id.startsWith("CAP-TARGET")).length, 2);
+  assert.deepEqual(full.deck, [],
+    "GetEffectWarning rejects a Hand move when already full, before MoveCard");
+
+  const oneSlot = setUp(false);
+  playTowerCard(oneSlot, 0); // four cards remain before attempting to move two
+  assert.equal(oneSlot.hand.length, 5);
+  assert.ok(oneSlot.hand.some((card) => card.id === "CAP-TARGET1"));
+  assert.ok(!oneSlot.discard.some((card) => card.id === "CAP-TARGET2"));
+  assert.equal(oneSlot.deck[0]?.id, "CAP-TARGET2");
+  console.log("ELF-confirmed hand overflow to DeckFirst: ok");
 }

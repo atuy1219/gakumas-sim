@@ -46,6 +46,8 @@ export const EXAM_RUNTIME_DEFAULT_SETTING = Object.freeze({
   examStaminaReduceChange: 1,
   examConcentrationStaminaMultiplePermil1: 2000,
   examConcentrationStaminaMultiplePermil2: 2000,
+  examConcentrationStaminaPenetrateReduce1: 0,
+  examConcentrationStaminaPenetrateReduce2: 1,
   examPreservationStaminaMultiplePermil1: 500,
   examPreservationStaminaMultiplePermil2: 250,
   examOverPreservationStaminaMultiplePermil: 0,
@@ -974,6 +976,10 @@ export function createExamState({ stamina = 0, runtimeSettings = {}, scoreSettin
     parameterBuffMultiplePerTurn: 0,
     parameterDebuff: 0,
     enthusiastic: 0,
+    // Native ExamStatusEffectBase: value, finite turn count and passage flag
+    // are separate. EnthusiasticStatusEffect is usually 1 turn, not permanent.
+    scalarTimedStatuses: [],
+    enthusiasticTurnAdditive: 0,
     enthusiasticAdditivePermil: 0,
     enthusiasticMultiple: 1,
     lessonParameterMultiple: 1,
@@ -1062,6 +1068,10 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
     step: oldStep,
     playableValueAdd: 0,
     growLessonAdd: 0,
+    // ELF TryInternalSetStance releases Preservation before installing the
+    // destination stance. Expose these distinct rewards in action telemetry.
+    releasedBlockAdd: 0,
+    releasedEnthusiasticAdd: 0,
     releasedPreservation: false,
   };
 
@@ -1122,12 +1132,22 @@ export function trySetExamStance(exam, typeInput, stepInput = 1, options = {}) {
     const blockBase = getExamRuntimeSetting(exam, blockKey);
     // The release path calls AddBlockFix, which writes the raw positive delta
     // and therefore bypasses ordinary block multipliers/restrictions.
-    if (blockBase > 0) exam.block += blockBase;
+    if (blockBase > 0) {
+      exam.block += blockBase;
+      result.releasedBlockAdd = blockBase;
+    }
     const enthusiasticBase = getExamRuntimeSetting(exam, enthusiasticKey);
     if (enthusiasticBase > 0) {
       const additive = Number(exam.enthusiasticAdditivePermil ?? 0);
       const multiple = Number(exam.enthusiasticMultiple ?? 1);
-      exam.enthusiastic += Math.max(0, Math.ceil((enthusiasticBase + additive) * multiple));
+      const gained = Math.max(0, Math.ceil((enthusiasticBase + additive) * multiple));
+      // ExamStatusEffectCollection.TryAddEnthusiasticStatus constructs a
+      // limited status with Turn=1 (native capture 16). A second grant
+      // increases the existing value without restarting its expiry clock.
+      if (addNativeScalarTimedStatus(exam, "enthusiastic", gained,
+        Math.max(1, 1 + Number(exam.enthusiasticTurnAdditive ?? 0)))) {
+        result.releasedEnthusiasticAdd = gained;
+      }
     }
     if (over && type === EXAM_IDOL_STATUS_TYPE.FullPower) {
       result.growLessonAdd = getExamRuntimeSetting(
@@ -1174,6 +1194,54 @@ export function nextNativeStatusUid(exam) {
   return exam.statusUidSerial;
 }
 
+/**
+ * ExamStatusEffectBase.SpendTurn (ELF 0x80680DC) decrements _turn for
+ * _isTurnLimited=1; expiry removes the row when Turn reaches zero.
+ * The caller's turn-boundary marking controls eligible statuses. Unlimited
+ * (_isTurnLimited=0 / negative Turn) does not spend.
+ * Keep individual rows instead of forcing every scalar to a one-turn flag.
+ */
+export function spendNativeTimedRows(rows) {
+  return (rows ?? []).map(status => {
+    const oldTurn = Number(status.turn);
+    const limited = status.isTurnLimited ?? oldTurn >= 0;
+    return {...status, turn: !limited || oldTurn < 0 || status.isPassingTurnStart === false
+      ? oldTurn : oldTurn - 1};
+  }).filter(status => !(status.isTurnLimited ?? Number(status.turn) >= 0)
+    || Number(status.turn) !== 0);
+}
+
+export function addNativeScalarTimedStatus(exam, fieldInput, valueInput, turnInput = 1) {
+  const field = String(fieldInput ?? "");
+  const value = Number(valueInput ?? 0);
+  const turn = Math.trunc(Number(turnInput));
+  if (field !== "enthusiastic" || !Number.isFinite(value) || value <= 0 || !Number.isFinite(turn) || turn === 0) return false;
+  exam.scalarTimedStatuses ??= [];
+  const prior = exam.scalarTimedStatuses.find(row => row.field === field);
+  if (prior) {
+    // TryAddEnthusiasticStatus updates _value on an existing effect;
+    // native ELF 0x806B5A8 does not reset the status' _turn.
+    prior.value += value;
+  } else {
+    exam.scalarTimedStatuses.push({field, value, turn,
+      // EnthusiasticStatusEffect..ctor @ ELF 0x8067D68 sets this bit
+      // immediately, even when granted by a card in the current turn.
+      isTurnLimited: turn >= 0, isPassingTurnStart: true,
+      uid: nextNativeStatusUid(exam)});
+  }
+  syncNativeScalarTimedStatuses(exam);
+  return true;
+}
+
+export function syncNativeScalarTimedStatuses(exam) {
+  // Scalar timed effects are modeled by independent rows so expiry removes
+  // their contribution without changing unrelated accumulating statuses.
+  exam.enthusiastic = (exam.scalarTimedStatuses ?? [])
+    .filter(row => row.field === "enthusiastic")
+    .reduce((sum, row) => sum + Number(row.value ?? 0), 0);
+  return exam;
+}
+
 export function addNativeGenericTimedStatus(exam, fieldInput, valueInput, turnInput, mode = "add") {
   const field = String(fieldInput ?? "");
   const turn = Math.trunc(Number(turnInput));
@@ -1214,7 +1282,7 @@ export function syncNativeGenericTimedStatuses(exam) {
   const additiveFields = [
     "reviewAdditivePermil", "aggressiveAdditivePermil", "aggressiveAdditiveFix",
     "lessonBuffAdditivePermil", "lessonBuffAdditiveFix", "parameterBuffAdditivePermil",
-    "enthusiasticAdditivePermil", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
+    "enthusiasticAdditivePermil", "enthusiasticTurnAdditive", "fullPowerPointAdditivePermil", "buffConsumptionAdd",
     "blockAddDownFix", "startTurnCardDrawDown", "lessonDebuff", "parameterDebuff",
   ];
   for (const field of additiveFields) exam[field] = Number(additive.get(field) ?? 0);
@@ -1325,21 +1393,15 @@ export function addNativeScoreTimedStatus(exam, kindInput, valueInput, turnInput
 
 export function tickNativeScoreTimedStatuses(exam) {
   const hasScoreStatuses = Boolean(exam.scoreTimedStatuses?.length);
-  exam.scoreTimedStatuses = (exam.scoreTimedStatuses ?? [])
-    .map((status) => ({
-      ...status,
-      turn: Number(status.turn) < 0 ? -1 : status.isPassingTurnStart === false ? Number(status.turn) : Number(status.turn) - 1,
-    }))
-    .filter((status) => Number(status.turn) !== 0);
+  exam.scoreTimedStatuses = spendNativeTimedRows(exam.scoreTimedStatuses);
   if (hasScoreStatuses) syncNativeScoreTimedStatuses(exam);
   if (exam.genericTimedStatuses?.length) {
-    exam.genericTimedStatuses = exam.genericTimedStatuses
-      .map((status) => ({
-        ...status,
-        turn: Number(status.turn) < 0 ? -1 : status.isPassingTurnStart === false ? Number(status.turn) : Number(status.turn) - 1,
-      }))
-      .filter((status) => Number(status.turn) !== 0);
+    exam.genericTimedStatuses = spendNativeTimedRows(exam.genericTimedStatuses);
     syncNativeGenericTimedStatuses(exam);
+  }
+  if (exam.scalarTimedStatuses?.length) {
+    exam.scalarTimedStatuses = spendNativeTimedRows(exam.scalarTimedStatuses);
+    syncNativeScalarTimedStatuses(exam);
   }
   return exam;
 }
@@ -1352,7 +1414,7 @@ export const NATIVE_SCALAR_TURN_STATUSES = Object.freeze([
 export function markNativeStatusTurnStart(exam) {
   exam.turnLifetimeEnabled = true;
   exam.passingTurnStartFields = Object.fromEntries(NATIVE_SCALAR_TURN_STATUSES.map(field => [field, Number(exam[field] ?? 0) > 0]));
-  for (const status of [...(exam.scoreTimedStatuses ?? []), ...(exam.genericTimedStatuses ?? [])]) status.isPassingTurnStart = true;
+  for (const status of [...(exam.scoreTimedStatuses ?? []), ...(exam.genericTimedStatuses ?? []), ...(exam.scalarTimedStatuses ?? [])]) status.isPassingTurnStart = true;
 }
 
 function consumeStatus(exam, field, value, label) {
@@ -1449,7 +1511,10 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
     value = runtimeF32(value * runtimeFromPermil(1000 + setting));
   }
 
-  let damage = Math.ceil(value);
+  // Native card costs are non-negative, including when the total reduction
+  // is greater than the original cost. Clamp *before* splitting between
+  // Genki and stamina, not only when reporting the result.
+  let damage = Math.max(0, Math.ceil(value));
   if (applyFixed) {
     damage += Math.max(0, Math.trunc(Number(exam?.staminaConsumptionAddFix) || 0));
     const downFix = Math.max(0, Math.trunc(Number(exam?.staminaConsumptionDownFix) || 0));
@@ -1461,10 +1526,11 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
     }
   }
 
-  const staminaDamage = Math.max(0, damage - block);
-  const blockDamage = damage - staminaDamage;
+  damage = Math.max(0, Math.trunc(damage));
+  const blockDamage = penetrate ? 0 : Math.min(block, damage);
+  const staminaDamage = damage - blockDamage;
   return {
-    damage: Math.max(0, Math.trunc(damage)),
+    damage,
     staminaDamage: Math.max(0, Math.trunc(staminaDamage)),
     blockDamage: Math.max(0, Math.trunc(blockDamage)),
   };
@@ -1476,8 +1542,10 @@ export function payCardCost(exam, card) {
   const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
   const field = statusCosts[card.costType];
   if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");
-  const direct = Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
-  const normalBase = Math.max(0, Math.trunc(Number(card.temporaryStaminaConsumptionFix ?? card.stamina ?? 0) || 0));
+  // ConsumeCardCost @ 0x80a7a44 branches on CostType. Buff costs never
+  // enter the ordinary stamina-growth/search-waiver path.
+  const direct = field ? 0 : Math.max(0, Math.trunc(Number(card.forceStamina ?? 0) || 0));
+  const normalBase = field ? 0 : Math.max(0, Math.trunc(Number(card.temporaryStaminaConsumptionFix ?? card.stamina ?? 0) || 0));
 
   if (normalBase > 0) {
     const resolved = calculateNativeStaminaDamage(exam, normalBase, {
@@ -1494,6 +1562,24 @@ export function payCardCost(exam, card) {
       `体力消費 ${resolved.damage}`
       + (resolved.blockDamage ? `（元気で${resolved.blockDamage}軽減）` : ""),
     );
+  }
+
+  // Native ExamSetting.ExamConcentrationStaminaPenetrateReduce{1,2}
+  // (ELF getters at 0x7C23F38 / 0x7C23F48) is an additional
+  // stamina-only card-use cost. It cannot be absorbed by Block (元気),
+  // and is independent of the ordinary cost resolved above.
+  // Stage 1 is 0 and stage 2 is 1 in p_exam_setting-1.
+  if (Number(exam?.idolStatusType ?? 0) === EXAM_IDOL_STATUS_TYPE.Concentration) {
+    const stage = Math.max(1, Math.trunc(Number(exam?.idolStatusStep ?? 1)));
+    const key = stage >= 2
+      ? "examConcentrationStaminaPenetrateReduce2"
+      : "examConcentrationStaminaPenetrateReduce1";
+    const penetratingCost = Math.max(0, Math.trunc(getExamRuntimeSetting(exam, key)));
+    if (penetratingCost > 0) {
+      const before = Math.max(0, Number(exam.stamina ?? 0));
+      exam.stamina = Math.max(0, before - penetratingCost);
+      events.push(`強気${stage}段階・元気貫通体力消費 ${penetratingCost}`);
+    }
   }
 
   // forceStamina bypasses Genki, but not stamina-consumption modifiers.
@@ -1567,14 +1653,16 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
       return lessonResult(Number(parsed.value), Math.max(1, Number(parsed.count) || 1));
 
     case "lesson_multiple_lesson_buff": {
-      const result = applyNativeModifiedLessonRepeat(
-        exam,
-        Number(parsed.value),
-        Number(parsed.permil),
-        Math.max(1, Number(parsed.count) || 1),
-        NATIVE_LESSON_MODIFIER_KIND.LessonBuff,
-        scoreContext,
-      );
+      // MultipleLessonBuffLessonEffectExecutor @ 0x805cf84 adds a separately
+      // rounded concentration contribution to Value1. CalculateAddingParameter
+      // then adds the usual concentration contribution with its own ceil.
+      const contribution = Math.ceil(Math.fround(
+        Math.fround(Math.fround(Number(exam.lessonBuffMultiple ?? 1))
+          * Math.fround(Number(parsed.permil) * Number(exam.lessonBuff ?? 0)))
+        / Math.fround(1000),
+      ));
+      const result = applyNativeLessonHits(exam, Number(parsed.value) + contribution,
+        Math.max(1, Number(parsed.count) || 1), scoreContext);
       return {
         applied: true,
         label: `集中効果×${1 + Number(parsed.permil) / 1000}でパラメータ +${result.added}`,
@@ -1785,7 +1873,13 @@ export function applyParsedExamEffect(exam, parsed, scoreContext = {}) {
     case "hand_grave_count_card_draw": return { applied: true, command: "hand_swap", label: "手札をすべて入れ替え" };
     case "card_upgrade_hand_all": return { applied: true, command: "upgrade_hand", label: "手札をすべて強化" };
     case "parameter_buff_multiple_per_turn":
-      exam.parameterBuffMultiplePerTurn = Math.max(Number(exam.parameterBuffMultiplePerTurn ?? 0), Number(parsed.turn ?? 0));
+      // Native TryAddParameterBuffMultiplePerTurnStatus (0x8069AA8):
+      // active finite duration is extended, rather than using max(current, grant).
+      // Preserve -1 for an unlimited existing status.
+      const previousTurn = Number(exam.parameterBuffMultiplePerTurn ?? 0);
+      const grantedTurn = Number(parsed.turn ?? 0);
+      exam.parameterBuffMultiplePerTurn = previousTurn < 0 || grantedTurn < 0
+        ? -1 : Math.max(0, previousTurn) + Math.max(0, grantedTurn);
       return { applied: true, label: `絶好調 ${parsed.turn}ターン` };
     case "status_enchant": return { applied: true, command: "status_enchant", enchant: parsed, label: `継続効果を追加: ${parsed.enchantId}` };
     case "master_effect": return {

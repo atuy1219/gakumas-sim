@@ -686,6 +686,10 @@ assert.equal(checkCardEffectTrigger("e_trigger-exam_card_play-review_up-5", exam
 assert.equal(checkCardEffectTrigger("e_trigger-something-unknown", exam).supported, false);
 
 payCardCost(exam, { stamina: 7, forceStamina: 2, costType: "ExamCostType_ExamReview", costValue: 2 });
+assert.equal(exam.block, 5, "buff cost never charges stamina growth");
+assert.equal(exam.stamina, 20);
+assert.equal(exam.review, 1);
+payCardCost(exam, { stamina: 7, forceStamina: 2, costType: "ExamCostType_Unknown", costValue: 0 });
 assert.equal(exam.block, 0);
 assert.equal(exam.stamina, 16);
 assert.equal(exam.review, 1);
