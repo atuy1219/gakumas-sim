@@ -5248,7 +5248,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   // batched to Grave. Each destination preserves the original Hand order.
   // ELF ResetHand: IsHandHold(1) prevents the entire hand reset,
   // preserving the cards in Hand rather than transferring to the Hold zone.
-  const resetCards = context.ExamParameter.handHold ? [] : context.HandList.splice(0);
+  const resetCards = state.exam.handHold ? [] : context.HandList.splice(0);
   const resetEvent = nativeRuntimeEvent();
   for (const card of resetCards) {
     if (card.isEndTurnLost) context.LostList.push(card);
