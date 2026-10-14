@@ -55,8 +55,8 @@ JavaScriptの `XorShift32.getRandomInt()` と `nextInt()` をこの仕様へ寄�
   - コマンド条件のスナップショットが効果内のステータス変化で変わらないこと
   - 乱数は予約中には消費されず、効果実行順で消費されること
   - 実機から読める `GetRandomInt` の戻り値とゼロ幅範囲での更新
-- `tests/test_official_contest_dfs.mjs`:
-  - 移植した公式DFSの探索境界・同点優先順・評価式、共通JS XorShift32の固定ベクトル
+- `tests/test_contest_dfs.mjs`:
+  - 移植したコンテストDFSの探索境界・同点優先順・評価式、共通JS XorShift32の固定ベクトル
 - 既存JavaScriptテストとCI構文検査。
 
 ## 残る未検証事項
