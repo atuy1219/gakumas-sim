@@ -525,6 +525,8 @@ export function parseExamEffectMaster(effectInput) {
     targetExamEffectType: String(effectInput.targetExamEffectType ?? ""),
     searchId: String(effectInput.produceCardSearchId ?? ""),
     searchId2: String(effectInput.produceCardSearchId2 ?? ""),
+    pickCountReferenceSearchId: String(effectInput.pickCountReferenceProduceCardSearchId ?? ""),
+    pickCountReferenceSearchId2: String(effectInput.pickCountReferenceProduceCardSearchId2 ?? ""),
     movePositionType: String(effectInput.movePositionType ?? ""),
     pickRangeType: String(effectInput.pickRangeType ?? ""),
     pickCountType: String(effectInput.pickCountType ?? ""),
@@ -1561,7 +1563,7 @@ export function calculateNativeStaminaDamage(exam, valueInput, options = {}) {
 
 export function payCardCost(exam, card) {
   const events = [];
-  const costValue = calculateNativeBuffCost(exam, card.costValue);
+  const costValue = calculateNativeBuffCost(exam, card.temporaryBuffConsumptionFix ?? card.costValue);
   const statusCosts = { ExamCostType_ExamReview: "review", ExamCostType_ExamCardPlayAggressive: "aggressive", ExamCostType_ExamLessonBuff: "lessonBuff", ExamCostType_ExamParameterBuff: "parameterBuff", ExamCostType_ExamFullPowerPoint: "fullPowerPoint", ExamCostType_ExamParameterBuffMultiplePerTurn: "parameterBuffMultiplePerTurn" };
   const field = statusCosts[card.costType];
   if (field && Number(exam[field] ?? 0) < costValue) throw new Error(({ review: "好印象", aggressive: "やる気", lessonBuff: "集中", parameterBuff: "好調", fullPowerPoint: "全力値", parameterBuffMultiplePerTurn: "絶好調" })[field] + "が" + costValue + "必要です。");

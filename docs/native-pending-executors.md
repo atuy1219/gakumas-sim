@@ -1,31 +1,24 @@
-# 未実装Executor 6種類のELF解析・実装トラッカー
+# Native Executor実装状況
 
 対象：`gakumas_analysis(1).elf` Build ID `77fda4e2a21f23954e2349b83fc113ede408f70b`。
 
-## 方針
+登録161クラスのすべてにMasterまたはParsedの実行経路が接続済み。Master経路128、Parsed経路41（重複・非Nativeアダプタを除いて161種類）。明示的未接続Executorは0種類。
 
-- 登録済み **161クラス** のうち計算・コマンド動作が接続されたものは **155種類**、未実装は **6種類**。
-- ここでのRVAは**シンボル特定済み**の意味であり、挙動を復元できたという意味ではない。
-- 各クラスでELFのパラメータ順・呼出し先・戻り値・状態差分・発動予約・乱数消費を解読してから、既存JSの状態APIに実装する。
-- テストは独立のELF定数ベクトル・効果ごとの境界ケース・該当する実機キャプチャとの差分で行う。既存36試合に登場しない効果の一致を主張しない。
-- 暫定で既存効果へ無理に委譲したり、対象なしを成功扱いしたりしない。
+## 今回接続した最後の6種類
 
-## 残りの実装対象
-
-| 未実装クラス | ELF RVA | 解析分類 |
+| クラス | ELF RVA | 動作 |
 | --- | --- | --- |
-| `ChainEffectExecutor` | `0x804BE8C` | 予約コマンド／継続効果 |
-| `ChainEffectPerPassedTurnEffectExecutor` | `0x804C044` | 予約コマンド／継続効果 |
-| `ChainEffectPerRemainTurnEffectExecutor` | `0x804C208` | 予約コマンド／継続効果 |
-| `ExamPlayCardLimitPlayableValueAddEffectExecutor` | `0x804F82C` | 個別解析 |
-| `MoveGrowEffectEffectExecutor` | `0x805C358` | カード移動／山札 |
-| `SearchPlayCardBuffConsumptionChangeEffectExecutor` | `0x80624B4` | 検索／対象枚数 |
+| `ChainEffectExecutor` | `0x804BE8C` | Value1回の子コマンドを先頭挿入 |
+| `ChainEffectPerPassedTurnEffectExecutor` | `0x804C044` | CurrentTurn回の先頭挿入 |
+| `ChainEffectPerRemainTurnEffectExecutor` | `0x804C208` | RemainTurn回の先頭挿入 |
+| `ExamPlayCardLimitPlayableValueAddEffectExecutor` | `0x804F82C` | 検索対象カードの完了後に1回を返す。全体回数／ターン内上限を独立管理 |
+| `MoveGrowEffectEffectExecutor` | `0x805C358` | Search1が移動先、Search2が移動元。元の成長量から加算と減少を別々に丸める |
+| `SearchPlayCardBuffConsumptionChangeEffectExecutor` | `0x80624B4` | 最短有限期限の該当状態1個を選び、バフコスト置換と回数消費 |
 
-## 残る委譲先と確認事項
+解析・テスト根拠：`docs/final-six-elf-validation.md`。
 
-- `ChainEffect*`: `ExamPlayCommand.CreatePlayEffectCommand @0x809AF80` を反復予約する。基本形はValue1回、経過形はCurrentTurn、残り形はRemainTurn回。子コマンドが兄弟・結果トリガーに対していつ実行されるか、複製されたTriggerContextをJSへ移す必要がある。
-- `ExamPlayCardLimitPlayableValueAdd`: `TryAddPlayCardLimitPlayableValueAddStatus @0x807E028` と `UsePlayCardLimitPlayableValueAdd @0x807E360`。検索・カテゴリ・回数制限の組を保持し、実カードの可使用回数判定に接続する。
-- `SearchPlayCardBuffConsumptionChange`: `TryAddSearchPlayCardBuffConsumptionChangeStatus @0x80718A8` と `UseSearchPlayCardBuffConsumptionChange @0x8071BA8`。カード対象検索とバフ消費値の変更・消費回数の境界を確認する。
-- `MoveGrowEffect`: 対象2組の成長状態の移動範囲・複製/除去・カードの更新通知を確認する。
+## 残る検証範囲
 
-更新時は対応表・未対応リスト・`tests/test_all_native_executors.mjs`の件数を一致させる。
+実装接続数が161/161でも、実機との全条件一致が確認できたわけではない。既存fixtureとELF由来の境界シナリオで回帰検証済み。新しい実機キャプチャや、未キャプチャ効果の全条件パリティは別途検証が必要。キャプチャ(16)〜(19)の36試合の今回の再実行は未実施。
+
+対応表・未対応リスト・`tests/test_all_native_executors.mjs`で件数と実体を一致させる。

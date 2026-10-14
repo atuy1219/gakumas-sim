@@ -8,15 +8,15 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **122** |
+| Master Effectからクラス単位に移した分岐数 | **128** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **155** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **6** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **161** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **0** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 既存switchからの移行に加え、未対応ExecutorをELFの委譲先・状態寿命・乱数消費に基づいて追加しています。実装登録と全ケースの実機一致は区別します。
 
-JSの未実装6クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+161種類すべてにMasterまたはParsedの実行経路が接続されています。実装経路の存在と全条件の実機一致は区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -24,7 +24,7 @@ Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 - `web/tower_runtime.js` : 161個の独立クラス、Master型→Executor対応表。公開 `NATIVE_EFFECT_EXECUTOR_CLASSES`。
 - `web/exam_effects.js` : Parsed Effect側の独立 `ExecuteEffect` と `PARSED_EXAM_EFFECT_EXECUTOR_CLASSES`。
 - `web/native_effect_executor_registry.js` : IL2CPPから抽出した161クラス名とマスターIDの名称対応。
-- `tests/test_all_native_executors.mjs` : 161クラスの一意性、122+41分岐、155対応名を検証。
+- `tests/test_all_native_executors.mjs` : 161クラスの一意性、128+41分岐、161対応名を検証。
 - `tests/test_contest_dfs.mjs` : JSへ移したコンテストDFS方針の回帰検証。
 
 ## ELFによる追加実装（2026-10-14）
@@ -126,9 +126,9 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `CardMoveEffectExecutor` | `ExamCardMove` | `card_move_search` |
 | `CardShuffleDeckGraveEffectExecutor` | `ExamCardShuffleDeckGrave` | 未実装 |
 | `CardShuffleDeckLostEffectExecutor` | `ExamCardShuffleDeckLost` | 未実装 |
-| `ChainEffectExecutor` | 未実装 | 未実装 |
-| `ChainEffectPerPassedTurnEffectExecutor` | 未実装 | 未実装 |
-| `ChainEffectPerRemainTurnEffectExecutor` | 未実装 | 未実装 |
+| `ChainEffectExecutor` | `ExamChainEffect` | 未実装 |
+| `ChainEffectPerPassedTurnEffectExecutor` | `ExamChainEffectPerPassedTurn` | 未実装 |
+| `ChainEffectPerRemainTurnEffectExecutor` | `ExamChainEffectPerRemainTurn` | 未実装 |
 | `ClearDebuffEffectExecutor` | `ExamClearDebuff` | 未実装 |
 | `ConcentrationEffectExecutor` | 未実装 | `concentration` |
 | `ConcentrationLessonMultipleAdditiveEffectExecutor` | `ExamConcentrationLessonMultipleAdditive` | 未実装 |
@@ -142,7 +142,7 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `EnthusiasticTurnAdditiveEffectExecutor` | `ExamEnthusiasticTurnAdditive` | 未実装 |
 | `ExamLessonAddMultipleLessonBuffEffectExecutor` | `ExamLessonAddMultipleLessonBuff` | 未実装 |
 | `LessonPerSearchCountEffectExecutor` | `ExamLessonPerSearchCount` | 未実装 |
-| `ExamPlayCardLimitPlayableValueAddEffectExecutor` | 未実装 | 未実装 |
+| `ExamPlayCardLimitPlayableValueAddEffectExecutor` | `ExamPlayCardLimitPlayableValueAdd` | 未実装 |
 | `ExtraTurnEffectExecutor` | 未実装 | `extra_turn` |
 | `ForcePlayCardSearchWithCostEffectExecutor` | `ExamForcePlayCardSearchWithCost` | 未実装 |
 | `ForcePlaySearchEffectExecutor` | `ExamForcePlayCardSearch` | 未実装 |
@@ -200,7 +200,7 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `LessonMultipleFullPowerEffectExecutor` | `ExamMultipleFullPowerLesson` | 未実装 |
 | `LessonValueMultipleDownEffectExecutor` | `ExamLessonValueMultipleDown` | `lesson_value_multiple_down` |
 | `LessonValueMultipleEffectExecutor` | 未実装 | `lesson_value_multiple` |
-| `MoveGrowEffectEffectExecutor` | 未実装 | 未実装 |
+| `MoveGrowEffectEffectExecutor` | `ExamMoveGrowEffect` | 未実装 |
 | `MultipleLessonBuffLessonEffectExecutor` | 未実装 | `lesson_multiple_lesson_buff` |
 | `OverPreservationEffectExecutor` | `ExamOverPreservation` | 未実装 |
 | `PanicEffectExecutor` | `ExamPanic` | 未実装 |
@@ -230,7 +230,7 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 | `ReviewTurnEndReduceLockEffectExecutor` | 未実装 | `review_turn_end_reduce_lock` |
 | `ReviewValueMultipleEffectExecutor` | `ExamReviewValueMultiple` | 未実装 |
 | `SearchEffectPlayCountBuffEffectExecutor` | 未実装 | `card_search_effect_play_count_buff` |
-| `SearchPlayCardBuffConsumptionChangeEffectExecutor` | 未実装 | 未実装 |
+| `SearchPlayCardBuffConsumptionChangeEffectExecutor` | `ExamSearchPlayCardBuffConsumptionChange` | 未実装 |
 | `SearchPlayCardStaminaConsumptionChangeEffectExecutor` | `ExamSearchPlayCardStaminaConsumptionChange` | 未実装 |
 | `StaminaConsumptionAddDownEffectExecutor` | `ExamStaminaConsumptionAddDown` | 未実装 |
 | `StaminaConsumptionAddEffectExecutor` | 未実装 | `stamina_consumption_add` |
@@ -270,3 +270,7 @@ ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`
 ### 残り処理の追加と成長倍率の修正（2026-10-14）
 
 シャッフル2種類、全低下状態解除、ターン終了タイマー、条件付きパラメータ変更2種類を追加。成長倍率も成長取得時の値へ接続。詳細な委譲先・数値ベクトル・未検証範囲は `docs/remaining-runtime-elf-validation.md`。専用テスト `tests/test_elf_remaining_runtime.mjs` を含むCIテスト46本がローカルで成功。
+
+### 最後の6種類（2026-10-14）
+
+チェーン3種類を先頭挿入コマンドスタックへ接続。条件付き再行動、対象カードのバフ消費変更、成長効果の移動も実装。委譲先・パラメータ・実行順・確認範囲は `docs/final-six-elf-validation.md`。全47本のNode CIテストがローカルで成功。全161種類の登録経路が接続されたが、未キャプチャ効果の実機全条件一致を意味しない。

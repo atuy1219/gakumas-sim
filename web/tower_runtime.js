@@ -238,6 +238,8 @@ export function restoreTowerTurnState(input, shared = {}) {
   state.pendingTimedCardUpgradeEffects ??= [];
   state.searchPlayCardLimits ??= [];
   state.searchCardCostChanges ??= [];
+  state.searchCardBuffCostChanges ??= [];
+  state.conditionalPlayableStatuses ??= [];
   state.cardEnchantRegistrations ??= new Map();
   state.statusEnchantRemainingCounts ??= new Map();
   state.statusEnchantSerial ??= 0;
@@ -703,6 +705,8 @@ export function createTowerTurnState(cards, seedInput, cardById = new Map(), opt
     descriptionLabelById: options.descriptionLabelById ?? new Map(),
     cardPoolById: options.cardPoolById ?? new Map(),
     searchPlayCardLimits: [],
+    searchCardBuffCostChanges: [],
+    conditionalPlayableStatuses: [],
     searchCardCostChanges: [],
     cardEnchantRegistrations: new Map(),
     statusEnchantRemainingCounts: new Map(),
@@ -1833,6 +1837,7 @@ function cloneRuntimeCardSnapshot(card) {
   const {
     _supportBaseSnapshot,
     _supportUpgradeCount,
+    _runtimeGrowBaseSnapshot,
     ...source
   } = card ?? {};
   return {
@@ -1846,6 +1851,8 @@ function cloneRuntimeCardSnapshot(card) {
 }
 
 function applyPersistentRuntimeCardGrowEffects(card, effects) {
+  card._runtimeGrowBaseSnapshot ??= cloneRuntimeCardSnapshot(card);
+  if (card._supportBaseSnapshot) card._supportBaseSnapshot._runtimeGrowBaseSnapshot ??= cloneRuntimeCardSnapshot(card._supportBaseSnapshot);
   applyRuntimeCardGrowEffects(card, effects);
   // Support upgrades are temporary, but growth earned during the turn is not.
   // Keep the permanent snapshot current so rollback and permanent upgrades
@@ -1885,6 +1892,7 @@ function applyRuntimeUpgradeVariant(state, card, targetUpgradeCount) {
   // Recompute all in-exam cost growth on that baseline, never the preceding
   // upgrade's already-modified stamina.
   delete rebuilt._runtimeGrowStaminaBase;
+  rebuilt._runtimeGrowBaseSnapshot = cloneRuntimeCardSnapshot(rebuilt);
   applyRuntimeCardGrowEffects(rebuilt, grows);
   Object.assign(card, rebuilt);
   card.onceOnly = isOnceOnlyMove(card.playMovePositionType);
@@ -2196,6 +2204,11 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   for (const registration of state.effectScheduler.registrations) registration.metadata.isPassingTurnStart = true;
   if (state.cardEffectPlayCountBuff) state.cardEffectPlayCountBuff.isPassingTurnStart = true;
   if (state.playableAddStatus) state.playableAddStatus.isPassingTurnStart = true;
+  for (const row of state.searchCardBuffCostChanges ?? []) row.isPassingTurnStart = true;
+  for (const row of state.conditionalPlayableStatuses ?? []) {
+    row.isPassingTurnStart = true;
+    row.remainingInTurn = row.limitInTurn;
+  }
   runNativeEffectPhase(state, NATIVE_EFFECT_PHASE.AFTER_START_OF_TURN, phaseEvent);
   markNativeStatusTurnStart(state.exam);
   state.turnStartEffects = [...phaseEvent.effects];
@@ -2609,6 +2622,137 @@ function resolveNativeRuntimeGrows(state, grows) {
   return grows.map(grow => grow.effectType === "ProduceCardGrowEffectType_LessonAdd"
     ? { ...grow, value: Math.ceil(Math.fround(Math.fround(Number(grow.value) || 0) * multiple)) }
     : { ...grow });
+}
+
+function secondNativeSearch(parsed) {
+  return { ...parsed, searchId: parsed.searchId2,
+    pickRangeType: parsed.pickRangeType2, pickCountType: parsed.pickCountType2,
+    pickCountMin: parsed.pickCountMin2, pickCountMax: parsed.pickCountMax2,
+    pickCountReferenceSearchId: parsed.pickCountReferenceSearchId2 };
+}
+
+function pickedNativeMoveGrowCards(state, parsed) {
+  const type = String(parsed.pickCountType ?? "");
+  if (!type.endsWith("_Shortage") && !type.endsWith("_Over")) return pickedMasterCards(state, parsed);
+  const reference = resolvedMasterSearch(state, parsed.pickCountReferenceSearchId);
+  if (!reference) throw new Error(`${parsed.id}: 選択枚数の参照検索がありません。`);
+  // GetPickCountMinMax: Shortage=max(bound-referenceCount,0);
+  // Over reverses the bounds: max(referenceCount-max/min,0).
+  const count = masterSearchCandidates(state, reference, { card: state.effectOwnerCard ?? state.playingCard }).length;
+  const min = Number(parsed.pickCountMin ?? 0), max = Number(parsed.pickCountMax ?? min);
+  return pickedMasterCards(state, { ...parsed,
+    pickCountMin: Math.max(0, type.endsWith("_Shortage") ? min - count : count - max),
+    pickCountMax: Math.max(0, type.endsWith("_Shortage") ? max - count : count - min),
+  });
+}
+
+function canonicalNativeRuntimeGrows(grows) {
+  // Native merges Add/Reduce into the same positive-type cache entry.
+  const rows = new Map();
+  for (const grow of grows) {
+    const type = String(grow.effectType ?? "");
+    const negative = type.endsWith("Reduce");
+    const key = negative ? type.slice(0, -6) + "Add" : type;
+    const row = rows.get(key) ?? { ...grow, effectType: key, value: 0 };
+    row.value += (negative ? -1 : 1) * Number(grow.value ?? 0);
+    rows.set(key, row);
+  }
+  return [...rows.values()].filter(row => row.value !== 0).map(row => row.value < 0
+    ? { ...row, effectType: row.effectType.replace(/Add$/, "Reduce"), value: -row.value }
+    : row);
+}
+
+function replaceNativeRuntimeGrows(state, card, grows) {
+  let base = card._runtimeGrowBaseSnapshot;
+  if (!base) {
+    const master = state.cardVariantByKey?.get(`${card.id}@@${card.upgradeCount ?? 0}`) ?? state.cardById?.get(card.id);
+    if (!master) throw new Error(`${card.id}: 成長を除去するためのカード原本がありません。`);
+    base = applyCardCustomizations({ ...card, ...master, customizes: card.customizes,
+      runtimeGrowEffects: [], customGrowEffects: [], playEffects: master.playEffects ?? [] }, state.customizeById, state.growEffectById);
+  }
+  // Reset only growth-owned fields. Preserve identity, play count, temporary
+  // upgrades and source bookkeeping on the live card object.
+  for (const key of ["stamina", "forceStamina", "costValue", "costType", "isInitial", "playMovePositionType",
+    "playProduceExamTriggerId", "produceCardStatusEnchantId", "playEffects", "customGrowEffects", "customGrowEffectIds"]) {
+    if (Object.hasOwn(base, key)) card[key] = cloneTowerStateValue(base[key]);
+    else delete card[key];
+  }
+  card.runtimeGrowEffects = [];
+  delete card._runtimeGrowStaminaBase;
+  applyRuntimeCardGrowEffects(card, grows);
+  card.onceOnly = isOnceOnlyMove(card.playMovePositionType);
+}
+
+const nativeInsertedEffectRuns = new WeakMap();
+function insertNativeChainCommands(state, parsed, event, repeatInput) {
+  const repeats = Math.max(0, Math.trunc(Number(repeatInput) || 0));
+  const ids = [parsed.chainEffectId, ...(parsed.chainEffectIds ?? [])].filter(Boolean);
+  if (!repeats || !ids.length) return;
+  let run = nativeInsertedEffectRuns.get(state);
+  const standalone = !run;
+  if (!run) { run = { depth: 0, stack: [], draining: false, executed: 0 }; nativeInsertedEffectRuns.set(state, run); }
+  for (let n = 0; n < repeats; n += 1) for (const id of ids) {
+    const master = state.examEffectById?.get(String(id));
+    const child = master ? parseExamEffectMaster(master) : parseExamEffectId(id);
+    run.stack.unshift({ child, event, owner: state.effectOwnerCard, card: state.playingCard,
+      source: state.effectSource, aggressiveAtPlayStart: state.cardTriggerAggressiveAtPlayStart });
+  }
+  if (standalone) { try { drainNativeInsertedEffects(state, run); } finally { nativeInsertedEffectRuns.delete(state); } }
+}
+function drainNativeInsertedEffects(state, run) {
+  if (run.draining) return;
+  run.draining = true;
+  try {
+    while (run.stack.length) {
+      if (++run.executed > 4096) throw new Error("チェーン効果の循環または過剰な予約を検出しました。");
+      const command = run.stack.shift();
+      const previous = [state.effectOwnerCard, state.playingCard, state.effectSource, state.cardTriggerAggressiveAtPlayStart];
+      [state.effectOwnerCard, state.playingCard, state.effectSource, state.cardTriggerAggressiveAtPlayStart] =
+        [command.owner, command.card, command.source, command.aggressiveAtPlayStart];
+      try { executeParsedTowerEffect(state, command.child, command.event); }
+      finally { [state.effectOwnerCard, state.playingCard, state.effectSource, state.cardTriggerAggressiveAtPlayStart] = previous; }
+    }
+  } finally { run.draining = false; }
+}
+
+export function resolveTowerBuffCostCard(state, card) {
+  if (!card?.costType || card.costType === "ExamCostType_Unknown") return card;
+  const matching = (state.searchCardBuffCostChanges ?? []).filter(row =>
+    cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)));
+  // Finite lifetimes have priority; select the shortest finite Turn. Ties
+  // retain collection order. Unlimited rows are fallback candidates.
+  let selected = null;
+  for (const row of matching) if (!selected || selected.turn < 0 && row.turn >= 0
+    || row.turn >= 0 && selected.turn >= 0 && row.turn < selected.turn) selected = row;
+  if (!selected || selected.value === -1) return card;
+  return { ...card, temporaryBuffConsumptionFix: Math.max(0, selected.value) };
+}
+function spendNativeSearchBuffCost(state, card) {
+  if (!card?.costType || card.costType === "ExamCostType_Unknown") return;
+  const matching = (state.searchCardBuffCostChanges ?? []).filter(row => cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)));
+  let selected = null;
+  for (const row of matching) if (!selected || selected.turn < 0 && row.turn >= 0
+    || row.turn >= 0 && selected.turn >= 0 && row.turn < selected.turn) selected = row;
+  if (selected?.count > 0) {
+    selected.count -= 1;
+    if (selected.count === 0) state.searchCardBuffCostChanges.splice(state.searchCardBuffCostChanges.indexOf(selected), 1);
+  }
+}
+function useNativeConditionalPlayable(state, card) {
+  const row = state.conditionalPlayableStatuses?.[0];
+  if (!row || !(row.remainingInTurn > 0 || row.remainingInTurn === -1)
+    || !cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId))) return;
+  if (row.count >= 0) row.count -= 1;
+  if (row.limitInTurn >= 0) row.remainingInTurn -= 1;
+  if (row.count === 0) state.conditionalPlayableStatuses.shift();
+  addPlayableStatus(state, 1);
+}
+function tickNativeCardScopedStatuses(state) {
+  for (const key of ["searchCardBuffCostChanges", "conditionalPlayableStatuses"]) {
+    state[key] = (state[key] ?? []).map(row => ({ ...row,
+      turn: row.turn < 0 || !row.isPassingTurnStart ? row.turn : row.turn - 1,
+    })).filter(row => row.turn !== 0);
+  }
 }
 
 function executeMasterChain(state, parsed, event, repeat = 1) {
@@ -3177,26 +3321,23 @@ class CardShuffleDeckLostEffectExecutor {
 }
 
 class ChainEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ state, parsed, v1, event }) {
+    insertNativeChainCommands(state, parsed, event, v1);
   }
 }
 
 class ChainEffectPerPassedTurnEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ state, parsed, event }) {
+    // Native calls CurrentTurn directly, including the current turn.
+    insertNativeChainCommands(state, parsed, event, Number(state.turn ?? 0));
   }
 }
 
 class ChainEffectPerRemainTurnEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ state, parsed, event }) {
+    const remaining = masterFieldStatusValue(state, "ProduceExamFieldStatusType_RemainingTurn");
+    if (!Number.isFinite(remaining)) throw new Error("残りターン参照には試験ターン数が必要です。");
+    insertNativeChainCommands(state, parsed, event, remaining);
   }
 }
 
@@ -3330,10 +3471,17 @@ class LessonPerSearchCountEffectExecutor {
 }
 
 class ExamPlayCardLimitPlayableValueAddEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ state, exam, parsed, v1, turn, event }) {
+    // Count is the total uses; Value1 is the per-turn limit, Turn lifetime.
+    const count = Number(parsed.limitCount ?? parsed.count ?? 0);
+    const rows = state.conditionalPlayableStatuses ??= [];
+    const prior = rows.find(row => row.searchId === parsed.searchId && row.limitInTurn === v1 && row.turn === turn);
+    if (prior) {
+      if (prior.count >= 0) prior.count += count;
+      prior.remainingInTurn = prior.limitInTurn;
+    } else rows.push({ searchId: parsed.searchId, count, limitInTurn: v1,
+      remainingInTurn: v1, turn, uid: nextNativeStatusUid(exam), isPassingTurnStart: !state.turnOpen });
+    event.effects.push(`対象カードの使用後に再行動（${count}回／ターン内${v1}回）`);
   }
 }
 
@@ -3859,10 +4007,34 @@ class LessonValueMultipleEffectExecutor {
 }
 
 class MoveGrowEffectEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ state, parsed, v1, v2, event }) {
+    // First search = receivers; second search = donors. Both are resolved
+    // before any donor mutation; empty receivers must not reduce donors.
+    const receivers = pickedNativeMoveGrowCards(state, parsed);
+    if (!receivers.length) return;
+    const donors = pickedNativeMoveGrowCards(state, secondNativeSearch(parsed));
+    if (!donors.length) return;
+    const original = [];
+    for (const donor of donors) {
+      const grows = canonicalNativeRuntimeGrows(donor.runtimeGrowEffects ?? []);
+      if (!grows.length) continue;
+      original.push(...grows.map(grow => ({ ...grow })));
+      const remaining = grows.map(grow => ({ ...grow, value: v2 >= 1000 ? 0
+        : Math.max(0, Number(grow.value) - Math.ceil(Math.fround(Math.fround(v2 / 1000) * Math.fround(grow.value)))) }))
+        .filter(grow => grow.value > 0);
+      replaceNativeRuntimeGrows(state, donor, remaining);
+      if (donor._supportBaseSnapshot) replaceNativeRuntimeGrows(state, donor._supportBaseSnapshot, remaining);
+    }
+    if (!original.length) return;
+    const transferred = original.map(grow => ({ ...grow,
+      value: Math.ceil(Math.fround(Math.fround(v1 / 1000) * Math.fround(grow.value))) }))
+      .filter(grow => grow.value > 0);
+    for (const receiver of receivers) applyPersistentRuntimeCardGrowEffects(receiver, transferred);
+    // AddGrowEffect(..., true) bypasses the LessonAdd acquisition multiplier.
+    event.grown ??= [];
+    event.grown.push({ move: true, donorTokens: donors.map(card => card.token),
+      receiverTokens: receivers.map(card => card.token), effects: transferred.map(grow => ({ ...grow })) });
+    event.effects.push("成長効果を移動");
   }
 }
 
@@ -4099,10 +4271,14 @@ class SearchEffectPlayCountBuffEffectExecutor {
 }
 
 class SearchPlayCardBuffConsumptionChangeEffectExecutor {
-  static ExecuteEffect({ state, parsed, event, type }) {
-    // No native-equivalent calculation implemented: preserve prior unsupported behavior.
-    rememberUnsupported(state, `effect-type:${parsed.masterEffectType || type || parsed.id}`);
-    event.effects.push(`未対応効果: ${parsed.masterEffectType || parsed.id}`);
+  static ExecuteEffect({ state, exam, parsed, v1, turn, event }) {
+    const count = Number(parsed.limitCount ?? parsed.count ?? 0);
+    const rows = state.searchCardBuffCostChanges ??= [];
+    const prior = rows.find(row => row.searchId === parsed.searchId && row.value === v1 && row.turn === turn);
+    if (prior) prior.count += count;
+    else rows.push({ searchId: parsed.searchId, value: v1, count, turn,
+      uid: nextNativeStatusUid(exam), isPassingTurnStart: !state.turnOpen });
+    event.effects.push(`対象カードの強化状態消費を${v1}に変更`);
   }
 }
 
@@ -4751,13 +4927,19 @@ export const NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES = Object.freeze({
   "ExamEffectTimerEndTurn": EffectTimerEndTurnEffectExecutor,
   "ExamLessonChangeSpecifyLessThan": LessonChangeSpecifyLessThanEffectExecutor,
   "ExamLessonChangeSpecifyMoreThan": LessonChangeSpecifyMoreThanEffectExecutor,
+  "ExamChainEffect": ChainEffectExecutor,
+  "ExamChainEffectPerPassedTurn": ChainEffectPerPassedTurnEffectExecutor,
+  "ExamChainEffectPerRemainTurn": ChainEffectPerRemainTurnEffectExecutor,
+  "ExamPlayCardLimitPlayableValueAdd": ExamPlayCardLimitPlayableValueAddEffectExecutor,
+  "ExamMoveGrowEffect": MoveGrowEffectEffectExecutor,
+  "ExamSearchPlayCardBuffConsumptionChange": SearchPlayCardBuffConsumptionChangeEffectExecutor,
   "ExamGrowEffectLessonAddAdditive": GrowEffectLessonAddAdditiveEffectExecutor,
 });
 
 export const NATIVE_MASTER_EXECUTOR_COVERAGE = Object.freeze({
   registered: 161,
-  implementedMasterTypes: Object.freeze(["ExamCardShuffleDeckGrave","ExamCardShuffleDeckLost","ExamClearDebuff","ExamEffectTimerEndTurn","ExamLessonChangeSpecifyLessThan","ExamLessonChangeSpecifyMoreThan","ExamGrowEffectLessonAddAdditive","ExamStatusEnchantTurnAdd","ExamStatusEnchantCountAdd","ExamFullPowerPointReduceCancellable","ExamUplifting","ExamReviewReduceCancellable","ExamParameterBuffReduceCancellable","ExamLessonBuffReduceCancellable","ExamAggressiveReduceCancellable","ExamGetCardUpgrade","ExamHandHold","ExamBlockAddDownRestriction","ExamStaminaRecoverAdd","ExamStaminaReduceChange","ExamLessonDependEnthusiasticGetSum","ExamParameterBuffPerSearchCount","ExamFullPowerPointAdditiveFix","ExamParameterBuffAdditiveFix","ExamReviewAdditiveFix","ExamGimmickEnthusiastic","ExamStaminaConsumptionDownAdd","ExamStaminaConsumptionAddDown","ExamBuffConsumptionDown","ExamStanceLockPreservation","ExamStanceLockFullPower","ExamStanceLockConcentration","ExamAggressiveDependReview","ExamAggressivePerSearchCount","ExamBlockPerSearchCount","ExamFullPowerPointDependFullPowerPointGetSum","ExamFullPowerPointPerSearchCount","ExamLessonDependAggressiveAndSearchCount","ExamLessonDependReviewAndSearchCount","ExamLessonAddBlock","ExamStatusEnchant","ExamStatusEnchantEncore","ExamEffectTimer","ExamLessonFix","ExamLessonValueMultipleDown","ExamLessonDependBlock","ExamLessonDependParameterBuff","ExamLessonDependStamina","ExamLessonDependBlockConsumptionSum","ExamLessonDependStaminaConsumptionSum","ExamLessonDependPlayCardCountSum","ExamLessonFullPowerPoint","ExamLessonPerSearchCount","ExamLessonDependBlockAndSearchCount","ExamLessonAddMultipleLessonBuff","ExamMultipleEnthusiasticLesson","ExamMultipleFullPowerLesson","ExamMultipleConcentrationLesson","ExamBlockFix","ExamBlockAddMultipleAggressive","ExamBlockPerUseCardCount","ExamBlockDependExamReview","ExamBlockDependBlockConsumptionSum","ExamReviewDependExamBlock","ExamReviewDependExamCardPlayAggressive","ExamReviewDependReviewConsumptionSum","ExamReviewPerSearchCount","ExamLessonBuffDependParameterBuff","ExamLessonBuffPerSearchCount","ExamParameterBuffDependLessonBuff","ExamStaminaRecoverMultiple","ExamStaminaDamage","ExamStaminaReduceFix","ExamStaminaReduce","ExamAggressiveReduce","ExamReviewReduce","ExamLessonBuffReduce","ExamFullPowerPointReduce","ExamParameterBuffMultiplePerTurnReduce","ExamBlockDown","ExamAggressiveValueMultiple","ExamReviewValueMultiple","ExamBlockValueMultiple","ExamAggressiveAdditive","ExamAggressiveAdditiveFix","ExamReviewAdditive","ExamLessonBuffAdditive","ExamLessonBuffAdditiveFix","ExamParameterBuffAdditive","ExamEnthusiasticAdditive","ExamEnthusiasticMultiple","ExamEnthusiasticTurnAdditive","ExamFullPowerPointAdditive","ExamConcentrationLessonMultipleAdditive","ExamFullPowerLessonMultipleAdditive","ExamBlockRestriction","ExamBlockAddDown","ExamStaminaRecoverRestriction","ExamPanic","ExamAntiDebuff","ExamDebuffRecover","ExamGimmickLessonDebuff","ExamGimmickParameterDebuff","ExamGimmickSlump","ExamGimmickSleepy","ExamGimmickPlayCardLimit","ExamGimmickStartTurnCardDrawDown","ExamBuffConsumptionAdd","ExamItemFireLimitAdd","ExamFullPowerPoint","ExamFullPower","ExamOverPreservation","ExamStanceReset","StanceLock","ExamCardMove","ExamCardUpgrade","ExamCardDuplicate","ExamCardCreateSearch","ExamSearchPlayCardStaminaConsumptionChange","ExamForcePlayCardSearch","ExamForcePlayCardSearchWithCost","ExamEffectPerSearchCount"]),
-  unsupportedClassNames: Object.freeze(["ChainEffectExecutor", "ChainEffectPerPassedTurnEffectExecutor", "ChainEffectPerRemainTurnEffectExecutor", "ExamPlayCardLimitPlayableValueAddEffectExecutor", "MoveGrowEffectEffectExecutor", "SearchPlayCardBuffConsumptionChangeEffectExecutor"]),
+  implementedMasterTypes: Object.freeze(["ExamChainEffect","ExamChainEffectPerPassedTurn","ExamChainEffectPerRemainTurn","ExamPlayCardLimitPlayableValueAdd","ExamMoveGrowEffect","ExamSearchPlayCardBuffConsumptionChange","ExamCardShuffleDeckGrave","ExamCardShuffleDeckLost","ExamClearDebuff","ExamEffectTimerEndTurn","ExamLessonChangeSpecifyLessThan","ExamLessonChangeSpecifyMoreThan","ExamGrowEffectLessonAddAdditive","ExamStatusEnchantTurnAdd","ExamStatusEnchantCountAdd","ExamFullPowerPointReduceCancellable","ExamUplifting","ExamReviewReduceCancellable","ExamParameterBuffReduceCancellable","ExamLessonBuffReduceCancellable","ExamAggressiveReduceCancellable","ExamGetCardUpgrade","ExamHandHold","ExamBlockAddDownRestriction","ExamStaminaRecoverAdd","ExamStaminaReduceChange","ExamLessonDependEnthusiasticGetSum","ExamParameterBuffPerSearchCount","ExamFullPowerPointAdditiveFix","ExamParameterBuffAdditiveFix","ExamReviewAdditiveFix","ExamGimmickEnthusiastic","ExamStaminaConsumptionDownAdd","ExamStaminaConsumptionAddDown","ExamBuffConsumptionDown","ExamStanceLockPreservation","ExamStanceLockFullPower","ExamStanceLockConcentration","ExamAggressiveDependReview","ExamAggressivePerSearchCount","ExamBlockPerSearchCount","ExamFullPowerPointDependFullPowerPointGetSum","ExamFullPowerPointPerSearchCount","ExamLessonDependAggressiveAndSearchCount","ExamLessonDependReviewAndSearchCount","ExamLessonAddBlock","ExamStatusEnchant","ExamStatusEnchantEncore","ExamEffectTimer","ExamLessonFix","ExamLessonValueMultipleDown","ExamLessonDependBlock","ExamLessonDependParameterBuff","ExamLessonDependStamina","ExamLessonDependBlockConsumptionSum","ExamLessonDependStaminaConsumptionSum","ExamLessonDependPlayCardCountSum","ExamLessonFullPowerPoint","ExamLessonPerSearchCount","ExamLessonDependBlockAndSearchCount","ExamLessonAddMultipleLessonBuff","ExamMultipleEnthusiasticLesson","ExamMultipleFullPowerLesson","ExamMultipleConcentrationLesson","ExamBlockFix","ExamBlockAddMultipleAggressive","ExamBlockPerUseCardCount","ExamBlockDependExamReview","ExamBlockDependBlockConsumptionSum","ExamReviewDependExamBlock","ExamReviewDependExamCardPlayAggressive","ExamReviewDependReviewConsumptionSum","ExamReviewPerSearchCount","ExamLessonBuffDependParameterBuff","ExamLessonBuffPerSearchCount","ExamParameterBuffDependLessonBuff","ExamStaminaRecoverMultiple","ExamStaminaDamage","ExamStaminaReduceFix","ExamStaminaReduce","ExamAggressiveReduce","ExamReviewReduce","ExamLessonBuffReduce","ExamFullPowerPointReduce","ExamParameterBuffMultiplePerTurnReduce","ExamBlockDown","ExamAggressiveValueMultiple","ExamReviewValueMultiple","ExamBlockValueMultiple","ExamAggressiveAdditive","ExamAggressiveAdditiveFix","ExamReviewAdditive","ExamLessonBuffAdditive","ExamLessonBuffAdditiveFix","ExamParameterBuffAdditive","ExamEnthusiasticAdditive","ExamEnthusiasticMultiple","ExamEnthusiasticTurnAdditive","ExamFullPowerPointAdditive","ExamConcentrationLessonMultipleAdditive","ExamFullPowerLessonMultipleAdditive","ExamBlockRestriction","ExamBlockAddDown","ExamStaminaRecoverRestriction","ExamPanic","ExamAntiDebuff","ExamDebuffRecover","ExamGimmickLessonDebuff","ExamGimmickParameterDebuff","ExamGimmickSlump","ExamGimmickSleepy","ExamGimmickPlayCardLimit","ExamGimmickStartTurnCardDrawDown","ExamBuffConsumptionAdd","ExamItemFireLimitAdd","ExamFullPowerPoint","ExamFullPower","ExamOverPreservation","ExamStanceReset","StanceLock","ExamCardMove","ExamCardUpgrade","ExamCardDuplicate","ExamCardCreateSearch","ExamSearchPlayCardStaminaConsumptionChange","ExamForcePlayCardSearch","ExamForcePlayCardSearchWithCost","ExamEffectPerSearchCount"]),
+  unsupportedClassNames: Object.freeze([]),
 });
 
 function executeMasterEffect(state, parsed, event, { timed = false } = {}) {
@@ -4813,6 +4995,20 @@ function withNativeEffectFrame(state, execute) {
 }
 
 function executeParsedTowerEffect(state, parsed, event, options = {}) {
+  let run = nativeInsertedEffectRuns.get(state);
+  const outer = !run;
+  if (!run) { run = { depth: 0, stack: [], draining: false, executed: 0 }; nativeInsertedEffectRuns.set(state, run); }
+  run.depth += 1;
+  try {
+    const result = executeParsedTowerEffectCommand(state, parsed, event, options);
+    if (run.depth === 1) drainNativeInsertedEffects(state, run);
+    return result;
+  } finally {
+    run.depth -= 1;
+    if (outer) nativeInsertedEffectRuns.delete(state);
+  }
+}
+function executeParsedTowerEffectCommand(state, parsed, event, options = {}) {
   return traceSimulation(state, currentSimulationSource(state),
     () => withNativeEffectFrame(state, (frame) => {
       // ExecuteCommandImplAsync @0x80dbc18 prepares the card-move search
@@ -5114,6 +5310,10 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     throw new Error("使用するカード位置が不正です。");
   }
   const card = context.HandList[index];
+  const conditional = state.conditionalPlayableStatuses?.[0];
+  if (!forced && conditional && !cardMatchesMasterSearch(card, resolvedMasterSearch(state, conditional.searchId))) {
+    throw new Error(`${card.id}: 追加使用回数の対象カードではありません。`);
+  }
   if (!forced && card.isRestrict) throw new Error(`${card.id}: このカードは使用できません。`);
   if (!forced && state.searchPlayCardLimits.some((row) => row.turn !== 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)))) throw new Error(card.id + ": ギミックによりカードを使用できません。");
   if (!isSupportedSimpleMove(card.playMovePositionType)) {
@@ -5200,7 +5400,11 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   const costChange = (!card.costType || card.costType === "ExamCostType_Unknown")
     ? state.searchCardCostChanges.find((row) => row.count > 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)))
     : null;
-  if (!ignoreCost) event.cost.push(...payCardCost(state.exam, costChange ? { ...card, temporaryStaminaConsumptionFix: costChange.value } : card));
+  const costCard = resolveTowerBuffCostCard(state, costChange ? { ...card, temporaryStaminaConsumptionFix: costChange.value } : card);
+  if (!ignoreCost) {
+    event.cost.push(...payCardCost(state.exam, costCard));
+    spendNativeSearchBuffCost(state, card);
+  }
   if (!ignoreCost && costChange) costChange.count -= 1;
   recordCardPhase("after-cost");
   const previousPlayingCard = state.playingCard ?? null;
@@ -5278,6 +5482,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     // (@ 0x80dcb20), after the main effects, including forced uses.
     examParameter.ExamCardPlayCount += 1;
     examParameter.TurnCardPlayCount = Number(examParameter.TurnCardPlayCount ?? state.currentTurnPlays.length) + 1;
+    useNativeConditionalPlayable(state, card);
     state.exam.playCardCountSum += 1;
     state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
     // Native ExamBuffConsume recovery is an after-completion consequence of
@@ -5481,6 +5686,7 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
     { cause: "turnEndSpend", action: type, used },
   );
   tickCardEffectPlayCountBuff(state);
+  tickNativeCardScopedStatuses(state);
   if (state.playableAddStatus?.isPassingTurnStart) state.playableAddStatus = null;
   state.searchPlayCardLimits = state.searchPlayCardLimits.map((row) => ({ ...row, turn: row.turn < 0 ? -1 : row.turn - 1 })).filter((row) => row.turn !== 0);
   state.searchCardCostChanges = state.searchCardCostChanges.map((row) => ({ ...row, turn: row.turn < 0 ? -1 : row.turn - 1 })).filter((row) => row.turn !== 0 && row.count > 0);
