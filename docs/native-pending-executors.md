@@ -1,10 +1,10 @@
-# 未実装Executor 25種類のELF解析・実装トラッカー
+# 未実装Executor 23種類のELF解析・実装トラッカー
 
 対象：`gakumas_analysis(1).elf` Build ID `77fda4e2a21f23954e2349b83fc113ede408f70b`。
 
 ## 方針
 
-- 登録済み **161クラス** のうち計算・コマンド動作が接続されたものは **136種類**、未実装は **25種類**。
+- 登録済み **161クラス** のうち計算・コマンド動作が接続されたものは **138種類**、未実装は **23種類**。
 - ここでのRVAは**シンボル特定済み**の意味であり、挙動を復元できたという意味ではない。
 - 各クラスでELFのパラメータ順・呼出し先・戻り値・状態差分・発動予約・乱数消費を解読してから、既存JSの状態APIに実装する。
 - テストは独立のELF定数ベクトル・効果ごとの境界ケース・該当する実機キャプチャとの差分で行う。既存36試合に登場しない効果の一致を主張しない。
@@ -15,7 +15,6 @@
 | 未実装クラス | ELF RVA | 解析分類 |
 | --- | --- | --- |
 | `AggressiveReduceCancellableEffectExecutor` | `0x8047228` | ステータス・寿命 |
-| `BlockAddDownRestrictionEffectExecutor` | `0x8047E84` | ステータス・寿命 |
 | `CardShuffleDeckGraveEffectExecutor` | `0x804BD24` | カード移動／山札 |
 | `CardShuffleDeckLostEffectExecutor` | `0x804BD4C` | カード移動／山札 |
 | `ChainEffectExecutor` | `0x804BE8C` | 予約コマンド／継続効果 |
@@ -35,7 +34,6 @@
 | `ParameterBuffReduceCancellableEffectExecutor` | `0x805EB48` | ステータス・寿命 |
 | `ReviewReduceCancellableEffectExecutor` | `0x806162C` | ステータス・寿命 |
 | `SearchPlayCardBuffConsumptionChangeEffectExecutor` | `0x80624B4` | 検索／対象枚数 |
-| `StaminaRecoverAddEffectExecutor` | `0x8063A08` | ステータス・寿命 |
 | `StatusEnchantCountAddEffectExecutor` | `0x806559C` | 予約コマンド／継続効果 |
 | `StatusEnchantTurnAddEffectExecutor` | `0x8066480` | 予約コマンド／継続効果 |
 | `UpliftingEffectExecutor` | `0x8066F8C` | ステータス・寿命 |
