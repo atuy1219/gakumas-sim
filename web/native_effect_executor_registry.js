@@ -40,6 +40,8 @@ const masterOverrides = Object.freeze({
   "ExamCardPlayPreservation": "PreservationEffectExecutor",
   "ExamCardShuffleDeckGrave": "CardShuffleDeckGraveEffectExecutor",
   "ExamCardShuffleDeckLost": "CardShuffleDeckLostEffectExecutor",
+  "ExamMultipleConcentrationLesson": "LessonMultipleConcentrationEffectExecutor",
+  "ExamMultipleFullPowerLesson": "LessonMultipleFullPowerEffectExecutor",
   "ExamStatusEnchant": "StatusEnchantEffectExecutor",
   "ExamStatusEnchantEncore": "StatusEnchantEncoreEffectExecutor",
   "ExamReview": "ReviewEffectExecutor",
