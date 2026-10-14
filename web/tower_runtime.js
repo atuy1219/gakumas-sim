@@ -10,6 +10,7 @@ import {
   applyParsedExamEffect,
   calculateNativeBlockAdd,
   calculateNativeStaminaDamage,
+  consumeNativeUplifting,
   checkCardEffectTrigger,
   createExamState,
   getExamRuntimeSetting,
