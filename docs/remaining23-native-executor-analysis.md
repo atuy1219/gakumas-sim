@@ -1,5 +1,7 @@
 # ELF由来の未対応23 Executor：実装判断と検証可能性（2026-10-14）
 
+> **更新（2026-10-14）:** この文書は「未対応23種類」時点の解析スナップショットです。PR #100に `HandHoldEffectExecutor` と `GetCardUpgradeEffectExecutor` を追加し、現在の実装登録数は **140/161**、未対応は **21種類** です。最新の対象は [native-pending-executors.md](native-pending-executors.md) を参照してください。下表に残る2行は履歴であり、現在の未実装数を表しません。新規の独立実機トレースは未取得のため、効果追加による完全一致は未検証です。
+
 対象：ELF Build ID `77fda4e2a21f23954e2349b83fc113ede408f70b`、固定マスター `vertesan/gakumasu-diff@1f07db111068a65defc13bd44e3e8957ca4baca4`。
 
 ## 既存の回帰検証
