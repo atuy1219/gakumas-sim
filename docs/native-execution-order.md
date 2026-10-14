@@ -38,8 +38,8 @@
 次の状態を `str w10,[x8,#0x77c]` へ保存する。
 **幅が0の場合も条件分岐でスキップせず、次状態を保存する。**
 
-JavaScriptの `XorShift32.getRandomInt()` と `nextInt()`、
-Pythonの `XorShift32.get_random_int()` と `next_int()` をこの仕様へ寄せた。
+JavaScriptの `XorShift32.getRandomInt()` と `nextInt()` をこの仕様へ寄せた。
+以前のPythonエンジンはJavaScript検証統合に伴い廃止した。
 `tower_runtime.js` は単一のAPIで範囲乱数を消費し、乱数キーの符号化順も明示した。
 
 **重要な検証境界:** 乱数を消費する *回数* の基礎ルールと、
@@ -55,10 +55,9 @@ Pythonの `XorShift32.get_random_int()` と `next_int()` をこの仕様へ寄�
   - コマンド条件のスナップショットが効果内のステータス変化で変わらないこと
   - 乱数は予約中には消費されず、効果実行順で消費されること
   - 実機から読める `GetRandomInt` の戻り値とゼロ幅範囲での更新
-- `tests/test_exam_engine.py`:
-  - Pythonでゼロ幅範囲が1回状態を更新すること
-  - 無引数オーバーロードが更新前の状態から符号付きキーを返すこと
-- 既存JS/PythonテストとCI構文検査。
+- `tests/test_contest_dfs.mjs`:
+  - 移植したコンテストDFSの探索境界・同点優先順・評価式、共通JS XorShift32の固定ベクトル
+- 既存JavaScriptテストとCI構文検査。
 
 ## 残る未検証事項
 
@@ -71,3 +70,7 @@ Pythonの `XorShift32.get_random_int()` と `next_int()` をこの仕様へ寄�
 
 したがって本PRは **ネイティブの処理順序に対する確認済みの差分修正** であり、
 シミュレーター全体が実機と完全一致したと判定したものではない。
+
+## 検証履歴（2026-10-14）
+
+PR #95・#96を統合したJavaScript実装で、キャプチャ（16）〜（19）の36試合を固定マスターと確認済みカスタマイズ補完で再実行し、観測対象の最終得点36/36一致を確認した。原本に未取得カスタムが残るため、実機の全内部状態の完全一致を意味するものではない。

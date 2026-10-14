@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "name": "contest_dfs",
+  "engine": "JavaScript",
+  "source": "ExamDepthFirstSearch search policy extracted from native ELF and prior Python prototype",
+  "notes": "Declarative search policy reference. The executable implementation is web/contest_dfs.js; a JSON file cannot contain executable JavaScript functions.",
+  "planType": {
+    "unknown": 0,
+    "common": 1,
+    "plan1": 2,
+    "plan2": 3,
+    "plan3": 4
+  },
+  "searchVersion": {
+    "unknown": 0,
+    "v1": 1,
+    "v2": 2
+  },
+  "phase": {
+    "none": 0,
+    "standby": 1,
+    "turnStart": 2,
+    "turnStartAfter": 3,
+    "turnStartDraw": 4,
+    "mainStart": 5,
+    "main": 6,
+    "turnEnd": 7,
+    "examEnd": 8
+  },
+  "turnDepth": {
+    "plan1": 2,
+    "plan2": 2,
+    "plan3": {
+      "v1": 1,
+      "v2": 2
+    }
+  },
+  "commandLimitSource": "ExamSetting.examAutoPlaySearchCommandPlanLimits",
+  "leafTerm": "floor(remainTurn/calculateTurn)+1",
+  "ties": "first-depth-first-visited-leaf",
+  "unknownExecutorHandling": "unsupported"
+}
