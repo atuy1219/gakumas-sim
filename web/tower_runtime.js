@@ -1,4 +1,5 @@
 import { beginSimulationTurn, currentSimulationSource, endSimulationTurn, historyCard, recordSimulationEvent, traceSimulation } from "./simulation_history.js";
+import { getExamParameterModel, getExamEffectCalculateContext } from "./native_exam_context.js";
 import { XorShift32, normalizeProduceCard, parseSeed } from "./engine.js";
 import {
   addNativeGenericTimedStatus,
@@ -2013,18 +2014,19 @@ function applyExamSupportCardUpgrades(state, drawnCards, runtimeEvent = null) {
 }
 
 function drawCardsIntoHand(state, count, runtimeEvent = nativeRuntimeEvent(), notify = true) {
+  const context = getExamEffectCalculateContext(state);
   const recycleEvents = [];
   const drawn = [];
-  const capacity = normalizeHandLimit(state.handLimit);
+  const capacity = normalizeHandLimit(context.HandListLimit);
   for (let i = 0; i < count; i += 1) {
-    if (state.hand.length >= capacity) break;
-    if (!state.deck.length) {
+    if (context.HandList.length >= capacity) break;
+    if (!context.DeckList.length) {
       const event = recycleIfNeeded(state);
       if (event) recycleEvents.push(event);
     }
-    if (!state.deck.length) break;
-    const card = state.deck.shift();
-    state.hand.push(card);
+    if (!context.DeckList.length) break;
+    const card = context.DeckList.shift();
+    context.HandList.push(card);
     drawn.push(card);
   }
   if (notify) for (const card of drawn) notifyRuntimeCardMove(state, card, "deck", "hand", runtimeEvent, { drawn: true });
@@ -2061,9 +2063,11 @@ export function drawTowerTurn(state, drawCount = 3) {
   } finally { delete state.traceTurn; }
 }
 function drawTowerTurnImpl(state, drawCount = 3) {
+  const examParameter = getExamParameterModel(state);
+  const context = getExamEffectCalculateContext(state);
   const count = Number(drawCount);
   if (!Number.isInteger(count) || count < 1) throw new Error("1ターンのドロー枚数が不正です。");
-  if (state.hand.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
+  if (context.HandList.length) throw new Error("現在の手札を処理してから次ターンへ進んでください。");
   if (state.turnOpen) throw new Error("現在のターンを終了してから次ターンへ進んでください。");
 
   const hasTurnLimit = state.turnLimit !== null
@@ -2101,7 +2105,7 @@ function drawTowerTurnImpl(state, drawCount = 3) {
       { cause: "turnStartReviewSpend" });
   }
   state.ended = false;
-  state.turnStartParameter = Number(state.exam.parameter ?? 0);
+  state.turnStartParameter = Number(examParameter.JudgeParameter ?? 0);
   runNativeEffectPhase(
     state,
     NATIVE_EFFECT_PHASE.BEFORE_START_OF_TURN,
@@ -2110,12 +2114,12 @@ function drawTowerTurnImpl(state, drawCount = 3) {
   );
 
   const isOpeningTurn = state.turn === 0 && !state.openingResolved;
-  state.turn += 1;
+  examParameter.CurrentTurn += 1;
   state.turnOpen = true;
-  state.playsRemaining = 1 + Number(state.playableAddStatus?.count ?? 0);
+  context.RemainCanPlayCardCount = 1 + Number(state.playableAddStatus?.count ?? 0);
   state.normalPlayUsed = false;
   state.currentTurnPlays = [];
-  state.exam.turnCardPlayCount = 0;
+  examParameter.TurnCardPlayCount = 0;
   state.currentTurnDrinks = [];
   state.turnUseSupportCardIds = new Set();
 
@@ -3395,13 +3399,15 @@ export function playTowerCard(state, indexInput, options = {}) {
 }
 
 function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = false } = {}) {
-  if (!state.hand.length) throw new Error("使用する手札がありません。");
-  if (!forced && Number(state.playsRemaining ?? 0) <= 0) throw new Error("このターンのカード使用回数が残っていません。");
+  const context = getExamEffectCalculateContext(state);
+  const examParameter = context.ExamParameter;
+  if (!context.HandList.length) throw new Error("使用する手札がありません。");
+  if (!forced && Number(context.RemainCanPlayCardCount ?? 0) <= 0) throw new Error("このターンのカード使用回数が残っていません。");
   const index = Number(indexInput);
-  if (!Number.isInteger(index) || index < 0 || index >= state.hand.length) {
+  if (!Number.isInteger(index) || index < 0 || index >= context.HandList.length) {
     throw new Error("使用するカード位置が不正です。");
   }
-  const card = state.hand[index];
+  const card = context.HandList[index];
   if (!forced && card.isRestrict) throw new Error(`${card.id}: このカードは使用できません。`);
   if (!forced && state.searchPlayCardLimits.some((row) => row.turn !== 0 && cardMatchesMasterSearch(card, resolvedMasterSearch(state, row.searchId)))) throw new Error(card.id + ": ギミックによりカードを使用できません。");
   if (!isSupportedSimpleMove(card.playMovePositionType)) {
@@ -3427,14 +3433,14 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     if (!state.captureActionTelemetry) return;
     const exam = state.exam;
     const current = {
-      score: Number(exam.parameter ?? 0),
-      stamina: Number(exam.stamina ?? 0),
-      block: Number(exam.block ?? 0),
-      review: Number(exam.review ?? 0),
-      aggressive: Number(exam.aggressive ?? 0),
+      score: Number(examParameter.JudgeParameter ?? 0),
+      stamina: Number(examParameter.Stamina ?? 0),
+      block: Number(examParameter.Block ?? 0),
+      review: examParameter.StatusEffectCollection.GetReview(),
+      aggressive: examParameter.StatusEffectCollection.GetAggressive(),
       staminaConsumptionDown: Number(exam.staminaConsumptionDown ?? 0),
       staminaConsumptionDownFix: Number(exam.staminaConsumptionDownFix ?? 0),
-      playable: Number(state.playsRemaining ?? 0),
+      playable: Number(context.RemainCanPlayCardCount ?? 0),
       lessonBuff: Number(exam.lessonBuff ?? 0),
       parameterBuff: Number(exam.parameterBuff ?? 0),
       parameterBuffMultiplePerTurn: Number(exam.parameterBuffMultiplePerTurn ?? 0),
@@ -3479,10 +3485,10 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   const beforeCostStatus = captureNativeStatusSnapshot(state.exam);
   const maxBeforeCost = Number(state.exam.maxStamina ?? 0);
   const beforeCardStaminaRatioPermil = maxBeforeCost > 0
-    ? Math.trunc(Number(state.exam.stamina ?? 0) * 1000 / maxBeforeCost) : 0;
+    ? Math.trunc(Number(examParameter.Stamina ?? 0) * 1000 / maxBeforeCost) : 0;
   const beforeCost = {
-    block: Number(state.exam.block ?? 0),
-    stamina: Number(state.exam.stamina ?? 0),
+    block: Number(examParameter.Block ?? 0),
+    stamina: Number(examParameter.Stamina ?? 0),
     review: Number(state.exam.review ?? 0),
   };
   const costChange = (!card.costType || card.costType === "ExamCostType_Unknown")
@@ -3500,8 +3506,8 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
   state.effectOwnerCard = null;
   state.playingCard = card;
   try {
-    state.exam.blockConsumptionSum += Math.max(0, beforeCost.block - Number(state.exam.block ?? 0));
-    state.exam.staminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(state.exam.stamina ?? 0));
+    examParameter.BlockConsumptionSum += Math.max(0, beforeCost.block - Number(examParameter.Block ?? 0));
+    examParameter.StaminaConsumptionSum += Math.max(0, beforeCost.stamina - Number(examParameter.Stamina ?? 0));
     state.exam.reviewConsumptionSum += Math.max(0, beforeCost.review - Number(state.exam.review ?? 0));
     emitNativeStatusDiff(
       state,
@@ -3511,9 +3517,9 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     );
 
     recordSimulationEvent(state, { kind: "cardUse", card: historyCard(card), forced });
-    state.hand.splice(index, 1);
+    context.HandList.splice(index, 1);
     if (!forced) {
-      state.playsRemaining -= 1;
+      context.RemainCanPlayCardCount -= 1;
       // Native CardPlayCountAdd (0x7ff0638) consumes PlayableValueAdd first.
       // Only when no additional-play status exists does the card use end the
       // ordinary play. This timing matters for skip/turn-end carry-over.
@@ -3523,7 +3529,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       }
       state.normalPlayUsed = true;
     }
-    const cardPlayCount = Number(state.exam.cardPlayCount ?? 0) + 1;
+    const cardPlayCount = Number(examParameter.ExamCardPlayCount ?? 0) + 1;
     const previouslyPlayed = Number(card.playCount ?? 0) > 0;
     card.playCount = Number(card.playCount ?? 0) + 1;
     if (card._supportBaseSnapshot) card._supportBaseSnapshot.playCount = card.playCount;
@@ -3564,8 +3570,8 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
     recordCardPhase("after-main-card-effects-before-after-card-play-triggers");
     // PlayCardCountIncrement @ 0x8092358 runs from UseCardAfterCheck
     // (@ 0x80dcb20), after the main effects, including forced uses.
-    state.exam.cardPlayCount += 1;
-    state.exam.turnCardPlayCount = Number(state.exam.turnCardPlayCount ?? state.currentTurnPlays.length) + 1;
+    examParameter.ExamCardPlayCount += 1;
+    examParameter.TurnCardPlayCount = Number(examParameter.TurnCardPlayCount ?? state.currentTurnPlays.length) + 1;
     state.exam.playCardCountSum += 1;
     state.playTurnCountSum += Math.max(1, Number(state.turn ?? 1));
     // Native ExamBuffConsume recovery is an after-completion consequence of
@@ -3595,7 +3601,7 @@ function playTowerCardImpl(state, indexInput, { ignoreCost = false, forced = fal
       if (entry.card === card) applyPersistentRuntimeCardGrowEffects(entry.card, entry.grows);
     }
 
-    if (![state.hand, state.deck, state.discard, state.lost, state.hold].some((pool) => pool.includes(card))) {
+    if (![context.HandList, context.DeckList, context.GraveList, context.LostList, context.HoldList].some((pool) => pool.includes(card))) {
       addRuntimeCardAt(state, card, card.onceOnly ? "Lost" : "Grave", event, "playing");
     }
     state.currentTurnPlays.push(event);
@@ -3662,22 +3668,24 @@ export function finishTowerTurn(state, action = { type: "skip" }) {
   return result;
 }
 function finishTowerTurnImpl(state, action = { type: "skip" }) {
+  const context = getExamEffectCalculateContext(state);
+  const examParameter = context.ExamParameter;
   const type = String(action?.type ?? "skip");
   let compatibilityUse = null;
   if (type === "use") compatibilityUse = playTowerCard(state, action?.index);
   else if (type !== "skip" && type !== "end") throw new Error(`未知のターン操作です: ${type}`);
 
-  if (!state.turnOpen && !state.hand.length && !state.currentTurnPlays.length) throw new Error("終了するターンがありません。");
-  const recoverStaminaAtTurnEnd = type === "skip" && Number(state.playsRemaining ?? 0) > 0;
-  const remainingHand = state.hand.map((card) => ({ ...card }));
+  if (!state.turnOpen && !context.HandList.length && !state.currentTurnPlays.length) throw new Error("終了するターンがありません。");
+  const recoverStaminaAtTurnEnd = type === "skip" && Number(context.RemainCanPlayCardCount ?? 0) > 0;
+  const remainingHand = context.HandList.map((card) => ({ ...card }));
   // Native ResetHand (0x8237750) snapshots Hand and walks index 0 -> Count-1.
   // IsEndTurnLost cards are batched to Lost; all other remaining cards are
   // batched to Grave. Each destination preserves the original Hand order.
-  const resetCards = state.hand.splice(0);
+  const resetCards = context.HandList.splice(0);
   const resetEvent = nativeRuntimeEvent();
   for (const card of resetCards) {
-    if (card.isEndTurnLost) state.lost.push(card);
-    else state.discard.push(card);
+    if (card.isEndTurnLost) context.LostList.push(card);
+    else context.GraveList.push(card);
   }
   for (const card of resetCards) notifyRuntimeCardMove(state, card, "hand", card.isEndTurnLost ? "lost" : "grave", resetEvent);
 
@@ -3716,9 +3724,9 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
     drinks,
     turnStartEffects: [...(state.turnStartEffects ?? [])],
     turnStartSupportCardRolls: (state.turnStartSupportCardRolls ?? []).map((roll) => ({ ...roll })),
-    deckCount: state.deck.length,
-    discardCount: state.discard.length,
-    lostCount: state.lost.length,
+    deckCount: context.DeckList.length,
+    discardCount: context.GraveList.length,
+    lostCount: context.LostList.length,
     recycleCount: state.recycleCount,
     exam: cloneTowerStateValue(state.exam),
   };
@@ -3768,17 +3776,17 @@ function finishTowerTurnImpl(state, action = { type: "skip" }) {
   state.searchCardCostChanges = state.searchCardCostChanges.map((row) => ({ ...row, turn: row.turn < 0 ? -1 : row.turn - 1 })).filter((row) => row.turn !== 0 && row.count > 0);
   tickNativeEffectSchedulerTurn(state.effectScheduler, { turn: state.turn, respectTurnStart: true });
   entry.examAfterTurnEnd = cloneTowerStateValue(state.exam);
-  entry.parameterAfter = Number(state.exam.parameter);
+  entry.parameterAfter = Number(examParameter.JudgeParameter);
   entry.parameterDelta = entry.parameterAfter - entry.parameterBefore;
   state.currentTurnPlays = [];
   state.currentTurnDrinks = [];
   state.turnStartSupportCardRolls = [];
-  state.playsRemaining = 0;
+  context.RemainCanPlayCardCount = 0;
   state.turnOpen = false;
 
   // Only turn-scoped support bonuses are reverted here. ExamCardUpgrade
   // persists in ExamCardData._tmpUpgradeCount through the current exam.
   clearSupportCardUpgrades(state);
-  for (const card of [...state.deck, ...state.hand, ...state.discard, ...state.lost, ...state.hold]) delete card.temporaryStaminaConsumptionFix;
+  for (const card of [...context.DeckList, ...context.HandList, ...context.GraveList, ...context.LostList, ...context.HoldList]) delete card.temporaryStaminaConsumptionFix;
   return entry;
 }
