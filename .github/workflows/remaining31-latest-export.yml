@@ -1,0 +1,18 @@
+name: Temporary native replay latest
+on:
+  push:
+    branches:
+      - ci/remaining31-latest-export-20261014
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p out && tar -czf out/source.tar.gz --exclude=.git --exclude=./out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remaining31-latest-source
+          path: out/
+          retention-days: 1
