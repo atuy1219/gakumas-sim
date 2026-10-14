@@ -55,3 +55,20 @@ for (const [name, type, field] of [
  if(field==="review")assert.equal(exam.reviewConsumptionSum,8);
 }
 console.log("four cancellable native status reductions: OK");
+
+{
+ const exam=createExamState({stamina:20,maxStamina:20}),event={effects:[]};
+ const grant=NATIVE_EFFECT_EXECUTOR_CLASSES.UpliftingEffectExecutor;
+ const damage=NATIVE_EFFECT_EXECUTOR_CLASSES.StaminaReduceFixEffectExecutor;
+ assert.equal(NATIVE_MASTER_EFFECT_EXECUTOR_CLASSES.ExamUplifting,grant);
+ grant.ExecuteEffect({exam,v1:2,event});
+ assert.equal(exam.uplifting,2);
+ for(let i=0;i<2;i++) {
+   damage.ExecuteEffect({exam,type:"ExamStaminaReduceFix",v1:5,event});
+   assert.equal(exam.stamina,20);
+ }
+ assert.equal(exam.uplifting,0);
+ damage.ExecuteEffect({exam,type:"ExamStaminaReduceFix",v1:5,event});
+ assert.equal(exam.stamina,15);
+}
+console.log("native Uplifting absorbs two damage events: OK");
