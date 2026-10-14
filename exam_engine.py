@@ -495,6 +495,23 @@ class ExamStatusEffectCollection:
     idol_status_type: int = 0
     idol_status_step: int = 0
 
+    # Getter names and signatures reconstructed from IL2CPP metadata.
+    # Distinguish turn-based Review/ParameterBuff from value-based statuses.
+    def GetReview(self) -> int:
+        return self.turn(StatusKind.REVIEW)
+
+    def GetAggressive(self) -> int:
+        return self.total_value(StatusKind.AGGRESSIVE)
+
+    def GetFullPowerPoint(self) -> int:
+        return self.total_value(StatusKind.FULL_POWER_POINT)
+
+    def GetLessonBuff(self) -> int:
+        return self.total_value(StatusKind.LESSON_BUFF)
+
+    def GetParameterBuffTurn(self) -> int:
+        return self.turn(StatusKind.PARAMETER_BUFF)
+
     def deep_copy(self) -> "ExamStatusEffectCollection":
         # ExamStatusEffectCollection.DeepCopy maps every active and
         # removed status through its own DeepCopy and copies bookkeeping lists.
