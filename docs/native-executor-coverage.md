@@ -8,16 +8,16 @@
 | --- | ---: |
 | 実機で確認できた具体的な `*EffectExecutor` | **161** |
 | JavaScriptで独立クラスとして定義した数 | **161** |
-| Master Effectからクラス単位に移した分岐数 | **111** |
+| Master Effectからクラス単位に移した分岐数 | **112** |
 | Parsed Effectからクラス単位に移した分岐数 | **41**（うち2つはnone/masterの非Nativeアダプタ） |
-| JSで効果計算が接続された**重複除外の実機クラス名** | **144** |
-| JSに計算実装がなく、未対応扱いにした実機クラス名 | **17** |
+| JSで効果計算が接続された**重複除外の実機クラス名** | **145** |
+| JSに計算実装がなく、未対応扱いにした実機クラス名 | **16** |
 
 **重要:** 161クラスすべての**効果計算が完成したわけではありません**。
 今回の変更は主に構造的リファクタリングです。元のMaster switchの処理本体をそのまま
 `ExecuteEffect` に移す方式を採用し、丸め・乱数消費・状態更新・発動フェーズを改変していません。
 
-JSの未実装17クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
+JSの未実装16クラスは旧実装と同様に「未対応効果」を記録します。161種類の登録数と、実行ロジックの実装数を区別してください。
 Pythonの重複エンジンはJSへの検証統合に伴い廃止しました。
 
 ## 参照先
@@ -88,6 +88,10 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 `TryReduceAggressive` / `TryReduceLessonBuff` / `TryReduceParameterBuff` / `TryReduceReview` は `IsBlockAddStatus` で状態変更を拒否しうる。JS側では既存 `antiDebuffCount` を先に消費し、許可された場合のみ減算する経路を実装。
 
 未キャプチャ効果の全条件（対象Status UIDと解除可否）は依然検証課題。単体テストは `tests/test_all_native_executors.mjs`。
+
+### 高揚による体力減少無効化
+
+ELFの`TryAddUpliftingStatus`で獲得し、`DamageStamina`／`StaminaReduceFix`の実行時に`GetUplifting`→`ReduceUplifting`で1回分消費する経路へ接続。`tests/test_all_native_executors.mjs`に状態消費境界を追加。
 
 ## 全クラス一覧
 
@@ -253,7 +257,7 @@ ELFの3クラス（ReviewAdditiveFix @ 0x805f874 / ParameterBuffAdditiveFix @ 0x
 | `StatusEnchantEncoreEffectExecutor` | `ExamStatusEnchantEncore` | 未実装 |
 | `StatusEnchantTurnAddEffectExecutor` | 未実装 | 未実装 |
 | `UpgradeEffectExecutor` | `ExamCardUpgrade` | `card_upgrade_hand_all` |
-| `UpliftingEffectExecutor` | 未実装 | 未実装 |
+| `UpliftingEffectExecutor` | `ExamUplifting` | 未実装 |
 
 ## 変更していない部分
 
