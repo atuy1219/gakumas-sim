@@ -1,3 +1,32 @@
+## v1.7.0-source: rebuilt from Java and C++ sources
+
+This variant is compiled from the checked-in Java and native C++ sources
+(`build-source-apk.sh`) and signed by the official Android SDK apksigner.
+It does not patch or repackage the v1.6.5 APK. The home screen is
+rebuilt with rounded dynamic-color, Material 3-inspired Android views;
+the hook-mode chooser presents functional names rather than numeric flags.
+
+**Feature compatibility:** the v1.5.x contest capture and saved-detail-log
+hooks remain enabled with the corresponding named mode. The source-built
+APK does **not** contain the native ranking replay hooks that existed
+in the lost v1.6.5 binary; the audition panel explicitly reports that
+limitation. Do not uninstall your working v1.6.5 installation merely
+on the assumption that this is feature-identical. This source implementation
+has not yet been verified on a live game client.
+
+**Installation:** the CI keystore is not the same signer as the user's
+existing v1.6.5 APK. Android will reject an in-place signature mismatch.
+Back up the existing APK/configuration before changing installations,
+or use a separate test profile.
+
+**Build verification:** build-source-apk.sh runs
+`apksigner verify --verbose` and fails on invalid signatures.
+It includes source-built classes.dex and a newly compiled arm64 shared
+object. A valid signature does not guarantee that LSPosed or the game
+has accepted the hooks.
+
+---
+
 ## v1.5.39: bounded multipart recording and streaming JSON export
 
 Selected-contest capture now continues in `contest_capture.part0001.jsonl`, 
