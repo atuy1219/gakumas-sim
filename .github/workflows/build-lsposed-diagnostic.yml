@@ -32,6 +32,20 @@ jobs:
         run: |
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
           bash android/lsposed-progress-capture/build-apk.sh
+      - name: Stage source-build inputs for local compatibility assembly
+        shell: bash
+        run: |
+          INPUTS=android/lsposed-progress-capture/out/assembly-inputs
+          mkdir -p "$INPUTS"
+          cp android/lsposed-progress-capture/out/base.apk "$INPUTS/base.apk"
+          cp android/lsposed-progress-capture/out/dex/classes.dex "$INPUTS/classes.dex"
+          cp "$ANDROID_HOME/build-tools/35.0.1/lib/apksigner.jar" "$INPUTS/apksigner.jar"
+          cp -r android/lsposed-progress-capture/src/main/resources/META-INF "$INPUTS/META-INF"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gakumas-source-assembly-inputs
+          path: android/lsposed-progress-capture/out/assembly-inputs
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: gakumas-progress-capture-native-diagnostic
