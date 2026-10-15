@@ -6,7 +6,7 @@ final class DiagnosticStorage {
         // Keep the Java allowlist aligned with the explicitly offered modes.
         // 20608 = 128 (scoped setup) | 4096 (contest) | 16384 (RNG origin).
         if (mask != 0 && mask != 128 && mask != 256 && mask != 384
-                && mask != 4224 && mask != 8192 && mask != 20608)
+                && mask != 4224 && mask != 8192 && mask != 20608 && mask != 32768)
             throw new IllegalArgumentException("Unsupported native hook mask: " + mask);
         if (!parent.matches("/data/user/[0-9]+/com\\.bandainamcoent\\.idolmaster_gakuen/files"))
             throw new IllegalArgumentException("Unexpected game files directory");
