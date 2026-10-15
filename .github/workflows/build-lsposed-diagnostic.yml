@@ -40,6 +40,7 @@ jobs:
           cp android/lsposed-progress-capture/out/base.apk "$INPUTS/base.apk"
           cp android/lsposed-progress-capture/out/dex/classes.dex "$INPUTS/classes.dex"
           cp "$ANDROID_HOME/build-tools/35.0.1/lib/apksigner.jar" "$INPUTS/apksigner.jar"
+          cp "$ANDROID_HOME/build-tools/35.0.1/zipalign" "$INPUTS/zipalign"
           cp -r android/lsposed-progress-capture/src/main/resources/META-INF "$INPUTS/META-INF"
       - uses: actions/upload-artifact@v4
         with:
