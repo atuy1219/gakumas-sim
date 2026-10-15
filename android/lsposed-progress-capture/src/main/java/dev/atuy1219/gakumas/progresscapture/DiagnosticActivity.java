@@ -170,7 +170,7 @@ public final class DiagnosticActivity extends Activity {
             .setMessage("保存先の所有者がroot:rootになっていると、学マスから"
                 + "診断ファイルを生成できません。診断専用ディレクトリ"
                 + "とフック設定ファイルの所有者・SELinuxラベルのみ修復します。"
-                + "既存のフック設定は安全値0に戻します。"
+                + "既存のフック設定は無効に戻します。"
                 + "ゲームのセーブデータは変更しません。")
             .setPositiveButton("修復する", (dialog, which) -> repairCaptureDirectory())
             .setNegativeButton("キャンセル", null).show());
@@ -207,52 +207,53 @@ public final class DiagnosticActivity extends Activity {
     }
 
     private void chooseHookMode() {
-        final String[] options = {
-            "安全モード（0）：ゲーム関数をフックしない",
-            "Native自己テスト（256）：モジュール内関数だけを検証",
-            "実験プローブ（128）：SetUpExam呼出元を観測",
-            "コンテスト詳細取得（4224）：カード移動・効果中の状態を測定",
-            "天賦の才+乱数診断（20608）：カード移動効果中のRNG呼出元を記録",
-            "保存済み詳細ログ取得：詳細ログを開くと記録"
+        final String[] names = {
+            "無効（安全）",
+            "フック動作確認",
+            "試験開始の診断",
+            "コンテスト記録",
+            "コンテスト・乱数の詳細診断",
+            "保存済み詳細ログ"
         };
-        final int[] flags = {0, 256, 128, 4224, 20608, 8192};
-        // Android AlertDialog may suppress setItems when setMessage is also
-        // present. The selection dialog must use a list without a message.
+        final int[] internalMasks = {0,256,128,4224,20608,8192};
         new AlertDialog.Builder(this)
-            .setTitle("Nativeフック設定（学マス再起動で反映）")
-            .setItems(options, (dialog, choice) -> {
-                final int mask = flags[choice];
-                if (mask == 0 || mask == 8192) {
-                    saveHookMode(mask);
+            .setTitle("取得機能を選択")
+            .setSingleChoiceItems(names,-1,(dialog,selection)->{
+                dialog.dismiss();
+                int mode=internalMasks[selection];
+                if(mode==0) {
+                    saveHookMode(mode);
                     return;
                 }
-                // Show the safety warning AFTER selection, not in the list
-                // dialog itself, so all modes remain visible.
                 new AlertDialog.Builder(this)
-                    .setTitle("実験フックを有効化しますか？")
-                    .setMessage("v1.4.0では試験中にSIGSEGVが発生しています。"
-                        + "実験フックは学マスをクラッシュさせる可能性があります。"
-                        + "128はSetUpExamの呼出元RVAだけを記録し、"
-                        + "予測処理や未確認の呼出元は除外します。"
-                        + "256はモジュール自身の関数だけを検証します。"
-                        + "4224はコンテスト本体とカード実行の追加フックを有効化します。"
-                        + "20608は4224に加え、カード移動効果中の乱数関数呼出元を記録します。"
-                        + "この計測は実機未検証で、ゲームのクラッシュ・アカウント制限のリスクがあります。"
-                        + "設定変更後は学マスを完全に終了して再起動してください。")
-                    .setPositiveButton("有効化する", (confirm, which) -> saveHookMode(mask))
-                    .setNegativeButton("キャンセル", null)
-                    .show();
+                    .setTitle(names[selection])
+                    .setMessage("ゲームの再起動後に反映されます。"
+                        +"フックの実行時にはゲームのバージョンに応じた不具合が起きる可能性があります。"
+                        +"必要な記録だけを有効化してください。")
+                    .setPositiveButton("この機能を使う",(d,which)->saveHookMode(mode))
+                    .setNegativeButton("キャンセル",null).show();
             })
-            .setNegativeButton("キャンセル", null)
-            .show();
+            .setNegativeButton("戻る",null).show();
+    }
+
+    private static String hookModeName(int mode) {
+        switch(mode) {
+            case 0:return "無効（安全）";
+            case 256:return "フック動作確認";
+            case 128:return "試験開始の診断";
+            case 4224:return "コンテスト記録";
+            case 20608:return "コンテスト・乱数の詳細診断";
+            case 8192:return "保存済み詳細ログ";
+            default:return "その他のモード";
+        }
     }
 
     private void repairCaptureDirectory() {
-        configureNativeMask(0, "保存先修復成功（フック設定0）");
+        configureNativeMask(0, "保存先修復成功（フック無効）");
     }
 
     private void saveHookMode(int mask) {
-        configureNativeMask(mask, "フック設定を " + mask + " に変更しました");
+        configureNativeMask(mask, "取得機能を「" + hookModeName(mask) + "」に変更しました");
     }
 
     private void configureNativeMask(int mask, String success) {
