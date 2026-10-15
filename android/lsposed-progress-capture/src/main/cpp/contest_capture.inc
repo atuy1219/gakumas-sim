@@ -7,12 +7,16 @@
 namespace contest_capture {
 using Address = uintptr_t;
 constexpr unsigned kSessionLimit = 64, kStepLimit = 128;
+// Bound each file, not the lifetime of a process: later sessions must not vanish
+// after the first large recording. The total is still bounded for device safety.
 constexpr size_t kFileLimit = 32 * 1024 * 1024;
+constexpr unsigned kMaxSegments = 8;
 std::mutex mutex;
 struct Run { std::shared_ptr<TraceStore> trace; uint64_t id=0; Address owner=0, data=0, sequence=0, parameter=0, controller=0; unsigned steps=0, turnsCaptured=0, effectSamples=0, cardMoveSamples=0, cardActionSerial=0, mutationSamples=0, candidateMutationSamples=0, candidateMutationStep=~0u, candidateSamplesThisStep=0, commandListSamples=0; bool terminal=false, complete=true, setupRecorded=false; std::string previousCard; int64_t prevScore=0; int32_t prevStamina=0,prevBlock=0,prevReview=0,prevAggressive=0; bool prevRaw=false,prevReviewAvailable=false,prevAggressiveAvailable=false; std::map<std::string,std::map<std::string,int64_t>> prevStatusFields; std::map<std::string,int64_t> prevParameterFields; bool prevStatusesComplete=false; int32_t latestStamina=0,latestBlock=0,latestTurn=0; uint64_t staminaGetterCalls=0,blockGetterCalls=0,turnGetterCalls=0; };
 std::map<Address, Run> runs;
 uint64_t nextId=0, moveCalls=0, selectedCalls=0, written=0, failures=0, writeFailures=0, drops=0;
-size_t fileBytes=0;
+size_t fileBytes=0, segmentBytes=0;
+unsigned segmentIndex=0;
 bool moveInstalled=false, resultInstalled=false, triggerCommandInstalled=false, cardMoveInstalled=false, drawInstalled=false;
 bool selectedHooksAttempted=false;
 bool numericGetterHooksAttempted=false,staminaGetterInstalled=false,blockGetterInstalled=false,turnGetterInstalled=false;
@@ -105,6 +109,16 @@ std::string path(const char* name) {
     #else
     return "/data/user/"+std::to_string(getuid()/100000)+"/"+kTargetPackage+"/files/gakumas-sim/"+name;
     #endif
+}
+// Segment zero remains compatible with older single-file exports. Later segments
+// are ordered by a zero-padded suffix and rotated together on game restart.
+std::string segmentPath(bool previous,unsigned index) {
+    std::ostringstream name;
+    name<<"contest_capture";
+    if(previous)name<<".previous";
+    if(index)name<<".part"<<std::setw(4)<<std::setfill('0')<<index;
+    name<<".jsonl";
+    return path(name.str().c_str());
 }
 bool bytes(Address a,size_t offset,void* out,size_t size) {
     if(!a || a>UINTPTR_MAX-offset || a+offset>UINTPTR_MAX-size || !size || size>4096) {
@@ -1182,7 +1196,10 @@ void status() {
       <<",\"lineageSelectedSaves\":"<<lineageSelectedSaves
       <<",\"lineageMissingSaves\":"<<lineageMissingSaves
       <<",\"lineageDrops\":"<<lineageDrops
-      <<",\"limitDrops\":"<<drops<<",\"fileBytes\":"<<fileBytes<<",\"fileByteLimit\":"<<kFileLimit
+      <<",\"limitDrops\":"<<drops<<",\"fileBytes\":"<<fileBytes
+      <<",\"fileByteLimit\":"<<(kFileLimit*kMaxSegments)
+      <<",\"segmentByteLimit\":"<<kFileLimit<<",\"segmentIndex\":"<<segmentIndex
+      <<",\"segmentsWritten\":"<<(segmentIndex+1)<<",\"segmentBytes\":"<<segmentBytes
       <<",\"scope\":\"selected-contest-auto-play-data\",\"gameCaptureVerified\":false,\"syntheticGameCalls\":false}";
     atomic_write(path("contest_capture_status.json"),s.str());
 }
@@ -1192,9 +1209,15 @@ bool emit(const Run& run,const char* event,const std::string& content) {
       <<",\"event\":\""<<event<<"\",\"step\":"<<run.steps<<",\"source\":\"natural-selected-auto-play\","
       <<"\"gameCaptureVerified\":false,\"rngCaptured\":false,\"syntheticGameCalls\":false,"
       <<"\"libil2cppBuildId\":\""<<kV341BuildId<<"\""<<content<<"}\n";
-    const auto line=s.str();if(fileBytes+line.size()>kFileLimit){++drops;status();return false;}
-    std::ofstream out(path("contest_capture.jsonl"),std::ios::app|std::ios::binary);out<<line;out.flush();
-    if(out){++written;fileBytes+=line.size();}else ++writeFailures;
+    const auto line=s.str();
+    if(line.size()>kFileLimit){++drops;status();return false;}
+    if(segmentBytes+line.size()>kFileLimit){
+        if(segmentIndex+1>=kMaxSegments){++drops;status();return false;}
+        ++segmentIndex;segmentBytes=0;
+    }
+    std::ofstream out(segmentPath(false,segmentIndex),std::ios::app|std::ios::binary);
+    out<<line;out.flush();
+    if(out){++written;fileBytes+=line.size();segmentBytes+=line.size();}else ++writeFailures;
     status();
     return bool(out);
 }
@@ -1991,9 +2014,15 @@ __attribute__((noinline)) void move(void* self,const void* method) {
 void install(const ImageInfo& image) {
     if(image.build_id!=kV341BuildId || !hook_enabled(4096) || attempted.exchange(true))return;
     ensure_parent_dir(path("contest_capture.jsonl"));
-    // Keep the previous process's recording as a bounded recovery copy.
-    std::rename(path("contest_capture.jsonl").c_str(),path("contest_capture.previous.jsonl").c_str());
-    std::ofstream(path("contest_capture.jsonl"),std::ios::trunc).close();
+    // Rotate *all* parts; never leave stale previous parts or silently overwrite
+    // another process's continuation. Install is one-shot for this process.
+    for(unsigned i=0;i<kMaxSegments;++i){
+        const auto current=segmentPath(false,i),previous=segmentPath(true,i);
+        std::remove(previous.c_str());
+        std::rename(current.c_str(),previous.c_str());
+    }
+    segmentIndex=0;segmentBytes=0;fileBytes=0;
+    std::ofstream(segmentPath(false,0),std::ios::trunc).close();
     resultInstalled=install_hook(image.base+0x07EFE28C,reinterpret_cast<void*>(result),reinterpret_cast<void**>(&originalResult));
     moveInstalled=install_hook(image.base+0x07EFCFB0,reinterpret_cast<void*>(move),reinterpret_cast<void**>(&originalMove));
     // Exact Build ID + 4096 opt-in. Core contest capture remains operational
