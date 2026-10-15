@@ -213,9 +213,10 @@ public final class DiagnosticActivity extends Activity {
             "試験開始の診断",
             "コンテスト記録",
             "コンテスト・乱数の詳細診断",
-            "保存済み詳細ログ"
+            "保存済み詳細ログ",
+            "オーディション・リプレイ（互換ライブラリ）"
         };
-        final int[] internalMasks = {0,256,128,4224,20608,8192};
+        final int[] internalMasks = {0,256,128,4224,20608,8192,32768};
         new AlertDialog.Builder(this)
             .setTitle("取得機能を選択")
             .setSingleChoiceItems(names,-1,(dialog,selection)->{
@@ -244,6 +245,7 @@ public final class DiagnosticActivity extends Activity {
             case 4224:return "コンテスト記録";
             case 20608:return "コンテスト・乱数の詳細診断";
             case 8192:return "保存済み詳細ログ";
+            case 32768:return "オーディション・リプレイ";
             default:return "その他のモード";
         }
     }
