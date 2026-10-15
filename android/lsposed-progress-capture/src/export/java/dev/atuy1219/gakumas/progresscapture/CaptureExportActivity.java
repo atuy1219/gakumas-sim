@@ -46,37 +46,49 @@ public final class CaptureExportActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int)(20 * getResources().getDisplayMetrics().density);
-        layout.setPadding(padding, padding, padding, padding);
-        statusView = new TextView(this);
-        statusView.setText("Gakumas Progress Capture v" + moduleVersion()
-            + "\n\n保存済み詳細ログ取得を選び、学マスを再起動してください。\n詳細→詳細ログを開いたあと、この画面で詳細ログを保存できます。");
-        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
-        scroll.addView(layout); setContentView(scroll);
-        Button activate = new Button(this); activate.setText("詳細ログ取得モードに切り替える");
-        activate.setOnClickListener(v -> activateDetail()); layout.addView(activate);
-        Button detailStatus = new Button(this); detailStatus.setText("詳細ログの取得状況を確認");
-        detailStatus.setOnClickListener(v -> refreshDetail()); layout.addView(detailStatus);
-        layout.addView(statusView);
-        Button save = new Button(this); save.setText("コンテスト記録を保存");
-        save.setOnClickListener(v -> prepareExport(false)); layout.addView(save);
-        Button previous = new Button(this); previous.setText("前回起動分の記録を保存");
-        previous.setOnClickListener(v -> prepareExport(true)); layout.addView(previous);
-        Button detail = new Button(this); detail.setText("保存済み詳細ログを保存");
-        detail.setOnClickListener(v -> prepareExport(false, true)); layout.addView(detail);
-        Button previousDetail = new Button(this); previousDetail.setText("前回起動分の詳細ログを保存");
-        previousDetail.setOnClickListener(v -> prepareExport(true, true)); layout.addView(previousDetail);
-        Button refresh = new Button(this); refresh.setText("記録状況を確認");
-        refresh.setOnClickListener(v -> refresh()); layout.addView(refresh);
-        Button diagnostics = new Button(this); diagnostics.setText("診断画面を開く");
-        diagnostics.setOnClickListener(v -> {
-            Intent intent = new Intent();
-            intent.setClassName(this, "dev.atuy1219.gakumas.progresscapture.DiagnosticActivity");
+        LinearLayout root = CaptureUi.root(this);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(root);
+        setContentView(scroll);
+        TextView heading=CaptureUi.text(this,"学マス キャプチャ",24,true);
+        root.addView(heading);
+        statusView=CaptureUi.text(this,
+            "記録モードを選び、学マスを完全終了して起動し直すと設定が反映されます。",14,false);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
+        sp.topMargin=CaptureUi.dp(this,10); sp.bottomMargin=CaptureUi.dp(this,16);
+        root.addView(statusView,sp);
+
+        LinearLayout replay=CaptureUi.card(this,root,"オーディション上位リプレイ",
+            "旧版のリプレイHookのソースは未復元。未実装のモードを有効化しないようにしています。");
+        CaptureUi.button(this,replay,"取得状況",()->new android.app.AlertDialog.Builder(this)
+            .setTitle("上位リプレイ取得")
+            .setMessage("このソースビルドにはv1.6.5のランキング再生Hookは含まれません。"
+                +"旧APK内のネイティブバイナリをコピーしていないため、現時点では取得できません。"
+                +"コンテスト取得・詳細ログの機能は継続して利用できます。")
+            .setPositiveButton("閉じる",null).show());
+
+        LinearLayout contest=CaptureUi.card(this,root,"コンテスト",
+            "選択済みの試験の操作・状態・結果を記録します。");
+        CaptureUi.button(this,contest,"現在の記録を保存",()->prepareExport(false));
+        CaptureUi.button(this,contest,"前回起動分を保存",()->prepareExport(true));
+
+        LinearLayout detail=CaptureUi.card(this,root,"保存済み詳細ログ",
+            "ゲーム内で詳細ログを開き、その内容を取り込みます。");
+        CaptureUi.button(this,detail,"詳細ログ取得を有効化",this::activateDetail);
+        CaptureUi.button(this,detail,"取得状況を確認",this::refreshDetail);
+        CaptureUi.button(this,detail,"詳細ログを保存",()->prepareExport(false,true));
+        CaptureUi.button(this,detail,"前回分の詳細ログを保存",()->prepareExport(true,true));
+
+        LinearLayout tools=CaptureUi.card(this,root,"設定・診断",
+            "フックの機能名による切替、実行状況の確認、ファイル保存先の診断。");
+        CaptureUi.button(this,tools,"記録状況を再読込",this::refresh);
+        CaptureUi.button(this,tools,"フック設定と診断",()->{
+            Intent intent=new Intent();
+            intent.setClassName(this,
+                "dev.atuy1219.gakumas.progresscapture.DiagnosticActivity");
             startActivity(intent);
         });
-        layout.addView(diagnostics);
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
@@ -104,6 +116,16 @@ public final class CaptureExportActivity extends Activity {
         } finally { watchdog.interrupt(); process.destroy(); }
     }
 
+    private static String friendlyMode(int mask) {
+        if(mask==0)return "無効（安全）";
+        if(mask==8192)return "保存済み詳細ログ";
+        if(mask==4224)return "コンテスト";
+        if(mask==20608)return "コンテスト＋乱数診断";
+        if(mask==128)return "実行開始診断";
+        if(mask==256)return "フック動作確認";
+        return "その他のモード";
+    }
+
     private void activateDetail() {
         if (busy) return; busy = true;
         new Thread(() -> {
@@ -111,7 +133,7 @@ public final class CaptureExportActivity extends Activity {
                 String command = DiagnosticStorage.configure(GAME_FILES, 8192,
                     new String[]{"detail_log_capture.jsonl", "detail_log_capture_status.json"});
                 rootCommand(command, 65536);
-                runOnUiThread(() -> statusView.setText("詳細ログ取得モード（8192）を設定しました。\n"
+                runOnUiThread(() -> statusView.setText("詳細ログ取得モードを設定しました。\n"
                     + "学マスを完全終了して再起動し、詳細→詳細ログを開いてください。\n"
                     + "その後、上の取得状況ボタンで実際に有効になったモードを確認できます。"));
             } catch (Exception e) { showError(e); }
@@ -126,7 +148,7 @@ public final class CaptureExportActivity extends Activity {
                 JSONObject boot = new JSONObject(new String(readRoot("native_bootstrap_status.json", 65536), StandardCharsets.UTF_8));
                 int actualMask = boot.optInt("effectiveHookMask", -1);
                 if (actualMask != 8192 || !boot.optBoolean("nativeApiAccepted")) {
-                    String message = "学マスが現在読み込んでいるモード: " + actualMask
+                    String message = "学マスが現在読み込んでいるモード: " + friendlyMode(actualMask)
                         + "\nNativeモジュール受付: " + boot.optBoolean("nativeApiAccepted")
                         + "\n詳細ログ取得モードに切り替え、学マスを完全終了して再起動してください。";
                     runOnUiThread(() -> statusView.setText(message)); return;
