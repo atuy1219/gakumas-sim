@@ -70,6 +70,7 @@ public final class CaptureExportActivity extends Activity {
 
         LinearLayout contest=CaptureUi.card(this,root,"コンテスト",
             "選択済みの試験の操作・状態・結果を記録します。");
+        CaptureUi.button(this,contest,"コンテスト取得を有効化",this::activateContest);
         CaptureUi.button(this,contest,"現在の記録を保存",()->prepareExport(false));
         CaptureUi.button(this,contest,"前回起動分を保存",()->prepareExport(true));
 
@@ -124,6 +125,22 @@ public final class CaptureExportActivity extends Activity {
         if(mask==128)return "実行開始診断";
         if(mask==256)return "フック動作確認";
         return "その他のモード";
+    }
+
+    private void activateContest() {
+        if(busy)return;
+        busy=true;
+        new Thread(()->{
+            try {
+                // The internal mask is a compatibility detail, never a user-facing setting.
+                String command=DiagnosticStorage.configure(GAME_FILES,4224,
+                    new String[]{"contest_capture.jsonl","contest_capture_status.json"});
+                rootCommand(command,65536);
+                runOnUiThread(()->statusView.setText(
+                    "コンテスト取得を選択しました。学マスを完全終了し、再起動してください。"));
+            } catch(Exception e) {showError(e);}
+            finally {runOnUiThread(()->busy=false);}
+        }).start();
     }
 
     private void activateDetail() {
