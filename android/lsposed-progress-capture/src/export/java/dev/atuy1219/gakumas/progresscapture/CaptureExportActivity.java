@@ -11,6 +11,7 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
+import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +26,22 @@ public final class CaptureExportActivity extends Activity {
     private static final String GAME_FILES = "/data/user/0/com.bandainamcoent.idolmaster_gakuen/files";
     private static final String ROOT = "/data/user/0/com.bandainamcoent.idolmaster_gakuen/files/gakumas-sim/";
     private TextView statusView;
-    private byte[] pending;
+    private ExportRequest pending;
+    private static final int MAX_EVENT_BYTES = 16 * 1024 * 1024;
+    private static final class ExportRequest {
+        final String base;
+        final boolean previous, detail;
+        ExportRequest(String base, boolean previous, boolean detail) {
+            this.base = base; this.previous = previous; this.detail = detail;
+        }
+    }
+    private static final class EventReadResult {
+        final int count;
+        final boolean incompleteTail;
+        EventReadResult(int count, boolean incompleteTail) {
+            this.count = count; this.incompleteTail = incompleteTail;
+        }
+    }
     private boolean busy;
 
     @Override public void onCreate(Bundle state) {
@@ -170,60 +186,124 @@ public final class CaptureExportActivity extends Activity {
     private void prepareExport(boolean previous) { prepareExport(previous, false); }
 
     private void prepareExport(boolean previous, boolean detail) {
-        if (busy) return; busy = true;
-        new Thread(() -> {
-            try {
-                String base = detail ? "detail_log_capture" : "contest_capture";
-                String name = base + (previous ? ".previous.jsonl" : ".jsonl");
-                String raw = new String(readRoot(name, 32 * 1024 * 1024), StandardCharsets.UTF_8);
-                JSONArray events = new JSONArray();
-                boolean incompleteTail = !raw.endsWith("\n");
-                String[] lines = raw.split("\n", -1);
-                int completeLines = lines.length - 1;
-                for (int i = 0; i < completeLines; i++) if (!lines[i].trim().isEmpty()) events.put(new JSONObject(lines[i]));
-                if (events.length() == 0) throw new Exception(detail ? "詳細ログの記録がまだありません。取得モードを設定して学マスを再起動し、詳細ログを開いてください" : "記録がまだありません。コンテストを実行してから保存してください");
-                JSONObject export = new JSONObject();
-                export.put("schemaVersion", detail ? 1 : 2); export.put("scope", detail ? "saved-detail-log-capture" : "contest-gameplay-capture");
-                export.put("moduleVersion", moduleVersion()); export.put("exportedAtUnixMs", System.currentTimeMillis());
-                export.put("previousProcess", previous); export.put("events", events);
-                export.put("incompleteTailOmitted", incompleteTail);
-                if (!previous) {
-                    JSONObject captureStatus = new JSONObject(new String(readRoot(base + "_status.json", 65536), StandardCharsets.UTF_8));
-                    if (captureStatus.getLong("pid") != events.getJSONObject(0).getLong("pid"))
-                        throw new Exception("学マスの起動が変わりました。もう一度保存してください");
-                    export.put("captureStatus", captureStatus);
+        if (busy) return;
+        busy = true;
+        pending = new ExportRequest(detail ? "detail_log_capture" : "contest_capture",
+                                    previous, detail);
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        String title = detail ? (previous ? "gakumas-detail-log-previous.json" : "gakumas-detail-log.json")
+                              : (previous ? "gakumas-contest-previous.json" : "gakumas-contest-capture.json");
+        intent.putExtra(Intent.EXTRA_TITLE, title);
+        try {
+            startActivityForResult(intent, SAVE);
+        } catch (Exception e) {
+            busy = false;
+            pending = null;
+            showError(e);
+        }
+    }
+
+    // Root reads and SAF writes are streamed line-by-line. A large capture is
+    // never materialized as JSONArray, String[], or one pending byte array.
+    private static String segmentReadCommand(ExportRequest request) {
+        String stem = ROOT + request.base + (request.previous ? ".previous" : "");
+        // The wildcard deliberately remains unquoted so the shell expands
+        // part0001, part0002, ... in lexicographic order.
+        return "for f in '" + stem + ".jsonl' " + stem
+            + ".part????.jsonl; do if [ -f \"$f\" ]; then cat \"$f\"; fi; done";
+    }
+
+    private static EventReadResult streamEvents(ExportRequest request,
+                                                 OutputStream output,
+                                                 long expectedPid) throws Exception {
+        Process process = new ProcessBuilder("su", "-M", "-c",
+            segmentReadCommand(request)).start();
+        int count = 0;
+        long filePid = -1;
+        ByteArrayOutputStream line = new ByteArrayOutputStream(32768);
+        try (InputStream input = new BufferedInputStream(process.getInputStream(), 32768)) {
+            int next;
+            while ((next = input.read()) != -1) {
+                if (next != '\n') {
+                    if (line.size() >= MAX_EVENT_BYTES)
+                        throw new Exception("1件の記録が16MiBを超えています。破損や過大なスナップショットを確認してください");
+                    line.write(next);
+                    continue;
                 }
-                if (detail) {
-                    try (InputStream input = getAssets().open("detail_log_enums.json");
-                         ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
-                        byte[] buffer = new byte[4096]; int n;
-                        while ((n = input.read(buffer)) >= 0) bytes.write(buffer, 0, n);
-                        export.put("enumDefinitions", new JSONObject(new String(bytes.toByteArray(), StandardCharsets.UTF_8)));
-                    }
-                }
-                pending = export.toString().getBytes(StandardCharsets.UTF_8);
-                runOnUiThread(() -> {
-                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                    intent.addCategory(Intent.CATEGORY_OPENABLE); intent.setType("application/json");
-                    intent.putExtra(Intent.EXTRA_TITLE, detail ? (previous ? "gakumas-detail-log-previous.json" : "gakumas-detail-log.json") : (previous ? "gakumas-contest-previous.json" : "gakumas-contest-capture.json"));
-                    startActivityForResult(intent, SAVE);
-                });
-            } catch (Exception e) { showError(e); runOnUiThread(() -> busy = false); }
-        }).start();
+                if (line.size() == 0) continue;
+                byte[] record = line.toByteArray();
+                line.reset();
+                JSONObject parsed = new JSONObject(new String(record, StandardCharsets.UTF_8));
+                long pid = parsed.getLong("pid");
+                if (filePid == -1) filePid = pid;
+                if (pid != filePid || (expectedPid >= 0 && pid != expectedPid))
+                    throw new Exception("別の学マス起動のデータが混在しています。記録を取り直してください");
+                if (count++ != 0) output.write(',');
+                output.write(record);
+            }
+            if (process.waitFor() != 0)
+                throw new Exception("記録を読み取れません。root権限を確認してください");
+            return new EventReadResult(count, line.size() > 0);
+        } finally {
+            process.destroy();
+        }
+    }
+
+    private static void writeUtf8(OutputStream output, String value) throws Exception {
+        output.write(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void streamExport(ExportRequest request, OutputStream output) throws Exception {
+        JSONObject captureStatus = null;
+        long expectedPid = -1;
+        if (!request.previous) {
+            captureStatus = new JSONObject(new String(
+                readRoot(request.base + "_status.json", 65536), StandardCharsets.UTF_8));
+            expectedPid = captureStatus.getLong("pid");
+        }
+        writeUtf8(output, "{\"schemaVersion\":" + (request.detail ? 1 : 2)
+            + ",\"scope\":" + JSONObject.quote(request.detail
+                 ? "saved-detail-log-capture" : "contest-gameplay-capture")
+            + ",\"moduleVersion\":" + JSONObject.quote(moduleVersion())
+            + ",\"exportedAtUnixMs\":" + System.currentTimeMillis()
+            + ",\"previousProcess\":" + request.previous + ",\"events\":[");
+        EventReadResult result = streamEvents(request, output, expectedPid);
+        if (result.count == 0)
+            throw new Exception("記録がまだありません。取得モードを設定し、学マスを再起動してから試してください");
+        writeUtf8(output, "],\"incompleteTailOmitted\":" + result.incompleteTail);
+        if (captureStatus != null)
+            writeUtf8(output, ",\"captureStatus\":" + captureStatus.toString());
+        if (request.detail) {
+            try (InputStream input = getAssets().open("detail_log_enums.json");
+                 ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[4096]; int n;
+                while ((n = input.read(buffer)) >= 0) bytes.write(buffer, 0, n);
+                JSONObject enums = new JSONObject(
+                    new String(bytes.toByteArray(), StandardCharsets.UTF_8));
+                writeUtf8(output, ",\"enumDefinitions\":" + enums.toString());
+            }
+        }
+        writeUtf8(output, "}");
+        output.flush();
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request != SAVE) return;
-        busy = false;
-        byte[] payload = pending; pending = null;
-        if (result != RESULT_OK || data == null || data.getData() == null || payload == null) return;
+        ExportRequest selected = pending;
+        pending = null;
+        if (result != RESULT_OK || data == null || data.getData() == null || selected == null) {
+            busy = false; return;
+        }
         new Thread(() -> {
             try (OutputStream output = getContentResolver().openOutputStream(data.getData())) {
                 if (output == null) throw new Exception("保存先を開けません");
-                output.write(payload);
-                runOnUiThread(() -> Toast.makeText(this, "コンテスト記録を保存しました", Toast.LENGTH_LONG).show());
+                streamExport(selected, output);
+                runOnUiThread(() -> Toast.makeText(this, "記録を保存しました", Toast.LENGTH_LONG).show());
             } catch (Exception e) { showError(e); }
+            finally { runOnUiThread(() -> busy = false); }
         }).start();
     }
 
