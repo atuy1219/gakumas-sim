@@ -30,9 +30,12 @@ public final class CaptureExportActivity extends Activity {
     private static final int MAX_EVENT_BYTES = 16 * 1024 * 1024;
     private static final class ExportRequest {
         final String base;
-        final boolean previous, detail;
-        ExportRequest(String base, boolean previous, boolean detail) {
-            this.base = base; this.previous = previous; this.detail = detail;
+        final boolean previous, detail, replay;
+        ExportRequest(String base, boolean previous, boolean detail, boolean replay) {
+            this.base = base;
+            this.previous = previous;
+            this.detail = detail;
+            this.replay = replay;
         }
     }
     private static final class EventReadResult {
@@ -59,14 +62,12 @@ public final class CaptureExportActivity extends Activity {
         sp.topMargin=CaptureUi.dp(this,10); sp.bottomMargin=CaptureUi.dp(this,16);
         root.addView(statusView,sp);
 
-        LinearLayout replay=CaptureUi.card(this,root,"オーディション上位リプレイ",
-            "旧版のリプレイHookのソースは未復元。未実装のモードを有効化しないようにしています。");
-        CaptureUi.button(this,replay,"取得状況",()->new android.app.AlertDialog.Builder(this)
-            .setTitle("上位リプレイ取得")
-            .setMessage("このソースビルドにはv1.6.5のランキング再生Hookは含まれません。"
-                +"旧APK内のネイティブバイナリをコピーしていないため、現時点では取得できません。"
-                +"コンテスト取得・詳細ログの機能は継続して利用できます。")
-            .setPositiveButton("閉じる",null).show());
+        LinearLayout replay=CaptureUi.card(this,root,"オーディション・リプレイ",
+            "上位リプレイの操作履歴・開始状態・乱数状態を受動的に記録します。互換ネイティブライブラリが必要です。");
+        CaptureUi.button(this,replay,"リプレイ取得を有効化",this::activateReplay);
+        CaptureUi.button(this,replay,"取得状況を確認",this::refreshReplay);
+        CaptureUi.button(this,replay,"現在のリプレイ記録を保存",()->prepareExport(false,false,true));
+        CaptureUi.button(this,replay,"前回起動分を保存",()->prepareExport(true,false,true));
 
         LinearLayout contest=CaptureUi.card(this,root,"コンテスト",
             "選択済みの試験の操作・状態・結果を記録します。");
@@ -93,7 +94,7 @@ public final class CaptureExportActivity extends Activity {
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
-        if (!filename.equals("native_bootstrap_status.json") && !filename.matches("(?:contest_capture|detail_log_capture)(?:_status\\.json|(?:\\.previous)?\\.jsonl)"))
+        if (!filename.equals("native_bootstrap_status.json") && !filename.matches("(?:contest_capture|detail_log_capture|ranking_replay_capture)(?:_status\\.json|(?:\\.previous)?\\.jsonl)"))
             throw new IllegalArgumentException("Invalid recording name");
         return rootCommand("cat '" + ROOT + filename + "'", limit);
     }
@@ -120,11 +121,61 @@ public final class CaptureExportActivity extends Activity {
     private static String friendlyMode(int mask) {
         if(mask==0)return "無効（安全）";
         if(mask==8192)return "保存済み詳細ログ";
+        if(mask==32768)return "オーディション・リプレイ";
         if(mask==4224)return "コンテスト";
         if(mask==20608)return "コンテスト＋乱数診断";
         if(mask==128)return "実行開始診断";
         if(mask==256)return "フック動作確認";
         return "その他のモード";
+    }
+
+    private void activateReplay() {
+        if (busy) return;
+        busy = true;
+        new Thread(() -> {
+            try {
+                String command = DiagnosticStorage.configure(GAME_FILES, 32768,
+                    new String[]{"ranking_replay_capture.jsonl",
+                                 "ranking_replay_capture_status.json"});
+                rootCommand(command, 65536);
+                runOnUiThread(() -> statusView.setText(
+                    "リプレイ取得を選択しました。学マスを完全終了し、再起動してください。"
+                    +"実際に動作するには互換ネイティブライブラリが必要です。"));
+            } catch(Exception e) {showError(e);}
+            finally {runOnUiThread(() -> busy=false);}
+        }).start();
+    }
+
+    private void refreshReplay() {
+        if(busy)return;
+        busy=true;
+        new Thread(()->{
+            try {
+                JSONObject boot=new JSONObject(new String(
+                    readRoot("native_bootstrap_status.json",65536),
+                    StandardCharsets.UTF_8));
+                int actual=boot.optInt("effectiveHookMask",-1);
+                if(actual!=32768||!boot.optBoolean("nativeApiAccepted")) {
+                    runOnUiThread(()->statusView.setText(
+                        "実行中の取得機能: "+friendlyMode(actual)
+                        +"。リプレイ取得を選択し、学マスを再起動してください。"));
+                    return;
+                }
+                JSONObject st=new JSONObject(new String(
+                    readRoot("ranking_replay_capture_status.json",65536),
+                    StandardCharsets.UTF_8));
+                if(boot.getLong("pid")!=st.getLong("pid"))
+                    throw new Exception("取得状況が古い起動分です。学マスを再起動してください");
+                String report="オーディション・リプレイ取得"
+                    +"\\n保存イベント: "+st.optLong("recordsWritten",st.optLong("events"))
+                    +"\\n実行セッション: "+st.optLong("sessions")
+                    +"\\n記録上限による欠落: "+st.optLong("limitDrops")
+                    +"\\n未対応コールバック: "+st.optLong("unboundCallbacks")
+                    +"\\nHook実行状態: "+st.optBoolean("rankingEntryInstalled");
+                runOnUiThread(()->statusView.setText(report));
+            } catch(Exception e){showError(e);}
+            finally{runOnUiThread(()->busy=false);}
+        }).start();
     }
 
     private void activateContest() {
@@ -225,15 +276,21 @@ public final class CaptureExportActivity extends Activity {
     private void prepareExport(boolean previous) { prepareExport(previous, false); }
 
     private void prepareExport(boolean previous, boolean detail) {
+        prepareExport(previous,detail,false);
+    }
+
+    private void prepareExport(boolean previous,boolean detail,boolean replay) {
         if (busy) return;
         busy = true;
-        pending = new ExportRequest(detail ? "detail_log_capture" : "contest_capture",
-                                    previous, detail);
+        pending = new ExportRequest(replay ? "ranking_replay_capture"
+                             : detail ? "detail_log_capture" : "contest_capture",
+                                    previous, detail, replay);
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/json");
-        String title = detail ? (previous ? "gakumas-detail-log-previous.json" : "gakumas-detail-log.json")
-                              : (previous ? "gakumas-contest-previous.json" : "gakumas-contest-capture.json");
+        String title = replay ? (previous ? "gakumas-ranking-replay-previous.json" : "gakumas-ranking-replay.json")
+                       : detail ? (previous ? "gakumas-detail-log-previous.json" : "gakumas-detail-log.json")
+                       : (previous ? "gakumas-contest-previous.json" : "gakumas-contest-capture.json");
         intent.putExtra(Intent.EXTRA_TITLE, title);
         try {
             startActivityForResult(intent, SAVE);
@@ -302,8 +359,8 @@ public final class CaptureExportActivity extends Activity {
                 readRoot(request.base + "_status.json", 65536), StandardCharsets.UTF_8));
             expectedPid = captureStatus.getLong("pid");
         }
-        writeUtf8(output, "{\"schemaVersion\":" + (request.detail ? 1 : 2)
-            + ",\"scope\":" + JSONObject.quote(request.detail
+        writeUtf8(output, "{\"schemaVersion\":" + (request.detail || request.replay ? 1 : 2)
+            + ",\"scope\":" + JSONObject.quote(request.replay ? "audition-replay-capture" : request.detail
                  ? "saved-detail-log-capture" : "contest-gameplay-capture")
             + ",\"moduleVersion\":" + JSONObject.quote(moduleVersion())
             + ",\"exportedAtUnixMs\":" + System.currentTimeMillis()
@@ -322,6 +379,16 @@ public final class CaptureExportActivity extends Activity {
                 JSONObject enums = new JSONObject(
                     new String(bytes.toByteArray(), StandardCharsets.UTF_8));
                 writeUtf8(output, ",\"enumDefinitions\":" + enums.toString());
+            }
+        }
+        if(request.replay) {
+            try(InputStream input=getAssets().open("replay_action_enums.json");
+                ByteArrayOutputStream bytes=new ByteArrayOutputStream()) {
+                byte[] buffer=new byte[4096];int n;
+                while((n=input.read(buffer))>=0)bytes.write(buffer,0,n);
+                JSONObject enums=new JSONObject(
+                    new String(bytes.toByteArray(),StandardCharsets.UTF_8));
+                writeUtf8(output,",\"enumDefinitions\":"+enums.toString());
             }
         }
         writeUtf8(output, "}");
