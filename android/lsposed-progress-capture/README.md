@@ -1,3 +1,31 @@
+## v1.5.39: bounded multipart recording and streaming JSON export
+
+Selected-contest capture now continues in `contest_capture.part0001.jsonl`, 
+`part0002`, etc. after each 32 MiB part fills (up to 8 parts = 256 MiB
+per process). Old exports consisting only of `contest_capture.jsonl`
+still work. On game restart all the parts are rotated into the matching
+`contest_capture.previous.*` names. The status file exposes
+`segmentIndex`, `segmentBytes`, `segmentByteLimit`,
+`segmentsWritten`, `fileByteLimit`, and `limitDrops`.
+Once the **total** bounded space is exhausted, records still report drops;
+this is not unbounded capture.
+
+The export Activity combines all existing parts in order and streams
+each complete JSONL event directly to the document destination; it does not
+assemble a huge `JSONArray` / UTF-8 payload in memory. Per-event validation
+is capped at 16 MiB, malformed JSON and mixed PIDs fail explicitly, and a
+non-newline-terminated tail is omitted and reported. Stream failures may
+leave a partial document at the selected destination; do not treat it as
+a complete export unless success is shown.
+
+This work updates the **v1.5.x selected-contest implementation**, *not*
+the separate v1.6.5 `audition-replay-capture` / ranking-replay callbacks.
+That capture's unbound drink callbacks, status-effect projection, and
+`reproducibilityVerified` remain to be fixed against its matching source.
+Native hooks are still opt-in and on-device verification is outstanding.
+
+---
+
 ## v1.5.38: capture DFS-cloned card-move RNG states
 
 The earlier v1.5.37 `contest-rng-origin` probe compared RNG calls
