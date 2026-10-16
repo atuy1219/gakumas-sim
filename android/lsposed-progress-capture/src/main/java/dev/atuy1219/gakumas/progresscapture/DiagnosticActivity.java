@@ -105,7 +105,8 @@ public final class DiagnosticActivity extends Activity {
     private LinearLayout tabHost;
     private View diagnosticPage;
     private View settingsPage;
-    private int selectedTab = 1;
+    private View capturePage;
+    private int selectedTab = 0;
     private volatile boolean active;
     private volatile boolean checking;
     private volatile String latestReport = null;
@@ -128,6 +129,7 @@ public final class DiagnosticActivity extends Activity {
         tabHost=new LinearLayout(this);
         tabHost.setOrientation(LinearLayout.VERTICAL);
         shell.addView(tabHost);
+        capturePage=createCapturePage(shell);
 
         LinearLayout diagnostics=CaptureUi.scrollContent(this,shell);
         diagnosticPage=(View)diagnostics.getParent();
@@ -175,22 +177,22 @@ public final class DiagnosticActivity extends Activity {
         debugCard.addView(settingFeedback,feedback);
 
         int initial=savedInstanceState!=null
-            ?savedInstanceState.getInt("currentTab",1)
-            :getIntent().getIntExtra("tab",1);
-        selectTab(initial==2?2:1);
+            ?savedInstanceState.getInt("currentTab",0)
+            :getIntent().getIntExtra("tab",0);
+        selectTab(initial);
         setupNotifications();
     }
 
+    /** The launcher Activity supplies the capture tab in the same window. */
+    protected View createCapturePage(LinearLayout shell) {
+        throw new IllegalStateException("The capture tab must be supplied by the launcher");
+    }
+
     private void selectTab(int tab) {
-        if(tab==0) {
-            Intent i=new Intent(this,CaptureExportActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(i);
-            return;
-        }
-        selectedTab=tab==2?2:1;
+        selectedTab=Math.max(0,Math.min(2,tab));
         tabHost.removeAllViews();
         CaptureUi.tabs(this,tabHost,selectedTab,this::selectTab);
+        capturePage.setVisibility(selectedTab==0?View.VISIBLE:View.GONE);
         diagnosticPage.setVisibility(selectedTab==1?View.VISIBLE:View.GONE);
         settingsPage.setVisibility(selectedTab==2?View.VISIBLE:View.GONE);
         if (active && selectedTab==1) checkCapture();
@@ -199,7 +201,7 @@ public final class DiagnosticActivity extends Activity {
     @Override public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        selectTab(intent.getIntExtra("tab",1));
+        selectTab(intent.getIntExtra("tab",0));
     }
 
     @Override protected void onSaveInstanceState(Bundle out) {
