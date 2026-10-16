@@ -1,0 +1,17 @@
+{
+  "buildId": "77fda4e2a21f23954e2349b83fc113ede408f70b",
+  "enums": {
+    "ExamCompetitionPlayerType": {
+      "Unknown": 0,
+      "Self": 1,
+      "Rival": 2
+    },
+    "ExamActionType": {
+      "Unknown": 0,
+      "UseHand": 1,
+      "UseDrink": 2,
+      "TurnEnd": 3,
+      "EffectCardSelect": 4
+    }
+  }
+}
