@@ -23,7 +23,11 @@ class TabNavigationTests(unittest.TestCase):
     def test_capture_and_diagnostic_both_use_shared_components(self):
         capture=(EXPORT/"CaptureExportActivity.java").read_text()
         diagnostic=(MAIN/"DiagnosticActivity.java").read_text()
-        self.assertIn('CaptureUi.tabs(this,shell,0',capture)
+        self.assertIn('extends DiagnosticActivity',capture)
+        self.assertIn('createCapturePage(LinearLayout shell)',capture)
+        self.assertNotIn('startActivity(i)',capture)
+        self.assertIn('capturePage=createCapturePage(shell)',diagnostic)
+        self.assertIn('capturePage.setVisibility',diagnostic)
         self.assertIn('CaptureUi.tabs(this,tabHost,selectedTab',diagnostic)
         self.assertIn('CaptureUi.scrollContent(this,shell)',capture)
         self.assertIn('CaptureUi.scrollContent(this,shell)',diagnostic)
@@ -40,6 +44,8 @@ class TabNavigationTests(unittest.TestCase):
         replay=source[start:end]
         self.assertNotIn("DiagnosticStorage.configure",replay)
         self.assertIn("未対応",replay)
+        self.assertIn('DiagnosticStorage.configure(GAME_FILES,65536',source)
+        self.assertIn('readRoot("exam_hook_trace_status.json"',source)
         # It is still possible to import/export historic replay JSONs.
         self.assertIn("prepareExport(false,false,true)",source)
 
@@ -47,8 +53,9 @@ class TabNavigationTests(unittest.TestCase):
         manifest=(ROOT/"android/lsposed-progress-capture/AndroidManifest.xml").read_text()
         prop=(ROOT/"android/lsposed-progress-capture/src/main/resources/META-INF/xposed/module.prop").read_text()
         self.assertIn('android:theme="@android:style/Theme.Material.Light.NoActionBar"',manifest)
-        self.assertIn('android:versionName="1.7.2-m3-tabs"',manifest)
-        self.assertIn('version=1.7.2-m3-tabs',prop)
+        self.assertNotIn('android:name=".DiagnosticActivity"',manifest)
+        self.assertIn('android:versionName="1.8.0-single-activity-trace"',manifest)
+        self.assertIn('version=1.8.0-single-activity-trace',prop)
 
 
 if __name__=="__main__":
