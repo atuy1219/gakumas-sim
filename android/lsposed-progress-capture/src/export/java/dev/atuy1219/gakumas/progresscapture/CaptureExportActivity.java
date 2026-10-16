@@ -60,7 +60,7 @@ public final class CaptureExportActivity extends DiagnosticActivity {
         CaptureUi.button(this,replay,"前回の記録を保存",()->prepareExport(true,false,true));
 
         LinearLayout trace=CaptureUi.card(this,root,"試験イベント取得",
-            "カード操作・乱数値・状態変化を追跡します。");
+            "カード使用・乱数値・乱数の内部状態を記録します。");
         CaptureUi.button(this,trace,"Hook取得を有効化",this::activateTrace,true);
         CaptureUi.button(this,trace,"取得状況を確認",this::refreshTrace);
         CaptureUi.button(this,trace,"イベントJSONを保存",()->prepareTraceExport(false));
