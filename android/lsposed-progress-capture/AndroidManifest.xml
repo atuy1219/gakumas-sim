@@ -12,7 +12,6 @@
         android:hasCode="true"
         android:label="Gakumas Progress Capture"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
-        <activity android:name=".DiagnosticActivity" android:exported="true" android:label="学マス実機診断" />
         <activity android:name=".CaptureExportActivity" android:exported="true" android:label="学マス記録">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
