@@ -49,6 +49,9 @@ constexpr uintptr_t kCurrentDisposeRva = 0x0816B160;
 constexpr uintptr_t kCurrentRandomNoArgRva = 0x08144594;
 constexpr uintptr_t kCurrentRandomRangeRva = 0x0814468C;
 constexpr uintptr_t kCurrentMovePlayCardRva = 0x0833AE9C;
+// Exact ELF-derived replay context entrypoints and verified getter layouts.
+constexpr uintptr_t kCurrentReplayDataRva = 0x081EDE8C;
+constexpr uintptr_t kCurrentReplayLogRva = 0x081EEAF0;
 constexpr size_t kCurrentRngStateOffset = 0x77c;
 // Verified by global-metadata.dat v31 token -> Assembly-CSharp.dll
 // Il2CppCodeGenModule.methodPointers -> ELF R_AARCH64_RELATIVE.
@@ -187,6 +190,12 @@ std::atomic<bool> g_current_trace_dispose_installed{false};
 std::atomic<bool> g_current_trace_rng_installed{false};
 std::atomic<bool> g_current_trace_rng_range_installed{false};
 std::atomic<bool> g_current_trace_card_installed{false};
+std::atomic<bool> g_replay_data_installed{false};
+std::atomic<bool> g_replay_log_installed{false};
+std::atomic<unsigned> g_replay_events{0};
+std::atomic<unsigned> g_replay_sessions{0};
+std::atomic<unsigned> g_replay_drops{0};
+std::mutex g_replay_mutex;
 std::mutex g_entry_probe_mutex;
 // Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
 // Enable one group at a time to isolate fatal native object corruption.
@@ -465,7 +474,7 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"expectedBuildId\": \"" << (build_id == kCurrentBuildId ? kCurrentBuildId : kV341BuildId) << "\",\n"
         << "  \"buildIdCheck\": \"" << (build_id.empty() ? "pending" :
             (build_id == kV341BuildId || build_id == kCurrentBuildId) ? "matched" : "mismatch") << "\",\n"
-        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? (g_hook_mask.load()==65536u ? "current-exam-event-trace" : "current-setup-probe-only") :
+        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? (g_hook_mask.load()==131072u ? "current-replay" : (g_hook_mask.load()==65536u ? "current-exam-event-trace" : "current-setup-probe-only")) :
             build_id == kV341BuildId ? "v3.4.1" : "unsupported") << "\",\n"
         << "  \"gameCaptureVerified\": false,\n"
         << "  \"hooks\": {"
@@ -1719,6 +1728,166 @@ void install_current_trace(const ImageInfo& image) {
     current_trace_status();
 }
 
+// Exact-build audition replay capture. The captured action fields come from
+// ExamPlayLogMinimumAction (type at +0x10, int[] at +0x18), as verified in
+// ExamPlayLogMinimumData's constructor/disassembly for THIS image.
+// Access to managed objects is bounded and fault-safe (no managed mutations).
+using ReplayContextFn = void* (*)(void*,int32_t,const void*);
+ReplayContextFn g_orig_replay_data=nullptr;
+ReplayContextFn g_orig_replay_log=nullptr;
+
+template<typename T>
+bool replay_read(uintptr_t ptr,T& value){
+    if(ptr<0x10000 || ptr>UINTPTR_MAX-sizeof(T))return false;
+    iovec local{&value,sizeof(T)};
+    iovec remote{reinterpret_cast<void*>(ptr),sizeof(T)};
+    return ::syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0)
+        ==static_cast<ssize_t>(sizeof(T));
+}
+void replay_status(){
+    std::ostringstream o;
+    o<<"{\"schemaVersion\":2,\"pid\":"<<getpid()
+     <<",\"libil2cppBuildId\":\""<<kCurrentBuildId<<"\""
+     <<",\"rankingEntryInstalled\":"<<(g_replay_log_installed.load()?"true":"false")
+     <<",\"dataInstalled\":"<<(g_replay_data_installed.load()?"true":"false")
+     <<",\"recordsWritten\":"<<g_replay_events.load()
+     <<",\"sessions\":"<<g_replay_sessions.load()
+     <<",\"limitDrops\":"<<g_replay_drops.load()
+     <<",\"rankingOriginVerified\":false,\"gameCaptureVerified\":false}\n";
+    atomic_write(current_trace_path("ranking_replay_capture_status.json"),o.str());
+}
+void replay_append(std::string&& data){
+    std::lock_guard<std::mutex> lk(g_replay_mutex);
+    if(g_replay_events.load()>=2048 || data.size()>65536){
+        g_replay_drops.fetch_add(1);return;
+    }
+    const std::string path=current_trace_path("ranking_replay_capture.jsonl");
+    int fd=::open(path.c_str(),O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(fd<0){g_replay_drops.fetch_add(1);return;}
+    struct stat st{};
+    bool good=::fstat(fd,&st)==0 && S_ISREG(st.st_mode) && st.st_nlink==1
+              && st.st_size<8*1024*1024;
+    data.push_back('\n');
+    size_t pos=0;
+    while(good && pos<data.size()){
+        ssize_t n=::write(fd,data.data()+pos,data.size()-pos);
+        if(n<0 && errno==EINTR)continue;
+        if(n<=0){good=false;break;}
+        pos+=static_cast<size_t>(n);
+    }
+    ::close(fd);
+    if(good){
+        unsigned count=g_replay_events.fetch_add(1)+1;
+        if(count==1 || count%16==0)replay_status();
+    }else g_replay_drops.fetch_add(1);
+}
+bool replay_context_audition(void* context,int32_t& exam_type,int32_t& step_type){
+    auto p=reinterpret_cast<uintptr_t>(context);
+    return replay_read(p+0x18,exam_type) && replay_read(p+0x28,step_type)
+        && exam_type==1; // known audition type from same client recording
+}
+std::string replay_base(void* context,int32_t player,const char* event,
+                         int32_t exam_type,int32_t step_type){
+    std::ostringstream o;
+    o<<"{\"schemaVersion\":2,\"event\":\""<<event<<"\""
+     <<",\"pid\":"<<getpid()<<",\"observedAtUnixMs\":"<<unix_time_ms()
+     <<",\"source\":\"ExamReplayContext\""
+     <<",\"libil2cppBuildId\":\""<<kCurrentBuildId<<"\""
+     <<",\"rankingOriginVerified\":false"
+     <<",\"replayContext\":\""<<hex_value(reinterpret_cast<uintptr_t>(context))<<"\""
+     <<",\"playerType\":"<<player<<",\"examType\":"<<exam_type
+     <<",\"stepType\":"<<step_type;
+    return o.str(); // deliberately no closing brace
+}
+__attribute__((noinline))
+void* hooked_replay_data(void* context,int32_t player,const void* method){
+    // Original call exactly once, with identical ABI and original arguments.
+    void* result=g_orig_replay_data(context,player,method);
+    int32_t exam=0,step=0;
+    if(!result || !replay_context_audition(context,exam,step))return result;
+    const uintptr_t ptr=reinterpret_cast<uintptr_t>(result);
+    uint32_t seed=0;
+    int32_t limit_turn=0;
+    uint8_t is_replay=0;
+    bool ok=replay_read(ptr+0x14,seed) &&
+            replay_read(ptr+0x58,limit_turn) &&
+            replay_read(ptr+0xa4,is_replay);
+    // We never interpret memory as a replay if the model itself says no.
+    if(!ok || !is_replay)return result;
+    std::ostringstream record;
+    record<<replay_base(context,player,"ranking-replay-setup",exam,step)
+          <<",\"seed\":"<<seed<<",\"limitTurn\":"<<limit_turn
+          <<",\"isReplay\":true,\"setupAvailable\":true}";
+    replay_append(record.str());
+    return result;
+}
+__attribute__((noinline))
+void* hooked_replay_log(void* context,int32_t player,const void* method){
+    void* result=g_orig_replay_log(context,player,method);
+    int32_t exam=0,step=0;
+    if(!result || !replay_context_audition(context,exam,step))return result;
+    const uintptr_t p=reinterpret_cast<uintptr_t>(result);
+    uintptr_t list=0,items=0;
+    int32_t count=0;
+    bool ok=replay_read(p+0x10,list) && list
+        && replay_read(list+0x10,items) && items
+        && replay_read(list+0x18,count) && count>=0 && count<=128;
+    std::ostringstream actions;
+    actions<<"[";
+    int recorded=0;
+    if(ok)for(int32_t i=0;i<count;i++){
+        uintptr_t item=0;
+        int32_t type=0;
+        uintptr_t indexes=0;
+        int32_t index_count=0;
+        if(!replay_read(items+0x20+static_cast<uintptr_t>(i)*8,item) ||
+           !item || !replay_read(item+0x10,type) ||
+           !replay_read(item+0x18,indexes) || !indexes ||
+           !replay_read(indexes+0x18,index_count) ||
+           index_count<0 || index_count>16){ok=false;break;}
+        std::ostringstream a;
+        a<<"{\"type\":"<<type<<",\"indexes\":[";
+        for(int32_t j=0;j<index_count;j++){
+            int32_t idx=0;
+            if(!replay_read(indexes+0x20+static_cast<uintptr_t>(j)*4,idx)){
+                ok=false;break;
+            }
+            if(j)a<<",";
+            a<<idx;
+        }
+        if(!ok)break;
+        a<<"]}";
+        if(recorded)actions<<",";
+        actions<<a.str();
+        ++recorded;
+    }
+    actions<<"]";
+    std::ostringstream record;
+    record<<replay_base(context,player,"ranking-replay-actions",exam,step)
+          <<",\"playLog\":{\"complete\":"<<(ok?"true":"false")
+          <<",\"actionCount\":"<<recorded<<",\"expectedCount\":"<<count
+          <<",\"actions\":"<<actions.str()<<"}}";
+    replay_append(record.str());
+    g_replay_sessions.fetch_add(1);
+    replay_status();
+    return result;
+}
+void install_current_replay(const ImageInfo& image){
+    if(!g_hook || !image.base || image.build_id!=kCurrentBuildId ||
+       g_hook_mask.load()!=native_probe::kReplay)return;
+    const std::string path=current_trace_path("ranking_replay_capture.jsonl");
+    ensure_parent_dir(path);
+    // Never blend a former process's records into the current export.
+    ::rename(path.c_str(),current_trace_path("ranking_replay_capture.previous.jsonl").c_str());
+    g_replay_data_installed.store(install_hook(
+        image.base+kCurrentReplayDataRva,reinterpret_cast<void*>(hooked_replay_data),
+        reinterpret_cast<void**>(&g_orig_replay_data)));
+    g_replay_log_installed.store(install_hook(
+        image.base+kCurrentReplayLogRva,reinterpret_cast<void*>(hooked_replay_log),
+        reinterpret_cast<void**>(&g_orig_replay_log)));
+    replay_status();
+}
+
 void install_current_setup_probe(const ImageInfo& image) {
     // For now the newest Build ID accepts ONLY the named setup probe (128).
     // Combined contest/detail/replay masks MUST fail closed.
@@ -2150,12 +2319,15 @@ void install_il2cpp_hooks() {
     // Only install native game hooks when explicitly enabled. A tombstone
     // during ExamSequence.StartExam requires isolating hooks individually.
     if (!hook_enabled(128) && !hook_enabled(8192) &&
-        !hook_enabled(native_probe::kCurrentTrace)) {
+        !hook_enabled(native_probe::kCurrentTrace) && !hook_enabled(native_probe::kReplay)) {
         write_status(hook_enabled(256) ? "module-self-test-only" : "safe-mode-no-game-hooks", image.build_id);
         return;
     }
     if (image.build_id == kCurrentBuildId) {
-        if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kCurrentTrace) {
+        if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kReplay) {
+            install_current_replay(image);
+            write_status("current-build-replay-hook-attempted",image.build_id);
+        } else if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kCurrentTrace) {
             install_current_trace(image);
             write_status("current-build-exam-trace-hook-install-attempted",image.build_id);
         } else if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kSetupProbe) {
@@ -2171,7 +2343,7 @@ void install_il2cpp_hooks() {
         write_status("entry-probe-build-mismatch", image.build_id);
         return;
     }
-    if (hook_enabled(native_probe::kCurrentTrace)) {
+    if (hook_enabled(native_probe::kCurrentTrace) || hook_enabled(native_probe::kReplay)) {
         write_status("current-exam-trace-requires-newer-build",image.build_id);
         return;
     }
