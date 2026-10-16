@@ -19,6 +19,7 @@ class NativeProbeTests(unittest.TestCase):
         end = native.index("\n\nvoid write_snapshot", start)
         builder = native[start:end].strip()
         target = re.search(r'constexpr const char\* kV341BuildId = "([0-9a-f]+)";', native).group(1)
+        current = re.search(r'constexpr const char\* kCurrentBuildId = "([0-9a-f]+)";', native).group(1)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "status.cpp"
@@ -35,11 +36,12 @@ std::string g_mask_read_status="read";
 std::string process_name() { return kTargetPackage; }
 std::string json_escape(const std::string& value) { return value; }
 bool atomic_write(const std::string&, const std::string& value) { std::cout << value; return true; }
-''' + 'const char* kV341BuildId="' + target + '";\n' + builder + r'''
+''' + 'const char* kV341BuildId="' + target + '";\n' + 'const char* kCurrentBuildId="' + current + '";\n' + builder + r'''
 int main() {
     write_status("module-self-test-only", kV341BuildId);
     write_status("waiting-for-libil2cpp");
     write_status("entry-probe-build-mismatch", "c94ab574cfe2d62da43ec6167db4d96d429b18f8");
+    write_status("current-build-setup-probe-attempted", kCurrentBuildId);
 }
 ''')
             subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
@@ -52,9 +54,10 @@ int main() {
                 value, count = decoder.raw_decode(output)
                 values.append(value)
                 output = output[count:]
-            self.assertEqual([v["buildIdCheck"] for v in values], ["matched", "pending", "mismatch"])
-            self.assertTrue(all(v["expectedBuildId"] == "77fda4e2a21f23954e2349b83fc113ede408f70b" for v in values))
+            self.assertEqual([v["buildIdCheck"] for v in values], ["matched", "pending", "mismatch", "matched"])
+            self.assertEqual([v["expectedBuildId"] for v in values], [target, target, target, current])
             self.assertTrue(all(v["gameCaptureVerified"] is False for v in values))
+            self.assertEqual(values[3]["compatibilityProfile"], "current-setup-probe-only")
             self.assertEqual(values[0]["phase"], "module-self-test-only")
 
     def test_masks_and_self_test_require_actual_detour_and_backup(self):
