@@ -113,7 +113,7 @@ public final class DiagnosticActivity extends Activity {
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!active) return;
-            checkCapture();
+            if (selectedTab == 1) checkCapture();
             main.postDelayed(this, POLL_MS);
         }
     };
@@ -193,6 +193,7 @@ public final class DiagnosticActivity extends Activity {
         CaptureUi.tabs(this,tabHost,selectedTab,this::selectTab);
         diagnosticPage.setVisibility(selectedTab==1?View.VISIBLE:View.GONE);
         settingsPage.setVisibility(selectedTab==2?View.VISIBLE:View.GONE);
+        if (active && selectedTab==1) checkCapture();
     }
 
     @Override public void onNewIntent(Intent intent) {
