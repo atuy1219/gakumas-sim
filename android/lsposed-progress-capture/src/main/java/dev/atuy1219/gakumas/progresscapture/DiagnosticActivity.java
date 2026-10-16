@@ -65,6 +65,7 @@ public final class DiagnosticActivity extends Activity {
         "exam_lifecycle_status.json",
         "exam_entry_probe_status.json",
         "exam_entry_probes.jsonl",
+        "exam_hook_trace_status.json",
         "exam_runtime_inventory.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
@@ -152,7 +153,7 @@ public final class DiagnosticActivity extends Activity {
         LinearLayout settings=CaptureUi.scrollContent(this,shell);
         settingsPage=(View)settings.getParent();
         CaptureUi.info(this,settings,
-            "最新ゲームBuild IDでは「試験開始の診断」のみフック対応です。"
+            "最新ゲームBuild IDでは「試験開始の診断」と「実機Hook取得」に対応しています。"
             +"オーディション・リプレイ取得はこのソース版に実装されていません。");
         LinearLayout hookCard=CaptureUi.card(this,settings,"取得機能",
             "機能を選択するとゲームの完全終了・再起動後に反映されます。");
@@ -231,17 +232,18 @@ public final class DiagnosticActivity extends Activity {
             "無効（安全）",
             "フック動作確認",
             "試験開始の診断（新Build ID対応）",
+            "実機Hook取得（新Build ID対応）",
             "コンテスト記録（旧Build ID専用）",
             "コンテスト＋乱数診断（旧Build ID専用）",
             "保存済み詳細ログ（旧Build ID専用）"
         };
-        final int[] internalMasks={0,256,128,4224,20608,8192};
+        final int[] internalMasks={0,256,128,65536,4224,20608,8192};
         CaptureUi.choose(this,"取得機能を選択",names,index->{
             if(index<0||index>=internalMasks.length)return;
             int mode=internalMasks[index];
             if(mode==0) { saveHookMode(0); return; }
             CaptureUi.confirm(this,names[index],
-                "ゲームの再起動後に反映されます。新しいBuild IDでは試験開始診断のみ対応します。"
+                "ゲームの再起動後に反映されます。新しいBuild IDでは開始診断・実機Hookトレースのみ対応します。"
                 +"旧版用Hookは異なるゲームバージョンでは使用できません。",
                 "この機能を使う",()->saveHookMode(mode));
         });
@@ -252,6 +254,7 @@ public final class DiagnosticActivity extends Activity {
             case 0:return "無効（安全）";
             case 256:return "フック動作確認";
             case 128:return "試験開始の診断";
+            case 65536:return "実機Hookトレース";
             case 4224:return "コンテスト記録";
             case 20608:return "コンテスト・乱数の詳細診断";
             case 8192:return "保存済み詳細ログ";
