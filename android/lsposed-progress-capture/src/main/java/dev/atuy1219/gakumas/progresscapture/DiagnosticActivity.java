@@ -1,7 +1,6 @@
 package dev.atuy1219.gakumas.progresscapture;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -102,6 +101,11 @@ public final class DiagnosticActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private TextView display;
+    private TextView settingFeedback;
+    private LinearLayout tabHost;
+    private View diagnosticPage;
+    private View settingsPage;
+    private int selectedTab = 1;
     private volatile boolean active;
     private volatile boolean checking;
     private volatile String latestReport = null;
@@ -116,77 +120,90 @@ public final class DiagnosticActivity extends Activity {
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(24, 24, 24, 24);
-        TextView heading = new TextView(this);
-        heading.setText("学マス実機診断");
-        heading.setTextSize(22);
-        root.addView(heading);
+        LinearLayout shell=CaptureUi.shell(this);
+        CaptureUi.applyWindow(this,shell);
+        setContentView(shell);
+        CaptureUi.header(this,shell,"学マス キャプチャ",
+            "端末の状態・取得モードを確認");
+        tabHost=new LinearLayout(this);
+        tabHost.setOrientation(LinearLayout.VERTICAL);
+        shell.addView(tabHost);
 
-        TextView guidance = new TextView(this);
-        guidance.setText("取得したファイルを個別に表示します。未生成はRootエラーではありません。"
-            + "画面を開いている間は2.5秒ごとに確認し、新しく取得したファイルだけ通知します。"
-            + "ゲーム全体の一致は未検証であり、現在比較できるのは乱数系列です。");
-        guidance.setPadding(0, 12, 0, 12);
-        root.addView(guidance);
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        Button refresh = new Button(this);
-        refresh.setText("再読込");
-        refresh.setOnClickListener(v -> checkCapture());
-        buttons.addView(refresh);
-        Button export = new Button(this);
-        export.setText("診断JSONを書き出す");
-        export.setOnClickListener(v -> exportReport());
-        buttons.addView(export);
-        root.addView(buttons);
-        LinearLayout copyButtons = new LinearLayout(this);
-        copyButtons.setOrientation(LinearLayout.HORIZONTAL);
-        Button copyText = new Button(this);
-        copyText.setText("診断表示をコピー");
-        copyText.setOnClickListener(v -> copyDiagnostic(false));
-        copyButtons.addView(copyText, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        Button copyJson = new Button(this);
-        copyJson.setText("初期化JSONをコピー");
-        copyJson.setOnClickListener(v -> copyDiagnostic(true));
-        copyButtons.addView(copyJson, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(copyButtons);
-        Button mode = new Button(this);
-        mode.setText("安全モード／フック設定");
-        mode.setOnClickListener(v -> chooseHookMode());
-        root.addView(mode);
-        Button logs = new Button(this);
-        logs.setText("LSPosed初期化ログを取得");
-        logs.setOnClickListener(v -> collectInjectionLogs());
-        root.addView(logs);
-        Button repair = new Button(this);
-        repair.setText("診断ファイル保存先の権限を修復");
-        repair.setOnClickListener(v -> new AlertDialog.Builder(this)
-            .setTitle("学マスの診断ファイル保存先を修復")
-            .setMessage("保存先の所有者がroot:rootになっていると、学マスから"
-                + "診断ファイルを生成できません。診断専用ディレクトリ"
-                + "とフック設定ファイルの所有者・SELinuxラベルのみ修復します。"
-                + "既存のフック設定は無効に戻します。"
-                + "ゲームのセーブデータは変更しません。")
-            .setPositiveButton("修復する", (dialog, which) -> repairCaptureDirectory())
-            .setNegativeButton("キャンセル", null).show());
-        root.addView(repair);
-
-        ScrollView scrolling = new ScrollView(this);
-        display = new TextView(this);
-        display.setText("ログを確認していません。Rootアクセスが必要です。");
-        display.setTextSize(14);
+        LinearLayout diagnostics=CaptureUi.scrollContent(this,shell);
+        diagnosticPage=(View)diagnostics.getParent();
+        CaptureUi.info(this,diagnostics,
+            "表示中は2.5秒ごとに記録を確認します。古いPIDの記録と現在のプロセスを区別します。"
+            +"ゲーム全体の再現性は検証されていません。");
+        LinearLayout actions=CaptureUi.card(this,diagnostics,"診断",
+            "ゲーム内Native初期化・保存ファイル・Hook実行状況");
+        CaptureUi.button(this,actions,"再読込",this::checkCapture,true);
+        CaptureUi.button(this,actions,"診断JSONを書き出す",this::exportReport);
+        CaptureUi.button(this,actions,"診断表示をコピー",()->copyDiagnostic(false));
+        CaptureUi.button(this,actions,"初期化JSONをコピー",()->copyDiagnostic(true));
+        LinearLayout data=CaptureUi.card(this,diagnostics,"実機診断結果",
+            "現在のPIDと以前の取得記録を混同しないよう表示します。");
+        display=CaptureUi.secondary(this,"まだ診断していません。Rootアクセスが必要です。",13);
         display.setTextIsSelectable(true);
         display.setGravity(Gravity.START);
-        scrolling.addView(display);
-        root.addView(scrolling, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-        setContentView(root);
+        data.addView(display,new LinearLayout.LayoutParams(-1,-2));
+
+        LinearLayout settings=CaptureUi.scrollContent(this,shell);
+        settingsPage=(View)settings.getParent();
+        CaptureUi.info(this,settings,
+            "最新ゲームBuild IDでは「試験開始の診断」のみフック対応です。"
+            +"オーディション・リプレイ取得はこのソース版に実装されていません。");
+        LinearLayout hookCard=CaptureUi.card(this,settings,"取得機能",
+            "機能を選択するとゲームの完全終了・再起動後に反映されます。");
+        CaptureUi.button(this,hookCard,"取得モードを選択",this::chooseHookMode,true);
+        CaptureUi.button(this,hookCard,"安全モード（Hookを無効化）",
+            ()->CaptureUi.confirm(this,"フックを無効化",
+                "次のゲーム起動からゲーム関数のHookを無効にします。",
+                "無効にする",()->saveHookMode(0)));
+        LinearLayout debugCard=CaptureUi.card(this,settings,"トラブルシューティング",
+            "Root権限・SELinux・ゲームデータへのアクセスを確認します。");
+        CaptureUi.button(this,debugCard,"LSPosed初期化ログを取得",this::collectInjectionLogs);
+        CaptureUi.button(this,debugCard,"保存先の権限を修復",
+            ()->CaptureUi.confirm(this,"学マスの診断ファイル保存先を修復",
+                "診断専用ディレクトリとHook設定ファイルの所有者・SELinuxラベルのみを修復します。"
+                +"既存のHook設定は安全モードに戻します。ゲームのセーブデータは変更しません。",
+                "修復する",this::repairCaptureDirectory));
+        CaptureUi.button(this,debugCard,"診断タブを開く",()->selectTab(1));
+        settingFeedback=CaptureUi.secondary(this,"設定変更の結果がここに表示されます。",14);
+        settingFeedback.setTextIsSelectable(true);
+        LinearLayout.LayoutParams feedback=new LinearLayout.LayoutParams(-1,-2);
+        feedback.topMargin=CaptureUi.dp(this,12);
+        debugCard.addView(settingFeedback,feedback);
+
+        int initial=savedInstanceState!=null
+            ?savedInstanceState.getInt("currentTab",1)
+            :getIntent().getIntExtra("tab",1);
+        selectTab(initial==2?2:1);
         setupNotifications();
+    }
+
+    private void selectTab(int tab) {
+        if(tab==0) {
+            Intent i=new Intent(this,CaptureExportActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+            return;
+        }
+        selectedTab=tab==2?2:1;
+        tabHost.removeAllViews();
+        CaptureUi.tabs(this,tabHost,selectedTab,this::selectTab);
+        diagnosticPage.setVisibility(selectedTab==1?View.VISIBLE:View.GONE);
+        settingsPage.setVisibility(selectedTab==2?View.VISIBLE:View.GONE);
+    }
+
+    @Override public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        selectTab(intent.getIntExtra("tab",1));
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out) {
+        out.putInt("currentTab",selectedTab);
+        super.onSaveInstanceState(out);
     }
 
     @Override protected void onStart() {
@@ -211,32 +228,20 @@ public final class DiagnosticActivity extends Activity {
             "無効（安全）",
             "フック動作確認",
             "試験開始の診断（新Build ID対応）",
-            "コンテスト記録",
-            "コンテスト・乱数の詳細診断",
-            "保存済み詳細ログ",
-            "オーディション・リプレイ（互換ライブラリ）"
+            "コンテスト記録（旧Build ID専用）",
+            "コンテスト＋乱数診断（旧Build ID専用）",
+            "保存済み詳細ログ（旧Build ID専用）"
         };
-        final int[] internalMasks = {0,256,128,4224,20608,8192,32768};
-        new AlertDialog.Builder(this)
-            .setTitle("取得機能を選択")
-            .setSingleChoiceItems(names,-1,(dialog,selection)->{
-                dialog.dismiss();
-                int mode=internalMasks[selection];
-                if(mode==0) {
-                    saveHookMode(mode);
-                    return;
-                }
-                new AlertDialog.Builder(this)
-                    .setTitle(names[selection])
-                    .setMessage("ゲームの再起動後に反映されます。"
-                        +"フックの実行時にはゲームのバージョンに応じた不具合が起きる可能性があります。"
-                        +"必要な記録だけを有効化してください。"
-                        +"\n最新の添付ELF（Build ID 5ac77881…）では、試験開始の診断のみ対応します。"
-                        +"コンテスト記録・乱数詳細・保存ログは旧Build ID専用です。")
-                    .setPositiveButton("この機能を使う",(d,which)->saveHookMode(mode))
-                    .setNegativeButton("キャンセル",null).show();
-            })
-            .setNegativeButton("戻る",null).show();
+        final int[] internalMasks={0,256,128,4224,20608,8192};
+        CaptureUi.choose(this,"取得機能を選択",names,index->{
+            if(index<0||index>=internalMasks.length)return;
+            int mode=internalMasks[index];
+            if(mode==0) { saveHookMode(0); return; }
+            CaptureUi.confirm(this,names[index],
+                "ゲームの再起動後に反映されます。新しいBuild IDでは試験開始診断のみ対応します。"
+                +"旧版用Hookは異なるゲームバージョンでは使用できません。",
+                "この機能を使う",()->saveHookMode(mode));
+        });
     }
 
     private static String hookModeName(int mode) {
@@ -275,10 +280,18 @@ public final class DiagnosticActivity extends Activity {
                         + "ゲームプロセス経由の読取のみ可能です。初期化ログを含む診断JSONを"
                         + "書き出してください。設定は変更していません。");
                 final String result = runRoot(DiagnosticStorage.configure(GAME_FILES, mask, SOURCE_FILES));
-                main.post(() -> display.append("\n" + success + ": " + result
-                    + "\n学マスの完全終了・再起動後に診断を再確認してください。"));
+                main.post(() -> {
+                    String message=success + ": " + result
+                        + "\n学マスの完全終了・再起動後に診断を再確認してください。";
+                    settingFeedback.setText(message);
+                    display.append("\n" + message);
+                });
             } catch (Exception error) {
-                main.post(() -> display.append("\n設定／保存先修復失敗: " + error.getMessage()));
+                main.post(() -> {
+                    String message="設定／保存先修復失敗: " + error.getMessage();
+                    settingFeedback.setText(message);
+                    display.append("\n" + message);
+                });
             }
         });
     }
