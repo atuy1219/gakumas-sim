@@ -49,48 +49,53 @@ public final class CaptureExportActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout root = CaptureUi.root(this);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(root);
-        setContentView(scroll);
-        TextView heading=CaptureUi.text(this,"学マス キャプチャ",24,true);
-        root.addView(heading);
-        statusView=CaptureUi.text(this,
-            "記録モードを選び、学マスを完全終了して起動し直すと設定が反映されます。",14,false);
-        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
-        sp.topMargin=CaptureUi.dp(this,10); sp.bottomMargin=CaptureUi.dp(this,16);
-        root.addView(statusView,sp);
+        LinearLayout shell=CaptureUi.shell(this);
+        CaptureUi.applyWindow(this,shell);
+        setContentView(shell);
+        CaptureUi.header(this,shell,"学マス キャプチャ",
+            "取得・診断・設定をタブで切り替え");
+        CaptureUi.tabs(this,shell,0,selected->{
+            if(selected==0)return;
+            Intent i=new Intent(this,DiagnosticActivity.class);
+            i.putExtra("tab",selected);
+            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(i);
+        });
+        LinearLayout root=CaptureUi.scrollContent(this,shell);
+        CaptureUi.info(this,root,
+            "取得モードの変更はゲームの完全終了・再起動後に反映されます。"
+            +"最新Build IDでは開始診断のみ対応しています。未対応の詳細フックは動作しません。");
 
         LinearLayout replay=CaptureUi.card(this,root,"オーディション・リプレイ",
-            "上位リプレイの操作履歴・開始状態・乱数状態を受動的に記録します。互換ネイティブライブラリが必要です。");
-        CaptureUi.button(this,replay,"リプレイ取得を有効化",this::activateReplay);
+            "現在のソースビルドにはランキングリプレイ用のネイティブフックがありません。"
+            +"旧版の記録ファイルを読み出すことはできます。");
+        CaptureUi.button(this,replay,"リプレイ取得の対応状況",this::activateReplay);
         CaptureUi.button(this,replay,"取得状況を確認",this::refreshReplay);
-        CaptureUi.button(this,replay,"現在のリプレイ記録を保存",()->prepareExport(false,false,true));
+        CaptureUi.button(this,replay,"現在の記録を保存",()->prepareExport(false,false,true),true);
         CaptureUi.button(this,replay,"前回起動分を保存",()->prepareExport(true,false,true));
 
         LinearLayout contest=CaptureUi.card(this,root,"コンテスト",
-            "選択済みの試験の操作・状態・結果を記録します。");
+            "対応Build IDで採用経路・操作履歴・スコアを受動記録します。");
         CaptureUi.button(this,contest,"コンテスト取得を有効化",this::activateContest);
-        CaptureUi.button(this,contest,"現在の記録を保存",()->prepareExport(false));
+        CaptureUi.button(this,contest,"現在の記録を保存",()->prepareExport(false),true);
         CaptureUi.button(this,contest,"前回起動分を保存",()->prepareExport(true));
 
         LinearLayout detail=CaptureUi.card(this,root,"保存済み詳細ログ",
-            "ゲーム内で詳細ログを開き、その内容を取り込みます。");
+            "対応Build IDで、ゲーム内に表示した詳細ログを取り込みます。");
         CaptureUi.button(this,detail,"詳細ログ取得を有効化",this::activateDetail);
         CaptureUi.button(this,detail,"取得状況を確認",this::refreshDetail);
-        CaptureUi.button(this,detail,"詳細ログを保存",()->prepareExport(false,true));
+        CaptureUi.button(this,detail,"詳細ログを保存",()->prepareExport(false,true),true);
         CaptureUi.button(this,detail,"前回分の詳細ログを保存",()->prepareExport(true,true));
 
-        LinearLayout tools=CaptureUi.card(this,root,"設定・診断",
-            "フックの機能名による切替、実行状況の確認、ファイル保存先の診断。");
-        CaptureUi.button(this,tools,"記録状況を再読込",this::refresh);
-        CaptureUi.button(this,tools,"フック設定と診断",()->{
-            Intent intent=new Intent();
-            intent.setClassName(this,
-                "dev.atuy1219.gakumas.progresscapture.DiagnosticActivity");
-            startActivity(intent);
-        });
+        LinearLayout current=CaptureUi.card(this,root,"記録状況",
+            "診断結果とエクスポートのメッセージ");
+        CaptureUi.button(this,current,"記録状況を再読込",this::refresh);
+        statusView=CaptureUi.secondary(this,
+            "取得状況は未確認です。必要な記録を有効にしたあと確認してください。",14);
+        statusView.setTextIsSelectable(true);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
+        sp.topMargin=CaptureUi.dp(this,14);
+        current.addView(statusView,sp);
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
@@ -130,20 +135,11 @@ public final class CaptureExportActivity extends Activity {
     }
 
     private void activateReplay() {
-        if (busy) return;
-        busy = true;
-        new Thread(() -> {
-            try {
-                String command = DiagnosticStorage.configure(GAME_FILES, 32768,
-                    new String[]{"ranking_replay_capture.jsonl",
-                                 "ranking_replay_capture_status.json"});
-                rootCommand(command, 65536);
-                runOnUiThread(() -> statusView.setText(
-                    "リプレイ取得を選択しました。学マスを完全終了し、再起動してください。"
-                    +"実際に動作するには互換ネイティブライブラリが必要です。"));
-            } catch(Exception e) {showError(e);}
-            finally {runOnUiThread(() -> busy=false);}
-        }).start();
+        CaptureUi.confirm(this,"このビルドでは未対応",
+            "旧v1.6.5のリプレイ取得フックは現在のソースビルドに含まれていません。"
+            +"未対応の設定を書き込むとゲーム側で無効扱いになり、記録できません。"
+            +"既存のリプレイJSONは引き続き保存できます。",
+            "閉じる",()->{});
     }
 
     private void refreshReplay() {
