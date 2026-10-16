@@ -868,7 +868,10 @@ public class DiagnosticActivity extends Activity {
                         message.append("\n--- GakumasCapture初期化ログ ---\n")
                             .append(lastInjectionLog).append("\n");
                     message.append("\n診断JSONには各ファイルの取得状態も含まれます。");
-                    String shown = message.toString();
+                    String shown = "PID: " + lastPreflight.get("gamePid")
+                        + "\nNative: " + init.optString("status","未確認")
+                        + "\n取得: " + liveFiles.size()
+                        + "\n差分: " + comparison.getJSONArray("differences").length();
                     lastScreenState = shown;
                     main.post(() -> display.setText(shown));
                 }
