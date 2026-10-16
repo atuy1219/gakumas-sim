@@ -66,6 +66,16 @@ public final class CaptureExportActivity extends Activity {
             "取得モードの変更はゲームの完全終了・再起動後に反映されます。"
             +"最新Build IDでは開始診断のみ対応しています。未対応の詳細フックは動作しません。");
 
+        LinearLayout current=CaptureUi.card(this,root,"記録状況",
+            "診断結果とエクスポートのメッセージ");
+        CaptureUi.button(this,current,"記録状況を再読込",this::refresh);
+        statusView=CaptureUi.secondary(this,
+            "取得状況は未確認です。必要な記録を有効にしたあと確認してください。",14);
+        statusView.setTextIsSelectable(true);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
+        sp.topMargin=CaptureUi.dp(this,14);
+        current.addView(statusView,sp);
+
         LinearLayout replay=CaptureUi.card(this,root,"オーディション・リプレイ",
             "現在のソースビルドにはランキングリプレイ用のネイティブフックがありません。"
             +"旧版の記録ファイルを読み出すことはできます。");
@@ -87,15 +97,6 @@ public final class CaptureExportActivity extends Activity {
         CaptureUi.button(this,detail,"詳細ログを保存",()->prepareExport(false,true),true);
         CaptureUi.button(this,detail,"前回分の詳細ログを保存",()->prepareExport(true,true));
 
-        LinearLayout current=CaptureUi.card(this,root,"記録状況",
-            "診断結果とエクスポートのメッセージ");
-        CaptureUi.button(this,current,"記録状況を再読込",this::refresh);
-        statusView=CaptureUi.secondary(this,
-            "取得状況は未確認です。必要な記録を有効にしたあと確認してください。",14);
-        statusView.setTextIsSelectable(true);
-        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
-        sp.topMargin=CaptureUi.dp(this,14);
-        current.addView(statusView,sp);
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
@@ -154,7 +155,7 @@ public final class CaptureExportActivity extends Activity {
                 if(actual!=32768||!boot.optBoolean("nativeApiAccepted")) {
                     runOnUiThread(()->statusView.setText(
                         "実行中の取得機能: "+friendlyMode(actual)
-                        +"。リプレイ取得を選択し、学マスを再起動してください。"));
+                        +"。このソースビルドではリプレイ取得フックは未実装です。設定を変更しても有効になりません。"));
                     return;
                 }
                 JSONObject st=new JSONObject(new String(
