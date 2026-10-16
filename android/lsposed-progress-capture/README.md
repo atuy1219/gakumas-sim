@@ -1,3 +1,30 @@
+## v1.7.1-symbol-probe: guarded support for a newly supplied ELF (2026-10-16)
+
+The provided AArch64 symbolized ELF has GNU Build ID
+`5ac77881a1242477b5bf6bd928ce8c1765a55f2f`, different from the
+v3.4.1 build (`77fda4e2a21f23954e2349b83fc113ede408f70b`).
+A new **opt-in, read-only SetUpExam origin probe** is available **only**
+with the **試験開始の診断** mask (`128`). Its symbol RVA is
+`0x0815C230`; the probe forwards the native original once and records
+up to 128 unclassified calls and caller-return RVAs. It does not call
+game methods to infer mode or inspect object contents.
+
+**Full capture on the new Build ID is not yet supported.**
+Detailed contest, status effects, RNG origins, saved detail logs, and the
+missing v1.6.5 ranking replay callbacks are **not** enabled by this
+compatibility change. Combined masks fail closed on the new image,
+rather than silently using old offsets. Old v3.4.1 behavior is unchanged.
+A successful install/signature or CI build is not proof of live-game
+compatibility; native hooks can crash the game. Retain a backup of
+your working installation. The new probe itself has not yet been tested
+on-device.
+
+See [symbol evidence](../../docs/gakumas-2026-10-16-symbol-compatibility.md)
+and use `tools/verify_gakumas_symbol_build.py` to validate the symbol table
+on a future ELF without uploading proprietary game files.
+
+---
+
 ## v1.7.0-source: rebuilt from Java and C++ sources
 
 This variant is compiled from the checked-in Java and native C++ sources
