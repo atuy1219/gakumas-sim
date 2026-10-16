@@ -196,6 +196,7 @@ std::atomic<unsigned> g_replay_events{0};
 std::atomic<unsigned> g_replay_sessions{0};
 std::atomic<unsigned> g_replay_drops{0};
 std::mutex g_replay_mutex;
+std::map<std::string,int64_t> g_recent_replay_records;
 std::mutex g_entry_probe_mutex;
 // Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
 // Enable one group at a time to isolate fatal native object corruption.
@@ -1771,14 +1772,26 @@ void replay_status(){
      <<",\"rankingOriginVerified\":false,\"gameCaptureVerified\":false}\n";
     atomic_write(current_trace_path("ranking_replay_capture_status.json"),o.str());
 }
-void replay_append(std::string&& data){
+bool replay_append(std::string&& data){
     std::lock_guard<std::mutex> lk(g_replay_mutex);
     if(g_replay_events.load()>=2048 || data.size()>65536){
-        g_replay_drops.fetch_add(1);return;
+        g_replay_drops.fetch_add(1);return false;
     }
+    // Repeated UI renders call both getters for the same replay.
+    // Compare content, not the timestamp; allow genuine later replays.
+    std::string key=data;
+    size_t timeStart=key.find(",\"observedAtUnixMs\":");
+    if(timeStart!=std::string::npos){
+        size_t timeEnd=key.find(',',timeStart+1);
+        if(timeEnd!=std::string::npos)key.erase(timeStart,timeEnd-timeStart);
+    }
+    const int64_t now=unix_time_ms();
+    const auto previous=g_recent_replay_records.find(key);
+    if(previous!=g_recent_replay_records.end() &&
+        now>=previous->second && now-previous->second<8000)return false;
     const std::string path=current_trace_path("ranking_replay_capture.jsonl");
     int fd=::open(path.c_str(),O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
-    if(fd<0){g_replay_drops.fetch_add(1);return;}
+    if(fd<0){g_replay_drops.fetch_add(1);return false;}
     struct stat st{};
     bool good=::fstat(fd,&st)==0 && S_ISREG(st.st_mode) && st.st_nlink==1
               && st.st_size<8*1024*1024;
@@ -1792,9 +1805,14 @@ void replay_append(std::string&& data){
     }
     ::close(fd);
     if(good){
+        if(g_recent_replay_records.size()>=32)g_recent_replay_records.erase(g_recent_replay_records.begin());
+        g_recent_replay_records[key]=now;
         unsigned count=g_replay_events.fetch_add(1)+1;
         if(count==1 || count%16==0)replay_status();
-    }else g_replay_drops.fetch_add(1);
+        return true;
+    }
+    g_replay_drops.fetch_add(1);
+    return false;
 }
 bool replay_context_audition(void* context,int32_t& exam_type,int32_t& step_type){
     auto p=reinterpret_cast<uintptr_t>(context);
@@ -1897,9 +1915,10 @@ void* hooked_replay_log(void* context,int32_t player,const void* method){
           <<",\"playLog\":{\"complete\":"<<(ok?"true":"false")
           <<",\"actionCount\":"<<recorded<<",\"expectedCount\":"<<count
           <<",\"actions\":"<<actions.str()<<"}}";
-    replay_append(record.str());
-    g_replay_sessions.fetch_add(1);
-    replay_status();
+    if(replay_append(record.str())){
+        g_replay_sessions.fetch_add(1);
+        replay_status();
+    }
     return result;
 }
 void install_current_replay(const ImageInfo& image){
