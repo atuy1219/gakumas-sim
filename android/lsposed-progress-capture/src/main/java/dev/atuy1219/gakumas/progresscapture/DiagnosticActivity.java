@@ -704,6 +704,10 @@ public final class DiagnosticActivity extends Activity {
                 fileSummary.append("su機能検出: ").append(lastPreflight.get("suHelpStatus")).append("\n");
                 fileSummary.append("ゲームPID: ").append(lastPreflight.get("gamePid")).append("\n");
                 fileSummary.append("設定済みフックマスク: ").append(lastPreflight.get("hookMask")).append("\n");
+                if ("32768".equals(lastPreflight.get("hookMask")))
+                    fileSummary.append("注意: リプレイ用設定は現在のソース版に未実装です。"
+                        + "Native側で拒否されて有効設定0になり、記録されません。"
+                        + "設定タブから開始診断または安全モードを選んでください。\n");
                 fileSummary.append("ゲーム内Nativeライブラリ: ")
                     .append(lastPreflight.get("moduleLibraryMapped")).append("\n");
                 fileSummary.append("IL2CPPライブラリ: ")
