@@ -1812,12 +1812,14 @@ void* hooked_replay_data(void* context,int32_t player,const void* method){
     bool ok=replay_read(ptr+0x14,seed) &&
             replay_read(ptr+0x38,limit_turn) &&
             replay_read(ptr+0xa4,is_replay);
-    // We never interpret memory as a replay if the model itself says no.
-    if(!ok || !is_replay)return result;
+    // The call is from ExamReplayContext; preserve the model flag rather than
+    // assuming it was set when GetExamData returned.
+    if(!ok)return result;
     std::ostringstream record;
     record<<replay_base(context,player,"ranking-replay-setup",exam,step)
           <<",\"seed\":"<<seed<<",\"limitTurn\":"<<limit_turn
-          <<",\"isReplay\":true,\"setupAvailable\":true}";
+          <<",\"isReplay\":"<<(is_replay?"true":"false")
+          <<",\"setupAvailable\":true}";
     replay_append(record.str());
     return result;
 }
