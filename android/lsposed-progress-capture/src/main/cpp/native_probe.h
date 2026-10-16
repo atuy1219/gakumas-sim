@@ -11,8 +11,9 @@ constexpr unsigned kSelfTest = 256;
 constexpr unsigned kMode = 512, kEndPaths = 1024, kClone = 2048, kExecution = 4096;
 constexpr unsigned kDetailLog = 8192;
 constexpr unsigned kRngOrigin = 16384;
-constexpr unsigned kCurrentTrace = 65536; // verified current ELF, explicit opt-in // Optional, selected-contest card-move RNG provenance
-constexpr unsigned kAllowed = kSetupProbe | kSelfTest | kMode | kEndPaths | kClone | kExecution | kDetailLog | kRngOrigin | kCurrentTrace;
+constexpr unsigned kCurrentTrace = 65536;
+constexpr unsigned kReplay = 131072; // Optional, selected-contest card-move RNG provenance
+constexpr unsigned kAllowed = kSetupProbe | kSelfTest | kMode | kEndPaths | kClone | kExecution | kDetailLog | kRngOrigin | kCurrentTrace | kReplay;
 inline bool parse_mask(const std::string& text, unsigned& mask) {
     size_t i = 0;
     while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
