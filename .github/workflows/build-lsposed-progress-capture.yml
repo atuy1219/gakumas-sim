@@ -35,8 +35,13 @@ jobs:
             'build-tools;35.0.1' \
             'ndk;27.2.12479018'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-      - name: Build signed APK
-        run: bash android/lsposed-progress-capture/build-apk.sh
+      - name: Build signed APK from Java and C++ source
+        run: bash android/lsposed-progress-capture/build-source-apk.sh
+      - name: Assert APK build is the current source release
+        shell: bash
+        run: |
+          test -s android/lsposed-progress-capture/out/gakumas-progress-capture-v1.7.1-symbol-probe.apk
+          test -s android/lsposed-progress-capture/out/gakumas-progress-capture-v1.7.1-symbol-probe.apk.sha256
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
