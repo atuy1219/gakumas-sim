@@ -69,7 +69,7 @@ int main() {
 #include <cassert>
 int main() {
     unsigned mask = 99;
-    for (const auto* text : {"0", "128\n", "256", " 384 \n", "4224", "7808", "8192", "20608"})
+    for (const auto* text : {"0", "128\n", "256", " 384 \n", "4224", "7808", "8192", "20608", "65536", "131072"})
         assert(native_probe::parse_mask(text, mask));
     for (const auto* text : {"", "1", "32", "127", "129", "-128",
                             "513", "4294967296", "128junk", "128 256"})
