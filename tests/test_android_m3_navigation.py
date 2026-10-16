@@ -61,6 +61,22 @@ class TabNavigationTests(unittest.TestCase):
         self.assertIn('mask==131072',ui)
         self.assertIn('現在のリプレイ形式ではありません',ui)
 
+    def test_replay_export_and_labels(self):
+        capture=(EXPORT/"CaptureExportActivity.java").read_text()
+        diagnostic=(MAIN/"DiagnosticActivity.java").read_text()
+        native=(ROOT/"android/lsposed-progress-capture/src/main/cpp/progress_capture.cpp").read_text()
+        self.assertIn('"オーディション・リプレイ"',capture)
+        self.assertIn('"リプレイ取得を有効化"',capture)
+        self.assertIn('"取得状況を確認"',capture)
+        self.assertIn('"リプレイJSONを保存"',capture)
+        self.assertIn('"前回の記録を保存"',capture)
+        self.assertNotIn("replay_action_enums.json",capture)
+        self.assertIn("g_recent_replay_records",native)
+        self.assertIn("now-previous->second<8000",native)
+        self.assertIn("if(replay_append(record.str()))",native)
+        self.assertIn('detailsButton.setText(detailedMode?',diagnostic)
+        self.assertIn("detailedScreenState = message.toString()",diagnostic)
+
     def test_version_and_theme_are_consistent(self):
         manifest=(ROOT/"android/lsposed-progress-capture/AndroidManifest.xml").read_text()
         prop=(ROOT/"android/lsposed-progress-capture/src/main/resources/META-INF/xposed/module.prop").read_text()
