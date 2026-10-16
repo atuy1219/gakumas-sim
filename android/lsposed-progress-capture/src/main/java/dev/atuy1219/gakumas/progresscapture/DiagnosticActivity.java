@@ -66,6 +66,8 @@ public class DiagnosticActivity extends Activity {
         "exam_entry_probe_status.json",
         "exam_entry_probes.jsonl",
         "exam_hook_trace_status.json",
+        "ranking_replay_capture_status.json",
+        "ranking_replay_capture.jsonl",
         "exam_runtime_inventory.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
@@ -125,8 +127,7 @@ public class DiagnosticActivity extends Activity {
         LinearLayout shell=CaptureUi.shell(this);
         CaptureUi.applyWindow(this,shell);
         setContentView(shell);
-        CaptureUi.header(this,shell,"学マス キャプチャ",
-            "端末の状態・取得モードを確認");
+        CaptureUi.header(this,shell,"学マス","");
         tabHost=new LinearLayout(this);
         tabHost.setOrientation(LinearLayout.VERTICAL);
         shell.addView(tabHost);
@@ -134,17 +135,13 @@ public class DiagnosticActivity extends Activity {
 
         LinearLayout diagnostics=CaptureUi.scrollContent(this,shell);
         diagnosticPage=(View)diagnostics.getParent();
-        CaptureUi.info(this,diagnostics,
-            "表示中は2.5秒ごとに記録を確認します。古いPIDの記録と現在のプロセスを区別します。"
-            +"ゲーム全体の再現性は検証されていません。");
-        LinearLayout actions=CaptureUi.card(this,diagnostics,"診断",
-            "ゲーム内Native初期化・保存ファイル・Hook実行状況");
+        
+        LinearLayout actions=CaptureUi.card(this,diagnostics,"診断","");
         CaptureUi.button(this,actions,"再読込",this::checkCapture,true);
         CaptureUi.button(this,actions,"診断JSONを書き出す",this::exportReport);
         CaptureUi.button(this,actions,"診断表示をコピー",()->copyDiagnostic(false));
         CaptureUi.button(this,actions,"初期化JSONをコピー",()->copyDiagnostic(true));
-        LinearLayout data=CaptureUi.card(this,diagnostics,"実機診断結果",
-            "現在のPIDと以前の取得記録を混同しないよう表示します。");
+        LinearLayout data=CaptureUi.card(this,diagnostics,"結果","");
         display=CaptureUi.secondary(this,"まだ診断していません。Rootアクセスが必要です。",13);
         display.setTextIsSelectable(true);
         display.setGravity(Gravity.START);
@@ -152,26 +149,22 @@ public class DiagnosticActivity extends Activity {
 
         LinearLayout settings=CaptureUi.scrollContent(this,shell);
         settingsPage=(View)settings.getParent();
-        CaptureUi.info(this,settings,
-            "最新ゲームBuild IDでは「試験開始の診断」と「実機Hook取得」に対応しています。"
-            +"オーディション・リプレイ取得はこのソース版に実装されていません。");
-        LinearLayout hookCard=CaptureUi.card(this,settings,"取得機能",
-            "機能を選択するとゲームの完全終了・再起動後に反映されます。");
-        CaptureUi.button(this,hookCard,"取得モードを選択",this::chooseHookMode,true);
-        CaptureUi.button(this,hookCard,"安全モード（Hookを無効化）",
+        
+        LinearLayout hookCard=CaptureUi.card(this,settings,"取得","");
+        CaptureUi.button(this,hookCard,"モード",this::chooseHookMode,true);
+        CaptureUi.button(this,hookCard,"停止",
             ()->CaptureUi.confirm(this,"フックを無効化",
-                "次のゲーム起動からゲーム関数のHookを無効にします。",
+                "再起動後に反映します。",
                 "無効にする",()->saveHookMode(0)));
-        LinearLayout debugCard=CaptureUi.card(this,settings,"トラブルシューティング",
-            "Root権限・SELinux・ゲームデータへのアクセスを確認します。");
-        CaptureUi.button(this,debugCard,"LSPosed初期化ログを取得",this::collectInjectionLogs);
-        CaptureUi.button(this,debugCard,"保存先の権限を修復",
+        LinearLayout debugCard=CaptureUi.card(this,settings,"修復","");
+        CaptureUi.button(this,debugCard,"初期化ログ",this::collectInjectionLogs);
+        CaptureUi.button(this,debugCard,"権限修復",
             ()->CaptureUi.confirm(this,"学マスの診断ファイル保存先を修復",
                 "診断専用ディレクトリとHook設定ファイルの所有者・SELinuxラベルのみを修復します。"
                 +"既存のHook設定は安全モードに戻します。ゲームのセーブデータは変更しません。",
                 "修復する",this::repairCaptureDirectory));
-        CaptureUi.button(this,debugCard,"診断タブを開く",()->selectTab(1));
-        settingFeedback=CaptureUi.secondary(this,"設定変更の結果がここに表示されます。",14);
+        
+        settingFeedback=CaptureUi.secondary(this,"",14);
         settingFeedback.setTextIsSelectable(true);
         LinearLayout.LayoutParams feedback=new LinearLayout.LayoutParams(-1,-2);
         feedback.topMargin=CaptureUi.dp(this,12);
@@ -228,38 +221,22 @@ public class DiagnosticActivity extends Activity {
     }
 
     private void chooseHookMode() {
-        final String[] names = {
-            "無効（安全）",
-            "フック動作確認",
-            "試験開始の診断（新Build ID対応）",
-            "実機Hook取得（新Build ID対応）",
-            "コンテスト記録（旧Build ID専用）",
-            "コンテスト＋乱数診断（旧Build ID専用）",
-            "保存済み詳細ログ（旧Build ID専用）"
-        };
-        final int[] internalMasks={0,256,128,65536,4224,20608,8192};
-        CaptureUi.choose(this,"取得機能を選択",names,index->{
-            if(index<0||index>=internalMasks.length)return;
-            int mode=internalMasks[index];
-            if(mode==0) { saveHookMode(0); return; }
-            CaptureUi.confirm(this,names[index],
-                "ゲームの再起動後に反映されます。新しいBuild IDでは開始診断・実機Hookトレースのみ対応します。"
-                +"旧版用Hookは異なるゲームバージョンでは使用できません。",
-                "この機能を使う",()->saveHookMode(mode));
+        final String[] names={"無効","リプレイ","Hook","開始診断","自己テスト"};
+        final int[] masks={0,131072,65536,128,256};
+        CaptureUi.choose(this,"取得",names,index->{
+            if(index<0||index>=masks.length)return;
+            saveHookMode(masks[index]);
         });
     }
 
-    private static String hookModeName(int mode) {
-        switch(mode) {
-            case 0:return "無効（安全）";
-            case 256:return "フック動作確認";
-            case 128:return "試験開始の診断";
-            case 65536:return "実機Hookトレース";
-            case 4224:return "コンテスト記録";
-            case 20608:return "コンテスト・乱数の詳細診断";
-            case 8192:return "保存済み詳細ログ";
-            case 32768:return "オーディション・リプレイ";
-            default:return "その他のモード";
+    private static String hookModeName(int mask) {
+        switch(mask){
+            case 0:return "無効";
+            case 131072:return "リプレイ";
+            case 65536:return "Hook";
+            case 128:return "開始診断";
+            case 256:return "自己テスト";
+            default:return "その他";
         }
     }
 
@@ -710,10 +687,6 @@ public class DiagnosticActivity extends Activity {
                 fileSummary.append("su機能検出: ").append(lastPreflight.get("suHelpStatus")).append("\n");
                 fileSummary.append("ゲームPID: ").append(lastPreflight.get("gamePid")).append("\n");
                 fileSummary.append("設定済みフックマスク: ").append(lastPreflight.get("hookMask")).append("\n");
-                if ("32768".equals(lastPreflight.get("hookMask")))
-                    fileSummary.append("注意: リプレイ用設定は現在のソース版に未実装です。"
-                        + "Native側で拒否されて有効設定0になり、記録されません。"
-                        + "設定タブから開始診断または安全モードを選んでください。\n");
                 fileSummary.append("ゲーム内Nativeライブラリ: ")
                     .append(lastPreflight.get("moduleLibraryMapped")).append("\n");
                 fileSummary.append("IL2CPPライブラリ: ")
