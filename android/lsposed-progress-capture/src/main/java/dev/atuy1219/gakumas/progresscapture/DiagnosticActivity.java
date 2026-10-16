@@ -67,7 +67,6 @@ public class DiagnosticActivity extends Activity {
         "exam_entry_probes.jsonl",
         "exam_hook_trace_status.json",
         "ranking_replay_capture_status.json",
-        "ranking_replay_capture.jsonl",
         "exam_runtime_inventory.json",
         "produce_cards.json",
         "exam_seed_trace.jsonl"
