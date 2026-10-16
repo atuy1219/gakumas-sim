@@ -157,7 +157,10 @@ int main(){
  machine.put<int32_t>(0,-1);blocked=true;auto before=written;move(machine.data,methodInfo);
  assert(written==before && moved==7 && returned==8);blocked=false;
  // Bounded file stops writing, exposes a drop; no misleading success count.
- fileBytes=kFileLimit;machine.put<int32_t>(0,-1);move(machine.data,methodInfo);
+ // Exhaust the final segment of the 8 x 32 MiB bounded writer.
+ // Setting only total fileBytes no longer hits the multipart limit.
+ segmentIndex=kMaxSegments-1;segmentBytes=kFileLimit;fileBytes=kFileLimit*kMaxSegments;
+ machine.put<int32_t>(0,-1);move(machine.data,methodInfo);
  assert(written==before && drops==3);
  bool ok=true;readBudget=4096;assert(objectList(turnList.addr(),128,turn,ok)=="null" && !ok);
 }
