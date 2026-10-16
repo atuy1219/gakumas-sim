@@ -138,7 +138,7 @@ class RngOriginProbeTests(unittest.TestCase):
         ui = (ROOT / "android/lsposed-progress-capture/src/main/java/dev/atuy1219/gakumas/progresscapture/DiagnosticActivity.java").read_text()
         main = (CPP / "progress_capture.cpp").read_text()
         self.assertIn("kRngOrigin = 16384", parser)
-        self.assertIn("20608", ui)
+        self.assertNotIn("20608", ui)  # unsupported old-client UI hidden
         self.assertIn('#include "contest_rng_origin.inc"', main)
         self.assertIn("contest_rng_origin::install(image);", main)
 
