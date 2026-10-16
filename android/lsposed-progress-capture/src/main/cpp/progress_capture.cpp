@@ -465,7 +465,7 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"expectedBuildId\": \"" << (build_id == kCurrentBuildId ? kCurrentBuildId : kV341BuildId) << "\",\n"
         << "  \"buildIdCheck\": \"" << (build_id.empty() ? "pending" :
             (build_id == kV341BuildId || build_id == kCurrentBuildId) ? "matched" : "mismatch") << "\",\n"
-        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? (g_hook_mask.load()==native_probe::kCurrentTrace ? "current-exam-event-trace" : "current-setup-probe-only") :
+        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? (g_hook_mask.load()==65536u ? "current-exam-event-trace" : "current-setup-probe-only") :
             build_id == kV341BuildId ? "v3.4.1" : "unsupported") << "\",\n"
         << "  \"gameCaptureVerified\": false,\n"
         << "  \"hooks\": {"
