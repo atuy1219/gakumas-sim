@@ -1,3 +1,34 @@
+## v1.7.2-m3-tabs: consistent visual design and tab navigation
+
+Both launcher and diagnostic screens now use the same Android Views-based
+**Material 3-style** design: wallpaper-derived colors on Android 12+, a
+light/dark contrast-aware palette, tonal cards, rounded buttons and modal
+surfaces, and Android system-bar insets.
+
+Use the **記録 / 診断 / 設定** tabs at the top of either screen:
+- **記録:** contest/replay/detail-log exports, last/current recordings and status.
+- **診断:** native bootstrap and per-PID status, diagnostic JSON export,
+  file inventory and copy actions.
+- **設定:** named hook modes, safe mode, root/SELinux repair and
+  initialization log collection.
+
+All previously available export and diagnostics actions remain exposed.
+The native capture core and game Build ID guards are unchanged by this UI
+work. In v1.7.2, **ranking replay capture cannot be enabled**: the
+source-built native library does not contain v1.6.5's ranking hooks and the
+old 32768 flag is rejected by the source-build mask parser. This was observed
+on-device with configured mask 32768 and effective mask 0. The UI now
+explains the incompatibility without writing a broken configuration. Existing
+replay exports are retained.
+
+The design uses source-owned Android framework views, not the official
+Google Material Components/Compose library. Do not claim its widgets are
+Google Material Components or that every visual state is pixel-identical to
+Compose Material 3. The UI needs final device visual validation.
+A valid signed APK and CI tests do not verify game hooks.
+
+---
+
 ## v1.7.1-symbol-probe: guarded support for a newly supplied ELF (2026-10-16)
 
 The provided AArch64 symbolized ELF has GNU Build ID
