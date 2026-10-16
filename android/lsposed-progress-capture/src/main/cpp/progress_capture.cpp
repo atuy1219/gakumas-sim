@@ -42,6 +42,14 @@ constexpr const char* kV341BuildId = "77fda4e2a21f23954e2349b83fc113ede408f70b";
 // entry probe is supported; all v3.4.1 capture modes remain gated off.
 constexpr const char* kCurrentBuildId = "5ac77881a1242477b5bf6bd928ce8c1765a55f2f";
 constexpr uintptr_t kCurrentSetUpExamRva = 0x0815C230;
+// Confirmed by disassembling the *same* 5ac77881 ELF: the RNG functions
+// load/store the state field at x0+0x77c. Other field layouts are not reused.
+constexpr uintptr_t kCurrentStartExamRva = 0x0815F6F4;
+constexpr uintptr_t kCurrentDisposeRva = 0x0816B160;
+constexpr uintptr_t kCurrentRandomNoArgRva = 0x08144594;
+constexpr uintptr_t kCurrentRandomRangeRva = 0x0814468C;
+constexpr uintptr_t kCurrentMovePlayCardRva = 0x0833AE9C;
+constexpr size_t kCurrentRngStateOffset = 0x77c;
 // Verified by global-metadata.dat v31 token -> Assembly-CSharp.dll
 // Il2CppCodeGenModule.methodPointers -> ELF R_AARCH64_RELATIVE.
 constexpr uintptr_t kV341ExamSequenceStart = 0x080A5354;
@@ -167,6 +175,18 @@ std::atomic<bool> g_entry_probe_installed{false};
 std::atomic<unsigned> g_entry_probe_events{0};
 std::atomic<unsigned> g_entry_probe_calls{0};
 std::atomic<unsigned> g_entry_probe_written{0};
+constexpr unsigned kCurrentTraceMaxEvents=12000;
+constexpr uint64_t kCurrentTraceMaxBytes=8ull*1024*1024;
+std::atomic<unsigned> g_current_trace_events{0};
+std::atomic<unsigned> g_current_trace_dropped{0};
+std::atomic<uint64_t> g_current_trace_bytes{0};
+std::mutex g_current_trace_mutex;
+std::atomic<bool> g_current_trace_setup_installed{false};
+std::atomic<bool> g_current_trace_start_installed{false};
+std::atomic<bool> g_current_trace_dispose_installed{false};
+std::atomic<bool> g_current_trace_rng_installed{false};
+std::atomic<bool> g_current_trace_rng_range_installed{false};
+std::atomic<bool> g_current_trace_card_installed{false};
 std::mutex g_entry_probe_mutex;
 // Fail-safe hook groups for the 3.4.1 client. Default 0 installs NO hooks.
 // Enable one group at a time to isolate fatal native object corruption.
@@ -445,7 +465,7 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"expectedBuildId\": \"" << (build_id == kCurrentBuildId ? kCurrentBuildId : kV341BuildId) << "\",\n"
         << "  \"buildIdCheck\": \"" << (build_id.empty() ? "pending" :
             (build_id == kV341BuildId || build_id == kCurrentBuildId) ? "matched" : "mismatch") << "\",\n"
-        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? "current-setup-probe-only" :
+        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? (g_hook_mask.load()==native_probe::kCurrentTrace ? "current-exam-event-trace" : "current-setup-probe-only") :
             build_id == kV341BuildId ? "v3.4.1" : "unsupported") << "\",\n"
         << "  \"gameCaptureVerified\": false,\n"
         << "  \"hooks\": {"
@@ -1507,6 +1527,198 @@ void hooked_sequence_setup_current(void* sequence, void* data, const void* metho
     if (call <= 8 || call % 16 == 0) write_current_setup_status(true);
 }
 
+
+// Current-client event stream. Everything below is gated to the exact
+// 5ac77881 ELF and an explicit mask; legacy symbols/layouts are not used.
+// This captures real function invocations, NOT a verified ranking replay.
+using CurrentStartFn = void (*)(void*,const void*);
+using CurrentMoveFn = void (*)(void*,void*,void*,const void*);
+CurrentStartFn g_current_orig_start=nullptr;
+CurrentStartFn g_current_orig_dispose=nullptr;
+RandomNoArgFn g_current_orig_rng=nullptr;
+RandomRangeFn g_current_orig_rng_range=nullptr;
+CurrentMoveFn g_current_orig_move=nullptr;
+SetupExamFn g_current_orig_setup=nullptr;
+
+std::string current_trace_path(const char* name) {
+    return "/data/user/" + std::to_string(getuid()/100000) + "/" +
+           kTargetPackage + "/files/gakumas-sim/" + name;
+}
+bool current_read_rng_state(void* self, uint32_t& value) {
+    if (reinterpret_cast<uintptr_t>(self)<0x10000 ||
+        reinterpret_cast<uintptr_t>(self)>UINTPTR_MAX-kCurrentRngStateOffset)
+        return false;
+    iovec local{&value,sizeof(value)};
+    iovec remote{reinterpret_cast<uint8_t*>(self)+kCurrentRngStateOffset,sizeof(value)};
+    // Cross-memory copy returns EFAULT instead of crashing for stale pointers.
+    return ::syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0)
+           ==static_cast<ssize_t>(sizeof(value));
+}
+uintptr_t current_caller_rva(void* pc) {
+    const uintptr_t address=reinterpret_cast<uintptr_t>(pc);
+    const uintptr_t base=g_il2cpp_base.load(std::memory_order_acquire);
+    return base && address>=base ? address-base : 0;
+}
+void current_trace_status() {
+    const std::string path=current_trace_path("exam_hook_trace_status.json");
+    std::ostringstream out;
+    out<<"{\"schemaVersion\":1,\"pid\":"<<getpid()
+       <<",\"libil2cppBuildId\":\""<<kCurrentBuildId<<"\""
+       <<",\"hookMask\":"<<g_hook_mask.load()
+       <<",\"setupInstalled\":"<<(g_current_trace_setup_installed.load()?"true":"false")
+       <<",\"startInstalled\":"<<(g_current_trace_start_installed.load()?"true":"false")
+       <<",\"disposeInstalled\":"<<(g_current_trace_dispose_installed.load()?"true":"false")
+       <<",\"rngInstalled\":"<<(g_current_trace_rng_installed.load()?"true":"false")
+       <<",\"rngRangeInstalled\":"<<(g_current_trace_rng_range_installed.load()?"true":"false")
+       <<",\"cardMoveInstalled\":"<<(g_current_trace_card_installed.load()?"true":"false")
+       <<",\"recordsWritten\":"<<g_current_trace_events.load()
+       <<",\"limitDrops\":"<<g_current_trace_dropped.load()
+       <<",\"eventBytes\":"<<g_current_trace_bytes.load()
+       <<",\"modeVerified\":false"
+       <<",\"captureCapability\":\"function-events-rng-state-card-pointers\""
+       <<",\"gameCaptureVerified\":false}\n";
+    atomic_write(path,out.str());
+}
+void current_trace_append(const char* name, uintptr_t source, const std::string& extra="") {
+    if (g_hook_mask.load(std::memory_order_relaxed)!=native_probe::kCurrentTrace) return;
+    std::lock_guard<std::mutex> guard(g_current_trace_mutex);
+    if (g_current_trace_events.load()>=kCurrentTraceMaxEvents ||
+        g_current_trace_bytes.load()>=kCurrentTraceMaxBytes) {
+        g_current_trace_dropped.fetch_add(1);
+        return;
+    }
+    std::ostringstream out;
+    out<<"{\"schemaVersion\":1,\"event\":\""<<name<<"\""
+       <<",\"pid\":"<<getpid()<<",\"tid\":"<<gettid()
+       <<",\"atUnixMs\":"<<unix_time_ms()
+       <<",\"sequence\":"<<g_current_trace_events.load()
+       <<",\"callerReturnRva\":";
+    if (source)out<<"\""<<hex_value(source)<<"\"";
+    else out<<"null";
+    out<<",\"modeVerified\":false,\"dataSource\":\"native-hook\""
+       <<",\"libil2cppBuildId\":\""<<kCurrentBuildId<<"\"";
+    if(!extra.empty())out<<","<<extra;
+    out<<"}\n";
+    const std::string line=out.str();
+    if(g_current_trace_bytes.load()+line.size()>kCurrentTraceMaxBytes){
+        g_current_trace_dropped.fetch_add(1);
+        return;
+    }
+    const std::string path=current_trace_path("exam_hook_trace.jsonl");
+    const int fd=::open(path.c_str(),O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(fd<0) {g_current_trace_dropped.fetch_add(1);return;}
+    struct stat st{};
+    bool success=::fstat(fd,&st)==0 && S_ISREG(st.st_mode) && st.st_nlink==1;
+    size_t offset=0;
+    while(success && offset<line.size()){
+        const ssize_t n=::write(fd,line.data()+offset,line.size()-offset);
+        if(n<0 && errno==EINTR)continue;
+        if(n<=0){success=false;break;}
+        offset+=static_cast<size_t>(n);
+    }
+    ::close(fd);
+    if(success){
+        const unsigned count=g_current_trace_events.fetch_add(1)+1;
+        g_current_trace_bytes.fetch_add(line.size());
+        if(count==1 || count%128==0)current_trace_status();
+    }else g_current_trace_dropped.fetch_add(1);
+}
+__attribute__((noinline))
+void hooked_current_trace_setup(void* sequence,void* data,const void* method){
+    const uintptr_t caller=current_caller_rva(__builtin_extract_return_addr(__builtin_return_address(0)));
+    current_trace_append("exam.setup.enter",caller,
+      "\"sequencePtr\":\""+hex_value(reinterpret_cast<uintptr_t>(sequence))+"\""
+      +",\"examDataPtr\":\""+hex_value(reinterpret_cast<uintptr_t>(data))+"\"");
+    g_current_orig_setup(sequence,data,method);
+    current_trace_append("exam.setup.return",caller);
+}
+__attribute__((noinline))
+void hooked_current_trace_start(void* sequence,const void* method){
+    const uintptr_t caller=current_caller_rva(__builtin_extract_return_addr(__builtin_return_address(0)));
+    current_trace_append("exam.start",caller,
+      "\"sequencePtr\":\""+hex_value(reinterpret_cast<uintptr_t>(sequence))+"\"");
+    g_current_orig_start(sequence,method);
+}
+__attribute__((noinline))
+void hooked_current_trace_dispose(void* sequence,const void* method){
+    const uintptr_t caller=current_caller_rva(__builtin_extract_return_addr(__builtin_return_address(0)));
+    current_trace_append("exam.dispose",caller,
+      "\"sequencePtr\":\""+hex_value(reinterpret_cast<uintptr_t>(sequence))+"\"");
+    g_current_orig_dispose(sequence,method);
+}
+void current_trace_rng_event(const char* label,void* model,uint32_t before,bool hasBefore,
+                             uint32_t after,bool hasAfter,int32_t result,
+                             const std::string& more,uintptr_t caller){
+    std::ostringstream fields;
+    fields<<"\"modelPtr\":\""<<hex_value(reinterpret_cast<uintptr_t>(model))
+          <<"\",\"value\":"<<result<<",\"stateBefore\":";
+    if(hasBefore)fields<<before;else fields<<"null";
+    fields<<",\"stateAfter\":";
+    if(hasAfter)fields<<after;else fields<<"null";
+    if(!more.empty())fields<<","<<more;
+    current_trace_append(label,caller,fields.str());
+}
+__attribute__((noinline))
+int32_t hooked_current_trace_rng(void* model,const void* method){
+    const uintptr_t caller=current_caller_rva(__builtin_extract_return_addr(__builtin_return_address(0)));
+    uint32_t before=0,after=0;
+    bool b=current_read_rng_state(model,before);
+    const int32_t result=g_current_orig_rng(model,method);
+    bool a=current_read_rng_state(model,after);
+    current_trace_rng_event("rng.next",model,before,b,after,a,result,"",caller);
+    return result;
+}
+__attribute__((noinline))
+int32_t hooked_current_trace_rng_range(void* model,int32_t min,int32_t max,const void* method){
+    const uintptr_t caller=current_caller_rva(__builtin_extract_return_addr(__builtin_return_address(0)));
+    uint32_t before=0,after=0;
+    bool b=current_read_rng_state(model,before);
+    const int32_t result=g_current_orig_rng_range(model,min,max,method);
+    bool a=current_read_rng_state(model,after);
+    current_trace_rng_event("rng.range",model,before,b,after,a,result,
+       "\"minimum\":"+std::to_string(min)+",\"maximumExclusive\":"+std::to_string(max),caller);
+    return result;
+}
+__attribute__((noinline))
+void hooked_current_trace_move(void* controller,void* card,void* context,const void* method){
+    const uintptr_t caller=current_caller_rva(__builtin_extract_return_addr(__builtin_return_address(0)));
+    current_trace_append("card.move.enter",caller,
+      "\"cardPtr\":\""+hex_value(reinterpret_cast<uintptr_t>(card))+"\""
+      +",\"contextPtr\":\""+hex_value(reinterpret_cast<uintptr_t>(context))+"\"");
+    g_current_orig_move(controller,card,context,method);
+    current_trace_append("card.move.return",caller);
+}
+void install_current_trace(const ImageInfo& image) {
+    if(!g_hook || !image.base || image.build_id!=kCurrentBuildId ||
+       g_hook_mask.load()!=native_probe::kCurrentTrace)return;
+    const std::string file=current_trace_path("exam_hook_trace.jsonl");
+    ensure_parent_dir(file);
+    // Preserve the previous process recording without mixing its PID.
+    ::rename(file.c_str(),current_trace_path("exam_hook_trace.previous.jsonl").c_str());
+    const auto install=[&](uintptr_t rva,void* replacement,void** original){
+        return install_hook(image.base+rva,replacement,original);
+    };
+    g_current_trace_setup_installed.store(install(kCurrentSetUpExamRva,
+        reinterpret_cast<void*>(hooked_current_trace_setup),
+        reinterpret_cast<void**>(&g_current_orig_setup)));
+    g_current_trace_start_installed.store(install(kCurrentStartExamRva,
+        reinterpret_cast<void*>(hooked_current_trace_start),
+        reinterpret_cast<void**>(&g_current_orig_start)));
+    g_current_trace_dispose_installed.store(install(kCurrentDisposeRva,
+        reinterpret_cast<void*>(hooked_current_trace_dispose),
+        reinterpret_cast<void**>(&g_current_orig_dispose)));
+    g_current_trace_rng_installed.store(install(kCurrentRandomNoArgRva,
+        reinterpret_cast<void*>(hooked_current_trace_rng),
+        reinterpret_cast<void**>(&g_current_orig_rng)));
+    g_current_trace_rng_range_installed.store(install(kCurrentRandomRangeRva,
+        reinterpret_cast<void*>(hooked_current_trace_rng_range),
+        reinterpret_cast<void**>(&g_current_orig_rng_range)));
+    g_current_trace_card_installed.store(install(kCurrentMovePlayCardRva,
+        reinterpret_cast<void*>(hooked_current_trace_move),
+        reinterpret_cast<void**>(&g_current_orig_move)));
+    current_trace_status();
+}
+
 void install_current_setup_probe(const ImageInfo& image) {
     // For now the newest Build ID accepts ONLY the named setup probe (128).
     // Combined contest/detail/replay masks MUST fail closed.
@@ -1937,12 +2149,16 @@ void install_il2cpp_hooks() {
 
     // Only install native game hooks when explicitly enabled. A tombstone
     // during ExamSequence.StartExam requires isolating hooks individually.
-    if (!hook_enabled(128) && !hook_enabled(8192)) {
+    if (!hook_enabled(128) && !hook_enabled(8192) &&
+        !hook_enabled(native_probe::kCurrentTrace)) {
         write_status(hook_enabled(256) ? "module-self-test-only" : "safe-mode-no-game-hooks", image.build_id);
         return;
     }
     if (image.build_id == kCurrentBuildId) {
-        if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kSetupProbe) {
+        if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kCurrentTrace) {
+            install_current_trace(image);
+            write_status("current-build-exam-trace-hook-install-attempted",image.build_id);
+        } else if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kSetupProbe) {
             install_current_setup_probe(image);
             write_status(g_entry_probe_installed.load()
                 ? "current-build-setup-probe-attempted" : "current-build-setup-probe-failed", image.build_id);
@@ -1953,6 +2169,10 @@ void install_il2cpp_hooks() {
     }
     if (image.build_id != kV341BuildId) {
         write_status("entry-probe-build-mismatch", image.build_id);
+        return;
+    }
+    if (hook_enabled(native_probe::kCurrentTrace)) {
+        write_status("current-exam-trace-requires-newer-build",image.build_id);
         return;
     }
     if (image.build_id == kV341BuildId && hook_enabled(128))
