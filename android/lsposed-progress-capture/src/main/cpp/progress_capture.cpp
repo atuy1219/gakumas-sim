@@ -1810,7 +1810,7 @@ void* hooked_replay_data(void* context,int32_t player,const void* method){
     int32_t limit_turn=0;
     uint8_t is_replay=0;
     bool ok=replay_read(ptr+0x14,seed) &&
-            replay_read(ptr+0x58,limit_turn) &&
+            replay_read(ptr+0x38,limit_turn) &&
             replay_read(ptr+0xa4,is_replay);
     // We never interpret memory as a replay if the model itself says no.
     if(!ok || !is_replay)return result;
