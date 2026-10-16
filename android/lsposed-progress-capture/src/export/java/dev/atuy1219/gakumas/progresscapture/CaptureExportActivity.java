@@ -343,6 +343,10 @@ public final class CaptureExportActivity extends DiagnosticActivity {
                 byte[] record = line.toByteArray();
                 line.reset();
                 JSONObject parsed = new JSONObject(new String(record, StandardCharsets.UTF_8));
+                if (request.replay && (parsed.optInt("schemaVersion",0) < 2 ||
+                    !"5ac77881a1242477b5bf6bd928ce8c1765a55f2f".equals(
+                        parsed.optString("libil2cppBuildId"))))
+                    throw new Exception("現在のリプレイ形式ではありません");
                 long pid = parsed.getLong("pid");
                 if (filePid == -1) filePid = pid;
                 if (pid != filePid || (expectedPid >= 0 && pid != expectedPid))
@@ -369,6 +373,15 @@ public final class CaptureExportActivity extends DiagnosticActivity {
             captureStatus = new JSONObject(new String(
                 readRoot(request.base + "_status.json", 65536), StandardCharsets.UTF_8));
             expectedPid = captureStatus.getLong("pid");
+            JSONObject boot = new JSONObject(new String(
+                readRoot("native_bootstrap_status.json", 65536), StandardCharsets.UTF_8));
+            if (expectedPid != boot.optLong("pid",-1))
+                throw new Exception("記録が古い状態です");
+            if(request.replay && (boot.optInt("effectiveHookMask") != 131072 ||
+                !captureStatus.optString("libil2cppBuildId").equals(
+                    "5ac77881a1242477b5bf6bd928ce8c1765a55f2f")))
+                throw new Exception("取得を有効にしてゲームを再起動");
+
         }
         writeUtf8(output, "{\"schemaVersion\":" + (request.detail || request.replay ? 1 : 2)
             + ",\"scope\":" + JSONObject.quote("exam_hook_trace".equals(request.base) ? "unclassified-exam-hook-trace" :
