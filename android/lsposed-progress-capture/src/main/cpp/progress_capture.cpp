@@ -37,6 +37,11 @@ constexpr const char* kTargetPackage = "com.bandainamcoent.idolmaster_gakuen";
 // Old card RVAs must never be assigned to the v3.4.1 image.
 constexpr const char* kLegacyCardBuildId = "c94ab574cfe2d62da43ec6167db4d96d429b18f8";
 constexpr const char* kV341BuildId = "77fda4e2a21f23954e2349b83fc113ede408f70b";
+// Symbol-derived from the user-provided ARM64 analysis ELF (2026-10-16).
+// This build has NOT been verified on-device. Only a read-only SetUpExam
+// entry probe is supported; all v3.4.1 capture modes remain gated off.
+constexpr const char* kCurrentBuildId = "5ac77881a1242477b5bf6bd928ce8c1765a55f2f";
+constexpr uintptr_t kCurrentSetUpExamRva = 0x0815C230;
 // Verified by global-metadata.dat v31 token -> Assembly-CSharp.dll
 // Il2CppCodeGenModule.methodPointers -> ELF R_AARCH64_RELATIVE.
 constexpr uintptr_t kV341ExamSequenceStart = 0x080A5354;
@@ -437,9 +442,11 @@ void write_status(const std::string& phase, const std::string& build_id = "", bo
         << "  \"maskReadStatus\": \"" << json_escape(g_mask_read_status) << "\",\n"
         << "  \"nativeApiAccepted\": " << (g_native_api_accepted.load() ? "true" : "false") << ",\n"
         << "  \"libil2cppBuildId\": \"" << json_escape(build_id) << "\",\n"
-        << "  \"expectedBuildId\": \"" << kV341BuildId << "\",\n"
+        << "  \"expectedBuildId\": \"" << (build_id == kCurrentBuildId ? kCurrentBuildId : kV341BuildId) << "\",\n"
         << "  \"buildIdCheck\": \"" << (build_id.empty() ? "pending" :
-            build_id == kV341BuildId ? "matched" : "mismatch") << "\",\n"
+            (build_id == kV341BuildId || build_id == kCurrentBuildId) ? "matched" : "mismatch") << "\",\n"
+        << "  \"compatibilityProfile\": \"" << (build_id == kCurrentBuildId ? "current-setup-probe-only" :
+            build_id == kV341BuildId ? "v3.4.1" : "unsupported") << "\",\n"
         << "  \"gameCaptureVerified\": false,\n"
         << "  \"hooks\": {"
         << "\"getProduceCardData\":" << (get_ok ? "true" : "false") << ","
@@ -1441,6 +1448,78 @@ void hooked_sequence_setup(void* sequence, void* data, const void* method) {
     write_entry_probe_status(true);
 }
 
+
+// New-build probe intentionally does not use v3.4.1 return-address filters,
+// native model layouts, status/effect collectors or DFS session state.
+// Only the instance pointer and the caller's relative PC are observed.
+// Do not classify the event as audition/contest/tower from this evidence.
+void write_current_setup_status(bool installed) {
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probe_status.json";
+    std::ostringstream out;
+    out << "{\"schemaVersion\":2,\"pid\":" << getpid()
+        << ",\"hook\":\"ExamSequence.SetUpExam\""
+        << ",\"rva\":\"0x0815C230\""
+        << ",\"libil2cppBuildId\":\"" << kCurrentBuildId << "\""
+        << ",\"installed\":" << (installed ? "true" : "false")
+        << ",\"callsObserved\":" << g_entry_probe_calls.load()
+        << ",\"recordedSamples\":" << g_entry_probe_written.load()
+        << ",\"captureCapability\":\"setup-origin-only\""
+        << ",\"gameCaptureVerified\":false"
+        << ",\"modeVerification\":\"unclassified\""
+        << ",\"oldBuildCallsitesUsed\":false}\n";
+    atomic_write(path, out.str());
+}
+
+__attribute__((noinline))
+void hooked_sequence_setup_current(void* sequence, void* data, const void* method) {
+    const uintptr_t caller = reinterpret_cast<uintptr_t>(
+        __builtin_extract_return_addr(__builtin_return_address(0)));
+    const uintptr_t base = g_il2cpp_base.load(std::memory_order_acquire);
+    const unsigned call = g_entry_probe_calls.fetch_add(1, std::memory_order_relaxed) + 1;
+    // One original call; no dereference, getter call, RNG draw, or state mutation.
+    g_original_sequence_setup(sequence, data, method);
+    if (call > 128) return;  // bounded, opt-in observation
+    const bool hasRva = base && caller >= base;
+    const std::string path = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
+        kTargetPackage + "/files/gakumas-sim/exam_entry_probes.jsonl";
+    std::ostringstream line;
+    line << "{\"schemaVersion\":2,\"event\":\"exam-setup-unclassified\""
+         << ",\"pid\":" << getpid() << ",\"tid\":" << gettid()
+         << ",\"observedAtUnixMs\":" << unix_time_ms()
+         << ",\"sequence\":\"" << hex_value(reinterpret_cast<uintptr_t>(sequence)) << "\""
+         << ",\"callerReturnRva\":";
+    if (hasRva) line << "\"" << hex_value(caller - base) << "\"";
+    else line << "null";
+    line << ",\"modeVerified\":false,\"managedObjectsRead\":false"
+         << ",\"callerClassification\":\"unverified-new-build\""
+         << ",\"libil2cppBuildId\":\"" << kCurrentBuildId << "\"}\n";
+    {
+        std::lock_guard<std::mutex> guard(g_entry_probe_mutex);
+        ensure_parent_dir(path);
+        std::ofstream out(path, std::ios::app | std::ios::binary);
+        if (out) {
+            out << line.str();
+            out.flush();
+        }
+        if (out) g_entry_probe_written.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (call <= 8 || call % 16 == 0) write_current_setup_status(true);
+}
+
+void install_current_setup_probe(const ImageInfo& image) {
+    // For now the newest Build ID accepts ONLY the named setup probe (128).
+    // Combined contest/detail/replay masks MUST fail closed.
+    if (!g_hook || image.build_id != kCurrentBuildId ||
+        g_hook_mask.load(std::memory_order_acquire) != native_probe::kSetupProbe) return;
+    if (g_entry_probe_installed.exchange(true)) return;
+    const bool installed = install_hook(image.base + kCurrentSetUpExamRva,
+        reinterpret_cast<void*>(hooked_sequence_setup_current),
+        reinterpret_cast<void**>(&g_original_sequence_setup));
+    write_current_setup_status(installed);
+    if (!installed) g_entry_probe_installed.store(false);
+}
+
 void install_scoped_exam_probe(const ImageInfo& image) {
     if (image.build_id != kV341BuildId || !hook_enabled(128)) return;
     if (g_entry_probe_installed.exchange(true)) return;
@@ -1861,6 +1940,16 @@ void install_il2cpp_hooks() {
     if (!hook_enabled(128) && !hook_enabled(8192)) {
         write_status(hook_enabled(256) ? "module-self-test-only" : "safe-mode-no-game-hooks", image.build_id);
         return;
+    }
+    if (image.build_id == kCurrentBuildId) {
+        if (g_hook_mask.load(std::memory_order_acquire) == native_probe::kSetupProbe) {
+            install_current_setup_probe(image);
+            write_status(g_entry_probe_installed.load()
+                ? "current-build-setup-probe-attempted" : "current-build-setup-probe-failed", image.build_id);
+        } else {
+            write_status("current-build-capture-mode-unsupported", image.build_id);
+        }
+        return;  // never install any v3.4.1 native capture hook on the newer image
     }
     if (image.build_id != kV341BuildId) {
         write_status("entry-probe-build-mismatch", image.build_id);
