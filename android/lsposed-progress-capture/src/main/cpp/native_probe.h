@@ -18,8 +18,9 @@ inline bool parse_mask(const std::string& text, unsigned& mask) {
     if (i == text.size() || !std::isdigit(static_cast<unsigned char>(text[i]))) return false;
     unsigned value = 0;
     while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i]))) {
-        value = value * 10 + (text[i++] - '0');
-        if (value > kAllowed) return false;
+        const unsigned digit = static_cast<unsigned>(text[i++] - '0');
+        if (value > (kAllowed - digit) / 10) return false; // avoid overflow on long masks
+        value = value * 10 + digit;
     }
     while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
     if (i != text.size() || (value & ~kAllowed)) return false;
