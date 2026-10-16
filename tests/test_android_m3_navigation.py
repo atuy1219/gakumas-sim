@@ -37,16 +37,16 @@ class TabNavigationTests(unittest.TestCase):
         self.assertNotIn('new AlertDialog.Builder(this)',diagnostic)
         self.assertIn('CaptureUi.confirm',diagnostic)
 
-    def test_unsupported_replay_mode_cannot_be_activated(self):
+    def test_replay_mode_is_live_and_uses_current_native_hooks(self):
         source=(EXPORT/"CaptureExportActivity.java").read_text()
         start=source.index("private void activateReplay()")
         end=source.index("private void refreshReplay()",start)
         replay=source[start:end]
-        self.assertNotIn("DiagnosticStorage.configure",replay)
-        self.assertIn("未対応",replay)
+        self.assertIn("DiagnosticStorage.configure(GAME_FILES,131072",replay)
+        self.assertNotIn("1.6.5",source)
         self.assertIn('DiagnosticStorage.configure(GAME_FILES,65536',source)
         self.assertIn('readRoot("exam_hook_trace_status.json"',source)
-        # It is still possible to import/export historic replay JSONs.
+        # Replay export is sourced from the new-build native hooks.
         self.assertIn("prepareExport(false,false,true)",source)
 
     def test_version_and_theme_are_consistent(self):
@@ -54,8 +54,8 @@ class TabNavigationTests(unittest.TestCase):
         prop=(ROOT/"android/lsposed-progress-capture/src/main/resources/META-INF/xposed/module.prop").read_text()
         self.assertIn('android:theme="@android:style/Theme.Material.Light.NoActionBar"',manifest)
         self.assertNotIn('android:name=".DiagnosticActivity"',manifest)
-        self.assertIn('android:versionName="1.8.0-single-activity-trace"',manifest)
-        self.assertIn('version=1.8.0-single-activity-trace',prop)
+        self.assertIn('android:versionName="1.9.0-replay"',manifest)
+        self.assertIn('version=1.9.0-replay',prop)
 
 
 if __name__=="__main__":
