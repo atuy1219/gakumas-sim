@@ -49,48 +49,23 @@ public final class CaptureExportActivity extends DiagnosticActivity {
 
     @Override protected android.view.View createCapturePage(LinearLayout shell) {
         LinearLayout root=CaptureUi.scrollContent(this,shell);
-        CaptureUi.info(this,root,
-            "取得モードの変更はゲームの完全終了・再起動後に反映されます。"
-            +"最新Build IDでは実機Hookトレースを取得できます。ゲームのモード識別や完全なリプレイ復元は未検証です。");
+        LinearLayout replay=CaptureUi.card(this,root,"リプレイ","");
+        CaptureUi.button(this,replay,"取得を開始",this::activateReplay,true);
+        CaptureUi.button(this,replay,"状態",this::refreshReplay);
+        CaptureUi.button(this,replay,"保存",()->prepareExport(false,false,true));
+        CaptureUi.button(this,replay,"前回分",()->prepareExport(true,false,true));
 
-        LinearLayout current=CaptureUi.card(this,root,"記録状況",
-            "診断結果とエクスポートのメッセージ");
-        CaptureUi.button(this,current,"記録状況を再読込",this::refresh);
-        statusView=CaptureUi.secondary(this,
-            "取得状況は未確認です。必要な記録を有効にしたあと確認してください。",14);
+        LinearLayout trace=CaptureUi.card(this,root,"Hook","");
+        CaptureUi.button(this,trace,"取得を開始",this::activateTrace,true);
+        CaptureUi.button(this,trace,"状態",this::refreshTrace);
+        CaptureUi.button(this,trace,"保存",()->prepareTraceExport(false));
+        CaptureUi.button(this,trace,"前回分",()->prepareTraceExport(true));
+
+        LinearLayout current=CaptureUi.card(this,root,"状態","");
+        CaptureUi.button(this,current,"更新",this::refresh);
+        statusView=CaptureUi.secondary(this,"未確認",14);
         statusView.setTextIsSelectable(true);
-        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
-        sp.topMargin=CaptureUi.dp(this,14);
-        current.addView(statusView,sp);
-
-        LinearLayout trace=CaptureUi.card(this,root,"実機Hook取得（最新ゲーム版）",
-            "試験開始・終了、乱数状態と戻り値、カード使用メソッドの呼び出しを記録します。"
-            +"記録には内部シミュレーターやリプレイ操作が混ざる可能性があり、モードは未検証です。");
-        CaptureUi.button(this,trace,"実機Hook取得を有効化",this::activateTrace,true);
-        CaptureUi.button(this,trace,"Hookの実行状況を確認",this::refreshTrace);
-        CaptureUi.button(this,trace,"Hook記録を保存",()->prepareTraceExport(false));
-        CaptureUi.button(this,trace,"前回起動分のHook記録を保存",()->prepareTraceExport(true));
-
-        LinearLayout replay=CaptureUi.card(this,root,"オーディション・リプレイ",
-            "現在のソースビルドにはランキングリプレイ用のネイティブフックがありません。"
-            +"旧版の記録ファイルを読み出すことはできます。");
-        CaptureUi.button(this,replay,"リプレイ取得の対応状況",this::activateReplay);
-        CaptureUi.button(this,replay,"取得状況を確認",this::refreshReplay);
-        CaptureUi.button(this,replay,"現在の記録を保存",()->prepareExport(false,false,true),true);
-        CaptureUi.button(this,replay,"前回起動分を保存",()->prepareExport(true,false,true));
-
-        LinearLayout contest=CaptureUi.card(this,root,"コンテスト",
-            "対応Build IDで採用経路・操作履歴・スコアを受動記録します。");
-        CaptureUi.button(this,contest,"コンテスト取得を有効化",this::activateContest);
-        CaptureUi.button(this,contest,"現在の記録を保存",()->prepareExport(false),true);
-        CaptureUi.button(this,contest,"前回起動分を保存",()->prepareExport(true));
-
-        LinearLayout detail=CaptureUi.card(this,root,"保存済み詳細ログ",
-            "対応Build IDで、ゲーム内に表示した詳細ログを取り込みます。");
-        CaptureUi.button(this,detail,"詳細ログ取得を有効化",this::activateDetail);
-        CaptureUi.button(this,detail,"取得状況を確認",this::refreshDetail);
-        CaptureUi.button(this,detail,"詳細ログを保存",()->prepareExport(false,true),true);
-        CaptureUi.button(this,detail,"前回分の詳細ログを保存",()->prepareExport(true,true));
+        current.addView(statusView,new LinearLayout.LayoutParams(-1,-2));
         return (android.view.View)root.getParent();
     }
 
@@ -122,13 +97,13 @@ public final class CaptureExportActivity extends DiagnosticActivity {
     private static String friendlyMode(int mask) {
         if(mask==0)return "無効（安全）";
         if(mask==8192)return "保存済み詳細ログ";
-        if(mask==32768)return "旧版リプレイ指定（Native側で無効）";
+        if(mask==131072)return "リプレイ";
         if(mask==65536)return "実機Hookトレース";
         if(mask==4224)return "コンテスト";
         if(mask==20608)return "コンテスト＋乱数診断";
         if(mask==128)return "実行開始診断";
         if(mask==256)return "フック動作確認";
-        return "その他のモード";
+        return "その他";
     }
 
     private void activateTrace() {
@@ -140,8 +115,7 @@ public final class CaptureExportActivity extends DiagnosticActivity {
                     new String[]{"exam_hook_trace.jsonl","exam_hook_trace_status.json"});
                 rootCommand(command,65536);
                 runOnUiThread(()->statusView.setText(
-                    "実機Hook取得を選択しました。学マスを完全終了し、再起動してください。"
-                    +"最新Build IDの関数のみHookを試行します。実機での動作は未検証です。"));
+                    "設定済み。ゲームを再起動"));
             }catch(Exception e){showError(e);}
             finally{runOnUiThread(()->busy=false);}
         }).start();
@@ -196,41 +170,41 @@ public final class CaptureExportActivity extends DiagnosticActivity {
     }
 
     private void activateReplay() {
-        CaptureUi.confirm(this,"このビルドでは未対応",
-            "旧v1.6.5のリプレイ取得フックは現在のソースビルドに含まれていません。"
-            +"未対応の設定を書き込むとゲーム側で無効扱いになり、記録できません。"
-            +"既存のリプレイJSONは引き続き保存できます。",
-            "閉じる",()->{});
+        if(busy)return;
+        busy=true;
+        new Thread(()->{
+            try{
+                rootCommand(DiagnosticStorage.configure(GAME_FILES,131072,
+                    new String[]{"ranking_replay_capture.jsonl","ranking_replay_capture_status.json"}),65536);
+                runOnUiThread(()->statusView.setText("設定済み。ゲームを再起動"));
+            }catch(Exception e){showError(e);}
+            finally{runOnUiThread(()->busy=false);}
+        }).start();
     }
 
     private void refreshReplay() {
         if(busy)return;
         busy=true;
         new Thread(()->{
-            try {
+            try{
                 JSONObject boot=new JSONObject(new String(
-                    readRoot("native_bootstrap_status.json",65536),
-                    StandardCharsets.UTF_8));
-                int actual=boot.optInt("effectiveHookMask",-1);
-                if(actual!=32768||!boot.optBoolean("nativeApiAccepted")) {
-                    runOnUiThread(()->statusView.setText(
-                        "実行中の取得機能: "+friendlyMode(actual)
-                        +"。このソースビルドではリプレイ取得フックは未実装です。設定を変更しても有効になりません。"));
+                    readRoot("native_bootstrap_status.json",65536),StandardCharsets.UTF_8));
+                if(boot.optInt("effectiveHookMask",-1)!=131072 ||
+                   !boot.optBoolean("nativeApiAccepted")){
+                    runOnUiThread(()->statusView.setText("リプレイ取得は無効。ゲームを再起動"));
                     return;
                 }
                 JSONObject st=new JSONObject(new String(
-                    readRoot("ranking_replay_capture_status.json",65536),
-                    StandardCharsets.UTF_8));
-                if(boot.getLong("pid")!=st.getLong("pid"))
-                    throw new Exception("取得状況が古い起動分です。学マスを再起動してください");
-                String report="オーディション・リプレイ取得"
-                    +"\\n保存イベント: "+st.optLong("recordsWritten",st.optLong("events"))
-                    +"\\n実行セッション: "+st.optLong("sessions")
-                    +"\\n記録上限による欠落: "+st.optLong("limitDrops")
-                    +"\\n未対応コールバック: "+st.optLong("unboundCallbacks")
-                    +"\\nHook実行状態: "+st.optBoolean("rankingEntryInstalled");
-                runOnUiThread(()->statusView.setText(report));
-            } catch(Exception e){showError(e);}
+                    readRoot("ranking_replay_capture_status.json",65536),StandardCharsets.UTF_8));
+                if(boot.optLong("pid",-1)!=st.optLong("pid",-2))
+                    throw new Exception("古い記録。ゲームを再起動");
+                String text="入口: "+st.optBoolean("rankingEntryInstalled")
+                    +" / 初期値: "+st.optBoolean("dataInstalled")
+                    +"\n操作ログ: "+st.optLong("sessions")
+                    +" / イベント: "+st.optLong("recordsWritten")
+                    +" / 欠落: "+st.optLong("limitDrops");
+                runOnUiThread(()->statusView.setText(text));
+            }catch(Exception e){showError(e);}
             finally{runOnUiThread(()->busy=false);}
         }).start();
     }
@@ -295,38 +269,18 @@ public final class CaptureExportActivity extends DiagnosticActivity {
     }
 
     private void refresh() {
-        if (busy) return; busy = true;
-        new Thread(() -> {
-            try {
-                JSONObject s = new JSONObject(new String(readRoot("contest_capture_status.json", 65536), StandardCharsets.UTF_8));
-                String text = "Gakumas Progress Capture v" + moduleVersion() + "\n\n"
-                    + "記録開始: " + (s.optBoolean("moveNextInstalled") && s.optBoolean("searchResultInstalled") ? "準備済み" : "準備できていません")
-                    + "\n対象実行: " + s.optLong("sessions") + "\n保存件数: " + s.optLong("recordsWritten")
-                    + "\n読み取り不完全: " + s.optLong("incompleteReads") + "\n書き込み失敗: " + s.optLong("writeFailures")
-                    + "\n上限による省略: " + s.optLong("limitDrops")
-                    + "\nカード移動フック: " + s.optBoolean("cardMoveInstalled")
-                    + "\nカード指令フック: " + s.optBoolean("triggerCommandInstalled")
-                    + "\nカード移動観測: " + s.optLong("cardMoveSamples")
-                    + "\nカード指令観測: " + s.optLong("effectSamples")
-                    + "\nカード指令呼出: " + s.optLong("triggerCommandCalls")
-                    + "\nコントローラー読取: " + s.optLong("cardMoveControllerReadable")
-                    + "\nコントローラー一致: " + s.optLong("cardMoveControllerMatched")
-                    + "\n探索コピー追跡: " + s.optBoolean("lineageHooksInstalled")
-                    + "\n採用経路の記録: " + s.optLong("lineageSelectedEvents")
-                    + "\n採用結果との照合: " + s.optLong("lineageSelectedSaves")
-                    + "\n採用結果の照合失敗: " + s.optLong("lineageMissingSaves")
-                    + "\n探索記録の欠落: " + s.optLong("lineageDrops")
-                    + "\nカードなし完了（保存省略）: " + s.optLong("emptyCommandCompletionsSuppressed")
-                    + "\n再入通知（除外）: " + s.optLong("reentrantCommandCompletionsIgnored")
-                    + "\n完了判定の読取失敗: " + s.optLong("commandCompletionGateUnreadable")
-                    + "\nパラメータ一致: " + s.optLong("cardMoveParameterMatched")
-                    + "\n記録試行: " + s.optLong("cardSnapshotAttempts")
-                    + "\n記録用パラメータ一致: " + s.optLong("cardSnapshotParameterMatched")
-                    + "\nステータス取得失敗: " + s.optLong("nativeMetricReadFailures")
-                    + (s.optBoolean("lineageHooksInstalled") ? "\n採用経路の完了状態を記録します" : "\n探索コピーの追跡が未成立です");
-                runOnUiThread(() -> statusView.setText(text));
-            } catch (Exception e) { showError(e); }
-            finally { runOnUiThread(() -> busy = false); }
+        if(busy)return;
+        busy=true;
+        new Thread(()->{
+            try{
+                JSONObject boot=new JSONObject(new String(
+                    readRoot("native_bootstrap_status.json",65536),StandardCharsets.UTF_8));
+                String summary="PID: "+boot.optInt("pid",-1)
+                    +"\nNative: "+boot.optBoolean("nativeApiAccepted")
+                    +"\nモード: "+friendlyMode(boot.optInt("effectiveHookMask",-1));
+                runOnUiThread(()->statusView.setText(summary));
+            }catch(Exception e){showError(e);}
+            finally{runOnUiThread(()->busy=false);}
         }).start();
     }
 
