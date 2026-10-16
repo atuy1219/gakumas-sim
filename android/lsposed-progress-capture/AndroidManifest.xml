@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.atuy1219.gakumas.progresscapture"
-    android:versionCode="17002"
-    android:versionName="1.7.2-m3-tabs">
+    android:versionCode="18000"
+    android:versionName="1.8.0-single-activity-trace">
 
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="35" />
 
