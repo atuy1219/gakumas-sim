@@ -17,7 +17,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 
 /** Manual export of actual selected contest data; no background polling. */
-public final class CaptureExportActivity extends Activity {
+public final class CaptureExportActivity extends DiagnosticActivity {
     private static final int SAVE = 14;
     private String moduleVersion() {
         try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
@@ -47,20 +47,7 @@ public final class CaptureExportActivity extends Activity {
     }
     private boolean busy;
 
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        LinearLayout shell=CaptureUi.shell(this);
-        CaptureUi.applyWindow(this,shell);
-        setContentView(shell);
-        CaptureUi.header(this,shell,"学マス キャプチャ",
-            "取得・診断・設定をタブで切り替え");
-        CaptureUi.tabs(this,shell,0,selected->{
-            if(selected==0)return;
-            Intent i=new Intent(this,DiagnosticActivity.class);
-            i.putExtra("tab",selected);
-            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(i);
-        });
+    @Override protected android.view.View createCapturePage(LinearLayout shell) {
         LinearLayout root=CaptureUi.scrollContent(this,shell);
         CaptureUi.info(this,root,
             "取得モードの変更はゲームの完全終了・再起動後に反映されます。"
@@ -96,7 +83,7 @@ public final class CaptureExportActivity extends Activity {
         CaptureUi.button(this,detail,"取得状況を確認",this::refreshDetail);
         CaptureUi.button(this,detail,"詳細ログを保存",()->prepareExport(false,true),true);
         CaptureUi.button(this,detail,"前回分の詳細ログを保存",()->prepareExport(true,true));
-
+        return (android.view.View)root.getParent();
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
