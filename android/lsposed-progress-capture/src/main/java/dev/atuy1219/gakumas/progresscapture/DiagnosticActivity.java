@@ -47,7 +47,7 @@ import org.json.JSONObject;
  * Currently independent RNG verification only; full exam replay is delegated
  * to the host comparison tool with an independently verified stage profile.
  */
-public final class DiagnosticActivity extends Activity {
+public class DiagnosticActivity extends Activity {
     private static final String GAME = "com.bandainamcoent.idolmaster_gakuen";
     private static final String GAME_DATA = "/data/user/" + (android.os.Process.myUid() / 100000) + "/" + GAME;
     private static final String GAME_FILES = GAME_DATA + "/files";
