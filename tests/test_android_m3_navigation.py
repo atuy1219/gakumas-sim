@@ -49,6 +49,18 @@ class TabNavigationTests(unittest.TestCase):
         # Replay export is sourced from the new-build native hooks.
         self.assertIn("prepareExport(false,false,true)",source)
 
+    def test_replay_uses_only_exact_current_image(self):
+        native=(ROOT/"android/lsposed-progress-capture/src/main/cpp/progress_capture.cpp").read_text()
+        self.assertIn('kCurrentReplayLogRva = 0x081EEAF0',native)
+        self.assertIn('kCurrentReplayDataRva = 0x081EDE8C',native)
+        self.assertIn('install_current_replay(image)',native)
+        self.assertIn('replay_read(item+0x10,type)',native)
+        self.assertIn('ranking_replay_capture.jsonl',native)
+        ui=(EXPORT/"CaptureExportActivity.java").read_text()
+        self.assertNotIn('1.6.5',ui)
+        self.assertIn('mask==131072',ui)
+        self.assertIn('現在のリプレイ形式ではありません',ui)
+
     def test_version_and_theme_are_consistent(self):
         manifest=(ROOT/"android/lsposed-progress-capture/AndroidManifest.xml").read_text()
         prop=(ROOT/"android/lsposed-progress-capture/src/main/resources/META-INF/xposed/module.prop").read_text()
