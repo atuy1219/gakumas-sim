@@ -49,21 +49,27 @@ public final class CaptureExportActivity extends DiagnosticActivity {
 
     @Override protected android.view.View createCapturePage(LinearLayout shell) {
         LinearLayout root=CaptureUi.scrollContent(this,shell);
-        LinearLayout replay=CaptureUi.card(this,root,"リプレイ","");
-        CaptureUi.button(this,replay,"取得を開始",this::activateReplay,true);
-        CaptureUi.button(this,replay,"状態",this::refreshReplay);
-        CaptureUi.button(this,replay,"保存",()->prepareExport(false,false,true));
-        CaptureUi.button(this,replay,"前回分",()->prepareExport(true,false,true));
+        CaptureUi.info(this,root,
+            "取得モードの変更はゲーム再起動後に反映されます。");
 
-        LinearLayout trace=CaptureUi.card(this,root,"Hook","");
-        CaptureUi.button(this,trace,"取得を開始",this::activateTrace,true);
-        CaptureUi.button(this,trace,"状態",this::refreshTrace);
-        CaptureUi.button(this,trace,"保存",()->prepareTraceExport(false));
-        CaptureUi.button(this,trace,"前回分",()->prepareTraceExport(true));
+        LinearLayout replay=CaptureUi.card(this,root,"オーディション・リプレイ",
+            "操作履歴、乱数シード、試験設定を記録します。");
+        CaptureUi.button(this,replay,"リプレイ取得を有効化",this::activateReplay,true);
+        CaptureUi.button(this,replay,"取得状況を確認",this::refreshReplay);
+        CaptureUi.button(this,replay,"リプレイJSONを保存",()->prepareExport(false,false,true));
+        CaptureUi.button(this,replay,"前回の記録を保存",()->prepareExport(true,false,true));
 
-        LinearLayout current=CaptureUi.card(this,root,"状態","");
-        CaptureUi.button(this,current,"更新",this::refresh);
-        statusView=CaptureUi.secondary(this,"未確認",14);
+        LinearLayout trace=CaptureUi.card(this,root,"試験イベント取得",
+            "カード操作・乱数値・状態変化を追跡します。");
+        CaptureUi.button(this,trace,"Hook取得を有効化",this::activateTrace,true);
+        CaptureUi.button(this,trace,"取得状況を確認",this::refreshTrace);
+        CaptureUi.button(this,trace,"イベントJSONを保存",()->prepareTraceExport(false));
+        CaptureUi.button(this,trace,"前回の記録を保存",()->prepareTraceExport(true));
+
+        LinearLayout current=CaptureUi.card(this,root,"記録状況",
+            "ゲーム内のNative初期化と有効モードを確認します。");
+        CaptureUi.button(this,current,"記録状況を更新",this::refresh);
+        statusView=CaptureUi.secondary(this,"未確認です。ゲーム起動後に更新してください。",14);
         statusView.setTextIsSelectable(true);
         current.addView(statusView,new LinearLayout.LayoutParams(-1,-2));
         return (android.view.View)root.getParent();
@@ -176,7 +182,7 @@ public final class CaptureExportActivity extends DiagnosticActivity {
             try{
                 rootCommand(DiagnosticStorage.configure(GAME_FILES,131072,
                     new String[]{"ranking_replay_capture.jsonl","ranking_replay_capture_status.json"}),65536);
-                runOnUiThread(()->statusView.setText("設定済み。ゲームを再起動"));
+                runOnUiThread(()->statusView.setText("リプレイ取得を選択しました。ゲームを完全終了して再起動してください。"));
             }catch(Exception e){showError(e);}
             finally{runOnUiThread(()->busy=false);}
         }).start();
@@ -191,18 +197,18 @@ public final class CaptureExportActivity extends DiagnosticActivity {
                     readRoot("native_bootstrap_status.json",65536),StandardCharsets.UTF_8));
                 if(boot.optInt("effectiveHookMask",-1)!=131072 ||
                    !boot.optBoolean("nativeApiAccepted")){
-                    runOnUiThread(()->statusView.setText("リプレイ取得は無効。ゲームを再起動"));
+                    runOnUiThread(()->statusView.setText("リプレイ取得が有効ではありません。設定後にゲームを再起動してください。"));
                     return;
                 }
                 JSONObject st=new JSONObject(new String(
                     readRoot("ranking_replay_capture_status.json",65536),StandardCharsets.UTF_8));
                 if(boot.optLong("pid",-1)!=st.optLong("pid",-2))
                     throw new Exception("古い記録。ゲームを再起動");
-                String text="入口: "+st.optBoolean("rankingEntryInstalled")
-                    +" / 初期値: "+st.optBoolean("dataInstalled")
-                    +"\n操作ログ: "+st.optLong("sessions")
-                    +" / イベント: "+st.optLong("recordsWritten")
-                    +" / 欠落: "+st.optLong("limitDrops");
+                String text="リプレイHook: "+(st.optBoolean("rankingEntryInstalled")?"正常":"未確認")
+                    +" / 初期値Hook: "+(st.optBoolean("dataInstalled")?"正常":"未確認")
+                    +"\nリプレイ: "+st.optLong("sessions")+"件"
+                    +" / 保存イベント: "+st.optLong("recordsWritten")+"件"
+                    +" / 欠落: "+st.optLong("limitDrops")+"件";
                 runOnUiThread(()->statusView.setText(text));
             }catch(Exception e){showError(e);}
             finally{runOnUiThread(()->busy=false);}
@@ -404,16 +410,6 @@ public final class CaptureExportActivity extends DiagnosticActivity {
                 JSONObject enums = new JSONObject(
                     new String(bytes.toByteArray(), StandardCharsets.UTF_8));
                 writeUtf8(output, ",\"enumDefinitions\":" + enums.toString());
-            }
-        }
-        if(request.replay) {
-            try(InputStream input=getAssets().open("replay_action_enums.json");
-                ByteArrayOutputStream bytes=new ByteArrayOutputStream()) {
-                byte[] buffer=new byte[4096];int n;
-                while((n=input.read(buffer))>=0)bytes.write(buffer,0,n);
-                JSONObject enums=new JSONObject(
-                    new String(bytes.toByteArray(),StandardCharsets.UTF_8));
-                writeUtf8(output,",\"enumDefinitions\":"+enums.toString());
             }
         }
         writeUtf8(output, "}");
