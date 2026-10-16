@@ -51,7 +51,7 @@ public final class CaptureExportActivity extends DiagnosticActivity {
         LinearLayout root=CaptureUi.scrollContent(this,shell);
         CaptureUi.info(this,root,
             "取得モードの変更はゲームの完全終了・再起動後に反映されます。"
-            +"最新Build IDでは開始診断のみ対応しています。未対応の詳細フックは動作しません。");
+            +"最新Build IDでは実機Hookトレースを取得できます。ゲームのモード識別や完全なリプレイ復元は未検証です。");
 
         LinearLayout current=CaptureUi.card(this,root,"記録状況",
             "診断結果とエクスポートのメッセージ");
@@ -62,6 +62,14 @@ public final class CaptureExportActivity extends DiagnosticActivity {
         LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
         sp.topMargin=CaptureUi.dp(this,14);
         current.addView(statusView,sp);
+
+        LinearLayout trace=CaptureUi.card(this,root,"実機Hook取得（最新ゲーム版）",
+            "試験開始・終了、乱数状態と戻り値、カード使用メソッドの呼び出しを記録します。"
+            +"記録には内部シミュレーターやリプレイ操作が混ざる可能性があり、モードは未検証です。");
+        CaptureUi.button(this,trace,"実機Hook取得を有効化",this::activateTrace,true);
+        CaptureUi.button(this,trace,"Hookの実行状況を確認",this::refreshTrace);
+        CaptureUi.button(this,trace,"Hook記録を保存",()->prepareTraceExport(false));
+        CaptureUi.button(this,trace,"前回起動分のHook記録を保存",()->prepareTraceExport(true));
 
         LinearLayout replay=CaptureUi.card(this,root,"オーディション・リプレイ",
             "現在のソースビルドにはランキングリプレイ用のネイティブフックがありません。"
@@ -87,7 +95,7 @@ public final class CaptureExportActivity extends DiagnosticActivity {
     }
 
     private static byte[] readRoot(String filename, int limit) throws Exception {
-        if (!filename.equals("native_bootstrap_status.json") && !filename.matches("(?:contest_capture|detail_log_capture|ranking_replay_capture)(?:_status\\.json|(?:\\.previous)?\\.jsonl)"))
+        if (!filename.equals("native_bootstrap_status.json") && !filename.matches("(?:contest_capture|detail_log_capture|ranking_replay_capture|exam_hook_trace)(?:_status\\.json|(?:\\.previous)?\\.jsonl)"))
             throw new IllegalArgumentException("Invalid recording name");
         return rootCommand("cat '" + ROOT + filename + "'", limit);
     }
@@ -114,12 +122,77 @@ public final class CaptureExportActivity extends DiagnosticActivity {
     private static String friendlyMode(int mask) {
         if(mask==0)return "無効（安全）";
         if(mask==8192)return "保存済み詳細ログ";
-        if(mask==32768)return "オーディション・リプレイ";
+        if(mask==32768)return "旧版リプレイ指定（Native側で無効）";
+        if(mask==65536)return "実機Hookトレース";
         if(mask==4224)return "コンテスト";
         if(mask==20608)return "コンテスト＋乱数診断";
         if(mask==128)return "実行開始診断";
         if(mask==256)return "フック動作確認";
         return "その他のモード";
+    }
+
+    private void activateTrace() {
+        if(busy)return;
+        busy=true;
+        new Thread(()->{
+            try{
+                String command=DiagnosticStorage.configure(GAME_FILES,65536,
+                    new String[]{"exam_hook_trace.jsonl","exam_hook_trace_status.json"});
+                rootCommand(command,65536);
+                runOnUiThread(()->statusView.setText(
+                    "実機Hook取得を選択しました。学マスを完全終了し、再起動してください。"
+                    +"最新Build IDの関数のみHookを試行します。実機での動作は未検証です。"));
+            }catch(Exception e){showError(e);}
+            finally{runOnUiThread(()->busy=false);}
+        }).start();
+    }
+
+    private void refreshTrace() {
+        if(busy)return;
+        busy=true;
+        new Thread(()->{
+            try{
+                JSONObject boot=new JSONObject(new String(
+                    readRoot("native_bootstrap_status.json",65536),StandardCharsets.UTF_8));
+                if(boot.optInt("effectiveHookMask",-1)!=65536 ||
+                   !boot.optBoolean("nativeApiAccepted")) {
+                    runOnUiThread(()->statusView.setText(
+                        "Native側のモード: "+friendlyMode(boot.optInt("effectiveHookMask",-1))
+                        +"\nNative API受付: "+boot.optBoolean("nativeApiAccepted")
+                        +"\n実機Hook取得を選択して学マスを完全終了・再起動してください。"));
+                    return;
+                }
+                JSONObject status=new JSONObject(new String(
+                    readRoot("exam_hook_trace_status.json",65536),StandardCharsets.UTF_8));
+                if(boot.getLong("pid")!=status.getLong("pid"))
+                    throw new Exception("Hook記録は以前のPIDのものです。ゲームを再起動してください");
+                String shown="実機Hook取得（最新ゲーム版）"
+                    +"\n開始Hook: "+status.optBoolean("setupInstalled")
+                    +"\n試験開始Hook: "+status.optBoolean("startInstalled")
+                    +"\n終了Hook: "+status.optBoolean("disposeInstalled")
+                    +"\n乱数Hook: "+status.optBoolean("rngInstalled")
+                    +"\n範囲乱数Hook: "+status.optBoolean("rngRangeInstalled")
+                    +"\nカード使用Hook: "+status.optBoolean("cardMoveInstalled")
+                    +"\nイベント: "+status.optLong("recordsWritten")
+                    +"\n上限・書込失敗: "+status.optLong("limitDrops")
+                    +"\nモード識別済み: "+status.optBoolean("modeVerified");
+                runOnUiThread(()->statusView.setText(shown));
+            }catch(Exception e){showError(e);}
+            finally{runOnUiThread(()->busy=false);}
+        }).start();
+    }
+
+    private void prepareTraceExport(boolean previous) {
+        if(busy)return;
+        busy=true;
+        pending=new ExportRequest("exam_hook_trace",previous,false,false);
+        Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE,previous
+            ?"gakumas-exam-hook-trace-previous.json":"gakumas-exam-hook-trace.json");
+        try{startActivityForResult(intent,SAVE);}
+        catch(Exception e){busy=false;pending=null;showError(e);}
     }
 
     private void activateReplay() {
@@ -344,7 +417,8 @@ public final class CaptureExportActivity extends DiagnosticActivity {
             expectedPid = captureStatus.getLong("pid");
         }
         writeUtf8(output, "{\"schemaVersion\":" + (request.detail || request.replay ? 1 : 2)
-            + ",\"scope\":" + JSONObject.quote(request.replay ? "audition-replay-capture" : request.detail
+            + ",\"scope\":" + JSONObject.quote("exam_hook_trace".equals(request.base) ? "unclassified-exam-hook-trace" :
+                  request.replay ? "audition-replay-capture" : request.detail
                  ? "saved-detail-log-capture" : "contest-gameplay-capture")
             + ",\"moduleVersion\":" + JSONObject.quote(moduleVersion())
             + ",\"exportedAtUnixMs\":" + System.currentTimeMillis()
