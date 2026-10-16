@@ -210,7 +210,7 @@ public final class DiagnosticActivity extends Activity {
         final String[] names = {
             "無効（安全）",
             "フック動作確認",
-            "試験開始の診断",
+            "試験開始の診断（新Build ID対応）",
             "コンテスト記録",
             "コンテスト・乱数の詳細診断",
             "保存済み詳細ログ",
@@ -230,7 +230,9 @@ public final class DiagnosticActivity extends Activity {
                     .setTitle(names[selection])
                     .setMessage("ゲームの再起動後に反映されます。"
                         +"フックの実行時にはゲームのバージョンに応じた不具合が起きる可能性があります。"
-                        +"必要な記録だけを有効化してください。")
+                        +"必要な記録だけを有効化してください。"
+                        +"\n最新の添付ELF（Build ID 5ac77881…）では、試験開始の診断のみ対応します。"
+                        +"コンテスト記録・乱数詳細・保存ログは旧Build ID専用です。")
                     .setPositiveButton("この機能を使う",(d,which)->saveHookMode(mode))
                     .setNegativeButton("キャンセル",null).show();
             })
