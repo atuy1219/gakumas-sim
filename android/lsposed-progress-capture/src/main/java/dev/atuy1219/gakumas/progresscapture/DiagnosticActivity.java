@@ -104,6 +104,9 @@ public class DiagnosticActivity extends Activity {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private TextView display;
     private TextView settingFeedback;
+    private Button detailsButton;
+    private volatile String detailedScreenState = "";
+    private boolean detailedMode = false;
     private LinearLayout tabHost;
     private View diagnosticPage;
     private View settingsPage;
@@ -126,7 +129,7 @@ public class DiagnosticActivity extends Activity {
         LinearLayout shell=CaptureUi.shell(this);
         CaptureUi.applyWindow(this,shell);
         setContentView(shell);
-        CaptureUi.header(this,shell,"学マス","");
+        CaptureUi.header(this,shell,"学マス キャプチャ","記録・診断・設定");
         tabHost=new LinearLayout(this);
         tabHost.setOrientation(LinearLayout.VERTICAL);
         shell.addView(tabHost);
@@ -134,30 +137,40 @@ public class DiagnosticActivity extends Activity {
 
         LinearLayout diagnostics=CaptureUi.scrollContent(this,shell);
         diagnosticPage=(View)diagnostics.getParent();
-        
-        LinearLayout actions=CaptureUi.card(this,diagnostics,"診断","");
-        CaptureUi.button(this,actions,"再読込",this::checkCapture,true);
-        CaptureUi.button(this,actions,"診断JSONを書き出す",this::exportReport);
-        CaptureUi.button(this,actions,"診断表示をコピー",()->copyDiagnostic(false));
-        CaptureUi.button(this,actions,"初期化JSONをコピー",()->copyDiagnostic(true));
-        LinearLayout data=CaptureUi.card(this,diagnostics,"結果","");
-        display=CaptureUi.secondary(this,"まだ診断していません。Rootアクセスが必要です。",13);
+        CaptureUi.info(this,diagnostics,
+            "Nativeの状態と記録ファイルを確認します。");
+        LinearLayout actions=CaptureUi.card(this,diagnostics,"診断ツール",
+            "必要に応じて詳細情報を表示・保存できます。");
+        CaptureUi.button(this,actions,"診断を更新",this::checkCapture,true);
+        detailsButton=CaptureUi.button(this,actions,"詳細を表示",()->{
+            detailedMode=!detailedMode;
+            detailsButton.setText(detailedMode?"概要を表示":"詳細を表示");
+            display.setText(detailedMode?detailedScreenState:lastScreenState);
+        });
+        CaptureUi.button(this,actions,"診断JSONを保存",this::exportReport);
+        CaptureUi.button(this,actions,"表示内容をコピー",()->copyDiagnostic(false));
+        CaptureUi.button(this,actions,"初期化情報をコピー",()->copyDiagnostic(true));
+        LinearLayout data=CaptureUi.card(this,diagnostics,"診断結果","");
+        display=CaptureUi.secondary(this,"未確認です。Root権限が必要です。",13);
         display.setTextIsSelectable(true);
         display.setGravity(Gravity.START);
         data.addView(display,new LinearLayout.LayoutParams(-1,-2));
 
         LinearLayout settings=CaptureUi.scrollContent(this,shell);
         settingsPage=(View)settings.getParent();
-        
-        LinearLayout hookCard=CaptureUi.card(this,settings,"取得","");
-        CaptureUi.button(this,hookCard,"モード",this::chooseHookMode,true);
-        CaptureUi.button(this,hookCard,"停止",
-            ()->CaptureUi.confirm(this,"フックを無効化",
-                "再起動後に反映します。",
+        CaptureUi.info(this,settings,
+            "変更後はゲームを完全終了して再起動してください。");
+        LinearLayout hookCard=CaptureUi.card(this,settings,"取得設定",
+            "記録する内容を選びます。");
+        CaptureUi.button(this,hookCard,"取得モードを選択",this::chooseHookMode,true);
+        CaptureUi.button(this,hookCard,"Hookを無効にする",
+            ()->CaptureUi.confirm(this,"記録を停止",
+                "次のゲーム起動からHookを無効にします。",
                 "無効にする",()->saveHookMode(0)));
-        LinearLayout debugCard=CaptureUi.card(this,settings,"修復","");
-        CaptureUi.button(this,debugCard,"初期化ログ",this::collectInjectionLogs);
-        CaptureUi.button(this,debugCard,"権限修復",
+        LinearLayout debugCard=CaptureUi.card(this,settings,"トラブルシューティング",
+            "初期化や保存先の問題を確認します。");
+        CaptureUi.button(this,debugCard,"LSPosed初期化ログを取得",this::collectInjectionLogs);
+        CaptureUi.button(this,debugCard,"保存先の権限を修復",
             ()->CaptureUi.confirm(this,"学マスの診断ファイル保存先を修復",
                 "診断専用ディレクトリとHook設定ファイルの所有者・SELinuxラベルのみを修復します。"
                 +"既存のHook設定は安全モードに戻します。ゲームのセーブデータは変更しません。",
@@ -220,9 +233,9 @@ public class DiagnosticActivity extends Activity {
     }
 
     private void chooseHookMode() {
-        final String[] names={"無効","リプレイ","Hook","開始診断","自己テスト"};
+        final String[] names={"無効（安全）","オーディション・リプレイ","試験イベント取得","試験開始診断","Hook動作確認"};
         final int[] masks={0,131072,65536,128,256};
-        CaptureUi.choose(this,"取得",names,index->{
+        CaptureUi.choose(this,"取得モード",names,index->{
             if(index<0||index>=masks.length)return;
             saveHookMode(masks[index]);
         });
@@ -230,11 +243,11 @@ public class DiagnosticActivity extends Activity {
 
     private static String hookModeName(int mask) {
         switch(mask){
-            case 0:return "無効";
-            case 131072:return "リプレイ";
-            case 65536:return "Hook";
-            case 128:return "開始診断";
-            case 256:return "自己テスト";
+            case 0:return "無効（安全）";
+            case 131072:return "リプレイ取得";
+            case 65536:return "試験イベント取得";
+            case 128:return "試験開始診断";
+            case 256:return "Hook動作確認";
             default:return "その他";
         }
     }
@@ -838,7 +851,8 @@ public class DiagnosticActivity extends Activity {
                             .append(probe.optBoolean("installed", false) ? "installed" : "unverified")
                             .append("\n");
                     }
-                    message.append("旧詳細フック（StartExam等）: 無効。保存ファイルは現在の稼働証拠に使用しません。\n");
+                    // Historical status is available in JSON but is not presented as active capture.
+
                     if (hooks != null) {
                         message.append("ExamSequence.StartExam: ")
                             .append(hooks.optBoolean("startInstalled", false) ? "installed" : "unverified")
@@ -868,12 +882,13 @@ public class DiagnosticActivity extends Activity {
                         message.append("\n--- GakumasCapture初期化ログ ---\n")
                             .append(lastInjectionLog).append("\n");
                     message.append("\n診断JSONには各ファイルの取得状態も含まれます。");
-                    String shown = "PID: " + lastPreflight.get("gamePid")
-                        + "\nNative: " + init.optString("status","未確認")
-                        + "\n取得: " + liveFiles.size()
-                        + "\n差分: " + comparison.getJSONArray("differences").length();
+                    String shown = "ゲームPID: " + lastPreflight.get("gamePid")
+                        + "\nNative初期化: " + init.optString("status","未確認")
+                        + "\n取得ファイル: " + liveFiles.size() + "件"
+                        + "\nRNG差分: " + comparison.getJSONArray("differences").length() + "件";
                     lastScreenState = shown;
-                    main.post(() -> display.setText(shown));
+                    detailedScreenState = message.toString();
+                    main.post(() -> display.setText(detailedMode?detailedScreenState:shown));
                 }
             } catch (Exception error) {
                 String explanation = "ファイル一覧の検査に失敗しました: " + error.getMessage()
