@@ -1744,6 +1744,21 @@ bool replay_read(uintptr_t ptr,T& value){
     return ::syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0)
         ==static_cast<ssize_t>(sizeof(T));
 }
+std::string replay_string(uintptr_t value) {
+    if(!value)return {};
+    int32_t length=0;
+    if(!replay_read(value+0x10,length)||length<1||length>96)return {};
+    std::string result;
+    for(int32_t i=0;i<length;i++){
+        char16_t c=0;
+        if(!replay_read(value+0x14+static_cast<uintptr_t>(i)*2,c))return {};
+        // IDs are game-defined ASCII labels; reject malformed/cross-object text.
+        if(!((c>=u'A'&&c<=u'Z')||(c>=u'a'&&c<=u'z')||
+             (c>=u'0'&&c<=u'9')||c==u'-'||c==u'_'||c==u'.'))return {};
+        result.push_back(static_cast<char>(c));
+    }
+    return result;
+}
 void replay_status(){
     std::ostringstream o;
     o<<"{\"schemaVersion\":2,\"pid\":"<<getpid()
@@ -1797,6 +1812,14 @@ std::string replay_base(void* context,int32_t player,const char* event,
      <<",\"replayContext\":\""<<hex_value(reinterpret_cast<uintptr_t>(context))<<"\""
      <<",\"playerType\":"<<player<<",\"examType\":"<<exam_type
      <<",\"stepType\":"<<step_type;
+    uintptr_t id=0;
+    if(replay_read(reinterpret_cast<uintptr_t>(context)+0x20,id)){
+        const std::string name=replay_string(id);
+        if(!name.empty())o<<",\"produceId\":\""<<json_escape(name)<<"\"";
+    }
+    uint64_t expected=0;
+    if(replay_read(reinterpret_cast<uintptr_t>(context)+0x3c,expected) && (expected&0xff))
+        o<<",\"expectedScore\":"<<static_cast<int32_t>(expected>>32);
     return o.str(); // deliberately no closing brace
 }
 __attribute__((noinline))
@@ -1818,8 +1841,13 @@ void* hooked_replay_data(void* context,int32_t player,const void* method){
     std::ostringstream record;
     record<<replay_base(context,player,"ranking-replay-setup",exam,step)
           <<",\"seed\":"<<seed<<",\"limitTurn\":"<<limit_turn
-          <<",\"isReplay\":"<<(is_replay?"true":"false")
-          <<",\"setupAvailable\":true}";
+          <<",\"isReplay\":"<<(is_replay?"true":"false");
+    uintptr_t idol=0;
+    if(replay_read(ptr+0x88,idol)){
+        const std::string id=replay_string(idol);
+        if(!id.empty())record<<",\"idolCardId\":\""<<json_escape(id)<<"\"";
+    }
+    record<<",\"setupAvailable\":true}";
     replay_append(record.str());
     return result;
 }
