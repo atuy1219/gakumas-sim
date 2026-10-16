@@ -1,9 +1,9 @@
 id=dev.atuy1219.gakumas.progresscapture
 name=Gakumas Progress Capture
-version=1.8.0-single-activity-trace
-versionCode=18000
+version=1.9.0-replay
+versionCode=19000
 author=atuy1219
-description=Read-only exam trace, RNG diagnosis and offline AI-ready JSON exporter. Full gameplay parity requires additional capture.
+description=リプレイ・Hook取得
 minApiVersion=102
 targetApiVersion=102
 staticScope=true
