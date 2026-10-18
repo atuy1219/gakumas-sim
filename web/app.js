@@ -20,7 +20,6 @@ import {
   observationCardLabel,
   prepareSeedBatchSearch,
   runOrderMonteCarlo,
-  seedIntervalFromChoices,
 } from "./simulation.js";
 import { createTowerPreset, parseTowerPreset } from "./tower_preset.js";
 import {
@@ -69,7 +68,7 @@ const $ = (id) => document.getElementById(id);
 const STORAGE_KEY = MEMORY_STORAGE_KEY;
 const MEMORY_PAGE_SIZE = 40;
 const MAX_SEED_MATCHES = 100;
-const SEED_TASK_SIZE = 1_000_000;
+const SEED_VARIANTS_PER_TASK = 32;
 const EXAM_WORKFLOW_STORAGE_KEY = "gakumas-sim-exam-workflow-v1";
 const EXAM_SIMULATION_STORAGE_KEY = "gakumas-sim-exam-runtime-v1";
 const EXAM_SIMULATION_STORAGE_VERSION = 1;
@@ -2120,7 +2119,7 @@ function renderSeedCandidates(matches, scanned, total, complete, note = "") {
   if (!complete) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = `${scanned.toLocaleString()} / ${total.toLocaleString()}候補状態を検査中…`;
+    p.textContent = `${scanned.toLocaleString()} / ${total.toLocaleString()}条件を照合中…`;
     container.append(p);
   }
 }
@@ -2141,32 +2140,24 @@ async function startSeedSearch() {
       : `元デッキ${observation.initialIds.length}枚`;
 
     const tasks = [];
-    let total = 0;
-    const choiceGroups = prepared.choiceGroups?.length
-      ? prepared.choiceGroups
-      : prepared.choices.map((choices) => ({ variants: [choices], interval: seedIntervalFromChoices(choices) }));
-    for (const group of choiceGroups) {
-      const interval = group.interval ?? seedIntervalFromChoices(group.variants[0] ?? []);
-      total += interval.size;
-      for (let start = interval.start; start < interval.end; start += SEED_TASK_SIZE) {
-        tasks.push({
-          choiceVariants: group.variants,
-          start,
-          end: Math.min(interval.end, start + SEED_TASK_SIZE),
-        });
-      }
+    const total = prepared.choices.length;
+    for (let offset = 0; offset < total; offset += SEED_VARIANTS_PER_TASK) {
+      tasks.push({ choiceVariants: prepared.choices.slice(offset, offset + SEED_VARIANTS_PER_TASK) });
     }
 
     let scanned = 0;
+    let truncated = false;
     const matches = new Set();
     let active = 0;
     let nextTask = 0;
     let finished = false;
-    const concurrency = Math.max(1, Math.min(8, Number(navigator.hardwareConcurrency || 4)));
+    const concurrency = Math.max(1, Math.min(
+      8, Math.ceil(total / 128), Number(navigator.hardwareConcurrency || 4),
+    ));
     $("tower-seed-progress").hidden = false;
     $("tower-seed-progress").max = total;
     $("tower-seed-progress").value = 0;
-    renderSeedCandidates([], 0, total, false, `${observationSummary}を使用。各ドロー内は順不同。探索対象 ${total.toLocaleString()}状態。`);
+    renderSeedCandidates([], 0, total, false, `${observationSummary}を使用。入力したカード順で探索します。`);
 
     await new Promise((resolve, reject) => {
       function maybeDone() {
@@ -2196,15 +2187,12 @@ async function startSeedSearch() {
           taskId: nextTask,
           choices: task.choiceVariants?.[0] ?? [],
           choiceVariants: task.choiceVariants ?? [],
-          batchSearch: { shuffleIds: prepared.shuffleIds, shuffledBatches: prepared.shuffledBatches, prefixVariants: prepared.prefixVariants },
-          start: task.start,
-          end: task.end,
           maxMatches: MAX_SEED_MATCHES - matches.size,
         });
       }
 
       for (let i = 0; i < Math.min(concurrency, tasks.length); i += 1) {
-        const worker = new Worker("./seed_worker.js");
+        const worker = new Worker("./seed_worker.js", { type: "module" });
         seedWorkers.push(worker);
         active += 1;
         worker.onerror = (event) => {
@@ -2217,7 +2205,11 @@ async function startSeedSearch() {
           const data = event.data ?? {};
           if (data.type !== "done" || finished) return;
           scanned += Number(data.scanned ?? 0);
-          for (const seed of data.found ?? []) matches.add(Number(seed) >>> 0);
+          if (data.complete === false) truncated = true;
+          for (const seed of data.found ?? []) {
+            if (matches.size >= MAX_SEED_MATCHES) break;
+            matches.add(Number(seed) >>> 0);
+          }
           $("tower-seed-progress").value = Math.min(scanned, total);
           renderSeedCandidates([...matches].sort((a, b) => a - b), scanned, total, false);
           assign(worker);
@@ -2227,8 +2219,10 @@ async function startSeedSearch() {
     });
 
     const result = [...matches].sort((a, b) => a - b);
-    const complete = !seedSearchCancelled;
-    renderSeedCandidates(result, scanned, total, complete, complete ? `探索完了: ${result.length}候補` : "探索を停止しました。" );
+    const complete = !seedSearchCancelled && !truncated && scanned === total;
+    const note = seedSearchCancelled ? "探索を停止しました。"
+      : complete ? `探索完了: ${result.length}候補` : "候補数の上限に達したため探索を停止しました。";
+    renderSeedCandidates(result, scanned, total, true, note);
     if (complete && result.length === 1) {
       $("tower-seed").value = String(result[0]);
       renderTowerStageSummary();
@@ -2277,3 +2271,4 @@ Promise.all([catalogInitialization, examItemInitialization]).then(() => {
     setTimeout(() => document.dispatchEvent(new CustomEvent("exam-simulation-restore-missing")), 0);
   }
 });
+

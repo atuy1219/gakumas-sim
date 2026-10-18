@@ -1,0 +1,177 @@
+{
+  "source": "User-provided tower preset and ordered first-cycle observations, 2026-10-18. Memory IDs and player parameters omitted.",
+  "cards": [
+    {
+      "id": "p_card-02-ido-3_216",
+      "name": "先へ進む姿+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-00-sup-3_152",
+      "name": "夏夜に咲く思い出+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-act-2_049",
+      "name": "みんな大好き",
+      "upgradeCount": 0,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-act-3_050",
+      "name": "輝くキミへ+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-3_040",
+      "name": "夢色リップ+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-ido-3_203",
+      "name": "光り輝く道しるべ+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-2_054",
+      "name": "本番前夜",
+      "upgradeCount": 0,
+      "isInitial": true
+    },
+    {
+      "id": "p_card-02-men-2_051",
+      "name": "やる気は満点",
+      "upgradeCount": 0,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-2_101",
+      "name": "冒険心",
+      "upgradeCount": 0,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-act-3_187",
+      "name": "びしっとキメ顔+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-00-sup-3_027",
+      "name": "ティーパーティ+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-2_058",
+      "name": "ファンシーチャーム+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-2_051",
+      "name": "やる気は満点",
+      "upgradeCount": 0,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-3_004",
+      "name": "星屑センセーション+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-ido-3_169",
+      "name": "私を超えて+",
+      "upgradeCount": 1,
+      "isInitial": true
+    },
+    {
+      "id": "p_card-02-men-2_008",
+      "name": "イメトレ",
+      "upgradeCount": 0,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-2_057",
+      "name": "ゆめみごこち+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-3_002",
+      "name": "私がスター+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-3_044",
+      "name": "手書きのメッセージ+",
+      "upgradeCount": 1,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-0_011",
+      "name": "目線の基本",
+      "upgradeCount": 0,
+      "isInitial": false
+    },
+    {
+      "id": "p_card-02-men-0_035",
+      "name": "盛り上げの基本",
+      "upgradeCount": 0,
+      "isInitial": false
+    }
+  ],
+  "observedNames": [
+    "私を超えて+",
+    "本番前夜",
+    "やる気は満点",
+    "ファンシーチャーム+",
+    "先へ進む姿+",
+    "びしっとキメ顔+",
+    "光り輝く道しるべ+",
+    "私がスター+",
+    "夢色リップ+",
+    "ティーパーティ+",
+    "やる気は満点",
+    "輝くキミへ+",
+    "イメトレ",
+    "ゆめみごこち+",
+    "盛り上げの基本",
+    "みんな大好き",
+    "目線の基本",
+    "手書きのメッセージ+",
+    "星屑センセーション+",
+    "冒険心",
+    "夏夜に咲く思い出+"
+  ],
+  "observedIds": [
+    "p_card-02-ido-3_169",
+    "p_card-02-men-2_054",
+    "p_card-02-men-2_051",
+    "p_card-02-men-2_058",
+    "p_card-02-ido-3_216",
+    "p_card-02-act-3_187",
+    "p_card-02-ido-3_203",
+    "p_card-02-men-3_002",
+    "p_card-02-men-3_040",
+    "p_card-00-sup-3_027",
+    "p_card-02-men-2_051",
+    "p_card-02-act-3_050",
+    "p_card-02-men-2_008",
+    "p_card-02-men-2_057",
+    "p_card-02-men-0_035",
+    "p_card-02-act-2_049",
+    "p_card-02-men-0_011",
+    "p_card-02-men-3_044",
+    "p_card-02-men-3_004",
+    "p_card-02-men-2_101",
+    "p_card-00-sup-3_152"
+  ]
+}
