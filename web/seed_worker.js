@@ -1,3 +1,5 @@
+import { solveSeedVariants } from "./seed_solver.js";
+
 'use strict';
 
 const UINT32_SPACE = 0x100000000;
@@ -8,17 +10,6 @@ function xorshift32(value) {
   x = (x ^ (x >>> 17)) >>> 0;
   x = (x ^ ((x << 5) >>> 0)) >>> 0;
   return x >>> 0;
-}
-
-function matchesChoices(seed, choices) {
-  let state = Number(seed) >>> 0;
-  for (let i = 0; i < choices.length; i += 1) {
-    const choice = choices[i];
-    const mapped = Math.floor((state * choice.n) / UINT32_SPACE);
-    if (mapped !== choice.j) return false;
-    state = xorshift32(state);
-  }
-  return true;
 }
 
 function shuffleIds(inputIds, stateInput) {
@@ -61,15 +52,6 @@ function matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn) {
   return true;
 }
 
-function matches(seed, choices, choiceVariants, deckIds, observedIds, drawPerTurn) {
-  const variants = Array.isArray(choiceVariants) && choiceVariants.length
-    ? choiceVariants
-    : [choices];
-  if (!variants.some((variant) => matchesChoices(seed, variant))) return false;
-  if (observedIds.length <= deckIds.length) return true;
-  return matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn);
-}
-
 self.onmessage = (event) => {
   const message = event.data ?? {};
   if (message.type !== 'scan') return;
@@ -83,12 +65,17 @@ self.onmessage = (event) => {
   const start = Math.max(0, Math.trunc(Number(message.start ?? 0)));
   const end = Math.min(UINT32_SPACE, Math.trunc(Number(message.end ?? UINT32_SPACE)));
   const maxMatches = Math.max(1, Math.trunc(Number(message.maxMatches ?? 32)));
-  const found = [];
-  for (let candidate = start; candidate < end; candidate += 1) {
-    if (matches(candidate, choices, choiceVariants, deckIds, observedIds, drawPerTurn)) {
-      found.push(candidate >>> 0);
-      if (found.length >= maxMatches) break;
-    }
-  }
-  self.postMessage({ type: 'done', taskId: message.taskId, start, end, scanned: end - start, found });
+  const variants = choiceVariants.length ? choiceVariants : [choices];
+  const result = solveSeedVariants(variants, {
+    start,
+    end,
+    maxMatches,
+    accept: (seed) => observedIds.length <= deckIds.length
+      || matchesObservedDraws(seed, deckIds, observedIds, drawPerTurn),
+  });
+  self.postMessage({
+    type: 'done', taskId: message.taskId, start, end,
+    scanned: result.stats.variants, found: result.found,
+    complete: result.complete, stats: result.stats,
+  });
 };

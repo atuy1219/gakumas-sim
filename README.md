@@ -147,7 +147,16 @@ Web上でメモリーを手動登録できます。
 
 seed逆算では、画面上の開幕順からは `IsInitial` が元のシャッフル済みDeckの
 どの位置に存在したか見えないため、その隠れ位置を列挙してFisher–Yates条件へ
-戻します。同じ先頭乱数区間を共有する候補はWorker側でまとめて走査します。
+戻します。`web/seed_solver.js` はXorShiftの出力上位ビットをGF(2)の連立方程式に
+変換し、複数回の交換条件を使って候補を生成します。乱数状態の上位5ビットの区間で
+分岐し、独立な条件が28本以上になったら残り最大16通りを列挙します。
+上位ビット区間は元の整数区間を必ず含み、最後にすべての交換条件を整数で再検査するため、
+近似による候補の取りこぼしはありません。Workerは交換列を32通りずつ処理します。
+
+候補が100件に達した場合は探索打ち切りとして表示します。入力条件によって分岐数は
+変わり、最悪時の指数的な計算量や前処理8192パターンの上限は残ります。
+提供された21枚の編成・観測順は `tests/fixtures/seed-search-21-cards.json` に
+個人情報を除いて保存し、全範囲の結果が `[318817053]` になることを検査しています。
 
 墓地からDeckへ戻る通常の再循環では、現在のPRNG stateを引き継いでGraveを
 シャッフルしてからDeckへ移します。カード使用済みなら使用カードが先にGraveへ入り、
@@ -205,6 +214,10 @@ Webの試験エンジンは、Pアイテム・カード成長・継続効果・�
 
 ```bash
 node tests/test_contest_dfs.mjs
+node tests/test_seed_solver.mjs
+node tools/benchmark_seed_search.mjs
+# 旧方式との全範囲比較（数分以上かかります）
+node tools/benchmark_seed_search.mjs --legacy
 # その他のWeb回帰テストは .github/workflows/ci.yml に列挙
 ```
 
@@ -216,3 +229,4 @@ node tools/audit_exam_effect_coverage.mjs /path/to/master-data
 ```
 
 seed `0x12345678` の山札 `A..H` が `GFECBHDA` になる固定ベクトルをJavaScriptのエンジンで確認しています。`test_v3.mjs` では観測順からのseed条件復元、重複カード、Monte Carlo集計も検査します。
+
