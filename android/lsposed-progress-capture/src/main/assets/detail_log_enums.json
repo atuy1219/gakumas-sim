@@ -1,0 +1,50 @@
+{
+  "PlayExamLogCellType": {
+    "None": 0,
+    "Turn": 1,
+    "TurnEnd": 2,
+    "Card": 3,
+    "Drink": 4,
+    "Gimmick": 5,
+    "Enchant": 6,
+    "Item": 7,
+    "Ability": 8,
+    "SupportCard": 9,
+    "ItemEnchant": 10,
+    "TurnStartFullPowerTrigger": 11,
+    "Section": 12,
+    "MoveCard": 13,
+    "CustomItem": 14
+  },
+  "PlayExamLogCellDetailType": {
+    "Detail": 0,
+    "Trigger": 1
+  },
+  "PlayExamLogCellDetailLineType": {
+    "None": 0,
+    "Stamina": 1,
+    "Block": 2,
+    "Parameter": 3,
+    "AddBuff": 4,
+    "CardUpgrade": 5,
+    "CardAdd": 6,
+    "CardDraw": 7,
+    "CardPlayableValueChange": 8,
+    "ClearBorderChange": 9,
+    "StaminaMax": 10,
+    "StanceChange": 11,
+    "CardForcePlay": 12,
+    "CardForecast": 13,
+    "FullPowerPoint": 15,
+    "TurnAdd": 16,
+    "Message": 17,
+    "ClearMessage": 18,
+    "ItemCountChange": 19,
+    "CardPanic": 20,
+    "CardGrow": 21,
+    "RemoveBuff": 22,
+    "DeckGraveShuffle": 23,
+    "DeckLostShuffle": 24,
+    "CardGrowEffectMove": 25
+  }
+}
